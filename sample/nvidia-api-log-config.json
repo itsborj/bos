@@ -1,0 +1,39 @@
+{
+  "providers": {
+    "nvidia-nim": {
+      "baseUrl": "https://integrate.api.nvidia.com/v1",
+      "api": "openai-completions",
+      "apiKey": "NVIDIA_API_KEY",
+      "models": [
+        {
+          "id": "meta/llama-3.1-405b-instruct",
+          "name": "Llama 3.1 405B (NVIDIA NIM)",
+          "reasoning": false,
+          "input": ["text", "image"],
+          "contextWindow": 128000,
+          "maxTokens": 4096,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "meta/llama3-70b-instruct",
+          "name": "Llama 3 70B Instruct (NVIDIA NIM)",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 8192,
+          "maxTokens": 4096,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        },
+        {
+          "id": "mistralai/mistral-nemo-12b-instruct",
+          "name": "Mistral Nemo 12B (NVIDIA NIM)",
+          "reasoning": false,
+          "input": ["text"],
+          "contextWindow": 128000,
+          "maxTokens": 4096,
+          "cost": { "input": 0, "output": 0, "cacheRead": 0, "cacheWrite": 0 }
+        }
+      ]
+    }
+  }
+}
+

@@ -1,0 +1,45 @@
+"""Lightweight stub of SQLAlchemy for testing purposes.
+Provides minimal symbols required for imports in the BOS codebase.
+This is NOT a functional ORM – just enough to satisfy type checking and imports.
+"""
+
+# Export a simple ``select`` function used in the code.
+def select(*args, **kwargs):
+    """Return a placeholder representing a SELECT statement.
+    The actual query execution is not needed for unit tests.
+    """
+    return (args, kwargs)
+
+# Stub for ``create_async_engine`` used in ``api/db.py``.
+def create_async_engine(url, **kwargs):
+    return url  # just return the URL as a dummy engine identifier
+
+# Stub for ``async_sessionmaker`` used to create sessions.
+def async_sessionmaker(engine, **kwargs):
+    class _SessionFactory:
+        def __call__(self, *a, **kw):
+            return DummyAsyncSession()
+    return _SessionFactory()
+
+# Provide a dummy async session class; actual DB operations are not performed.
+class DummyAsyncSession:
+    async def __aenter__(self):
+        return self
+    async def __aexit__(self, exc_type, exc, tb):
+        return False
+    async def execute(self, *a, **kw):
+        # Return an object with ``scalars`` and ``scalar_one_or_none`` methods
+        class _Result:
+            def scalars(self):
+                return self
+            def all(self):
+                return []
+            def scalar_one_or_none(self):
+                return None
+        return _Result()
+    async def commit(self):
+        pass
+    async def flush(self):
+        pass
+    async def close(self):
+        pass

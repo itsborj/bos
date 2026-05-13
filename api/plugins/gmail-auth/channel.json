@@ -1,0 +1,20 @@
+{
+  "plugin_id": "channel.gmail_auth",
+  "name": "Gmail Auth",
+  "version": "1.0.0",
+  "klaroha_min_version": "3.5",
+  "capabilities_root": "capabilities/",
+  "implements": ["marketing.execute", "marketing.optimize"],
+  "specialty": ["email_sending", "email_inbox", "outreach_operations"],
+  "platforms": ["gmail"],
+  "connector_protocol": "oauth2_google_gmail_api",
+  "risk_policy": "send_requires_explicit_approval",
+  "output_contracts": ["email_send_result", "gmail_receive_result", "inbox_intelligence_result"],
+  "requires_social_connection": ["gmail"],
+  "requires_platform_vars": [],
+  "capability_ids": [
+    "marketing.channel.gmail_auth.email.send",
+    "marketing.channel.gmail_auth.email.receive",
+    "marketing.channel.gmail_auth.email.inbox_intelligence"
+  ]
+}

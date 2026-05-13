@@ -1,0 +1,58 @@
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: bos
+      POSTGRES_USER: bos
+      POSTGRES_PASSWORD: bos
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bos -d bos"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+    volumes:
+      - ./api:/app
+
+  web:
+    image: node:20-alpine
+    restart: unless-stopped
+    working_dir: /app
+    command: sh -c "npm install && npm run dev"
+    ports:
+      - "5173:5173"
+    volumes:
+      - ./web:/app
+      - web_node_modules:/app/node_modules
+
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - api
+      - web
+
+volumes:
+  postgres_data:
+  web_node_modules:

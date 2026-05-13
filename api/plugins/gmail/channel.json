@@ -1,0 +1,18 @@
+{
+  "plugin_id": "channel.gmail",
+  "name": "Gmail Channel",
+  "version": "0.1.0",
+  "klaroha_min_version": "3.5",
+  "capabilities_root": "capabilities/",
+  "implements": ["marketing.execute"],
+  "specialty": ["outreach", "cold_email", "email_drafting"],
+  "platforms": ["gmail"],
+  "connector_protocol": "smtp_or_env",
+  "risk_policy": "draft_only",
+  "output_contracts": ["email_draft"],
+  "requires_social_connection": [],
+  "requires_platform_vars": ["GMAIL_USER"],
+  "capability_ids": [
+    "marketing.channel.gmail.outreach.draft"
+  ]
+}

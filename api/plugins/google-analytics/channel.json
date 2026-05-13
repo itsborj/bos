@@ -1,0 +1,25 @@
+{
+  "plugin_id": "channel.google_analytics",
+  "name": "Google Analytics Read-Only",
+  "version": "0.3.0",
+  "klaroha_min_version": "3.5",
+  "capabilities_root": "capabilities/",
+  "implements": ["marketing.optimize"],
+  "specialty": ["web_analytics", "traffic_sources", "landing_page_performance", "conversion_signal", "ga4_setup_readiness", "realtime_tracking_check", "read_only_data_pull"],
+  "platforms": ["google_analytics"],
+  "connector_protocol": "ga4_data_and_admin_api_rest",
+  "risk_policy": "read_only_no_mutation",
+  "output_contracts": ["google_analytics_data_pull", "google_analytics_admin_readiness", "google_analytics_realtime_check"],
+  "requires_social_connection": [],
+  "requires_platform_vars": [
+    "GOOGLE_ANALYTICS_CLIENT_ID",
+    "GOOGLE_ANALYTICS_CLIENT_SECRET",
+    "GOOGLE_ANALYTICS_REFRESH_TOKEN",
+    "GOOGLE_ANALYTICS_PROPERTY_ID"
+  ],
+  "capability_ids": [
+    "marketing.channel.google_analytics.performance.read",
+    "marketing.channel.google_analytics.admin.read",
+    "marketing.channel.google_analytics.realtime.read"
+  ]
+}

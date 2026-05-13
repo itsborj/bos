@@ -1,0 +1,118 @@
+{
+  "customers": [
+    {
+      "customer_id": "1234567890",
+      "name": "Klaroha Demo Ads",
+      "currency": "USD",
+      "time_zone": "America/New_York",
+      "manager": false
+    }
+  ],
+  "campaigns": [
+    {
+      "customer_id": "1234567890",
+      "campaign_id": "1001",
+      "campaign": "Brand Search",
+      "status": "Enabled",
+      "channel_type": "SEARCH",
+      "date_range": "LAST_7_DAYS",
+      "spend": 221.44,
+      "impressions": 18420,
+      "clicks": 982,
+      "conversions": 34,
+      "ctr": 5.33,
+      "cpa": 6.51,
+      "recommendation": "Scale carefully",
+      "daily_budget": 50.00,
+      "budget_utilization_pct": 88.6,
+      "budget_recommendation": "MAINTAIN",
+      "devices": [
+        { "device": "DESKTOP", "spend": 79.72, "clicks": 314, "conversions": 14 },
+        { "device": "MOBILE", "spend": 141.72, "clicks": 668, "conversions": 20 }
+      ],
+      "search_terms": [
+        { "term": "klaroha", "spend": 84.12, "clicks": 421, "conversions": 18, "impressions": 7200, "ctr": 5.85, "status": "ADDED" },
+        { "term": "klaroha marketing", "spend": 46.07, "clicks": 203, "conversions": 9, "impressions": 3810, "ctr": 5.33, "status": "ADDED" },
+        { "term": "klaroha app", "spend": 22.14, "clicks": 98, "conversions": 4, "impressions": 1920, "ctr": 5.10, "status": "ADDED" },
+        { "term": "klaroha login", "spend": 8.40, "clicks": 98, "conversions": 1, "impressions": 1100, "ctr": 8.91, "status": "EXCLUDED" },
+        { "term": "klaroha free trial", "spend": 60.71, "clicks": 162, "conversions": 2, "impressions": 4390, "ctr": 3.69, "status": "NONE" }
+      ],
+      "keywords": [
+        { "keyword_id": "k1001", "text": "klaroha", "match_type": "EXACT", "status": "ENABLED", "spend": 130.22, "clicks": 619, "impressions": 11000, "conversions": 27, "cpa": 4.82, "quality_score": 9 },
+        { "keyword_id": "k1002", "text": "klaroha marketing platform", "match_type": "PHRASE", "status": "ENABLED", "spend": 68.14, "clicks": 289, "impressions": 5820, "conversions": 6, "cpa": 11.36, "quality_score": 7 },
+        { "keyword_id": "k1003", "text": "klaroha software", "match_type": "BROAD", "status": "ENABLED", "spend": 23.08, "clicks": 74, "impressions": 1600, "conversions": 1, "cpa": 23.08, "quality_score": 5 }
+      ]
+    },
+    {
+      "customer_id": "1234567890",
+      "campaign_id": "1002",
+      "campaign": "Nonbrand Search",
+      "status": "Enabled",
+      "channel_type": "SEARCH",
+      "date_range": "LAST_7_DAYS",
+      "spend": 620.94,
+      "impressions": 30500,
+      "clicks": 1729,
+      "conversions": 27,
+      "ctr": 5.67,
+      "cpa": 23.00,
+      "recommendation": "Review search terms",
+      "daily_budget": 100.00,
+      "budget_utilization_pct": 97.3,
+      "budget_recommendation": "INCREASE",
+      "devices": [
+        { "device": "DESKTOP", "spend": 183.91, "clicks": 489, "conversions": 11 },
+        { "device": "MOBILE", "spend": 437.03, "clicks": 1240, "conversions": 16 }
+      ],
+      "search_terms": [
+        { "term": "marketing automation software", "spend": 176.24, "clicks": 402, "conversions": 7, "impressions": 7100, "ctr": 5.66, "status": "ADDED" },
+        { "term": "ai marketing dashboard", "spend": 94.85, "clicks": 288, "conversions": 6, "impressions": 5300, "ctr": 5.43, "status": "ADDED" },
+        { "term": "free social media tool", "spend": 71.40, "clicks": 244, "conversions": 1, "impressions": 4620, "ctr": 5.28, "status": "NONE" },
+        { "term": "social media scheduler free", "spend": 58.12, "clicks": 196, "conversions": 0, "impressions": 3910, "ctr": 5.01, "status": "NONE" },
+        { "term": "best marketing software small business", "spend": 48.90, "clicks": 134, "conversions": 4, "impressions": 2980, "ctr": 4.50, "status": "NONE" },
+        { "term": "hubspot alternative", "spend": 42.18, "clicks": 121, "conversions": 5, "impressions": 2650, "ctr": 4.57, "status": "NONE" },
+        { "term": "seo tool free", "spend": 31.44, "clicks": 98, "conversions": 0, "impressions": 2020, "ctr": 4.85, "status": "NONE" }
+      ],
+      "keywords": [
+        { "keyword_id": "k2001", "text": "marketing automation software", "match_type": "PHRASE", "status": "ENABLED", "spend": 229.14, "clicks": 590, "impressions": 12700, "conversions": 9, "cpa": 25.46, "quality_score": 6 },
+        { "keyword_id": "k2002", "text": "ai marketing tool", "match_type": "BROAD", "status": "ENABLED", "spend": 198.62, "clicks": 521, "impressions": 11200, "conversions": 10, "cpa": 19.86, "quality_score": 5 },
+        { "keyword_id": "k2003", "text": "small business marketing software", "match_type": "PHRASE", "status": "ENABLED", "spend": 110.44, "clicks": 388, "impressions": 4800, "conversions": 6, "cpa": 18.41, "quality_score": 7 },
+        { "keyword_id": "k2004", "text": "social media marketing tool", "match_type": "BROAD", "status": "ENABLED", "spend": 82.74, "clicks": 230, "impressions": 1800, "conversions": 2, "cpa": 41.37, "quality_score": 4 }
+      ]
+    }
+  ],
+  "recommendations": [
+    {
+      "type": "ADD_NEGATIVE_KEYWORD",
+      "campaign": "Nonbrand Search",
+      "campaign_id": "1002",
+      "impact": "HIGH",
+      "description": "Add 'free', 'seo tool', 'social media scheduler free' as negative keywords to remove 3 zero-conversion terms spending $160.96/week.",
+      "estimated_weekly_savings": 160.96
+    },
+    {
+      "type": "INCREASE_BUDGET",
+      "campaign": "Nonbrand Search",
+      "campaign_id": "1002",
+      "impact": "HIGH",
+      "description": "Budget is 97% utilized. Increase daily budget from $100 to $130 to capture an estimated 28% more eligible impressions.",
+      "estimated_weekly_savings": null
+    },
+    {
+      "type": "IMPROVE_AD_STRENGTH",
+      "campaign": "Brand Search",
+      "campaign_id": "1001",
+      "impact": "MEDIUM",
+      "description": "Responsive search ad in Brand Search has 'POOR' ad strength. Adding 3 more unique headlines can raise quality and lower CPC.",
+      "estimated_weekly_savings": null
+    },
+    {
+      "type": "LOWER_TARGET_CPA",
+      "campaign": "Brand Search",
+      "campaign_id": "1001",
+      "impact": "LOW",
+      "description": "Brand Search CPA of $6.51 is well below target. Consider lowering target CPA bid to $5.50 to improve ROAS.",
+      "estimated_weekly_savings": null
+    }
+  ]
+}

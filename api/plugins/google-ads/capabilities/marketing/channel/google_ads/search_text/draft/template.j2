@@ -1,0 +1,13 @@
+Create a Google Ads responsive search ad draft for review.
+
+Brand: {{ brand_name | default('') }}
+Product/service: {{ product_name | default('') }}
+Audience: {{ audience | default('') }}
+Benefit: {{ key_benefit | default('') }}
+Display URL: {{ display_url | default(domain | default(website | default(''))) }}
+
+Return native Google Ads fields only:
+- 15 headlines, each <= 30 characters
+- 4 descriptions, each <= 90 characters
+- no unsupported claims, fake proof, fake discounts, or mutation claims
+- explicitly treat this as draft copy, not a published ad

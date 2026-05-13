@@ -1,0 +1,27 @@
+{
+  "plugin_id": "channel.google_ads",
+  "name": "Google Ads Channel",
+  "version": "0.4.0",
+  "klaroha_min_version": "3.5",
+  "capabilities_root": "capabilities/",
+  "implements": ["marketing.optimize", "marketing.execute"],
+  "specialty": ["paid_search_reporting", "account_discovery", "campaign_metrics", "read_only_data_pull", "responsive_search_ad_copy_drafting", "approved_mutation_roadmap"],
+  "platforms": ["google_ads"],
+  "connector_protocol": "google_ads_api_rest",
+  "risk_policy": "current_capabilities_read_or_draft_only_future_mutations_approval_gated",
+  "output_contracts": ["google_ads_account_inventory", "google_ads_campaign_report", "google_ads_data_pull", "google_search_ad_draft"],
+  "requires_social_connection": [],
+  "requires_platform_vars": [
+    "GOOGLE_ADS_DEVELOPER_TOKEN",
+    "GOOGLE_ADS_CLIENT_ID",
+    "GOOGLE_ADS_CLIENT_SECRET",
+    "GOOGLE_ADS_REFRESH_TOKEN",
+    "GOOGLE_ADS_DEFAULT_CUSTOMER_ID"
+  ],
+  "capability_ids": [
+    "marketing.channel.google_ads.account.discover",
+    "marketing.channel.google_ads.campaigns.read",
+    "marketing.channel.google_ads.performance.read",
+    "marketing.channel.google_ads.search_text.draft"
+  ]
+}

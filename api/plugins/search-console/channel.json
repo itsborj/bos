@@ -1,0 +1,33 @@
+{
+  "plugin_id": "channel.search_console",
+  "name": "Google Search Console Channel",
+  "version": "0.1.0",
+  "klaroha_min_version": "3.5",
+  "capabilities_root": "capabilities/",
+  "implements": ["marketing.optimize"],
+  "specialty": ["organic_search_reporting", "query_performance", "page_performance", "url_inspection", "sitemap_monitoring", "seo_opportunity_planning"],
+  "platforms": ["google_search_console"],
+  "connector_protocol": "google_search_console_api_native",
+  "risk_policy": "read_only_no_mutation",
+  "output_contracts": [
+    "search_console_property_inventory",
+    "search_console_performance_report",
+    "search_console_url_inspection",
+    "search_console_sitemap_report",
+    "search_console_opportunity_plan"
+  ],
+  "requires_social_connection": [],
+  "requires_platform_vars": [
+    "GOOGLE_SEARCH_CONSOLE_CLIENT_ID",
+    "GOOGLE_SEARCH_CONSOLE_CLIENT_SECRET",
+    "GOOGLE_SEARCH_CONSOLE_REFRESH_TOKEN",
+    "GOOGLE_SEARCH_CONSOLE_DEFAULT_SITE_URL"
+  ],
+  "capability_ids": [
+    "marketing.channel.search_console.properties.list",
+    "marketing.channel.search_console.performance.query",
+    "marketing.channel.search_console.url.inspect",
+    "marketing.channel.search_console.sitemaps.read",
+    "marketing.channel.search_console.opportunities.plan"
+  ]
+}

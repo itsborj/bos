@@ -1,0 +1,376 @@
+import { useState } from 'react';
+import { api } from '../../api/client';
+import { useUI } from '../../context/UIContext';
+import { GoogleSearchPreview } from './previews/GoogleSearchPreview';
+import { GoogleDisplayPreview } from './previews/GoogleDisplayPreview';
+import { FacebookFeedPreview } from './previews/FacebookFeedPreview';
+import { InstagramFeedPreview } from './previews/InstagramFeedPreview';
+import { InstagramStoryPreview } from './previews/InstagramStoryPreview';
+import { EmailPreview } from './previews/EmailPreview';
+import { PinterestPreview } from './previews/PinterestPreview';
+import { TwitterFeedPreview } from './previews/TwitterFeedPreview';
+import type { ChatHistoryItem, RunResponse } from '../../api/types';
+
+interface ApprovalBundleProps {
+  run: RunResponse;
+  surfaceContext: 'chat-inline' | 'panel' | 'full-screen';
+  onRevision?: (reply: string, run: RunResponse, previousRunId?: string) => void;
+  onApproved?: (run: RunResponse) => void;
+  revisionHistory?: ChatHistoryItem[];
+}
+
+type ReviewStatus = 'pending' | 'draft' | 'dismissed' | 'approved';
+
+function titleCase(value: string): string {
+  return value
+    .replace(/[_-]/g, ' ')
+    .split(' ')
+    .filter(Boolean)
+    .map(part => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function artifactTitle(run: RunResponse, platformLabel: string): string {
+  const moduleId = run.module_id.toLowerCase();
+  if (moduleId.includes('marketing.plan')) return 'Marketing Plan';
+  if (moduleId.includes('email') && moduleId.includes('plan')) return 'Email Campaign Plan';
+  if (moduleId.includes('email') || platformLabel.toLowerCase().includes('email')) return 'Email Draft';
+  if (moduleId.includes('plan')) return 'Campaign Plan';
+  if (moduleId.includes('report') || moduleId.includes('analytics')) return 'Marketing Report';
+  if (moduleId.includes('google')) return 'Google Ad Draft';
+  if (moduleId.includes('facebook')) return 'Facebook Draft';
+  if (moduleId.includes('instagram')) return 'Instagram Draft';
+  if (moduleId.includes('twitter') || moduleId.includes('x.')) return 'Social Post Draft';
+  if (moduleId.includes('pinterest')) return 'Pinterest Draft';
+  return `${titleCase(platformLabel)} Draft`;
+}
+
+function statusLabel(status: ReviewStatus): string {
+  if (status === 'approved') return 'Approved';
+  if (status === 'dismissed') return 'Dismissed';
+  if (status === 'draft') return 'Saved draft';
+  return 'Needs review';
+}
+
+function statusColor(status: ReviewStatus): string {
+  if (status === 'approved') return '#16a34a';
+  if (status === 'dismissed') return '#6b7280';
+  if (status === 'draft') return '#6366f1';
+  return '#111827';
+}
+
+export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, revisionHistory = [] }: ApprovalBundleProps) {
+  const { removePendingRun, addPendingRun, activeCampaign } = useUI();
+  const [reviewStatus, setReviewStatus] = useState<ReviewStatus>('pending');
+  const [modifying, setModifying] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [revisionBusy, setRevisionBusy] = useState(false);
+  const [revisionError, setRevisionError] = useState<string | null>(null);
+  const [revision, setRevision] = useState<RunResponse | null>(null);
+  const [revisionReply, setRevisionReply] = useState<string>('');
+  const [localRevisionHistory, setLocalRevisionHistory] = useState<ChatHistoryItem[]>([]);
+
+  const result = run.result;
+  const moduleId = run.module_id.toLowerCase();
+  const channel = `${moduleId} ${(run.result?.platform || '').toLowerCase()}`;
+  const platformLabel = titleCase(run.result?.platform || run.module_id.split('.').pop() || 'asset');
+  const title = artifactTitle(run, platformLabel);
+
+  if (!result) return <div className="bos-ws-empty">No artifact content available.</div>;
+
+  const brandName = result.block?.brand_name || result.brand_name || 'Klaroha';
+  const socialHandle = result.block?.brand_handle || result.brand_handle || '@klarohahq';
+  const selfCheckPassed = result.self_check === 'pass';
+
+  const handleApprove = async () => {
+    setReviewStatus('approved');
+    removePendingRun(run.run_id);
+    try {
+      await api.approveRun(run.run_id);
+      onApproved?.(run);
+    } catch (e) {
+      setReviewStatus('pending');
+      setRevisionError(e instanceof Error ? e.message : 'Could not approve this artifact.');
+    }
+  };
+
+  const handleSaveDraft = () => {
+    setReviewStatus('draft');
+    setModifying(false);
+    removePendingRun(run.run_id);
+  };
+
+  const handleDismiss = () => {
+    setReviewStatus('dismissed');
+    setModifying(false);
+    removePendingRun(run.run_id);
+  };
+
+  const buildRevisionContext = () => {
+    const block = result.block || {};
+    return [
+      `Current module: ${run.module_id}`,
+      `Current platform: ${platformLabel}`,
+      result.content ? `Current full draft:\n${result.content}` : '',
+      block && Object.keys(block).length ? `Current structured draft JSON:\n${JSON.stringify(block, null, 2)}` : '',
+    ].filter(Boolean).join('\n\n');
+  };
+
+  const handleRevisionSubmit = async () => {
+    const note = feedback.trim() || 'Make this draft stronger, clearer, and more conversion-focused while preserving the original intent.';
+    const revisionRequest = `${note}\n\nModify the exact draft below. Keep the same platform/module unless I explicitly ask for a different one.\n\n${buildRevisionContext()}`;
+    setRevisionBusy(true);
+    setRevisionError(null);
+    try {
+      const history = [
+        ...revisionHistory,
+        ...localRevisionHistory,
+        { role: 'ai' as const, text: buildRevisionContext() },
+      ];
+      const resp = await api.chatReviseRun(run.run_id, revisionRequest, history);
+      const revised = resp.runs?.[0] || resp.run;
+      if (!revised) throw new Error('The CMO did not return a revised draft.');
+      setRevisionReply(resp.reply);
+      setLocalRevisionHistory(prev => [
+        ...prev,
+        { role: 'user', text: `Revise this ${platformLabel} draft: ${note}` },
+        { role: 'ai', text: resp.reply },
+      ]);
+      if (onRevision) {
+        onRevision(resp.reply, revised, run.run_id);
+      } else {
+        setRevision(revised);
+      }
+      addPendingRun(revised);
+      removePendingRun(run.run_id);
+      setReviewStatus('pending');
+      setModifying(false);
+      setFeedback('');
+    } catch (e) {
+      setRevisionError(e instanceof Error ? e.message : 'Could not create a revision.');
+    } finally {
+      setRevisionBusy(false);
+    }
+  };
+
+  const renderPreview = () => {
+    if (moduleId.includes('google') && (moduleId.includes('text') || moduleId.includes('search'))) {
+      const block = result.block;
+      const headline = Array.isArray(block?.headlines)
+        ? block.headlines.slice(0, 3).map((h: any) => h.text).filter(Boolean).join(' | ')
+        : (block?.headline || result.headline || '');
+      const description = Array.isArray(block?.descriptions)
+        ? block.descriptions.slice(0, 2).map((d: any) => d.text).filter(Boolean).join(' ')
+        : (block?.description || result.description || result.content || '');
+      return (
+        <GoogleSearchPreview 
+          headline={headline || 'Headline Missing'} 
+          description={description || 'Description Missing'} 
+          displayUrl={block?.display_url || block?.displayUrl || result.display_url || 'example.com'} 
+        />
+      );
+    }
+    if (channel.includes('google') && channel.includes('display')) {
+      return (
+        <GoogleDisplayPreview 
+          dimensions={result.dimensions || '300x250'} 
+          headline={result.headline || 'Headline Missing'} 
+          description={result.description || 'Description Missing'} 
+          ctaText={result.cta || 'Learn More'} 
+        />
+      );
+    }
+    if (channel.includes('facebook')) {
+      return <FacebookFeedPreview pageName={brandName} adCopy={result.content || 'Copy missing'} ctaText={result.cta || 'Learn More'} />;
+    }
+    if (channel.includes('instagram') && channel.includes('story')) {
+      return <InstagramStoryPreview username={socialHandle} adCopy={result.content || 'Copy missing'} ctaText={result.cta || 'Shop Now'} />;
+    }
+    if (channel.includes('instagram')) {
+      return <InstagramFeedPreview username={socialHandle} adCopy={result.content || 'Copy missing'} />;
+    }
+    if (channel.includes('twitter') || moduleId.includes('twitter')) {
+      return <TwitterFeedPreview username={socialHandle} tweetText={result.content || 'Copy missing'} />;
+    }
+    if (result.block?.type === 'marketing_plan' || moduleId.includes('marketing.plan')) {
+      const block = result.block || {};
+      const channels = Array.isArray(block.recommended_channels) ? block.recommended_channels : [];
+      const focus = Array.isArray(block.focus) ? block.focus : [];
+      const notReady = Array.isArray(block.not_recommended_yet) ? block.not_recommended_yet : [];
+      const missing = Array.isArray(block.missing_inputs) ? block.missing_inputs : [];
+      const nextArtifacts = Array.isArray(block.next_artifacts) ? block.next_artifacts : [];
+      return (
+        <div style={{ padding: '20px', textAlign: 'left', color: '#1f2937', fontSize: '13px', border: '1px solid #e5e7eb', borderRadius: 14, maxWidth: 560, background: '#fff' }}>
+          <div style={{ color: '#6b7280', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>Marketing plan</div>
+          <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 6 }}>{block.title || title}</div>
+          {block.campaign_theme && <div style={{ color: '#4b5563', marginBottom: 12 }}>{block.campaign_theme}</div>}
+          {block.mission && <div style={{ lineHeight: 1.45, marginBottom: 14 }}>{block.mission}</div>}
+          {focus.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Focus</div>
+              <ol style={{ margin: 0, paddingLeft: 18 }}>
+                {focus.slice(0, 3).map((item: string, idx: number) => <li key={idx}>{item}</li>)}
+              </ol>
+            </div>
+          )}
+          {channels.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Recommended channels</div>
+              {channels.map((ch: any, idx: number) => (
+                <div key={`${ch.channel || idx}`} style={{ padding: '8px 0', borderTop: idx ? '1px solid #f3f4f6' : 'none' }}>
+                  <strong>{ch.channel || ch.name}</strong>{ch.status ? ` · ${ch.status}` : ''}
+                  <div style={{ color: '#4b5563' }}>{[ch.role, ch.reason].filter(Boolean).join(' — ')}</div>
+                </div>
+              ))}
+            </div>
+          )}
+          {notReady.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Not recommended yet</div>
+              {notReady.slice(0, 3).map((item: any, idx: number) => (
+                <div key={idx} style={{ color: '#4b5563' }}>• {item.name || item.channel}{item.reason ? ` — ${item.reason}` : ''}</div>
+              ))}
+            </div>
+          )}
+          {missing.length > 0 && (
+            <div style={{ marginBottom: nextArtifacts.length ? 14 : 0 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Missing inputs</div>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>
+                {missing.slice(0, 4).map((item: string, idx: number) => <li key={idx}>{item}</li>)}
+              </ul>
+            </div>
+          )}
+          {nextArtifacts.length > 0 && (
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Next artifacts</div>
+              {nextArtifacts.slice(0, 3).map((item: any, idx: number) => (
+                <div key={idx} style={{ color: '#4b5563' }}>• {item.name}{item.reason ? ` — ${item.reason}` : ''}</div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+    if (channel.includes('email') && moduleId.includes('plan')) {
+      return (
+        <div style={{ padding: '20px', textAlign: 'left', color: '#333', fontSize: '12px', border: '1px dashed #ccc', maxWidth: 520 }}>
+          <div style={{ color: '#666', marginBottom: 10 }}>Email campaign plan</div>
+          <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{result.content || 'Plan content unavailable.'}</div>
+        </div>
+      );
+    }
+    if (channel.includes('email')) {
+      return <EmailPreview senderName={brandName} subject={result.subject || 'Subject Missing'} preheader={result.preheader || 'Preheader missing'} body={result.content || 'Body missing'} />;
+    }
+    if (channel.includes('pinterest')) {
+      return <PinterestPreview title={result.headline || 'Title Missing'} description={result.content || 'Description missing'} />;
+    }
+
+    return (
+      <div style={{ padding: '20px', textAlign: 'left', color: '#333', fontSize: '12px', border: '1px dashed #ccc', maxWidth: 520 }}>
+        <div style={{ color: '#666', marginBottom: 10 }}>Preview is not available for this artifact type yet.</div>
+        <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{result.content}</div>
+      </div>
+    );
+  };
+
+  return (
+    <div className={`approval-bundle ${surfaceContext}`}>
+      <div className="artifact-card" style={{ borderColor: statusColor(reviewStatus) }}>
+        <div className="artifact-card-header">
+          <div>
+            <div className="artifact-eyebrow">Artifact</div>
+            <div className="artifact-title">{title}</div>
+            <div className="artifact-meta">
+              {moduleId.includes('marketing.plan')
+                ? 'Plan artifact · Draft for review'
+                : `${activeCampaign?.name ? `Campaign: ${activeCampaign.name}` : 'Campaign: Unassigned'} · ${platformLabel}`}
+
+            </div>
+          </div>
+          <span className="artifact-status" style={{ color: statusColor(reviewStatus), borderColor: statusColor(reviewStatus) }}>
+            {statusLabel(reviewStatus)}
+          </span>
+        </div>
+
+        <div className="artifact-preview">
+          {renderPreview()}
+        </div>
+
+        {(moduleId.includes('google') && moduleId.includes('text')) && (
+          <div className="artifact-copy-panel">
+            <div className="artifact-section-label">Copy</div>
+            <div className="artifact-copy-text">{result.content || 'No copy available'}</div>
+          </div>
+        )}
+
+        <div className="artifact-review-bar">
+          <div className="artifact-review-note">
+            {reviewStatus === 'approved' && 'Approved and removed from needs-attention.'}
+            {reviewStatus === 'draft' && 'Saved as a draft. It will not block approvals.'}
+            {reviewStatus === 'dismissed' && 'Dismissed from the review queue.'}
+            {reviewStatus === 'pending' && (selfCheckPassed ? 'Self-check passed. Waiting for your review.' : 'Self-check flagged this. Review before approving.')}
+          </div>
+          <div className="artifact-actions">
+            {reviewStatus !== 'approved' && (
+              <>
+                <button className="artifact-btn ghost" onClick={handleDismiss}>Dismiss</button>
+                <button className="artifact-btn ghost" onClick={handleSaveDraft}>Save draft</button>
+                <button className="artifact-btn ghost" onClick={() => { setModifying(v => !v); addPendingRun(run); }}>Revise</button>
+                <button className="artifact-btn primary" onClick={handleApprove}>Approve</button>
+              </>
+            )}
+            {reviewStatus === 'approved' && (
+              <button className="artifact-btn ghost" onClick={() => { setReviewStatus('pending'); addPendingRun(run); }}>Reopen</button>
+            )}
+          </div>
+        </div>
+
+        <div className="artifact-details-row">
+          <button className="artifact-link-btn" onClick={() => setDetailsOpen(v => !v)}>
+            {detailsOpen ? 'Hide system details' : 'System details'}
+          </button>
+        </div>
+
+        {detailsOpen && (
+          <div className="artifact-system-details">
+            <div><strong>BITE:</strong> Intent → Transform → Evaluate</div>
+            <div><strong>Self-check:</strong> {result.self_check || 'unknown'}</div>
+            <div><strong>Artifact ID:</strong> {run.run_id}</div>
+            <div><strong>Capability:</strong> {run.module_id}</div>
+            {run.execution && <div><strong>Execution:</strong> {run.execution.provider} · {run.execution.model} · {run.execution.latency_ms?.toLocaleString()} ms</div>}
+          </div>
+        )}
+      </div>
+
+      {modifying && !revision && (
+        <div className="artifact-revision-box">
+          <div className="artifact-section-label">Revision direction</div>
+          <textarea
+            value={feedback}
+            onChange={e => setFeedback(e.target.value)}
+            placeholder={`Tell the CMO what is not working — e.g. keep the opening, make the CTA stronger, try a warmer angle...`}
+            rows={3}
+            className="artifact-revision-input"
+            disabled={revisionBusy}
+          />
+          {revisionError && <div className="artifact-error">{revisionError}</div>}
+          <div className="artifact-revision-actions">
+            <button className="artifact-btn ghost" onClick={() => setModifying(false)} disabled={revisionBusy}>Cancel</button>
+            <button className="artifact-btn primary" onClick={handleRevisionSubmit} disabled={revisionBusy}>
+              {revisionBusy ? 'Updating…' : 'Create revision'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {revision && (
+        <div className="artifact-revision-result">
+          <div className="artifact-revision-note">{revisionReply || `I revised this ${platformLabel} draft based on your note.`}</div>
+          <ApprovalBundle run={revision} surfaceContext="chat-inline" revisionHistory={localRevisionHistory} />
+        </div>
+      )}
+    </div>
+  );
+}

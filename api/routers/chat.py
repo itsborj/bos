@@ -1,0 +1,953 @@
+"""POST /chat — CMO conversational endpoint."""
+from __future__ import annotations
+
+import logging
+import re
+
+from typing import Optional
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from artifacts import ArtifactRef, artifact_ref_from_run
+from auth import require_api_key
+from capability_manifest import format_manifest_for_prompt
+from config import get_settings
+from db import get_db
+from executor import get_adapter, get_platform_key
+from model_overrides import get_backend_override, parse_model_ref
+from provider_auth import resolve_stored_provider_credential
+from providers.connector_registry import format_connector_status_for_prompt
+from routers.backend_settings import resolve_backend_override
+from registry import list_all
+from skills.loader import format_activated_skill, get_skill, list_skill_manifests
+from skills.memory import compile_memory_context, hydrate_memory_slots
+from skills.router import route_chat_skills
+from models.document import WorkspaceDocument
+from models.intent import CampaignIntent, IntentContract
+from models.run import Run, RunResult
+from models.workspace import Audience, Brand, Campaign, Product
+from routers.brands import find_brand_by_name, resolve_brand
+from routers.runs import _execute_module, _resolve_brief
+from routers.workspace import get_singleton
+from schemas.runs import RunResponse
+
+router = APIRouter(tags=["chat"])
+logger = logging.getLogger("bos.chat")
+
+_RUN_RE = re.compile(r"RUN:\s*([a-zA-Z0-9_.-]+)")
+
+# ── @klar command routing ─────────────────────────────────────────────────────
+_KLAR_RE = re.compile(r"^\s*@klar\b", re.IGNORECASE)
+
+
+def _is_klar_command(message: str) -> bool:
+    return bool(_KLAR_RE.match(message))
+
+
+def _parse_klar_command(message: str) -> dict:
+    """Decompose an @klar message into action + args."""
+    body = _KLAR_RE.sub("", message).strip()
+
+    # @klar check brand X / switch to (brand) X
+    m = re.match(r"(?:check brand|switch to brand|switch to)\s+(.+)", body, re.IGNORECASE)
+    if m:
+        return {"action": "brand_switch", "brand_name": m.group(1).strip()}
+
+    # @klar plan [description]
+    if re.match(r"plan\b", body, re.IGNORECASE):
+        desc = re.sub(r"^plan\s*", "", body, flags=re.IGNORECASE).strip()
+        return {"action": "plan", "description": desc}
+
+    # @klar evaluate / evaluate [campaign]
+    if re.match(r"evaluate\b", body, re.IGNORECASE):
+        target = re.sub(r"^evaluate\s*", "", body, flags=re.IGNORECASE).strip()
+        return {"action": "evaluate", "target": target}
+
+    # @klar (what's) pending
+    if re.match(r"(what'?s?\s+)?pending", body, re.IGNORECASE):
+        return {"action": "pending"}
+
+    # @klar (show) (all) brands
+    if re.match(r"(show\s+)?(all\s+)?brands?", body, re.IGNORECASE):
+        return {"action": "list_brands"}
+
+    # @klar org — clear brand context, return to org level
+    if re.match(r"org\b", body, re.IGNORECASE):
+        return {"action": "org"}
+
+    # @klar brief — handled by Stream; stub response
+    if re.match(r"brief\b", body, re.IGNORECASE):
+        return {"action": "brief"}
+
+    # @klar confirm — confirm a previously drafted plan
+    if re.match(r"confirm\b", body, re.IGNORECASE):
+        return {"action": "confirm"}
+
+    # @klar run [campaign name or id]
+    if re.match(r"run\b", body, re.IGNORECASE):
+        target = re.sub(r"^run\s*", "", body, flags=re.IGNORECASE).strip()
+        return {"action": "run", "target": target}
+
+    # generic @klar directive — needs brand context
+    return {"action": "directive", "text": body}
+
+
+def _strip_run_directives(text: str) -> str:
+    """Remove hidden module-control directives from user-visible CMO copy."""
+    cleaned = _RUN_RE.sub("", text)
+    cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
+    cleaned = re.sub(r" {2,}", " ", cleaned)
+    return cleaned.strip(" \n\t-—")
+
+
+
+def _chat_modules() -> list[dict]:
+    """All modules the CMO is allowed to dispatch. LLM decides when to invoke each."""
+    allowed_module_ids = {
+        s.module_id for s in list_skill_manifests()
+        if s.allowed_from_chat and s.module_id
+    }
+    return [m for m in list_all() if m["id"] in allowed_module_ids]
+
+
+def _marketing_plan_module_id() -> str | None:
+    """Find the installed native marketing.plan artifact capability from SKILL.md metadata."""
+    for skill in list_skill_manifests():
+        metadata = getattr(skill, "metadata", {}) or {}
+        if (
+            skill.allowed_from_chat
+            and skill.module_id
+            and metadata.get("implements") == "marketing.plan"
+            and metadata.get("artifact_type") == "plan_artifact"
+            and metadata.get("specialist") == "planning"
+        ):
+            return skill.module_id
+    return None
+
+
+async def _brand_scoped_brief(db: AsyncSession, ws, brand: Brand | None, base: dict) -> dict:
+    """Build a module brief scoped to the active Brand when available."""
+    brief = await _resolve_brief(db, ws, base)
+    if not brand:
+        return brief
+
+    brief["brand_name"] = brand.name
+    bj = brand.brand_json or {}
+    for field in ("tone", "voice", "values", "domain", "website_url", "social_handles"):
+        if bj.get(field):
+            brief[field] = bj[field]
+    social_handles = bj.get("social_handles") or {}
+    brief.setdefault("brand_handle", social_handles.get("x") or social_handles.get("twitter") or social_handles.get("instagram"))
+    brief.setdefault("display_url", bj.get("domain") or bj.get("website_url"))
+
+    product_rows = (await db.execute(
+        select(Product).where(Product.brand_id == brand.id).order_by(Product.created_at.asc())
+    )).scalars().all()
+    if product_rows:
+        prod = product_rows[0]
+        brief["product_name"] = prod.name
+        if prod.tagline:
+            brief["tagline"] = prod.tagline
+        benefits = (prod.benefits_json or {}).get("benefits", [])
+        if benefits:
+            brief["key_benefit"] = benefits[0]
+            brief["benefits"] = benefits
+        brief["product_catalog_summary"] = "\n".join(
+            f"- {p.name}: {p.tagline or 'no tagline'}" for p in product_rows
+        )
+
+    audience_rows = (await db.execute(
+        select(Audience).where(Audience.brand_id == brand.id).order_by(Audience.created_at.asc())
+    )).scalars().all()
+    if audience_rows:
+        aud = audience_rows[0]
+        brief["audience"] = aud.name
+        seg = aud.segment_json or {}
+        if seg.get("demographics"):
+            brief["demographics"] = seg["demographics"]
+        if seg.get("pain_points"):
+            brief["pain_points"] = seg["pain_points"]
+        brief["audience_profiles_summary"] = "\n".join(
+            f"- {a.name}: {(a.segment_json or {}).get('demographics', 'no demographics')}"
+            for a in audience_rows
+        )
+
+    docs = (await db.execute(
+        select(WorkspaceDocument)
+        .where(WorkspaceDocument.brand_id == brand.id)
+        .order_by(WorkspaceDocument.updated_at.desc())
+    )).scalars().all()
+    by_type: dict[str, list[str]] = {}
+    for doc in docs:
+        if doc.content_markdown:
+            by_type.setdefault(doc.doc_type, []).append(doc.content_markdown)
+    brief["brand_guidelines_excerpt"] = "\n\n".join(by_type.get("brand_guideline", []))[:4000]
+    brief["campaign_brand_kit_excerpt"] = "\n\n".join(by_type.get("campaign_brand_kit", []))[:4000]
+    brief["marketing_reports_excerpt"] = "\n\n".join(by_type.get("marketing_report", []))[:3000]
+    brief["campaign_reports_excerpt"] = "\n\n".join(by_type.get("campaign_report", []))[:3000]
+    brief["competitor_profiles_excerpt"] = "\n\n".join(by_type.get("competitor_profile", []))[:3000]
+    brief["industry_data_excerpt"] = "\n\n".join(by_type.get("industry_report", []))[:3000]
+    return brief
+
+
+class ChatHistoryItem(BaseModel):
+    role: str  # "user" or "ai"
+    text: str
+
+
+class ChatRequest(BaseModel):
+    message: str
+    history: list[ChatHistoryItem] = []
+    brand_id: Optional[str] = None      # active brand; set by frontend after @klar switch
+    campaign_id: Optional[str] = None   # active campaign; set after @klar confirm
+
+
+class KlarAction(BaseModel):
+    action: str  # "brand_switch" | "brand_clear" | "plan_draft" | "plan_confirmed" | "evaluate_stub" | "pending_summary" | "brand_list"
+    data: dict = {}
+
+
+
+class ChatResponse(BaseModel):
+    reply: str
+    runs: list[RunResponse] = Field(default_factory=list)
+    # kept for single-run callers; mirrors runs[0] when there is exactly one result
+    run: RunResponse | None = None
+    artifact_refs: list[ArtifactRef] = Field(default_factory=list)
+    module_id: str | None = None
+    klar_action: KlarAction | None = None  # structured @klar command result
+
+
+class ChatReviseRequest(BaseModel):
+    feedback: str = ""
+    history: list[ChatHistoryItem] = []
+
+
+
+async def _build_system_prompt(db: AsyncSession, ws, skill_context: str = "", brand: Brand | None = None) -> str:
+    # Active brand name takes precedence over workspace name
+    ws_name = (brand.name if brand else None) or (ws.name if ws else "this business")
+
+    # Resolve brand identity: prefer active Brand row, fall back to legacy workspace.brand_json
+    active_brand_json = (brand.brand_json if brand else None) or (ws.brand_json if ws else None) or {}
+
+    brand_ctx = ""
+    if active_brand_json:
+        voice = active_brand_json.get("voice", "")
+        tone = active_brand_json.get("tone", "")
+        values = active_brand_json.get("values", [])
+        domain = active_brand_json.get("domain", "")
+        website_url = active_brand_json.get("website_url", "")
+        social_handles = active_brand_json.get("social_handles", {}) or {}
+        socials = ", ".join(f"{channel}: {handle}" for channel, handle in social_handles.items() if handle)
+        parts = [
+            f"voice: {voice}" if voice else "",
+            f"tone: {tone}" if tone else "",
+            f"values: {', '.join(values)}" if values else "",
+            f"domain: {domain}" if domain else "",
+            f"website: {website_url}" if website_url else "",
+            f"social handles: {socials}" if socials else "",
+        ]
+        brand_ctx = "\nBrand — " + ", ".join(p for p in parts if p) + "."
+
+    workspace_ctx = ""
+    if ws:
+        # When a brand is active, scope products/audiences/docs to that brand.
+        # Fall back to workspace-level (brand_id IS NULL) rows for backwards compatibility.
+        if brand:
+            product_rows = (await db.execute(
+                select(Product).where(Product.brand_id == brand.id).order_by(Product.created_at.asc())
+            )).scalars().all()
+            audience_rows = (await db.execute(
+                select(Audience).where(Audience.brand_id == brand.id).order_by(Audience.created_at.asc())
+            )).scalars().all()
+            kit = (await db.execute(
+                select(WorkspaceDocument)
+                .where(WorkspaceDocument.brand_id == brand.id, WorkspaceDocument.doc_type == "campaign_brand_kit")
+                .order_by(WorkspaceDocument.status.desc(), WorkspaceDocument.updated_at.desc())
+                .limit(1)
+            )).scalar_one_or_none()
+            brand_guideline = (await db.execute(
+                select(WorkspaceDocument)
+                .where(WorkspaceDocument.brand_id == brand.id, WorkspaceDocument.doc_type == "brand_guideline")
+                .order_by(WorkspaceDocument.status.desc(), WorkspaceDocument.updated_at.desc())
+                .limit(1)
+            )).scalar_one_or_none()
+        else:
+            product_rows = (await db.execute(
+                select(Product).where(Product.workspace_id == ws.id).order_by(Product.created_at.asc())
+            )).scalars().all()
+            audience_rows = (await db.execute(
+                select(Audience).where(Audience.workspace_id == ws.id).order_by(Audience.created_at.asc())
+            )).scalars().all()
+            kit = (await db.execute(
+                select(WorkspaceDocument)
+                .where(WorkspaceDocument.workspace_id == ws.id, WorkspaceDocument.doc_type == "campaign_brand_kit")
+                .order_by(WorkspaceDocument.status.desc(), WorkspaceDocument.updated_at.desc())
+                .limit(1)
+            )).scalar_one_or_none()
+            brand_guideline = (await db.execute(
+                select(WorkspaceDocument)
+                .where(WorkspaceDocument.workspace_id == ws.id, WorkspaceDocument.doc_type == "brand_guideline")
+                .order_by(WorkspaceDocument.status.desc(), WorkspaceDocument.updated_at.desc())
+                .limit(1)
+            )).scalar_one_or_none()
+
+        product_lines = []
+        for p in product_rows:
+            benefits = (p.benefits_json or {}).get("benefits", [])
+            product_lines.append(f"- {p.name}: {p.tagline or 'no tagline'}" + (f"; benefits: {', '.join(benefits)}" if benefits else ""))
+
+        audience_lines = []
+        for a in audience_rows:
+            seg = a.segment_json or {}
+            pain = seg.get("pain_points", [])
+            examples = seg.get("examples", [])
+            priority = seg.get("priority", [])
+            detail_parts = [seg.get('demographics', 'no demographics')]
+            if examples:
+                detail_parts.append(f"examples: {', '.join(examples)}")
+            if priority:
+                detail_parts.append(f"priority: {', '.join(priority)}")
+            if pain:
+                detail_parts.append(f"pains: {', '.join(pain)}")
+            audience_lines.append(f"- {a.name}: " + "; ".join(detail_parts))
+
+        kit_excerpt = ""
+        kit_status = "none"
+        if kit and kit.content_markdown:
+            kit_status = kit.status or "ingested"
+            kit_excerpt = kit.content_markdown[:5000]
+
+        guideline_excerpt = ""
+        if brand_guideline and brand_guideline.content_markdown:
+            guideline_excerpt = brand_guideline.content_markdown[:6000]
+
+        brand_scope_label = f"brand: {brand.name}" if brand else "workspace"
+        workspace_ctx = f"\n\nKnown project context ({brand_scope_label}):\n"
+        workspace_ctx += f"Company/brand: {ws_name}\n"
+        workspace_ctx += f"Brand kit status: {kit_status}\n"
+        if product_lines:
+            workspace_ctx += "Products/offers:\n" + "\n".join(product_lines) + "\n"
+        if audience_lines:
+            workspace_ctx += "Target audiences:\n" + "\n".join(audience_lines) + "\n"
+        if guideline_excerpt:
+            workspace_ctx += "Brand Guidelines / Strategic Brief excerpt:\n" + guideline_excerpt + "\n"
+        if kit_excerpt:
+            workspace_ctx += "Campaign Brand Kit excerpt:\n" + kit_excerpt + "\n"
+
+    modules_str = format_manifest_for_prompt()
+
+    operational_ctx = f"""
+
+Operational connector context, for explicit system/connector questions only:
+- MCP means Model Context Protocol, a connector layer BOS can use behind the scenes.
+{format_connector_status_for_prompt()}
+- If the user asks generally to check the MCP system, answer with connector status from the registry. Do not say you are unaware of MCP.
+- If the user asks for a channel/report and a matching connector-backed module is available, use that module rather than explaining MCP.
+"""
+
+    return f"""You are the Chief Marketing Officer for {ws_name}.
+
+HARD RULES — no exceptions:
+1. Never generate ad copy, email copy, social posts, or any platform-native content inline in your reply.
+2. Dispatch-first: if the user's request matches an installed capability below, output 1–2 lines and append the RUN: directive. Do not also draft the artifact inline.
+3. Broad or ambiguous sample/draft/example request (no specific platform named): ask exactly one clarifying question and offer installed artifact categories in plain language. Append no RUN line until the user clarifies.
+4. One question max per reply. Never ask multiple clarifying questions in one turn.
+5. "What can you do" replies: group into at most 5 CMO capability areas (e.g. Plan, Execute, Optimize). One short phrase per area. Do not list the brand's own products or services as capabilities.
+{brand_ctx}{workspace_ctx}{operational_ctx}
+Be mobile-first by default: short lines, one idea per line, no dense paragraphs. When the user asks what the project/brand/system is about, answer using the known project and operational context above. Do not claim details are unspecified if products, audiences, a brand kit, or connector context are present.
+
+Activated BOS skill context:
+{skill_context or "No activated skill context."}
+
+Deployable capabilities — invoke any by appending its RUN: line after your reply text:
+{modules_str}"""
+
+
+# Preferred model per provider for the conversational intent call
+_CHAT_MODELS: dict[str, str] = {
+    "gemini": "gemini-2.0-flash",
+    "nvidia": "meta/llama-3.3-70b-instruct",
+    "openrouter": "openai/gpt-4o-mini",
+    "openai": "gpt-5.1",
+}
+
+
+async def _complete_cmo_messages(
+    db: AsyncSession,
+    ws,
+    settings,
+    messages: list[dict],
+    plan_mode: bool = False,
+    brand_id: str | None = None,
+) -> str | None:
+    candidates: list[tuple[str, str, str, str | None]] = []
+
+    configured_chat_model = None
+    if ws:
+        configured_chat_model = await resolve_backend_override(db, ws.id, "cmo.main")
+    configured_chat_model = configured_chat_model or get_backend_override(settings, "cmo.main") or parse_model_ref(getattr(settings, "cmo_chat_model", ""))
+    if configured_chat_model and configured_chat_model.modality != "text":
+        logger.error("Configured CMO backend must use text modality, got '%s'", configured_chat_model.modality)
+        return None
+    chat_models = (
+        {configured_chat_model.provider: configured_chat_model.model_id}
+        if configured_chat_model and configured_chat_model.model_id
+        else _CHAT_MODELS
+    )
+
+    def add_candidate(provider: str, model_id: str, key: str, auth_mode: str | None) -> None:
+        identity = (provider, model_id, auth_mode or "platform")
+        if any((p, m, a or "platform") == identity for p, m, _, a in candidates):
+            return
+        candidates.append((provider, model_id, key, auth_mode))
+
+    # Try the operator-configured CMO backend first, but do not let a bad model
+    # override take the whole CMO offline when other credentials are available.
+    if configured_chat_model and configured_chat_model.model_id:
+        provider = configured_chat_model.provider
+        model_id = configured_chat_model.model_id
+        if ws:
+            key, auth_mode = await resolve_stored_provider_credential(db, ws.id, provider, settings, brand_id=brand_id)
+            if key:
+                add_candidate(provider, model_id, key, auth_mode)
+        platform_key = get_platform_key(provider, settings)
+        if platform_key:
+            add_candidate(provider, model_id, platform_key, None)
+
+    if ws:
+        for provider, model_id in _CHAT_MODELS.items():
+            key, auth_mode = await resolve_stored_provider_credential(db, ws.id, provider, settings, brand_id=brand_id)
+            if key:
+                if provider == "openai" and auth_mode == "api_key":
+                    model_id = "gpt-4o-mini"
+                add_candidate(provider, model_id, key, auth_mode)
+
+    for provider, model_id in _CHAT_MODELS.items():
+        platform_key = get_platform_key(provider, settings)
+        if platform_key:
+            add_candidate(provider, model_id, platform_key, None)
+
+    if configured_chat_model and not candidates:
+        logger.error(
+            "Configured CMO_CHAT_MODEL %s/%s has no available credential and no fallback credentials are available",
+            configured_chat_model.provider,
+            configured_chat_model.model_id,
+        )
+
+    for provider, model_id, api_key, auth_mode in candidates:
+        try:
+            adapter = get_adapter(provider, api_key, auth_mode)
+            if plan_mode and hasattr(adapter, "_upgrade_for_thinking"):
+                model_id = adapter._upgrade_for_thinking(model_id)
+                response = await adapter.complete_messages(
+                    messages, model_id, thinking=True, thinking_budget=8000
+                )
+                logger.info("Plan-mode (high-think) via %s/%s", provider, model_id)
+            else:
+                response = await adapter.complete_messages(messages, model_id)
+                logger.info("Chat via %s/%s", provider, model_id)
+            return response.content
+        except Exception as exc:
+            logger.warning("Chat %s/%s failed: %s", provider, model_id, exc)
+
+    return None
+
+
+async def _pending_summary(db: AsyncSession, ws) -> str:
+    """Return a short cross-brand pending decisions summary."""
+    if not ws:
+        return "No workspace configured."
+    from models.run import Run as RunModel
+    pending = (await db.execute(
+        select(RunModel).where(
+            RunModel.workspace_id == ws.id,
+            RunModel.approval_status == "pending",
+            RunModel.status == "completed",
+        ).order_by(RunModel.created_at.desc()).limit(20)
+    )).scalars().all()
+    if not pending:
+        return "No pending decisions right now."
+    def artifact_label(module_id: str) -> str:
+        leaf = module_id.rsplit('.', 1)[-1].replace('_', ' ').replace('-', ' ').title()
+        return f'{leaf} artifact review'
+
+    lines = [f"- {artifact_label(r.module_id)}" for r in pending]
+    return f"{len(pending)} pending decision(s):\n" + "\n".join(lines)
+
+
+@router.post("/chat", response_model=ChatResponse)
+async def chat(
+    body: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    settings = get_settings()
+    ws = await get_singleton(db)
+    pending_plan_action = False  # set True when @klar plan falls through to LLM
+    _resolved_brand_switch: KlarAction | None = None
+
+    # ── Brand-reply detection (before @klar parsing) ──────────────────────────
+    # When the previous AI message asked "Which brand?" and the user replies with
+    # a short plain-text message, resolve the brand and replay the original @klar
+    # command so the request proceeds as if brand_id had been set from the start.
+    if not body.brand_id and ws and body.history:
+        _last_ai = next((h.text for h in reversed(body.history) if h.role == "ai"), "")
+        _last_user = body.message.strip()
+        if ("Which brand" in _last_ai or "which brand" in _last_ai) and len(_last_user.split()) <= 4:
+            _matched = await find_brand_by_name(db, ws.id, _last_user)
+            if _matched:
+                _original_cmd: str | None = None
+                for _i in range(len(body.history) - 1, -1, -1):
+                    _h = body.history[_i]
+                    if _h.role == "ai" and ("Which brand" in _h.text or "which brand" in _h.text):
+                        if _i > 0 and body.history[_i - 1].role == "user":
+                            _original_cmd = body.history[_i - 1].text.strip()
+                        break
+                body = ChatRequest(
+                    message=_original_cmd if _original_cmd else body.message,
+                    history=body.history,
+                    brand_id=str(_matched.id),
+                    campaign_id=body.campaign_id,
+                )
+                _resolved_brand_switch = KlarAction(
+                    action="brand_switch",
+                    data={"brand_id": str(_matched.id), "brand_name": _matched.name},
+                )
+
+    # ── @klar command routing ─────────────────────────────────────────────────
+    if _is_klar_command(body.message):
+        cmd = _parse_klar_command(body.message)
+
+        if cmd["action"] == "brand_switch":
+            if not ws:
+                return ChatResponse(reply="No workspace configured.")
+            brand = await find_brand_by_name(db, ws.id, cmd["brand_name"])
+            if not brand:
+                all_brands = (await db.execute(
+                    select(Brand).where(Brand.workspace_id == ws.id).order_by(Brand.name.asc())
+                )).scalars().all()
+                names = ", ".join(b.name for b in all_brands) or "none created yet"
+                return ChatResponse(reply=f"I can’t find {cmd['brand_name']}.\n\nAvailable:\n{names}")
+            bj = brand.brand_json or {}
+            summary_parts = [p for p in [bj.get("voice"), bj.get("tone")] if p]
+            summary = f" — {', '.join(summary_parts)}" if summary_parts else ""
+            return ChatResponse(
+                reply=f"Switched to {brand.name}{summary}.\n\nWorkspace context loaded.",
+                klar_action=KlarAction(
+                    action="brand_switch",
+                    data={"brand_id": str(brand.id), "brand_name": brand.name},
+                ),
+            )
+
+        if cmd["action"] == "list_brands":
+            if not ws:
+                return ChatResponse(reply="No workspace configured.")
+            all_brands = (await db.execute(
+                select(Brand).where(Brand.workspace_id == ws.id).order_by(Brand.name.asc())
+            )).scalars().all()
+            if not all_brands:
+                return ChatResponse(reply="No brands yet.\n\nCreate one in Admin → Brands.")
+            lines = [f"- {b.name}" for b in all_brands]
+            return ChatResponse(
+                reply="Brands:\n" + "\n".join(lines),
+                klar_action=KlarAction(
+                    action="brand_list",
+                    data={"brands": [{"id": str(b.id), "name": b.name} for b in all_brands]},
+                ),
+            )
+
+        if cmd["action"] == "pending":
+            summary = await _pending_summary(db, ws)
+            return ChatResponse(
+                reply=summary,
+                klar_action=KlarAction(action="pending_summary", data={}),
+            )
+
+        if cmd["action"] == "plan":
+            if not ws:
+                return ChatResponse(reply="No workspace configured.")
+
+            plan_desc = cmd.get("description") or "the current campaign priority"
+            resolved_brand_id = body.brand_id
+            resolved_brand: Brand | None = await resolve_brand(db, resolved_brand_id)
+
+            if not resolved_brand:
+                # Generic brand resolution: if the plan text includes a known brand name,
+                # use it. Otherwise single brand auto-selects; multiple brands ask once.
+                named_brand = await find_brand_by_name(db, ws.id, plan_desc) if plan_desc else None
+                if named_brand:
+                    resolved_brand = named_brand
+                    resolved_brand_id = str(named_brand.id)
+                else:
+                    all_brands_rows = (await db.execute(
+                        select(Brand).where(Brand.workspace_id == ws.id).order_by(Brand.name.asc())
+                    )).scalars().all()
+                    if len(all_brands_rows) == 1:
+                        resolved_brand = all_brands_rows[0]
+                        resolved_brand_id = str(resolved_brand.id)
+                    elif len(all_brands_rows) > 1:
+                        names = ", ".join(b.name for b in all_brands_rows)
+                        return ChatResponse(
+                            reply=f"Which brand are we working on?\n\nAvailable: {names}",
+                            klar_action=KlarAction(action="pending_klar", data={"command": body.message}),
+                        )
+                    else:
+                        return ChatResponse(reply="No brands set up yet.\n\nCreate one in Admin → Brands first.")
+
+            plan_module_id = _marketing_plan_module_id()
+            if not plan_module_id:
+                return ChatResponse(reply="The planning specialist isn’t installed yet.\n\nI can still discuss the plan in chat.")
+
+            try:
+                conversation_lines = [
+                    f"{h.role.upper()}: {h.text}" for h in body.history[-8:]
+                ] + [f"USER: {body.message}"]
+                brief = await _brand_scoped_brief(db, ws, resolved_brand, {
+                    "request": plan_desc,
+                    "objective": plan_desc,
+                    "conversation_context": "\n".join(conversation_lines),
+                    "constraints": "Create a draft plan artifact only. Do not execute, spend, send, publish, or mutate external systems.",
+                })
+                result = await _execute_module(
+                    db,
+                    ws,
+                    plan_module_id,
+                    brief,
+                    settings,
+                    brand_id=UUID(resolved_brand_id) if resolved_brand_id else None,
+                )
+            except Exception as exc:
+                logger.error("Native marketing plan failed: %s", exc)
+                return ChatResponse(reply="I couldn’t create the plan artifact yet.\n\nCheck provider readiness, then try again.")
+
+            return ChatResponse(
+                reply=f"Plan draft is ready for {resolved_brand.name if resolved_brand else 'this brand'}.\n\nReview it in Workspace.",
+                runs=[result],
+                run=result,
+                artifact_refs=[artifact_ref_from_run(result)],
+                module_id=plan_module_id,
+                klar_action=KlarAction(
+                    action="brand_switch",
+                    data={"brand_id": resolved_brand_id, "brand_name": resolved_brand.name},
+                ) if resolved_brand and resolved_brand_id else None,
+            )
+        else:
+            pending_plan_action = False
+
+        if cmd["action"] == "confirm":
+            if not body.brand_id and ws:
+                all_brands_rows = (await db.execute(
+                    select(Brand).where(Brand.workspace_id == ws.id)
+                )).scalars().all()
+                if len(all_brands_rows) == 1:
+                    body = ChatRequest(message=body.message, history=body.history,
+                                       brand_id=str(all_brands_rows[0].id), campaign_id=body.campaign_id)
+                else:
+                    return ChatResponse(reply="Which brand are we working on?")
+            # Extract the most recent plan text from history (last AI turn).
+            plan_text = next(
+                (h.text for h in reversed(body.history) if h.role == "ai" and len(h.text) > 80),
+                None,
+            )
+            # Derive a campaign name: first line of plan or fallback
+            if plan_text:
+                first_line = plan_text.strip().splitlines()[0].lstrip("#- ").strip()
+                campaign_name = first_line[:120] if first_line else "Campaign"
+            else:
+                campaign_name = "Campaign"
+
+            brand_uuid = UUID(body.brand_id) if body.brand_id else None
+            new_campaign = Campaign(
+                workspace_id=ws.id,
+                brand_id=brand_uuid,
+                name=campaign_name,
+                status="active",
+            )
+            db.add(new_campaign)
+            await db.flush()
+
+            intent = IntentContract(
+                contract_type="campaign",
+                version="1.0.0",
+                description=plan_text or campaign_name,
+                criteria_json=[],
+                scoring_json={},
+            )
+            db.add(intent)
+            await db.flush()
+
+            db.add(CampaignIntent(
+                campaign_id=new_campaign.id,
+                intent_contract_id=intent.id,
+                active=True,
+            ))
+            await db.commit()
+
+            return ChatResponse(
+                reply=f"Plan confirmed.\n\n{campaign_name} is active.\n\nUse @klar run when you’re ready.",
+                klar_action=KlarAction(
+                    action="plan_confirmed",
+                    data={"campaign_id": str(new_campaign.id), "campaign_name": campaign_name},
+                ),
+            )
+
+        if cmd["action"] == "run":
+            if not body.brand_id and not body.campaign_id:
+                return ChatResponse(reply="Which brand or campaign are we running?\n\nUse @klar plan first, or send the campaign name.")
+            target = cmd.get("target", "").strip()
+
+            # Resolve campaign: explicit campaign_id in request, or lookup by name from target
+            campaign_uuid: UUID | None = None
+            resolved_campaign_name = target or "this campaign"
+            if body.campaign_id:
+                try:
+                    campaign_uuid = UUID(body.campaign_id)
+                    c_row = (await db.execute(select(Campaign).where(Campaign.id == campaign_uuid))).scalar_one_or_none()
+                    if c_row:
+                        resolved_campaign_name = c_row.name
+                except (ValueError, TypeError):
+                    pass
+            elif target:
+                c_row = (await db.execute(
+                    select(Campaign).where(Campaign.name.ilike(f"%{target}%")).order_by(Campaign.created_at.desc())
+                )).scalar_one_or_none()
+                if c_row:
+                    campaign_uuid = c_row.id
+                    resolved_campaign_name = c_row.name
+
+            # Fall through to LLM routing but with campaign context injected
+            body = ChatRequest(
+                message=f"[RUN MODE] Execute the planned modules for campaign: {resolved_campaign_name}. Dispatch all relevant marketing modules now.",
+                history=body.history,
+                brand_id=body.brand_id,
+                campaign_id=str(campaign_uuid) if campaign_uuid else body.campaign_id,
+            )
+
+        if cmd["action"] == "evaluate":
+            target = cmd.get("target") or "the current campaign"
+            return ChatResponse(
+                reply=f"Evaluate mode is staged.\n\nPhase 5 will score {target}: pass, fail, or escalate.\n\nThe intent hook is already live.",
+                klar_action=KlarAction(action="evaluate_stub", data={"target": target}),
+            )
+
+        elif cmd["action"] == "org":
+            return ChatResponse(
+                reply="Back to org level.\n\nNo brand is active.\nYou’re talking cross-brand now.",
+                klar_action=KlarAction(action="brand_clear", data={}),
+            )
+
+        elif cmd["action"] == "brief":
+            return ChatResponse(
+                reply="Your daily brief is in Stream.\n\nCheck signals, approvals, and campaign status there.",
+            )
+
+        elif cmd["action"] == "directive" and not body.brand_id:
+            return ChatResponse(reply="Which brand are we working on?")
+
+    active_brand = await resolve_brand(db, body.brand_id)
+
+    routed = route_chat_skills(body.message)
+    if not routed.module_ids and len(body.message.strip().split()) <= 5 and body.history:
+        recent_user_context = "\n".join(h.text for h in body.history[-6:] if h.role == "user")
+        contextual_routed = route_chat_skills((recent_user_context + "\n" + body.message).strip())
+        if contextual_routed.module_ids:
+            routed = contextual_routed
+
+    modules = _chat_modules()
+    user_message = body.message
+    activated_skill_ids = [route.skill.id for route in routed.routes]
+    memory_slots = sorted({slot for route in routed.routes for slot in route.skill.memory_slots})
+
+    # Plan mode: front-load the plan_mode skill and its full resource memory set.
+    # This replaces the plain PLAN MODE instruction injected into body.message
+    # with a governed skill contract that declares all context slots explicitly.
+    if pending_plan_action:
+        plan_skill_manifest = next(
+            (s for s in list_skill_manifests() if s.id == "workspace.plan_mode"), None
+        )
+        if plan_skill_manifest and plan_skill_manifest.id not in activated_skill_ids:
+            activated_skill_ids = [plan_skill_manifest.id] + activated_skill_ids
+            memory_slots = sorted(set(memory_slots) | set(plan_skill_manifest.memory_slots))
+
+    hydrated_memory = await hydrate_memory_slots(db, ws, memory_slots)
+    loaded_skills = [get_skill(skill_id) for skill_id in activated_skill_ids]
+    skill_sections = [
+        format_activated_skill(skill)
+        for skill in loaded_skills
+        if skill is not None
+    ]
+    skill_context = "\n\n".join(skill_sections + ["## Hydrated Workspace Memory\n" + compile_memory_context(hydrated_memory)])
+
+    system = await _build_system_prompt(db, ws, skill_context, brand=active_brand)
+    messages: list[dict] = [{"role": "system", "content": system}]
+    for h in body.history[-8:]:
+        messages.append({"role": "user" if h.role == "user" else "assistant", "content": h.text})
+    messages.append({"role": "user", "content": user_message})
+
+    raw_reply = await _complete_cmo_messages(db, ws, settings, messages, plan_mode=pending_plan_action, brand_id=body.brand_id)
+
+    if raw_reply is None:
+        logger.error("All chat providers failed — returning error to user")
+        return ChatResponse(
+            reply="I’m having trouble connecting right now.\n\nCheck provider settings, or try again in a moment.",
+            runs=[],
+            run=None,
+            module_id=None,
+        )
+
+    triggered_modules = _RUN_RE.findall(raw_reply)
+    reply_text = _strip_run_directives(raw_reply)
+
+    # Plan mode: hard-zero all dispatch.
+    if pending_plan_action:
+        triggered_modules = []
+    else:
+        allowed_module_ids = set(m["id"] for m in modules)
+        invalid = [mid for mid in triggered_modules if mid not in allowed_module_ids]
+        if invalid:
+            logger.warning("LLM triggered modules outside allowed set — skipping: %s", invalid)
+        triggered_modules = [mid for mid in triggered_modules if mid in allowed_module_ids]
+        logger.warning("CMO dispatch: %s", triggered_modules)
+
+    run_results: list[RunResponse] = []
+
+    if triggered_modules and ws:
+        try:
+            conversation_lines = [
+                f"{h.role.upper()}: {h.text}" for h in body.history[-12:]
+            ] + [f"USER: {body.message}"]
+            chat_overrides = {"conversation_context": "\n".join(conversation_lines)}
+            brief = await _brand_scoped_brief(db, ws, active_brand, chat_overrides)
+            active_campaign_uuid: UUID | None = None
+            if body.campaign_id:
+                try:
+                    active_campaign_uuid = UUID(body.campaign_id)
+                except (ValueError, TypeError):
+                    pass
+            active_brand_uuid: UUID | None = UUID(body.brand_id) if body.brand_id else None
+
+            for module_id in triggered_modules:
+                try:
+                    module_brief = dict(brief)
+                    result = await _execute_module(
+                        db, ws, module_id, module_brief, settings,
+                        campaign_id=active_campaign_uuid,
+                        brand_id=active_brand_uuid,
+                    )
+                    run_results.append(result)
+                except Exception as exc:
+                    logger.error("Module dispatch failed for %s: %s", module_id, exc)
+        except Exception as exc:
+            logger.error("Brief resolution failed: %s", exc)
+
+    if pending_plan_action:
+        _final_klar = KlarAction(
+            action="plan_draft",
+            data={
+                "brand_id": body.brand_id,
+                "brand_name": active_brand.name if active_brand else None,
+            },
+        )
+    else:
+        _final_klar = _resolved_brand_switch
+
+    return ChatResponse(
+        reply=reply_text,
+        runs=run_results,
+        run=run_results[0] if run_results else None,
+        artifact_refs=[artifact_ref_from_run(run) for run in run_results],
+        module_id=triggered_modules[0] if triggered_modules else None,
+        klar_action=_final_klar,
+    )
+
+
+@router.post("/chat/runs/{run_id}/revise", response_model=ChatResponse, status_code=201)
+async def chat_revise_run(
+    run_id: str,
+    body: ChatReviseRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    settings = get_settings()
+    ws = await get_singleton(db)
+    if not ws:
+        raise HTTPException(status_code=412, detail="Workspace not initialized")
+
+    try:
+        run_uuid = UUID(run_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid run ID format")
+
+    row = (
+        await db.execute(
+            select(Run, RunResult)
+            .join(RunResult, RunResult.run_id == Run.id, isouter=True)
+            .where(Run.id == run_uuid)
+        )
+    ).one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    original_run, original_result = row
+    previous_content = original_result.content if original_result else ""
+    feedback = body.feedback.strip() or "Make this draft stronger, clearer, and more conversion-focused while preserving the original intent."
+    modules = _chat_modules()
+    module_cls = next((m for m in modules if m["id"] == original_run.module_id), None)
+    channel = (module_cls.get("platform_hint") if module_cls else original_run.module_id.rsplit(".", 1)[-1]) or "asset"
+
+    revise_brand: Brand | None = await resolve_brand(db, str(original_run.brand_id) if original_run.brand_id else None)
+    system = await _build_system_prompt(db, ws, brand=revise_brand) + """
+
+Revision thread mode:
+- The user is giving feedback on an existing generated asset.
+- Respond as the CMO in 1–2 short mobile-friendly lines about the revision you are making.
+- Do not mention module IDs, RUN syntax, APIs, or providers.
+- Do not include the revised asset text; it will be rendered separately."""
+    messages: list[dict] = [{"role": "system", "content": system}]
+    for h in body.history[-8:]:
+        messages.append({"role": "user" if h.role == "user" else "assistant", "content": h.text})
+    messages.append({
+        "role": "user",
+        "content": (
+            f"Revise this {channel} draft.\n\n"
+            f"Previous draft:\n{previous_content}\n\n"
+            f"My feedback:\n{feedback}"
+        ),
+    })
+
+    raw_reply = await _complete_cmo_messages(db, ws, settings, messages, brand_id=str(original_run.brand_id) if original_run.brand_id else None)
+    reply_text = (_strip_run_directives(raw_reply) if raw_reply else "Revised.\n\nReview the updated version in Workspace.")
+
+    original_run.approval_status = "rejected"
+    original_run.feedback = feedback
+    await db.flush()
+
+    brief = await _brand_scoped_brief(db, ws, revise_brand, {
+        "revision_context": (
+            "This is a revision request from a CMO review thread. Rewrite the asset using the feedback below; "
+            "do not explain the changes, only output the revised asset.\n\n"
+            f"Previous draft:\n{previous_content}\n\n"
+            f"Requested change:\n{feedback}"
+        )
+    })
+    revised = await _execute_module(db, ws, original_run.module_id, brief, settings)
+
+    new_run = (await db.execute(select(Run).where(Run.id == UUID(revised.run_id)))).scalar_one_or_none()
+    if new_run:
+        new_run.parent_run_id = original_run.id
+        await db.commit()
+
+    return ChatResponse(
+        reply=reply_text,
+        runs=[revised],
+        run=revised,
+        artifact_refs=[artifact_ref_from_run(revised)],
+        module_id=original_run.module_id,
+    )

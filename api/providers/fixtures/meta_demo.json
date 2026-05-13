@@ -1,0 +1,150 @@
+{
+  "ad_accounts": [
+    {
+      "account_id": "act_1122334455",
+      "name": "Klaroha Demo Meta Ads",
+      "currency": "USD"
+    }
+  ],
+  "campaigns": [
+    {
+      "account_id": "act_1122334455",
+      "campaign_id": "238500001",
+      "campaign": "Prospecting — Clarity Offer",
+      "status": "ACTIVE",
+      "date_range": "LAST_7_DAYS",
+      "spend": 424.30,
+      "impressions": 70620,
+      "clicks": 1278,
+      "conversions": 20,
+      "ctr": 1.81,
+      "cpa": 21.22,
+      "recommendation": "Refresh the primary creative before increasing budget; CTR is trailing the account average."
+    },
+    {
+      "account_id": "act_1122334455",
+      "campaign_id": "238500002",
+      "campaign": "Retargeting — Demo Request",
+      "status": "ACTIVE",
+      "date_range": "LAST_7_DAYS",
+      "spend": 188.14,
+      "impressions": 21790,
+      "clicks": 706,
+      "conversions": 19,
+      "ctr": 3.24,
+      "cpa": 9.90,
+      "recommendation": "Keep live; test a controlled 10-15% budget increase after creative refresh."
+    }
+  ],
+  "pages": [
+    {
+      "page_id": "9988776655",
+      "name": "Klaroha Demo Page",
+      "followers": 12840
+    }
+  ],
+  "posts": [
+    {
+      "page_id": "9988776655",
+      "post_id": "9988776655_101",
+      "message": "Marketing, engineered for clarity.",
+      "created_time": "2026-05-07T14:00:00Z",
+      "reach": 8420,
+      "reactions": 312,
+      "comments": 11,
+      "shares": 29
+    },
+    {
+      "page_id": "9988776655",
+      "post_id": "9988776655_102",
+      "message": "All the signal. None of the noise.",
+      "created_time": "2026-05-08T14:00:00Z",
+      "reach": 6810,
+      "reactions": 244,
+      "comments": 7,
+      "shares": 18
+    }
+  ],
+  "comments": [
+    {
+      "page_id": "9988776655",
+      "post_id": "9988776655_101",
+      "comment_id": "c_001",
+      "author": "Maria S.",
+      "text": "How much does this cost for a small clinic?",
+      "status": "unresolved",
+      "classification": "buying_intent",
+      "recommendation": "Draft a pricing-path reply and invite a demo."
+    },
+    {
+      "page_id": "9988776655",
+      "post_id": "9988776655_101",
+      "comment_id": "c_002",
+      "author": "Ben T.",
+      "text": "Can it handle Google and Facebook together?",
+      "status": "unresolved",
+      "classification": "buying_intent",
+      "recommendation": "Reply that Klaroha consolidates multi-channel signal and approvals."
+    },
+    {
+      "page_id": "9988776655",
+      "post_id": "9988776655_101",
+      "comment_id": "c_003",
+      "author": "Ava L.",
+      "text": "Do you support Meta ad reports?",
+      "status": "unresolved",
+      "classification": "buying_intent",
+      "recommendation": "Confirm reporting support and offer to show a sample."
+    },
+    {
+      "page_id": "9988776655",
+      "post_id": "9988776655_102",
+      "comment_id": "c_004",
+      "author": "Nico R.",
+      "text": "Is this for agencies too?",
+      "status": "unresolved",
+      "classification": "buying_intent",
+      "recommendation": "Reply with the multi-brand/operator positioning."
+    },
+    {
+      "page_id": "9988776655",
+      "post_id": "9988776655_102",
+      "comment_id": "c_005",
+      "author": "Dana P.",
+      "text": "Can I book a call?",
+      "status": "unresolved",
+      "classification": "buying_intent",
+      "recommendation": "Share approved booking CTA."
+    },
+    {
+      "page_id": "9988776655",
+      "post_id": "9988776655_101",
+      "comment_id": "c_006",
+      "author": "Chris M.",
+      "text": "Your signup link failed for me.",
+      "status": "unresolved",
+      "classification": "support_risk",
+      "recommendation": "Escalate for manual support review before replying."
+    },
+    {
+      "page_id": "9988776655",
+      "post_id": "9988776655_102",
+      "comment_id": "c_007",
+      "author": "Lea G.",
+      "text": "I sent a message and no one replied.",
+      "status": "unresolved",
+      "classification": "support_risk",
+      "recommendation": "Escalate; apologize only after confirming inbox state."
+    },
+    {
+      "page_id": "9988776655",
+      "post_id": "9988776655_102",
+      "comment_id": "c_008",
+      "author": "Promo Bot",
+      "text": "Earn followers fast visit spam.example",
+      "status": "unresolved",
+      "classification": "spam",
+      "recommendation": "Mark as spam/hide after approval."
+    }
+  ]
+}

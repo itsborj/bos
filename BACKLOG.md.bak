@@ -1,0 +1,507 @@
+# BOS — Backlog
+
+**Last updated:** 2026-05-08
+**Active phase:** Phase 3 — Frontend / CMO Command Hub refinement / Skill Contract preparation
+---
+## How to Use This
+- Pick the topmost `[ ]` item in the current phase and work it.
+- Mark `[~]` when started, `[x]` when done.
+- Move to the next phase only when all items in the current phase are `[x]`.
+- Add new items at the bottom of the relevant phase. Never reorder done items.
+- `[!]` = blocked — note the blocker inline.
+## Legend
+```
+[ ]  Todo
+[~]  In Progress
+[x]  Done
+[!]  Blocked (note reason)
+[-]  Deferred (moved out of scope for this phase)
+## Phase 0 — Foundation ✓
+### Reference & Planning
+- [x] POC learnings extracted from cl_dm_os
+- [x] Unified project brief written (PROJECT_BRIEF.md)
+- [x] System shape sample agreed (sample/bos_v1.md)
+- [x] BACKLOG.md initialized
+- [x] CLAUDE.md written
+### Repo Structure
+- [x] Create folder skeleton (api/, web/, migrations/, templates/, providers/)
+- [x] .env.example with all required vars documented
+- [x] .gitignore
+### Docker + Infrastructure
+- [x] docker-compose.yml — services: api, db (postgres:16), web, nginx
+- [x] nginx.conf — proxy api:8000, web:3000
+- [x] Verify `docker compose up` starts all services
+### Database
+- [x] PostgreSQL connection confirmed from api container
+- [x] Migration tooling chosen (Alembic)
+- [x] Migration 0001: workspaces table
+- [x] Migration 0002: core tables (products, audiences, campaigns)
+- [x] Migration 0003: provider_keys table
+- [x] Migration 0004: capabilities + model_options tables
+- [x] Migration 0005: runs, run_attempts, run_results, run_traces tables
+### API Skeleton
+- [x] FastAPI project initialized
+- [x] GET / returns version + health + db status
+- [x] Basic API key auth middleware (header: X-API-Key)
+- [x] Error response shape standardized (code, message, details)
+- [x] Request/response logging middleware
+## Phase 1 — Core API + Data Layer ✓
+### Workspace
+- [x] GET /workspace
+- [x] PUT /workspace/brand
+- [x] PUT /workspace/products (create + update)
+- [x] PUT /workspace/audiences (create + update)
+- [x] Workspace context auto-resolves on run (brief inherits from workspace)
+### Module Registry
+- [x] Module discovery via directory scan (modules/marketing/)
+- [x] GET /verticals
+- [x] GET /verticals/marketing/modules
+- [x] GET /modules/{module_id}
+- [x] First module file: marketing.ad_copy.facebook (mock)
+- [x] Second module file: marketing.ad_copy.twitter (mock)
+- [x] Third module file: marketing.ad_copy.google (mock)
+### Capabilities
+- [x] Capability profiles loaded from DB (seeded via migration)
+- [x] GET /capabilities
+- [x] Router: filter eligible candidates, rank by policy weights
+### Runs — Mock Mode
+- [x] POST /runs — triggers module, runs mock executor, stores result
+- [x] Run stored in PostgreSQL with full BITE envelope
+- [x] GET /runs — list with filters (module_id, status, date range)
+- [x] GET /runs/{run_id} — full trace
+- [x] run_summary equivalent in run trace
+### Auth
+- [x] API key generation endpoint (POST /auth/keys)
+- [x] API key validated on all protected endpoints
+- [x] Keys stored hashed in PostgreSQL
+## Phase 2 — Provider Layer + BYOK ✓
+### Platform Mode — OpenRouter Adapter
+- [x] Provider adapter interface defined
+- [x] OpenRouter adapter implemented
+- [x] Live execution wired into executor
+- [x] Response normalized to same shape as mock
+- [ ] Real run: brief → OpenRouter → ad copy stored (needs PLATFORM_OPENROUTER_KEY in .env)
+### BYOK
+- [x] POST /providers/keys — register key (AES-256 encrypted)
+- [x] DELETE /providers/keys/{provider}
+- [x] GET /providers/keys — list registered providers (key value never returned)
+- [x] BYOK execution path in executor
+- [x] POST /providers/check — verify key + connectivity
+- [ ] Real BYOK run: user's own OpenRouter key → ad copy stored (needs real key)
+### Billing
+- [x] Billing ledger tables confirmed
+- [x] sell_price computed (provider_cost × MARKUP) for platform mode
+- [x] BYOK runs: provider_cost tracked, sell_price = null
+- [x] GET /billing/summary
+- [x] GET /billing/runs/{run_id}
+### Additional Adapters
+- [x] Gemini adapter (gemini-2.0-flash, gemini-1.5-pro)
+- [x] NVIDIA adapter (llama-3.1-8b, llama-3.3-70b)
+- [-] Anthropic adapter — deferred; routed via OpenRouter
+### Bug Fixes
+- [x] BUG: Google Ads text module missing headline/description preview and block in API response
+- [x] BUG: failed run mode always stored as "mock"
+- [x] BUG: POST /providers/check false positive on OpenRouter
+- [x] BUG: GET /runs date-range filter not implemented
+- [x] BUG: POST /providers/check returns "unknown" for gemini/nvidia
+- [x] BUG: twitter template doesn't enforce product_name
+- [x] QUALITY: gemini-2.0-flash quality_tier upgraded to "high" (migration 008)
+- [x] BUG: no fallback to next candidate on provider error
+- [x] MISSING: GET /providers endpoint
+## Phase 3 — Frontend (active)
+**Goal:** Non-technical user directs CMO, reviews collateral bundles, approves or requests changes, reads performance reports — all from the web interface. Same runs triggerable via API.
+### Pre-work (API gaps)
+- [x] Workspace name: PUT /workspace endpoint
+- [x] Auth bootstrap: POST /auth/bootstrap
+- [x] Pagination metadata: GET /runs returns total count
+- [x] Provider auth (pi-style): OAuth/login credential storage + /providers/login start/complete + executor credential resolution
+- [x] OpenAI Chat provider login: browser auth flow + callback completion + executor/chat routing support
+### Stack
+- [x] React + Vite chosen
+- [x] Decision documented in CLAUDE.md
+- [x] Frontend project initialized in web/
+- [x] Dev server wired into docker-compose
+### CMO Chat — API
+- [x] POST /chat — conversational endpoint with real LLM routing
+- [x] complete_messages() on OpenAICompatAdapter — multi-turn message history support (all adapters inherit)
+- [x] BYOK-first provider selection for chat (gemini → nvidia → platform openrouter → mock)
+- [x] _RUN_RE regex parses all RUN: triggers in LLM reply (not just last one)
+- [x] Multi-module dispatch — runs[] in ChatResponse; brief resolved once, all triggered modules executed
+- [x] System prompt scopes RUN: to current message only — prevents re-triggering from conversation history
+- [x] Infrastructure invisibility enforced — CMO never exposes module IDs, providers, or API terms in reply
+- [x] Mock fallback with warning log when all providers fail
+### CMO Chat — Frontend
+- [x] CmoChat.tsx send() wired to POST /chat (api.chat())
+- [x] buildHistory() snapshots conversation before each send (excludes typing indicator and run cards)
+- [x] Typing indicator while awaiting response
+- [x] Reply text rendered as CMO message; run cards rendered per result in runs[]
+- [x] Run card: platform label, content preview, self-check status, execution mode, link to full result
+- [x] BUG FIX: isMounted guard removed — was silently discarding responses in React Strict Mode
+- [x] BUG: frontend shell renders blank / nothing loads after OpenAI provider auth changes
+- [x] Fix OpenAI auth execution routing: use the actual ChatGPT-account-supported endpoint/model path after successful provider login
+### Onboarding
+- [x] GET /onboarding/status — workspace configured, per-provider connection status (byok/platform/none), per-module readiness via capability router, all_ready boolean, issues[]
+- [x] Migration 011: onboarding.brand_profiling capability + gemini/nvidia/openrouter model options
+- [x] onboarding.brand_setup module — transforms brand inputs into structured JSON profile (brand_name, voice, tone, values[], products[], audiences[]); called during initial project/client setup only
+- [x] onboarding/brand_setup.j2 template — synthesizes raw brand inputs with slot-by-slot guidance; outputs valid JSON only
+- [x] BrandSetupModule.self_check — validates JSON parseable, required top-level fields present, products[] non-empty with name/tagline/benefits, audiences[] non-empty with name/demographics/pain_points
+- [x] onboarding.brand_guidelines module — generates required Campaign Brand Kit for cohesive multi-platform marketing campaigns
+- [x] Required Campaign Brand Kit onboarding artifact — store as tagged PostgreSQL document, not hard-coded design columns
+### Surface-Agnostic Component System
+**Must be built before collateral bundle work. All block rendering goes through this system.**
+- [x] `SurfaceContext.ts` — define surface types: panel / full-screen / chat-inline / mobile-card
+- [x] `SurfaceContext` provider component — wraps any rendering surface, exposes layout constraints
+- [x] `BlockRenderer.tsx` — reads `BriefingBlock.layout_hint` → selects and renders correct component
+- [x] `PanelSurface.tsx` — 420px right drawer constraints
+- [x] `FullScreenSurface.tsx` — full viewport constraints
+- [x] `ChatInlineSurface.tsx` — max 640px, inline in conversation
+- [x] `MobileCardSurface.tsx` — full-width swipeable card
+### Block Components
+**Surface-agnostic. Data in, render out. No container knowledge.**
+- [x] `NarrativeBlock.tsx` — CMO-authored text, organizational voice
+- [x] `AlertBlock.tsx` — priority alert with action link
+- [x] `ModuleCard.tsx` — health badge, channels, run count, latency, last run
+- [x] `PerformanceReport.tsx` — stats grid + placeholder chart + campaign table; adapts layout via SurfaceContext
+  - panel: 2-col stats + compact table
+  - full-screen: 4-col stats + chart + detailed table with channel tabs (Google Ads / Social / Consolidated)
+  - mobile-card: single stat per swipe or summary card
+- [x] `ApprovalBundle.tsx` — platform-accurate preview + copy panel + approve/request changes
+  - Variants: Google Search (SERP render), Google Display (banner dimensions), Facebook Feed, Instagram Feed, Instagram Story, Email (inbox + body), Pinterest
+### Platform-Accurate Preview Components
+**Sub-components of ApprovalBundle. Each renders the channel exactly as the end user sees it.**
+- [x] `GoogleSearchPreview.tsx` — SERP format: Ad label, green URL, blue headline, description
+- [x] `GoogleDisplayPreview.tsx` — banner at stated dimensions with creative placeholder
+- [x] `FacebookFeedPreview.tsx` — page avatar, sponsored, copy, creative, CTA, reactions
+- [x] `InstagramFeedPreview.tsx` — username, square creative, actions, caption
+- [x] `InstagramStoryPreview.tsx` — vertical full-bleed, swipe-up zone
+- [x] `EmailPreview.tsx` — inbox row (subject + preheader) then full body
+- [x] `PinterestPreview.tsx` — vertical pin, title, description
+### Web UI — Shell
+- [x] Sidebar: conversation history list, pending decisions pill, Settings link, Workspace link
+- [x] CMO center: full-width chat shell (conversation history + input)
+- [x] CMO messages render NarrativeBlock, AlertBlock, PerformanceReport (chat-inline surface), ApprovalBundle (chat-inline surface)
+- [x] Pending decisions pill: live count from decision_needed blocks; click opens Workspace panel
+- [x] Workspace sliding panel: opens from right (420px), Campaigns only; Brand Kit, Modules, and Reports moved to Admin Workspace
+- [x] Settings modal overlay: tabs = Providers & BYOK / API Usage / Run History
+### Web UI — Workspace Panel Tabs
+- [!] Campaigns tab: active campaigns list → past campaigns list; click to expand detail (BLOCKED: awaits Phase 4 campaigns API)
+- [x] Modules tab moved to Admin Workspace; data from GET /verticals/marketing/modules
+- [!] Reports tab moved to Admin Workspace with channel sub-tabs (BLOCKED: Phase 4 dependency)
+### Web UI — Settings Modal Tabs
+- [x] Providers & BYOK tab: per-provider rows — BYOK/Platform badge, Add/Remove key action (live API data)
+- [x] API Usage tab: token consumption, cost per run (live from GET /billing/summary)
+- [x] Run History tab: every module run — module ID, status, timestamp (live from GET /runs)
+### Mobile UI
+- [x] Stream tab: MobileCardSurface wrapping BriefingBlocks ordered by priority; swipeable
+- [x] CMO tab: full-screen conversation interface (bos-cmo responsive layout)
+- [!] Workspace tab: campaigns drill-down (BLOCKED: carries over to Phase 4)
+### Existing Pages (carry-forward, update to new component system)
+- [x] Dashboard / home
+- [x] Workspace setup
+- [x] Provider status
+- [x] Module browser
+- [x] Run a module
+- [x] Run result
+- [x] Run history
+- [x] Ops screen: add Provider·Model and Latency columns to module health table
+- [!] Intelligence screen: channel performance and product comparison tables (BLOCKED: Phase 4 dependency)
+- [x] History screen: add Provider, Tokens, Cost columns; add Campaign column (Phase 4 dependency)
+- [x] Settings screen: provider latency display (requires backend latency_ms in GET /providers)
+### Stream + Intent
+- [x] Intent contract storage (migration 009, models, CRUD, /intents router)
+- [x] Stream generation (block generators, types, builder)
+- [x] Chat agent integration — `clients/claude/` scaffold
+### Bug Fixes (Phase 3)
+- [x] BUG: CMO answers capability questions like customer support/VA and generic sample ads bypass native channel output
+- [x] BUG: Facebook plan/post chat requests produce generic CMO prose instead of dispatching platform-native module output
+- [x] Update Klaroha brand docs to retain primary tagline Marketing, Engineered for Clarity
+- [x] Add long Klaroha brand guideline/brief document to platform context
+- [x] Update Klaroha workspace positioning from stale generic marketing context to approved demand-capture strategy
+- [x] BUG: CMO recommends existing stored audience as a new market segment during positioning discussion
+- [x] BUG: CMO chat strict backend override fails all chat instead of falling back to another live provider
+- [x] BUG: Provider Access shows contradictory state like OpenAI Error while last check is connected
+- [x] UX: Admin Provider Access information is scattered and hard to scan
+- [x] BUG: Provider settings do not expose live/check/last-used status or model options, making broken CMO routing hard to diagnose
+- [x] BUG: Google Ads performance run renders as approval/copy bundle with raw JSON instead of platform-style performance report
+- [x] BUG: MCP connector context is hardcoded in CMO prompt instead of registry-driven for omnichannel scale
+- [x] BUG: CMO LLM lacks operational connector context for MCP/system questions and asks user what MCP means
+- [x] BUG: Google Ads MCP/performance requests like "check mcp for google ads" do not trigger the analytics module and CMO hallucinates MCP meaning
+- [x] BUG: Campaign Brand Kit approval is not surfaced in the primary Workspace/pending-decision UX
+- [x] BUG: Admin onboarding Step 3 shows Campaign Brand Kit title/status but not contents after approval
+- [x] BUG: Admin module browser Run button points to non-routed /settings/run instead of manually triggering POST /runs
+- [x] BUG: Admin/CMO UX has slow-loading pages; profile route/API timings and remove avoidable slow fetch/render paths
+- [x] BUG: API reload crashes on campaigns router because CampaignSummaryResponse uses BaseModel without import
+- [x] BUG: CMO/Layout frontend build fails because Layout.tsx references missing setPendingCount
+- [x] BUG: GET /onboarding/status returns 500 when module platform_hint is None
+- [x] BUG: admin provider UX only supports raw API keys; OAuth/login providers show wrong connected state and no connect flow
+- [x] BUG: admin pages have weak / inconsistent whitespace and missing dedicated layout styling after setup-first refresh
+- [x] BUG: latest admin styling/update leaves pages rendering as nothing
+- [x] BUG: OpenAI provider login completion fails because encrypted OAuth tokens exceed current provider_keys column length
+- [x] BUG: OpenAI OAuth connection stores successfully but provider check rejects the credential because BOS is using an unsupported Codex model/path for ChatGPT-account auth
+- [x] BUG: CmoChat.tsx imports unused navigate, causing frontend production build failure
+- [x] BUG: CmoChat.tsx link preview wrong route
+- [x] BUG: provider login flow implemented for unused gitlab-duo instead of requested OpenAI auth provider
+- [x] CLEANUP: remove gitlab-duo provider from provider auth flow, admin UI, and project docs
+- [x] BUG: Auth connect button double-mount issue
+- [x] BUG: Error messages showed generic fallback
+- [x] BUG: Chat used hardcoded mock instead of real LLM (provider waterfall had wrong key lookup path)
+- [x] BUG: isMounted.current guard blocked state updates — typing indicator stuck indefinitely in React Strict Mode
+- [x] BUG: Regex _RUN_RE only captured last RUN: trigger — first modules silently dropped on multi-module response
+- [x] BUG: System prompt re-triggered channels from conversation history — user saying "twitter" after earlier facebook/google messages ran all three
+- [x] BUG: No desktop navigation link to return to chat after clicking away or following links
+- [x] BUG: Non-functional "Request Changes" button and "CHANGES REQUESTED" status removed from ApprovalBundle — CMO chat handles feedback
+- [x] BUG: Chat module dispatch ignored user's explicit channel names — triggered all modules instead of only named ones (fixed: strengthened system prompt with examples, strict regex, validation against user's current message, partial match for misspellings like "twit"→"twitter")
+- [x] BUG: Chat module dispatch failed for misspelled/abbreviated channel names (twet, fb) — added channel mapping with abbreviations/misspellings and fallback intent parsing
+- [x] BUG: Chat history lost when navigating away — added localStorage persistence to CmoChat, updated sidebar to show current chat preview, "New" button clears history
+- [x] BUG: Brand Kit generated empty content — regenerated with proper content from brand guidelines (voice, tone, values, products, audiences)
+- [x] BUG: CMO chat couldn't hold proper conversation — removed hardcoded intro/mock replies, made LLM handle everything naturally, system prompt rewritten for conversational CMO persona
+- [x] BUG: CMO chat too verbose — tightened system prompt to 1-2 sentences max, never reveal RUN: syntax, lean executive style
+- [x] BUG: CMO chat broke after lean refactor — LLM stopped outputting RUN: lines, validation logic filtered out follow-ups like "redo both" (fixed: only validate when user EXPLICITLY names channels, trust LLM for context follow-ups)
+- [x] BUG: CMO chat does not call modules when users ask for channel collateral
+- [x] BUG: New CMO chat auto-starts with duplicate scripted greetings
+- [x] BUG: Generated module results need modify/revision thread UX
+- [x] BUG: Revision thread CMO response is scripted instead of LLM-generated
+- [x] BUG: Pending decisions count/list does not link to generated module approvals
+- [x] BUG: New chat clears old discussion from left conversation list
+- [x] BUG: Pending module decisions are lost when navigating away from chat
+- [x] BUG: Workspace approval panel gets crowded by threaded modifications
+- [x] BUG: Workspace Modify action feels generic instead of tied to its module/thread
+- [x] BUG: White page after ApprovalBundle HMR served empty module
+- [x] BUG: CMO chat mechanically triggers modules during discussion questions
+- [x] BUG: CMO chat does not use ingested brand brief/workspace context in discussion — system prompt now includes workspace brand profile, products, audiences, and Campaign Brand Kit excerpt; verified `what is klaroha about?` returns contextual answer with no module runs
+- [x] BUG: CMO chat can leak inline RUN directives and expose non-chat modules — inline RUN directives are stripped from visible replies, chat-dispatchable modules are limited to marketing modules, and `run> explain what klaroha is` no longer triggers runs
+- [x] FEATURE: Add operator-configured model routing for the main CMO chat and per-module action runs via environment variables
+- [x] DOC: Update project brief with corrected MOS/BITE omnichannel directive before code changes
+- [x] FEATURE: Add modality-aware execution backend routing for CMO, modules, and specialized tools
+- [x] FEATURE: Add Admin Module Browser controls for CMO brain and per-module backend overrides
+- [x] UX: Refresh Stream and legacy/settings pages with executive hero cards, stats, and cleaner module/run layouts
+- [x] UX: Rework Stream into TikTok-inspired daily marketing signal feed
+### Skill Contract Preparation
+- [x] Add file-backed skill directory scaffold under `api/skills/` for workspace context, approval review, marketing modules, and onboarding skills
+- [x] Define initial `SKILL.md` frontmatter contract: `id`, `name`, `description`, `scope`, `allowed_from_chat`, `module_id`, `requires_intent`, `triggers`, `memory_slots`, and `quality_gates`
+- [x] Implement skill loader that reads frontmatter for discovery and full Markdown body only after activation
+- [x] Implement deterministic skill router for CMO chat: discussion/context skills vs generation/revision module skills
+- [x] Implement memory slot hydrator for `brand_profile`, `product_catalog`, `audience_profiles`, `campaign_brand_kit`, and recent approved/rejected runs
+- [x] Refactor `/chat` prompt assembly to compile activated skills + hydrated memory instead of one monolithic system prompt
+- [x] Move chat-dispatch permissions out of hardcoded module filtering into skill frontmatter (`allowed_from_chat` + `requires_intent`)
+- [x] Add quality gate to ensure hidden control directives like `RUN:` never appear in user-visible CMO replies
+- [x] Add tests for skill discovery, activation, memory hydration, and chat dispatch non-regression examples — added `api/tests/test_skills.py`; smoke-tested manually because container image lacks pytest despite requirements entry
+- [x] Update Admin/Workspace documentation to explain Skills as BOS operating contracts, not user-facing prompt hacks — documented in `PROJECT_BRIEF.md` and `api/skills/README.md`
+- [x] Update project brief with atomic need-to-know skill resources and SOP ingestion governance model
+- [x] Prepare sample SOP ingestion change proposal before implementation spec — `sample/sop_ingestion_change_proposal.md`
+- [x] Update project brief with Agent Skills client-implementation principles adapted for BOS governance
+- [x] Reverse-engineer canonical BOS skill shape from SEO/email/analytics samples and implement support for metadata routing, resource listing, related skills, and atomic sample skills
+- [x] Create executable `marketing.email.sequence` module linked to the email sequence skill
+- [x] Add nested internal client-onboarding capability for Google Business Profile and update module discovery to recurse
+- [x] Add Google Business Profile client onboarding questionnaire as skill resource
+- [x] Add Google Business Profile post ideas marketing skill/module from checklist SOP
+- [x] DOC BUG: CLAUDE.md still described modules as flat-only after nested module architecture; updated agent-facing docs to prevent path hallucination
+- [x] Add Klaroha About Us sample and update project brief with external brand reframe
+- [x] BUG: Workspace Active Modules still surfaces legacy flat marketing module IDs instead of nested need-to-know operating paths
+- [x] UX: Remove Modules/Reports from CMO Workspace panel and move those reference tabs into Admin Workspace
+- [x] UX: Match desktop CMO Workspace Campaigns empty state to mobile Workspace sections
+- [x] UX: Remove Brand Kit from CMO Workspace panel; keep Brand Kit review in Admin Workspace
+- [x] BUG: Web white screen after WorkspacePanel HMR served an empty transformed module
+- [x] BUG: Broad skill triggers like post/ad/copy route unrelated channels when the user explicitly names X, Facebook, Google, or GBP
+- [x] FEATURE: Update google-ads skill with comprehensive campaign management content (RSA ads, ad strength, GAQL, workflows)
+### Testing
+- [x] BUG: Google Ads RSA headlines truncated/repetitive (e.g., "turn search demand into qualified leads with clearer Googl"); added template constraints + module self_check for truncation, trailing spaces, repetitive patterns, and boring "Brand | X" structures
+Deferred to Phase 4.
+## Admin Web Dashboard ✓
+- [x] Route `/admin` — standalone dashboard shell
+- [x] Overview: workspace name, billing summary, provider health
+- [x] Run table: full filterable run history with pagination
+- [x] Workspace editor: brand, products, audiences
+- [x] Provider management: list, register/remove BYOK, connectivity checks
+- [x] Module browser: list all modules by vertical
+- [x] Admin UX refresh: replace generic dashboard-first flow with setup-first Getting Started flow
+- [x] Admin nav refresh: prioritize Getting Started / Provider Access / Workspace above ops pages
+- [x] Provider Access redesign: feature OpenAI Chat login as primary action; move generic provider matrix to secondary/advanced section
+- [x] Onboarding redesign: convert current page into guided setup flow (provider access → brand brief import → review extracted profile → first test run)
+- [x] Dashboard repositioning: move billing/ops metrics behind setup completion instead of using them as first admin landing state
+## Phase 4 — Marketing Vertical Complete
+### Modules
+- [x] Add Meta MCP sidecar path for read-only paid ads performance and Page/comment monitoring
+- [x] Add generic Google Ads campaign draft skill/module from user-provided Google Ads source without brand/entity hardcoding
+- [x] Add mock Google Ads MCP connector and weekly performance summary skill/module
+- [x] All planned marketing modules with real prompt templates
+- [x] Prompt templates draw from workspace (brand voice, product, audience)
+- [x] Per-platform self_check (char limits, must-mention, banned phrases)
+- [x] Module fan-out: run all marketing modules from one brief
+- [x] marketing.email.cold_outreach module created
+- [x] Add reusable copywriting skill module: copywriting_30_second_milo_frank
+### Campaigns
+- [x] Campaign model
+- [x] POST /campaigns
+- [x] POST /campaigns/{id}/run (placeholder - needs module dispatch logic)
+- [x] GET /campaigns/{id}
+### Approval Flow (full round-trip)
+- [x] Approved bundle → status update in DB (backend complete)
+- [ ] CMO acknowledges in conversation (frontend)
+- [x] Feedback submitted → triggers module revision run (backend complete)
+- [ ] Feedback submitted via chat → resubmits bundle (frontend)
+- [x] Approval history stored per campaign (backend - parent_run_id)
+- [ ] Approval history displayed in frontend
+- [x] Migration 015: approval tracking fields (approval_status, feedback, parent_run_id)
+- [x] Run model updated with approval fields
+- [x] Migration 016: workspace_documents tagged document storage for Campaign Brand Kit and future workspace docs
+- [x] Surface Campaign Brand Kit contents through a latest-kit endpoint and Admin Workspace tab
+- [x] `api/tests/modules/marketing/test_ad_copy_facebook.py`
+- [x] `api/tests/modules/marketing/test_ad_copy_twitter.py`
+- [x] `api/tests/modules/marketing/test_ad_copy_google.py`
+- [x] `api/tests/modules/marketing/test_email_cold_outreach.py`
+- [x] `api/tests/modules/copywriting/test_copywriting_30_second_milo_frank.py`
+- [ ] `web/src/tests/BlockRenderer.test.tsx` — layout_hint → correct component
+- [ ] `web/src/tests/SurfaceContext.test.tsx` — same component, different layout per surface
+- [ ] `web/src/tests/ApprovalBundle.test.tsx`
+- [ ] `web/src/tests/PerformanceReport.test.tsx`
+- [x] Frontend production build verification blocked locally: `web/node_modules` is root-owned and missing `react-router-dom`; `npm install` cannot write dependencies as current user
+- [ ] Integration: submit run from browser, verify record in GET /runs
+- [ ] Contract: same run via curl and UI produces identical DB record
+### Output
+- [x] Copy-paste ready export per platform (GET /runs/{id}/export)
+- [x] Campaign summary: which modules passed, costs (GET /campaigns/{id}/summary)
+## Phase 5 — Hardening + Second Vertical
+### Hardening
+- [ ] Retry with structured feedback (BITE failure-feedback loop)
+- [ ] Rate limiting (per API key)
+- [ ] Cost quotas (configurable per workspace)
+- [ ] Provider circuit breaker
+- [ ] Structured logging
+### New Surfaces (candidates)
+- [ ] FullScreenSurface: give PerformanceReport its own dedicated screen with full chart rendering
+- [ ] Slack message renderer (new surface, zero component changes)
+- [ ] PDF export surface (new surface, zero component changes)
+- [ ] TikTok-style MobileCardSurface: full-screen per-block with swipe gesture (new surface variant)
+### Second Vertical
+- [ ] Vertical chosen (finance or HR)
+- [ ] 2-3 modules implemented
+- [ ] Proves: adding a vertical = adding files, no core changes
+### Deployment Docs
+- [ ] One-command VPS setup (Ubuntu 22.04 + Docker)
+- [ ] .env.example fully documented
+- [ ] SSL via nginx + certbot
+- [ ] PostgreSQL backup strategy
+## Parking Lot
+- Multi-tenancy (SaaS mode)
+- Workflow chaining between modules
+- Agentic orchestration inside BOS
+- A/B variant generation per module
+- Fine-tuning infrastructure
+- Native mobile app
+- Enterprise billing and reporting
+- Automated provider model catalog refresh
+## Decisions Log
+| Date | Decision | Rationale |
+|---|---|---|
+| 2026-05-01 | PostgreSQL from day one, no SQLite | Avoid migration cost; per-VPS deployment makes this feasible |
+| 2026-05-01 | Frontend is first-class, not a dashboard HTML file | User needs to test the product, not just the API |
+| 2026-05-01 | BYOK alongside platform routing | Lowers barrier; users with own keys shouldn't pay markup |
+| 2026-05-01 | Chat agent is a client, not a BOS service | Keeps interface layer decoupled; BOS is agnostic to caller |
+| 2026-05-01 | One workspace per deployment (no multi-tenancy yet) | Simplifies auth, data model, deployment |
+| 2026-05-01 | FastAPI for BOS core | Async, typed, OpenAPI generation |
+| 2026-05-01 | Alembic for migrations, manual version files | Portable and explicit; autogenerate requires running DB |
+| 2026-05-01 | Seed capabilities + model_options in migration 004 | Capabilities are config, not user data |
+| 2026-05-01 | Module registry via directory scan (importlib) | File = module; no registry file to edit; vertical isolation is directory-level |
+| 2026-05-01 | Brief resolution: workspace fills gaps, run payload overrides | "Diff not repeat yourself" thesis |
+| 2026-05-01 | Mock executor generates realistic content, correct cost math | Phase 1 gate passes without a live API key |
+| 2026-05-02 | OpenAICompatAdapter base class; Gemini + NVIDIA are thin subclasses | All three speak same OpenAI chat completions protocol |
+| 2026-05-02 | No-key fallback to mock rather than error | Dev experience stays clean |
+| 2026-05-02 | Candidate waterfall: try in score order, store failed attempts | Handles provider rate limits without surfacing errors |
+| 2026-05-02 | React + Vite for frontend | Hot reload via Docker volume mount; nginx proxies |
+| 2026-05-02 | GET /runs returns RunListResponse envelope (runs + total + limit + offset) | Pagination controls need total count |
+| 2026-05-02 | Auth connect is synchronous: setApiKey() then navigate() | Async + navigate() caused state update on unmounted component in StrictMode |
+| 2026-05-02 | 401/403 redirects to /auth?error=1 | URL param carries error feedback across redirect without sessionStorage |
+| 2026-05-02 | extractMessage() in client.ts unwraps FastAPI detail nesting | FastAPI wraps HTTPException as { detail: { error: { message } } } |
+| 2026-05-02 | BITE layers explicitly separated | BOS thinks, modules execute, bridge clients translate |
+| 2026-05-02 | Module tests mock at provider adapter boundary only | Module runs full logic; only provider HTTP call faked |
+| 2026-05-02 | Bridge clients live in clients/ outside BOS core | Adding a bridge = new directory, zero BOS changes |
+| 2026-05-02 | Evaluate layer embedded in modules for now; dedicated api/evaluate/ deferred | Deferred until module count justifies shared validators |
+| 2026-05-02 | Baileys (WhatsApp Web WebSocket) is valid bridge client option | No browser required; deferred until claude/ client validated |
+| 2026-05-03 | UI rebuilt as 3-tab mobile-first shell (Stream / CMO / Workspace) | Aligns with wireframe v0.4 |
+| 2026-05-04 | UI wireframe files renamed with DON'T_USE prefix | Prefix does not mean "don't use" — these ARE the intended wireframes |
+| 2026-05-04 | UI objective: replicate wireframes as single responsive React app; strip dark palette | One responsive web app; web wireframe → desktop; mobile wireframe → mobile |
+| 2026-05-03 | CMO tab implements intent-parse dispatch: user message → module_id → POST /runs | No dedicated /chat endpoint yet; full LLM routing deferred to bridge client |
+| 2026-05-06 | CMO is center stage on web (full-width chat, not a rail or tab) | Business owner's primary action is directing and reviewing, not navigating; organizational metaphor holds |
+| 2026-05-06 | Left sidebar = conversation history (Claude.ai model) + pending decisions pill | Familiar pattern; pending pill gives always-visible count of unresolved decision_needed blocks |
+| 2026-05-06 | Stream surfaces through CMO messages on web; not a separate tab | Eliminates context switch between reading a performance block and acting on it via CMO |
+| 2026-05-06 | Workspace = sliding right panel (420px), not a full page | Keeps CMO in view; Workspace is reference material, not a destination |
+| 2026-05-06 | Settings = modal overlay (not a page) with three tabs: BYOK / Usage / Run History | Administration is infrequent; modal keeps it out of the primary flow |
+| 2026-05-06 | Collateral bundles render inline in CMO conversation as platform-accurate cards | Business owner needs to see exactly what goes out to the world; approval happens in the same moment as review |
+| 2026-05-06 | Approvals are per-channel bundles (copy + creative as one unit) | Copy and creative are one decision; you never approve copy without seeing its creative |
+| 2026-05-06 | Frontend components are surface-agnostic: data in, render out, no container knowledge | Component that knows its container cannot be reused across surfaces without rewriting |
+| 2026-05-06 | SurfaceContext system: panel / full-screen / chat-inline / mobile-card | New surface = new wrapper, zero component changes; new component = one file, zero surface changes |
+| 2026-05-06 | BriefingBlock.layout_hint drives component selection; SurfaceContext drives layout constraints | Clean separation: what renders vs. how it lays out |
+| 2026-05-06 | Headless rendering contract: same BriefingBlock renderable by CLI, chat, web, mobile | No client-specific logic in components; renderer decides surface; component adapts |
+| 2026-05-06 | New surfaces (Slack, PDF, TikTok-style mobile) deferred to Phase 5 | Architecture supports them from day one; implementation deferred until Phase 3 surface system is stable |
+| 2026-05-06 | UIContext (React context) holds workspace panel + settings modal state at Layout level | Single source of truth; any component can trigger panels without prop drilling |
+| 2026-05-06 | bos-shell CSS scope: new CMO shell uses monospace font scoped under .bos-shell class | Admin section and auth remain on system-ui; no global font change |
+| 2026-05-06 | Old page routes (/ops, /intelligence, /history, /settings) preserved but unlinked | Accessible via direct URL; not removed until Phase 4 cleanup confirms they're fully superseded |
+| 2026-05-06 | POST /chat placed in api/routers/ (BOS core), not clients/ | Requires direct DB access for workspace context, BYOK decryption, and run persistence; revisit at Phase 4 when clients/claude/ is built — that client will call POST /chat |
+| 2026-05-06 | Chat provider order: BYOK (gemini → nvidia) then platform keys then mock | Matches module execution priority; ensures workspace with own keys never silently falls back to a billable platform call |
+| 2026-05-06 | complete_messages() added to OpenAICompatAdapter only; complete() delegates to it | All subclasses inherit without protocol changes; supports multi-turn history for chat without touching module execution path |
+| 2026-05-06 | ChatResponse returns runs[] (list) + run (first result, backward compat) | Single POST /chat resolves context once and dispatches all triggered modules; partial failure does not abort remaining modules |
+| 2026-05-06 | System prompt rule: RUN: scoped to current user message only, not conversation history | LLM was re-triggering channels mentioned in prior turns; explicit rule prevents re-dispatch of already-run modules |
+| 2026-05-06 | isMounted pattern removed from CmoChat send() | React 18 handles stale updates on unmounted components gracefully; the guard was silently discarding responses in Strict Mode's double-mount cycle, leaving typing indicator stuck |
+| 2026-05-06 | GET /onboarding/status checks workspace + providers + per-module capability routing | Gives a single deployability signal; used during client setup or project handoff to verify all keys are wired before first run |
+| 2026-05-06 | onboarding.brand_setup is a module triggered via POST /runs, not a dedicated route | Needs same capability routing, BYOK selection, billing, and self_check as any other module; writing output back to workspace is caller's responsibility (BITE: transform and persist are separate) |
+| 2026-05-06 | onboarding vertical is a first-class vertical alongside marketing | Proves vertical = directory; no core changes needed to add a new one |
+| 2026-05-06 | Provider auth mirrors pi harness: providers may authenticate via login/OAuth or direct API key | Separates provider credential acquisition from BOS/API auth; enables pi-style interactive connect flow with encrypted token storage and refresh |
+| 2026-05-06 | OpenAI Chat is the single enabled login-auth provider in BOS | Keeps provider-login scope narrow while proving the auth flow end-to-end for a real product-relevant provider |
+| 2026-05-06 | Admin UX should be setup-first, not ops-dashboard-first | New deployments need a guided path to connect OpenAI, import brand context, review extraction, and verify readiness before billing/run metrics matter |
+| 2026-05-06 | `/admin` defaults to Getting Started; Operations Dashboard is a later step | Fresh deployments should see setup status and next actions before cost/run metrics |
+| 2026-05-07 | Module fan-out: POST /campaigns/{id}/run dispatches all marketing modules | Single brief can trigger facebook + twitter + google + email modules simultaneously |
+| 2026-05-07 | Approval tracking: Run model extended with approval_status, feedback, parent_run_id | Enables full round-trip: run → review → approve/reject → revise |
+| 2026-05-07 | Approval endpoints: PATCH /runs/{id}/approve, /reject, POST /revise | Backend support for approval workflow complete; frontend integration pending |
+| 2026-05-07 | marketing.email.cold_outreach module added | Completes the planned marketing modules from system shape sample |
+| 2026-05-07 | Templates use richer workspace context (brand values, demographics, pain_points) | Better personalization; templates now use all available workspace data |
+| 2026-05-07 | Export endpoint: GET /runs/{id}/export returns copy-paste ready format | Enables users to easily copy content to each platform |
+| 2026-05-07 | Campaign summary: GET /campaigns/{id}/summary shows module pass/fail + costs | Gives overview of campaign performance and spending |
+| 2026-05-07 | onboarding.brand_guidelines module added under onboarding vertical | Brand/design guideline generation is part of project onboarding, uses existing onboarding.brand_profiling capability |
+| 2026-05-07 | Campaign Brand Kit is required onboarding, stored as tagged workspace document | Brand/design rules are long-lived and expandable; avoid brittle columns like primary_color/headline_font/platform_rule |
+| 2026-05-07 | Frontend GET requests use short in-flight de-dupe/cache | React StrictMode and repeated admin panels were issuing duplicate GETs; short cache improves perceived speed without hiding mutations |
+| 2026-05-07 | Copywriting skills are internal BOS modules invoked by content modules via declared skill stacks | Copy styles need to grow and combine without copying long prompt rules into every ad/email module |
+| 2026-05-07 | Campaign Brand Kit contents are surfaced as a latest document endpoint and Admin Workspace tab | The kit is a long-lived brand artifact; users need a canonical read/edit/copy location after onboarding, not only a short onboarding preview |
+| 2026-05-07 | Draft Campaign Brand Kits surface as pending decisions in the primary Workspace panel | Approval must happen where the operator reviews work, not only inside admin onboarding |
+| 2026-05-08 | CMO chat is discussion-first and intent-gated for execution | A user asking what the project is about should get business context, not silent module fan-out; module runs require explicit generation/revision intent. |
+| 2026-05-08 | CMO system prompt includes workspace brand profile, products, audiences, and Campaign Brand Kit excerpt | The BOS thesis requires the CMO to use already-ingested brand brief context and not ask the user to repeat it. |
+| 2026-05-08 | Generated module outputs are persistent pending decision tasks | Approval work must survive navigation/reload and link to the exact run requiring review. |
+| 2026-05-08 | Modify is LLM-backed per-run revision, not a generic local UI action | Revision feedback must return through the CMO LLM with the prior draft, channel, and thread context before creating a linked child run. |
+| 2026-05-08 | Workspace approval panel replaces the current task on revision/approval instead of nesting threads | The right panel is a task workspace; chat can preserve conversational history, but Workspace must stay uncluttered. |
+| 2026-05-08 | BOS adopts `SKILL.md` principles as operating contracts around modules | Skills declare when to activate, what memory/resources to hydrate, workflow rules, and quality gates; modules remain executable transforms. |
+| 2026-05-08 | Initial skills are file-backed under `api/skills/` before any DB-backed skill registry | Local Markdown keeps implementation simple and auditable while preserving a future migration path to database-backed skills/resources. |
+| 2026-05-08 | CMO memory is skill-declared, not transcript-first | Conversation history is short-term context only; durable brand/project knowledge comes from workspace resources hydrated through activated skill memory slots. |
+| 2026-05-08 | Onboarding skills are not normal chat-dispatchable skills | Brand setup and Campaign Brand Kit generation are explicit onboarding/workspace flows; normal CMO chat may reference their outputs but should not accidentally run them. |
+| 2026-05-08 | No hardwired CMO responses except provider failure/error handling | Routing, validation, directive stripping, and permission checks may be deterministic; ordinary CMO replies must be LLM-generated from activated skills and hydrated resources. |
+| 2026-05-08 | Skills should be atomic need-to-know folders with explicit inheritance | Prevents broad channel/vertical context from leaking into narrow tasks; resources load only for the smallest activated operational node. |
+| 2026-05-08 | SOP ingestion is a governed change-proposal pipeline | Uploaded SOPs must be extracted, matched, diffed, approved, versioned, and source-linked across skills/resources/modules/memory/config instead of blindly overwriting skills. |
+| 2026-05-08 | BOS models Agent Skills progressive disclosure but keeps harness-owned governance | Skills are discovered by `SKILL.md`, cataloged by metadata, activated only when eligible, resources are listed not eagerly loaded, and BOS controls activation/module permissions rather than relying on raw model file reads. |
+| 2026-05-08 | Canonical BOS skills use descriptions as activation policy and output formats as evaluation contracts | Samples show mature skills encode routing phrases, exclusions, related-skill handoffs, intake questions, caveats, lazy references, and expected output shape rather than only prompt instructions. |
+| 2026-05-08 | Email sequence gets a module first; SEO audit and analytics tracking remain skill-only for now | Email sequence is an executable content artifact like existing marketing copy modules; SEO/analytics need external data/tool contracts before module execution should be trusted. |
+| 2026-05-08 | Modules may be nested under business operating domains | Service-provider deployments need expandable internal capabilities; discovery recurses under each vertical while module IDs stay globally stable, e.g. `internal.client_onboarding.google_business_profile`. |
+| 2026-05-08 | BOS organizes capabilities by operating function, not artifact format | A client onboarding email belongs under internal/client_onboarding, not marketing/email, because its purpose is service delivery after a client is won. |
+| 2026-05-08 | Google Business Profile has both internal and marketing operating nodes | GBP client onboarding is internal service delivery, while GBP post ideas are organic/local marketing content; both can share the GBP domain but must route to different skills/modules. |
+| 2026-05-08 | Klaroha is the external product brand; BOS remains the internal architecture | Klaroha means make it clear / it is very clear in Cebuano and better expresses the product promise: marketing, engineered for clarity by raising confidence, reducing delay, and removing operational drag. |
+| 2026-05-08 | Operator model routing is environment-configured, not exposed in the CMO UX | The CMO should never see provider/model plumbing, but deployments need a safe way to pin the main chat and individual action modules to different models. |
+| 2026-05-08 | Omnichannel MOS uses BITE as the handoff contract, not strategy modules | CEO/CMO collaboration defines versioned Intent; Bridge envelopes pass need-to-know payloads to specialist Transform modules; Evaluate gates align outputs back to Intent and route pass/fail/escalate before context returns to the CMO. |
+| 2026-05-08 | Execution backend routing is modality-aware and target-scoped | The CMO brain, Transform modules, and future Evaluate gates may require different text/image/audio/video/data-analysis backends; provider/model/tool selection stays infrastructure-level and hidden from CMO product language. |
+| 2026-05-08 | Backend override editing starts in Admin Module Browser | Operators need to assign the CMO brain model and each module's backend where they inspect module capability, policy, platform, and constraints; deeper Settings pages can later reuse the same API. |
+| 2026-05-08 | Google Ads MCP starts as a mock read-only connector behind a tool module | We can build the CMO analytics workflow, skill routing, report block shape, and tests without live Google Ads access; later the connector can swap to the official MCP sidecar while preserving the BOS module contract. |
+| 2026-05-08 | CMO operational connector context is registry-driven | Omnichannel BOS will have many MCP/API connectors; the CMO prompt should receive a connector catalog generated from registry/config, not one-off hardcoded Google Ads prose. |
+| 2026-05-08 | CMO chat backend override is preferred-first, not outage-strict | A bad selected CMO model should not take the executive chat offline when other live credentials are available; BOS tries the configured backend first, then falls back through the normal provider waterfall. |
+| 2026-05-08 | CMO Workspace panel stays execution-focused; Brand Kit, Modules, and Reports live in Admin Workspace | The right panel should support current campaign/approval work without becoming an admin dashboard. Brand governance, installed module inventory, and reporting references are lower-frequency administrative views. |
+| 2026-05-08 | Brand Guidelines are the long-form source; Campaign Brand Kit is the short execution summary | Brand-plane strategy needs a durable, visible source of truth for positioning, visual identity, logo concept, and voice. Campaign Brand Kit remains the practical campaign-ready summary derived from it. |
+| 2026-05-09 | Meta starts with an MCP sidecar-compatible read-only connector path | Speed-to-market matters while Meta API/OAuth/write permissions mature; BOS owns stable capability/module contracts, approval gates, and audit surfaces so MCP can later be swapped for native API without product lock-in. |
+### Skill Contract Updates (Phase 3)
+
+- [x] FEATURE: Create google-tag-manager skill (GTM workflows, tags/triggers/variables, v1.0.0)
+- [x] FEATURE: Create metaads-automation skill (Meta Ads performance, page comments, v1.0.0)
+- [x] FEATURE: Create campaign-structure skill (ABO vs CBO, targeting, budget rules, v1.0.0)
+- [x] FEATURE: Create meta-social-comments skill (Facebook Page comment monitor, v1.0.0)
+- [x] FEATURE: Update google-ads skill to v1.2.0 (BOS-aligned: RSA copy, campaign drafts, performance)
+- [x] FEATURE: Update twitter-x-posts skill to v1.1.1 (X/Twitter post/thread guidance)
+- [x] BUG FIX: Skills loader parser — empty `module_id:` set to `[]` instead of `None`, causing Pydantic validation failure
+- [x] BUG FIX: Skills router — `_skill_platform()` not detecting `meta_ads` skill, fixed platform detection
+- [x] BUG FIX: Chat router — added "design" to `_has_generation_intent()` patterns for campaign structure requests
+- [x] BUG FIX: Google Ads headline self_check — enhanced to detect truncation, repetitive patterns, boring "Brand | X" structures
+- [x] BUG: Google Ads RSA headlines truncated/repetitive (e.g., "turn search demand into qualified leads with clearer Googl"); added template constraints + module self_check
