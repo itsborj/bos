@@ -214,9 +214,9 @@ export function Layout() {
             </div>
           )}
           {activeCampaign && (
-            <div className="bos-brand-indicator" style={{ background: 'var(--surface2)', borderColor: 'var(--border)' }}>
-              <span className="bos-brand-dot" style={{ background: '#6366f1' }} />
-              <span className="bos-brand-name" style={{ fontSize: 11 }}>{activeCampaign.name}</span>
+            <div className="bos-brand-indicator" style={{ background: 'var(--ivory-mid)', border: '1px solid var(--border-light)' }}>
+              <span className="bos-brand-dot" style={{ background: 'var(--warm-gold)' }} />
+              <span className="bos-brand-name" style={{ fontSize: 11, color: 'var(--stone-deep)' }}>{activeCampaign.name}</span>
               <button className="bos-brand-clear" onClick={() => setActiveCampaign(null)} title="Clear campaign context">✕</button>
             </div>
           )}
