@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, staging]
+  push:
+    branches: [main, staging]
+
+jobs:
+  # ── Tests + guardrails ────────────────────────────────────────────────────
+  test:
+    name: Test & lint
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: bos_test
+          POSTGRES_USER: bos
+          POSTGRES_PASSWORD: bos
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r api/requirements.txt
+
+      - name: Run tests
+        env:
+          DATABASE_URL: postgresql://bos:bos@localhost:5432/bos_test
+          API_SECRET_KEY: ci-secret
+          ENCRYPTION_KEY: ci-encryption-key-32-bytes-padded
+        run: |
+          cd api
+          python -m pytest tests/ plugins/google-ads/tests/ -v
+
+      - name: Guardrail — no direct _resolve_brief in chat.py dispatch paths
+        run: |
+          # _resolve_brief must only appear at import and inside _brand_scoped_brief (line ~189).
+          # Any additional call site means brand isolation is broken.
+          COUNT=$(grep -c "await _resolve_brief(" api/routers/chat.py || true)
+          if [ "$COUNT" -gt 1 ]; then
+            echo "ERROR: $COUNT direct _resolve_brief calls found in chat.py — only 1 allowed (inside _brand_scoped_brief)"
+            grep -n "await _resolve_brief(" api/routers/chat.py
+            exit 1
+          fi
+
+      - name: Guardrail — no raw character-limit slicing in plugin modules
+        run: |
+          # Plugin modules must use _clip() for length enforcement, not raw [:N] slicing.
+          if grep -rn "\[:30\]\|\[:90\]" api/plugins/*/capabilities/ 2>/dev/null | grep "\.py:"; then
+            echo "ERROR: Raw [:30] or [:90] slice found in plugin module — use _clip() instead"
+            exit 1
+          fi
+
+  # ── Deploy to staging ────────────────────────────────────────────────────
+  deploy-staging:
+    name: Deploy → staging
+    needs: test
+    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: SSH deploy to staging.klaroha.com
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VDS_HOST }}
+          username: ${{ secrets.VDS_USER }}
+          key: ${{ secrets.VDS_DEPLOY_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.STAGING_PATH }}
+            git pull origin staging
+            docker compose -p staging -f docker-compose.staging.yml up --build -d
+            docker compose -p staging -f docker-compose.staging.yml exec -T api alembic upgrade head
+            echo "Staging deploy complete at $(date)"
+
+  # ── Deploy to production ─────────────────────────────────────────────────
+  deploy-production:
+    name: Deploy → production
+    needs: test
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: SSH deploy to hq.klaroha.com
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.VDS_HOST }}
+          username: ${{ secrets.VDS_USER }}
+          key: ${{ secrets.VDS_DEPLOY_KEY }}
+          script: |
+            set -e
+            cd ${{ secrets.PROD_PATH }}
+            git pull origin main
+            docker compose up --build -d
+            docker compose exec -T api alembic upgrade head
+            echo "Production deploy complete"
