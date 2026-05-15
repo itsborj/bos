@@ -3,7 +3,7 @@
 # Format: <path pattern>  <github-username(s)>
 # The last matching rule wins.
 # Main dev (@itsborj) reviews everything.
-# Dev 2 (@dev2-handle) is the plugin specialist — replace with actual GitHub handle.
+# Dev 2 (@kibanu) is the plugin specialist.
 
 # Default — main dev reviews all PRs
 * @itsborj
@@ -20,6 +20,5 @@
 CLAUDE.md         @itsborj
 BACKLOG.md        @itsborj
 
-# Plugin directory — Dev 2 owns, main dev also required (branch protection handles the 1-review rule)
-# Replace @dev2-handle with Dev 2's actual GitHub username before granting access.
-/api/plugins/     @itsborj @dev2-handle
+# Plugin directory — Dev 2 owns, main dev also required
+/api/plugins/     @itsborj @kibanu
