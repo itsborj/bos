@@ -1,0 +1,710 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Klaroha — Brand Aesthetic Guidelines</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@600;700&family=Inter:ital,wght@0,400;0,500;0,600;1,400&display=swap');
+
+:root {
+  --ivory:        #F5F1E8;
+  --ivory-mid:    #EDE5D8;
+  --ivory-deep:   #E6DED0;
+  --obsidian:     #080B0D;
+  --carbon:       #101417;
+  --gunmetal:     #171D20;
+  --smoked:       #1F272B;
+  --border-dark:  #2E383D;
+  --green:        #0B3D2E;
+  --green-deep:   #0A2820;
+  --green-mid:    #0F5C3E;
+  --green-active: #1F7A4D;
+  --gold:         #826D40;
+  --bronze:       #B08A57;
+  --champagne:    #D8BE8A;
+  --stone:        #A59674;
+  --stone-deep:   #6A5848;
+  --amber:        #C58B3B;
+  --oxblood:      #7A2E2E;
+  --border-light: #E0DAD0;
+  --text-dark:    #1C1208;
+  --jf: 'Josefin Sans', sans-serif;
+  --in: 'Inter', sans-serif;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--ivory); font-family: var(--in); color: var(--text-dark); -webkit-font-smoothing: antialiased; }
+
+/* SYSTEM-GENERATED BANNER */
+.system-banner {
+  background: var(--obsidian);
+  border-bottom: 0.5px solid var(--border-dark);
+  padding: 9px 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.system-banner-text {
+  font-family: var(--in);
+  font-size: 10px;
+  color: var(--stone);
+  letter-spacing: .04em;
+}
+.system-banner-text strong {
+  color: var(--champagne);
+  font-weight: 500;
+}
+.system-banner-back {
+  font-family: var(--in);
+  font-size: 10px;
+  color: var(--stone);
+  text-decoration: none;
+  letter-spacing: .04em;
+}
+.system-banner-back:hover { color: var(--ivory); }
+
+/* UTILS */
+.container { max-width: 100%; padding: 0 56px; }
+.section { padding: 80px 56px; }
+.section-alt { padding: 80px 56px; background: var(--ivory-mid); border-top: 0.5px solid var(--border-light); border-bottom: 0.5px solid var(--border-light); }
+.section-dark { padding: 80px 56px; background: var(--obsidian); }
+.eyebrow { font-family: var(--in); font-size: 10px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); margin-bottom: 14px; }
+.rule { height: 0.5px; background: var(--border-light); margin: 0 56px; }
+.rule-dark { height: 0.5px; background: var(--border-dark); }
+h1.display { font-family: var(--jf); font-weight: 700; font-size: 48px; line-height: 1.08; letter-spacing: -.01em; color: var(--green); }
+h2.title { font-family: var(--jf); font-weight: 700; font-size: 28px; line-height: 1.15; letter-spacing: .01em; color: var(--green); margin-bottom: 8px; }
+p.lead { font-family: var(--in); font-size: 15px; line-height: 1.75; color: var(--stone-deep); max-width: 560px; margin-bottom: 48px; }
+p.lead-sm { font-family: var(--in); font-size: 13px; line-height: 1.75; color: var(--stone-deep); max-width: 520px; margin-bottom: 36px; }
+
+/* COVER */
+.cover {
+  background: var(--green);
+  padding: 80px 56px 72px;
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+}
+.cover-left { flex: 1; }
+.cover-word { font-family: var(--jf); font-weight: 700; font-size: 13px; letter-spacing: .28em; text-transform: uppercase; color: rgba(245,241,232,.45); margin-bottom: 28px; }
+.cover-h1 { font-family: var(--jf); font-weight: 700; font-size: 52px; line-height: 1.06; letter-spacing: -.01em; color: var(--ivory); margin-bottom: 20px; }
+.cover-tagline { font-family: var(--in); font-size: 14px; font-style: italic; color: var(--champagne); }
+.cover-right { text-align: right; }
+.cover-meta { font-family: var(--in); font-size: 11px; color: rgba(245,241,232,.3); line-height: 1.8; }
+.cover-version { font-family: var(--jf); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--gold); margin-top: 8px; }
+
+/* ── COLOR PALETTE ── */
+.palette-family { margin-bottom: 40px; }
+.family-label { font-family: var(--in); font-size: 10px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--stone); margin-bottom: 12px; padding-bottom: 8px; border-bottom: 0.5px solid var(--border-light); }
+
+.swatch-row { display: flex; gap: 8px; flex-wrap: wrap; }
+.swatch { border-radius: 10px; overflow: hidden; flex: 1; min-width: 100px; }
+.swatch-color { height: 88px; }
+.swatch-info { padding: 10px 12px 12px; background: var(--ivory); border: 0.5px solid var(--border-light); border-top: none; border-radius: 0 0 10px 10px; }
+.swatch-name { font-family: var(--in); font-size: 11px; font-weight: 500; color: var(--text-dark); margin-bottom: 3px; }
+.swatch-hex { font-family: monospace; font-size: 11px; color: var(--stone-deep); }
+.swatch-role { font-family: var(--in); font-size: 10px; color: var(--stone-deep); margin-top: 4px; line-height: 1.4; }
+
+.swatch-info.dark { background: var(--carbon); border-color: var(--border-dark); }
+.swatch-info.dark .swatch-name { color: var(--ivory-deep); }
+.swatch-info.dark .swatch-hex { color: var(--stone); }
+.swatch-info.dark .swatch-role { color: var(--stone); }
+
+/* ── COMBINATIONS ── */
+.combo-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 24px; }
+.combo-card { border-radius: 12px; padding: 24px; }
+.combo-label { font-family: var(--in); font-size: 9px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; margin-bottom: 16px; }
+.combo-title { font-family: var(--jf); font-weight: 700; font-size: 20px; line-height: 1.2; margin-bottom: 8px; }
+.combo-body { font-family: var(--in); font-size: 12px; line-height: 1.7; margin-bottom: 14px; }
+.combo-chips { display: flex; gap: 5px; flex-wrap: wrap; }
+.chip { font-family: var(--in); font-size: 9px; font-weight: 500; letter-spacing: .05em; padding: 3px 9px; border-radius: 4px; }
+.combo-dont { border-radius: 12px; padding: 20px 24px; border: 0.5px dashed; }
+.dont-row { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
+.dont-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.dont-text { font-family: var(--in); font-size: 12px; line-height: 1.5; }
+
+/* ── TYPOGRAPHY ── */
+.scale-row { display: flex; flex-direction: column; gap: 4px; margin-top: 20px; }
+.scale-item { display: flex; align-items: baseline; gap: 16px; padding: 10px 0; border-bottom: 0.5px solid var(--border-light); }
+.scale-size { font-family: monospace; font-size: 10px; color: var(--stone); width: 60px; flex-shrink: 0; }
+.scale-name { font-family: var(--in); font-size: 10px; color: var(--stone); width: 80px; flex-shrink: 0; }
+
+/* ── COMPONENTS ── */
+.comp-section { margin-bottom: 48px; }
+.comp-label { font-family: var(--in); font-size: 10px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--stone); margin-bottom: 18px; padding-bottom: 8px; border-bottom: 0.5px solid var(--border-light); }
+.comp-row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+
+.btn { font-family: var(--in); font-size: 13px; font-weight: 500; border: none; border-radius: 7px; padding: 10px 22px; cursor: pointer; letter-spacing: .01em; }
+.btn-solid { background: var(--green); color: var(--ivory); }
+.btn-gold { background: var(--gold); color: var(--obsidian); }
+.btn-outline { background: none; border: 0.5px solid var(--green); color: var(--green); }
+.btn-ghost { background: none; border: 0.5px solid var(--border-light); color: var(--stone-deep); }
+.btn-dark-solid { background: var(--ivory); color: var(--green); }
+.btn-dark-outline { background: none; border: 0.5px solid rgba(245,241,232,.3); color: var(--ivory); }
+.btn-sm { padding: 7px 14px; font-size: 11px; }
+
+.badge { font-family: var(--in); font-size: 10px; font-weight: 500; letter-spacing: .07em; text-transform: uppercase; padding: 3px 10px; border-radius: 4px; display: inline-block; }
+
+.metric-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; }
+.metric-card { border-radius: 10px; padding: 18px 16px; }
+.metric-num { font-family: var(--jf); font-weight: 700; font-size: 36px; line-height: 1; margin-bottom: 6px; }
+.metric-label { font-family: var(--in); font-size: 10px; font-weight: 500; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 4px; }
+.metric-sub { font-family: var(--in); font-size: 11px; }
+
+.card-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
+.brand-card { border-radius: 12px; padding: 24px 20px; }
+
+/* ── USAGE TABLE ── */
+.usage-table { width: 100%; border-collapse: collapse; }
+.usage-table th { font-family: var(--in); font-size: 10px; font-weight: 500; letter-spacing: .1em; text-transform: uppercase; color: var(--stone); text-align: left; padding: 10px 14px; border-bottom: 0.5px solid var(--border-light); }
+.usage-table td { font-family: var(--in); font-size: 12px; color: var(--stone-deep); padding: 12px 14px; border-bottom: 0.5px solid var(--border-light); vertical-align: top; line-height: 1.55; }
+.usage-table tr:last-child td { border-bottom: none; }
+.usage-table td:first-child { font-weight: 500; white-space: nowrap; }
+.color-dot-row { display: flex; align-items: center; gap: 8px; }
+.color-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
+
+/* BRAND VOICE STRIP */
+.voice-strip { background: var(--green); padding: 32px 56px; display: flex; gap: 0; }
+.voice-item { flex: 1; padding: 0 28px; border-right: 0.5px solid rgba(245,241,232,.12); }
+.voice-item:first-child { padding-left: 0; }
+.voice-item:last-child { border-right: none; }
+.voice-word { font-family: var(--jf); font-weight: 700; font-size: 14px; letter-spacing: .08em; text-transform: uppercase; color: var(--ivory); margin-bottom: 6px; }
+.voice-desc { font-family: var(--in); font-size: 11px; line-height: 1.6; color: rgba(245,241,232,.5); }
+
+/* RESPONSIVE */
+@media (max-width: 768px) {
+  .system-banner { padding: 9px 20px; }
+  .section, .section-alt, .section-dark { padding: 48px 20px; }
+  .rule { margin: 0 20px; }
+  .cover { padding: 48px 20px 40px; flex-direction: column; align-items: flex-start; gap: 24px; }
+  .cover-h1 { font-size: 36px; }
+  .cover-right { text-align: left; }
+  .combo-grid { grid-template-columns: 1fr; }
+  .metric-grid { grid-template-columns: 1fr 1fr; }
+  .card-grid { grid-template-columns: 1fr; }
+  .voice-strip { padding: 32px 20px; flex-direction: column; gap: 24px; }
+  .voice-item { padding: 0; border-right: none; border-bottom: 0.5px solid rgba(245,241,232,.12); padding-bottom: 20px; }
+  .voice-item:last-child { border-bottom: none; padding-bottom: 0; }
+  .swatch { min-width: 80px; }
+}
+</style>
+</head>
+<body>
+
+<!-- SYSTEM-GENERATED BANNER -->
+<div class="system-banner">
+  <div class="system-banner-text">
+    <strong>System-generated document</strong> — Produced by Klaroha BOS · Brand guidelines are derived from the active brand palette and updated automatically.
+  </div>
+  <a href="/" class="system-banner-back">← klaroha.com</a>
+</div>
+
+<!-- COVER -->
+<div class="cover">
+  <div class="cover-left">
+    <div class="cover-word">Klaroha</div>
+    <h1 class="cover-h1">Brand Aesthetic<br>Guidelines</h1>
+    <div class="cover-tagline">Marketing, Engineered for Clarity.</div>
+  </div>
+  <div class="cover-right">
+    <div class="cover-meta">
+      Status: Approved base guideline<br>
+      Typefaces: Josefin Sans · Inter<br>
+      Primary: Racing Green<br>
+      Accent: Warm Gold
+    </div>
+    <div class="cover-version">v1.0 · 2026</div>
+  </div>
+</div>
+
+<!-- BRAND ESSENCE -->
+<section class="section">
+  <div class="eyebrow">Brand essence</div>
+  <h1 class="display" style="margin-bottom:20px">Noise enters.<br>Clarity exits.</h1>
+  <p class="lead">Klaroha is demand-capture infrastructure for sales-led businesses. The visual identity should feel like a luxury performance system — dark, precise, composed, and engineered. The aesthetic reference is an Aston Martin DB12 V8 in Racing Green with satin bronze detailing.</p>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+    <div style="background:var(--ivory-mid);border:0.5px solid var(--border-light);border-radius:10px;padding:20px">
+      <div style="font-family:var(--jf);font-weight:700;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--green);margin-bottom:8px">Default surface</div>
+      <div style="font-family:var(--in);font-size:12px;line-height:1.65;color:var(--stone-deep)">Ivory <span style="font-family:monospace;color:var(--stone)">#F5F1E8</span> is the primary background for all marketing surfaces, landing pages, pitch decks, and print materials.</div>
+    </div>
+    <div style="background:var(--ivory-mid);border:0.5px solid var(--border-light);border-radius:10px;padding:20px">
+      <div style="font-family:var(--jf);font-weight:700;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--green);margin-bottom:8px">Dark accent</div>
+      <div style="font-family:var(--in);font-size:12px;line-height:1.65;color:var(--stone-deep)">Obsidian <span style="font-family:monospace;color:var(--stone)">#080B0D</span> is used only for dark cockpit sections, product dashboards, footers, and high-contrast hero moments.</div>
+    </div>
+    <div style="background:var(--ivory-mid);border:0.5px solid var(--border-light);border-radius:10px;padding:20px">
+      <div style="font-family:var(--jf);font-weight:700;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--green);margin-bottom:8px">Apple principle</div>
+      <div style="font-family:var(--in);font-size:12px;line-height:1.65;color:var(--stone-deep)">Clarity, deference, depth. Content leads. The interface recedes. Every element that does not improve clarity or confidence is removed.</div>
+    </div>
+  </div>
+</section>
+
+<div class="rule"></div>
+
+<!-- COLOR PALETTE -->
+<section class="section">
+  <div class="eyebrow">Color system</div>
+  <h2 class="title">The palette</h2>
+  <p class="lead-sm">Six families. Every color has a defined role. No color is decorative.</p>
+
+  <div class="palette-family">
+    <div class="family-label">Backgrounds</div>
+    <div class="swatch-row">
+      <div class="swatch">
+        <div class="swatch-color" style="background:#F5F1E8;border:0.5px solid #E0DAD0"></div>
+        <div class="swatch-info"><div class="swatch-name">Ivory</div><div class="swatch-hex">#F5F1E8</div><div class="swatch-role">Default background · light mode · all marketing surfaces · print</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#EDE5D8"></div>
+        <div class="swatch-info"><div class="swatch-name">Ivory Mid</div><div class="swatch-hex">#EDE5D8</div><div class="swatch-role">Secondary surface · section alternation · card fill</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#E6DED0"></div>
+        <div class="swatch-info"><div class="swatch-name">Soft Ivory</div><div class="swatch-hex">#E6DED0</div><div class="swatch-role">Tertiary fill · input background · subtle divider</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#080B0D"></div>
+        <div class="swatch-info dark"><div class="swatch-name">Obsidian</div><div class="swatch-hex">#080B0D</div><div class="swatch-role">Dark accent only · dashboard · footer · cockpit sections</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="palette-family">
+    <div class="family-label">Primary — Racing Green</div>
+    <div class="swatch-row">
+      <div class="swatch">
+        <div class="swatch-color" style="background:#0A2820"></div>
+        <div class="swatch-info dark"><div class="swatch-name">Green Deep</div><div class="swatch-hex">#0A2820</div><div class="swatch-role">Hover state · pressed · deepest shadow</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#0B3D2E"></div>
+        <div class="swatch-info dark"><div class="swatch-name">Racing Green</div><div class="swatch-hex">#0B3D2E</div><div class="swatch-role">Primary brand · CTA · headline · wordmark · nav active</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#0F5C3E"></div>
+        <div class="swatch-info dark"><div class="swatch-name">Green Mid</div><div class="swatch-hex">#0F5C3E</div><div class="swatch-role">Button hover · chart accent · supporting brand surface</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#1F7A4D"></div>
+        <div class="swatch-info dark"><div class="swatch-name">Active Green</div><div class="swatch-hex">#1F7A4D</div><div class="swatch-role">Live · qualified · converted · healthy · performance lift</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="palette-family">
+    <div class="family-label">Accent — Warm Gold</div>
+    <div class="swatch-row">
+      <div class="swatch">
+        <div class="swatch-color" style="background:#826D40"></div>
+        <div class="swatch-info"><div class="swatch-name">Warm Gold</div><div class="swatch-hex">#826D40</div><div class="swatch-role">Base accent · high-value tier · card border · tagline · logo clarity dot</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#B08A57"></div>
+        <div class="swatch-info"><div class="swatch-name">Satin Bronze</div><div class="swatch-hex">#B08A57</div><div class="swatch-role">Elevated accent · gold CTA on dark · icon highlight</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#D8BE8A"></div>
+        <div class="swatch-info"><div class="swatch-name">Champagne</div><div class="swatch-hex">#D8BE8A</div><div class="swatch-role">High-value metric number on obsidian · subtle warm highlight</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="palette-family">
+    <div class="family-label">Neutrals — Muted Stone</div>
+    <div class="swatch-row">
+      <div class="swatch">
+        <div class="swatch-color" style="background:#A59674"></div>
+        <div class="swatch-info"><div class="swatch-name">Muted Stone</div><div class="swatch-hex">#A59674</div><div class="swatch-role">Secondary label · metric sublabel · chart axis · caption</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#6A5848"></div>
+        <div class="swatch-info"><div class="swatch-name">Stone Deep</div><div class="swatch-hex">#6A5848</div><div class="swatch-role">Body text on ivory · nav links · supporting prose</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#E0DAD0"></div>
+        <div class="swatch-info"><div class="swatch-name">Border Light</div><div class="swatch-hex">#E0DAD0</div><div class="swatch-role">Card borders · dividers · input outlines on light surfaces</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="palette-family">
+    <div class="family-label">Dark surfaces — Graphite family</div>
+    <div class="swatch-row">
+      <div class="swatch">
+        <div class="swatch-color" style="background:#101417"></div>
+        <div class="swatch-info dark"><div class="swatch-name">Carbon</div><div class="swatch-hex">#101417</div><div class="swatch-role">Primary dark card · dashboard panel</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#171D20"></div>
+        <div class="swatch-info dark"><div class="swatch-name">Gunmetal</div><div class="swatch-hex">#171D20</div><div class="swatch-role">Secondary dark panel · hover state on carbon</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#1F272B"></div>
+        <div class="swatch-info dark"><div class="swatch-name">Smoked Panel</div><div class="swatch-hex">#1F272B</div><div class="swatch-role">Tertiary panel · sidebar · dark nav background</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#2E383D"></div>
+        <div class="swatch-info dark"><div class="swatch-name">Border Graphite</div><div class="swatch-hex">#2E383D</div><div class="swatch-role">Card borders on dark · dividers · inactive elements</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="palette-family" style="margin-bottom:0">
+    <div class="family-label">Status — use sparingly</div>
+    <div class="swatch-row">
+      <div class="swatch">
+        <div class="swatch-color" style="background:#1F7A4D"></div>
+        <div class="swatch-info dark"><div class="swatch-name">Active Green</div><div class="swatch-hex">#1F7A4D</div><div class="swatch-role">Live · routed · qualified · healthy system</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#C58B3B"></div>
+        <div class="swatch-info"><div class="swatch-name">Warning Amber</div><div class="swatch-hex">#C58B3B</div><div class="swatch-role">At risk · slow response · follow-up overdue</div></div>
+      </div>
+      <div class="swatch">
+        <div class="swatch-color" style="background:#7A2E2E"></div>
+        <div class="swatch-info dark"><div class="swatch-name">Oxblood</div><div class="swatch-hex">#7A2E2E</div><div class="swatch-role">Error · lost · failed · system alert</div></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="rule"></div>
+
+<!-- COLOR COMBINATIONS -->
+<section class="section-alt">
+  <div class="eyebrow">Color combinations</div>
+  <h2 class="title">How colors work together</h2>
+  <p class="lead-sm">Approved pairings for UI, marketing, and data surfaces. Each combination has a defined context.</p>
+
+  <div style="font-family:var(--in);font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--stone);margin-bottom:12px">Light surface combinations</div>
+  <div class="combo-grid" style="margin-bottom:12px">
+    <div class="combo-card" style="background:#F5F1E8;border:0.5px solid #E0DAD0">
+      <div class="combo-label" style="color:var(--stone)">Primary light · default</div>
+      <div class="combo-title" style="color:var(--green);font-family:var(--jf)">Racing Green on Ivory</div>
+      <div class="combo-body" style="color:var(--stone-deep);font-family:var(--in)">Used for all primary headings, wordmarks, and CTAs on the default ivory background. The brand's most common pairing.</div>
+      <div class="combo-chips">
+        <span class="chip" style="background:#D8EDE4;color:var(--green)">Headline</span>
+        <span class="chip" style="background:#D8EDE4;color:var(--green)">Wordmark</span>
+        <span class="chip" style="background:#D8EDE4;color:var(--green)">CTA button</span>
+        <span class="chip" style="background:#D8EDE4;color:var(--green)">Nav active</span>
+      </div>
+    </div>
+    <div class="combo-card" style="background:#F5F1E8;border:0.5px solid #E0DAD0">
+      <div class="combo-label" style="color:var(--stone)">Gold accent on light</div>
+      <div class="combo-title" style="color:var(--gold);font-family:var(--jf)">Warm Gold on Ivory</div>
+      <div class="combo-body" style="color:var(--stone-deep);font-family:var(--in)">Reserved for the premium tier, taglines in italic, high-value card borders, pull-quote accents, and feature links.</div>
+      <div class="combo-chips">
+        <span class="chip" style="background:#F0E8D8;color:var(--gold)">Tagline italic</span>
+        <span class="chip" style="background:#F0E8D8;color:var(--gold)">High-value card</span>
+        <span class="chip" style="background:#F0E8D8;color:var(--gold)">Pull quote border</span>
+      </div>
+    </div>
+    <div class="combo-card" style="background:#F5F1E8;border:0.5px solid #E0DAD0">
+      <div class="combo-label" style="color:var(--stone)">Body text on light</div>
+      <div class="combo-title" style="color:#1C1208;font-family:var(--jf)">Stone Deep on Ivory</div>
+      <div class="combo-body" style="color:var(--stone-deep);font-family:var(--in)">All body copy, nav links, supporting prose, and long-form content. Stone Deep (#6A5848) is warm and easy on the eyes at paragraph length.</div>
+      <div class="combo-chips">
+        <span class="chip" style="background:var(--ivory-mid);color:var(--stone-deep)">Body text</span>
+        <span class="chip" style="background:var(--ivory-mid);color:var(--stone-deep)">Nav links</span>
+        <span class="chip" style="background:var(--ivory-mid);color:var(--stone-deep)">Prose</span>
+      </div>
+    </div>
+    <div class="combo-card" style="background:var(--green);border:0.5px solid var(--green-deep)">
+      <div class="combo-label" style="color:rgba(245,241,232,.4)">CTA section · green bg</div>
+      <div class="combo-title" style="color:var(--ivory);font-family:var(--jf)">Ivory on Racing Green</div>
+      <div class="combo-body" style="color:rgba(245,241,232,.65);font-family:var(--in)">Used for the primary CTA section background. Ivory headline + ghost body text + gold primary button. The only section where green fills the canvas.</div>
+      <div class="combo-chips">
+        <span class="chip" style="background:rgba(245,241,232,.1);color:var(--ivory)">CTA section only</span>
+        <span class="chip" style="background:rgba(130,109,64,.3);color:var(--champagne)">Gold CTA btn</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="font-family:var(--in);font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--stone);margin-bottom:12px;margin-top:28px">Dark surface combinations</div>
+  <div class="combo-grid" style="margin-bottom:24px">
+    <div class="combo-card" style="background:var(--obsidian);border:0.5px solid #1A2025">
+      <div class="combo-label" style="color:var(--border-dark)">Primary dark · cockpit</div>
+      <div class="combo-title" style="color:var(--ivory);font-family:var(--jf)">Ivory on Obsidian</div>
+      <div class="combo-body" style="color:var(--stone);font-family:var(--in)">Headlines, metric numbers, and primary content on dark surfaces. Ivory (#F5F1E8) not pure white — preserves warmth against obsidian.</div>
+      <div class="combo-chips">
+        <span class="chip" style="background:#0B3D2E;color:#1F7A4D">Dashboard</span>
+        <span class="chip" style="background:#0B3D2E;color:#1F7A4D">Dark sections</span>
+        <span class="chip" style="background:#0B3D2E;color:#1F7A4D">Footer</span>
+      </div>
+    </div>
+    <div class="combo-card" style="background:var(--obsidian);border:0.5px solid #1A2025">
+      <div class="combo-label" style="color:var(--border-dark)">Premium dark · high value</div>
+      <div class="combo-title" style="color:var(--champagne);font-family:var(--jf)">Champagne on Obsidian</div>
+      <div class="combo-body" style="color:var(--stone);font-family:var(--in)">High-value metric numbers and premium callouts on dark. Use Champagne (#D8BE8A) for the number, Warm Gold (#826D40) for the label.</div>
+      <div class="combo-chips">
+        <span class="chip" style="background:#2A1E08;color:var(--champagne)">High-value metric</span>
+        <span class="chip" style="background:#2A1E08;color:var(--gold)">Gold label</span>
+      </div>
+    </div>
+    <div class="combo-card" style="background:var(--carbon);border:0.5px solid #1A2025">
+      <div class="combo-label" style="color:var(--border-dark)">Carbon card · data surface</div>
+      <div class="combo-title" style="color:var(--ivory);font-family:var(--jf)">Ivory on Carbon</div>
+      <div class="combo-body" style="color:var(--stone);font-family:var(--in)">Standard dark card surface. Carbon (#101417) as card background inside obsidian sections. Stone for secondary labels, Ivory for primary values.</div>
+      <div class="combo-chips">
+        <span class="chip" style="background:#1A2025;color:var(--stone)">Metric cards</span>
+        <span class="chip" style="background:#1A2025;color:var(--stone)">Data panels</span>
+      </div>
+    </div>
+    <div class="combo-card" style="background:var(--obsidian);border:0.5px solid var(--green)">
+      <div class="combo-label" style="color:#1F7A4D">Active state · green signal</div>
+      <div class="combo-title" style="color:#1F7A4D;font-family:var(--jf)">Active Green on Obsidian</div>
+      <div class="combo-body" style="color:var(--stone);font-family:var(--in)">Live status indicators, qualified badges, upward trend signals. Never use for large fills — dots, pills, small text only.</div>
+      <div class="combo-chips">
+        <span class="chip" style="background:#0B3D2E;color:#1F7A4D">Live dot</span>
+        <span class="chip" style="background:#0B3D2E;color:#1F7A4D">Qualified badge</span>
+        <span class="chip" style="background:#0B3D2E;color:#1F7A4D">↑ Trend</span>
+      </div>
+    </div>
+  </div>
+
+  <div style="margin-bottom:28px">
+    <div style="font-family:var(--in);font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--oxblood);margin-bottom:14px">Hard rule — Contrast & Readability</div>
+    <div style="background:var(--obsidian);border-radius:12px;padding:22px 24px;margin-bottom:10px;border:0.5px solid #1A2025">
+      <div style="font-family:var(--jf);font-weight:700;font-size:15px;letter-spacing:.06em;text-transform:uppercase;color:var(--ivory);margin-bottom:10px">The foreground always reads against the background. Always.</div>
+      <div style="font-family:var(--in);font-size:13px;line-height:1.7;color:var(--stone)">Dark foreground on light background. Light foreground on dark background. No exceptions. This is not a preference — it is a hard rule that governs every text, label, icon, and UI element in the Klaroha system.</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">
+      <div>
+        <div style="font-family:var(--in);font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--green-active);margin-bottom:6px;padding-left:2px">✓ Correct</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="background:var(--ivory);border:0.5px solid var(--border-light);border-radius:10px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between">
+            <div><div style="font-family:var(--jf);font-weight:700;font-size:18px;color:var(--green);line-height:1.1;margin-bottom:3px">Dark on Light</div><div style="font-family:var(--in);font-size:11px;color:var(--stone-deep)">Racing Green #0B3D2E on Ivory #F5F1E8</div></div>
+            <div style="font-family:var(--in);font-size:9px;font-weight:500;color:var(--green-active);background:#D8EDE4;padding:3px 8px;border-radius:3px;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0">Readable</div>
+          </div>
+          <div style="background:var(--ivory-mid);border:0.5px solid var(--border-light);border-radius:10px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between">
+            <div><div style="font-family:var(--jf);font-weight:700;font-size:18px;color:var(--green);line-height:1.1;margin-bottom:3px">Dark on Light</div><div style="font-family:var(--in);font-size:11px;color:var(--stone-deep)">Stone Deep #6A5848 on Ivory Mid #EDE5D8</div></div>
+            <div style="font-family:var(--in);font-size:9px;font-weight:500;color:var(--green-active);background:#D8EDE4;padding:3px 8px;border-radius:3px;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0">Readable</div>
+          </div>
+          <div style="background:var(--obsidian);border:0.5px solid #1A2025;border-radius:10px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between">
+            <div><div style="font-family:var(--jf);font-weight:700;font-size:18px;color:var(--ivory);line-height:1.1;margin-bottom:3px">Light on Dark</div><div style="font-family:var(--in);font-size:11px;color:var(--stone)">Ivory #F5F1E8 on Obsidian #080B0D</div></div>
+            <div style="font-family:var(--in);font-size:9px;font-weight:500;color:var(--green-active);background:#0B3D2E;padding:3px 8px;border-radius:3px;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0">Readable</div>
+          </div>
+          <div style="background:var(--carbon);border:0.5px solid var(--border-dark);border-radius:10px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between">
+            <div><div style="font-family:var(--jf);font-weight:700;font-size:18px;color:var(--ivory);line-height:1.1;margin-bottom:3px">Light on Dark</div><div style="font-family:var(--in);font-size:11px;color:var(--stone)">Champagne #D8BE8A on Carbon #101417</div></div>
+            <div style="font-family:var(--in);font-size:9px;font-weight:500;color:var(--green-active);background:#0B3D2E;padding:3px 8px;border-radius:3px;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0">Readable</div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div style="font-family:var(--in);font-size:9px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--oxblood);margin-bottom:6px;padding-left:2px">✗ Never</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <div style="background:var(--ivory);border:0.5px dashed var(--oxblood);border-radius:10px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between">
+            <div><div style="font-family:var(--jf);font-weight:700;font-size:18px;color:var(--ivory-deep);line-height:1.1;margin-bottom:3px">Light on Light</div><div style="font-family:var(--in);font-size:11px;color:var(--ivory-deep)">Ivory text on Ivory background</div></div>
+            <div style="font-family:var(--in);font-size:9px;font-weight:500;color:var(--oxblood);background:rgba(122,46,46,.1);padding:3px 8px;border-radius:3px;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0">Invisible</div>
+          </div>
+          <div style="background:var(--ivory);border:0.5px dashed var(--oxblood);border-radius:10px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between">
+            <div><div style="font-family:var(--jf);font-weight:700;font-size:18px;color:var(--stone);line-height:1.1;margin-bottom:3px">Light on Light</div><div style="font-family:var(--in);font-size:11px;color:var(--stone-deep)">Stone #A59674 headline on Ivory — too low contrast</div></div>
+            <div style="font-family:var(--in);font-size:9px;font-weight:500;color:var(--oxblood);background:rgba(122,46,46,.1);padding:3px 8px;border-radius:3px;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0">Fails</div>
+          </div>
+          <div style="background:var(--obsidian);border:0.5px dashed var(--oxblood);border-radius:10px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between">
+            <div><div style="font-family:var(--jf);font-weight:700;font-size:18px;color:var(--border-dark);line-height:1.1;margin-bottom:3px">Dark on Dark</div><div style="font-family:var(--in);font-size:11px;color:var(--border-dark)">Border Graphite text on Obsidian</div></div>
+            <div style="font-family:var(--in);font-size:9px;font-weight:500;color:var(--oxblood);background:rgba(122,46,46,.15);padding:3px 8px;border-radius:3px;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0">Invisible</div>
+          </div>
+          <div style="background:var(--carbon);border:0.5px dashed var(--oxblood);border-radius:10px;padding:16px 18px;display:flex;align-items:center;justify-content:space-between">
+            <div><div style="font-family:var(--jf);font-weight:700;font-size:18px;color:var(--green);line-height:1.1;margin-bottom:3px">Dark on Dark</div><div style="font-family:var(--in);font-size:11px;color:var(--border-dark)">Racing Green #0B3D2E body text on Carbon</div></div>
+            <div style="font-family:var(--in);font-size:9px;font-weight:500;color:var(--oxblood);background:rgba(122,46,46,.15);padding:3px 8px;border-radius:3px;letter-spacing:.06em;text-transform:uppercase;flex-shrink:0">Fails</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+      <div style="background:var(--ivory);border:0.5px solid var(--border-light);border-radius:8px;padding:14px 16px">
+        <div style="font-family:var(--jf);font-weight:700;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--green);margin-bottom:6px">Light surface rule</div>
+        <div style="font-family:var(--in);font-size:12px;line-height:1.65;color:var(--stone-deep)">All foreground elements must be drawn from the dark palette. Racing Green, Stone Deep, Obsidian, or Gold. Never Ivory, Champagne, or any light color on a light background.</div>
+      </div>
+      <div style="background:var(--obsidian);border:0.5px solid #1A2025;border-radius:8px;padding:14px 16px">
+        <div style="font-family:var(--jf);font-weight:700;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ivory);margin-bottom:6px">Dark surface rule</div>
+        <div style="font-family:var(--in);font-size:12px;line-height:1.65;color:var(--stone)">All foreground elements must be drawn from the light palette. Ivory, Champagne, Muted Stone, Active Green, or Gold. Never Obsidian, Carbon, Graphite, or Racing Green on a dark background.</div>
+      </div>
+    </div>
+  </div>
+
+  <div style="font-family:var(--in);font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--oxblood);margin-bottom:12px;margin-top:28px">Additional violations</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px">
+    <div class="combo-dont" style="border-color:var(--border-light);background:var(--ivory)">
+      <div class="dont-row"><div class="dont-dot" style="background:var(--oxblood)"></div><div class="dont-text" style="font-family:var(--in);color:var(--stone-deep)"><strong>Gold on Racing Green background</strong> — both are mid-dark. Insufficient contrast for text or CTAs.</div></div>
+      <div class="dont-row"><div class="dont-dot" style="background:var(--oxblood)"></div><div class="dont-text" style="font-family:var(--in);color:var(--stone-deep)"><strong>Stone on Obsidian body text</strong> — Stone (#A59674) is a label color only. Not readable at paragraph length on dark.</div></div>
+      <div class="dont-row"><div class="dont-dot" style="background:var(--oxblood)"></div><div class="dont-text" style="font-family:var(--in);color:var(--stone-deep)"><strong>Gold as status indicator</strong> — Gold encodes premium / high-value. Never use it for live, error, or warning states.</div></div>
+    </div>
+    <div class="combo-dont" style="border-color:var(--border-dark);background:var(--obsidian)">
+      <div class="dont-row"><div class="dont-dot" style="background:var(--oxblood)"></div><div class="dont-text" style="font-family:var(--in);color:var(--stone)"><strong>Obsidian as default page background</strong> — Ivory is default. Obsidian is accent only for dark sections.</div></div>
+      <div class="dont-row"><div class="dont-dot" style="background:var(--oxblood)"></div><div class="dont-text" style="font-family:var(--in);color:var(--stone)"><strong>Champagne for body text</strong> — Too light on dark. Champagne (#D8BE8A) is metric numerals only.</div></div>
+      <div class="dont-row"><div class="dont-dot" style="background:var(--oxblood)"></div><div class="dont-text" style="font-family:var(--in);color:var(--stone)"><strong>Green fills on light cards</strong> — Racing Green is a text and border color on ivory, not a card fill outside CTA sections.</div></div>
+    </div>
+  </div>
+</section>
+
+<div class="rule"></div>
+
+<!-- TYPOGRAPHY -->
+<section class="section">
+  <div class="eyebrow">Typography</div>
+  <h2 class="title">Josefin Sans · Inter</h2>
+  <p class="lead-sm">Josefin Sans for all display, headline, and brand moments. Inter for all body, UI, caption, and data text. No other typefaces.</p>
+
+  <div style="background:var(--ivory-mid);border:0.5px solid var(--border-light);border-radius:12px;padding:32px;margin-bottom:12px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:24px;border-bottom:0.5px solid var(--border-light);padding-bottom:14px">
+      <div style="font-family:var(--in);font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--stone)">Josefin Sans · Display & Headlines</div>
+      <div style="font-family:monospace;font-size:10px;color:var(--stone)">Geometric · Precise · Engineered</div>
+    </div>
+    <div style="font-family:var(--jf);font-weight:700;font-size:52px;line-height:1.06;color:var(--green);letter-spacing:-.01em;margin-bottom:6px">Turn buyer intent</div>
+    <div style="font-family:var(--jf);font-weight:700;font-size:52px;line-height:1.06;color:var(--gold);letter-spacing:-.01em;margin-bottom:32px">into qualified conversations.</div>
+    <div class="scale-row">
+      <div class="scale-item"><div class="scale-size">52px · 700</div><div class="scale-name" style="font-family:var(--in)">Display</div><div style="font-family:var(--jf);font-weight:700;font-size:52px;color:var(--green);line-height:1">Aa</div></div>
+      <div class="scale-item"><div class="scale-size">36px · 700</div><div class="scale-name" style="font-family:var(--in)">H1</div><div style="font-family:var(--jf);font-weight:700;font-size:36px;color:var(--green);line-height:1">Marketing, Engineered for Clarity.</div></div>
+      <div class="scale-item"><div class="scale-size">28px · 700</div><div class="scale-name" style="font-family:var(--in)">H2</div><div style="font-family:var(--jf);font-weight:700;font-size:28px;color:var(--green);line-height:1.1">The operating layer between attention and revenue.</div></div>
+      <div class="scale-item"><div class="scale-size">18px · 700</div><div class="scale-name" style="font-family:var(--in)">H3</div><div style="font-family:var(--jf);font-weight:700;font-size:18px;color:var(--green);letter-spacing:.03em;text-transform:uppercase">Intent capture · Qualification · Routing</div></div>
+      <div class="scale-item"><div class="scale-size">11px · 700</div><div class="scale-name" style="font-family:var(--in)">Label</div><div style="font-family:var(--jf);font-weight:700;font-size:11px;color:var(--green-active);letter-spacing:.12em;text-transform:uppercase">Demand-capture infrastructure · 01 — Capture</div></div>
+    </div>
+  </div>
+
+  <div style="background:var(--ivory-mid);border:0.5px solid var(--border-light);border-radius:12px;padding:32px">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:24px;border-bottom:0.5px solid var(--border-light);padding-bottom:14px">
+      <div style="font-family:var(--in);font-size:10px;font-weight:500;letter-spacing:.1em;text-transform:uppercase;color:var(--stone)">Inter · Body, UI & Data</div>
+      <div style="font-family:monospace;font-size:10px;color:var(--stone)">Clear · Neutral · Mobile-first</div>
+    </div>
+    <div style="font-family:var(--in);font-size:17px;line-height:1.75;color:var(--stone-deep);max-width:580px;margin-bottom:24px">Klaroha captures, qualifies, routes, and follows up on demand across messy channels — so sales-led businesses stop losing serious buyers in DMs, forms, calls, referrals, and branch handoffs.</div>
+    <div class="scale-row">
+      <div class="scale-item"><div class="scale-size">17px · 400</div><div class="scale-name" style="font-family:var(--in)">Body large</div><div style="font-family:var(--in);font-size:17px;color:var(--stone-deep);line-height:1.7">Lorem ipsum dolor sit amet, consectetur adipiscing elit.</div></div>
+      <div class="scale-item"><div class="scale-size">15px · 400</div><div class="scale-name" style="font-family:var(--in)">Body</div><div style="font-family:var(--in);font-size:15px;color:var(--stone-deep);line-height:1.75">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.</div></div>
+      <div class="scale-item"><div class="scale-size">13px · 400</div><div class="scale-name" style="font-family:var(--in)">Body small</div><div style="font-family:var(--in);font-size:13px;color:var(--stone-deep);line-height:1.7">Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua. Ut enim ad minim veniam.</div></div>
+      <div class="scale-item"><div class="scale-size">11px · 500</div><div class="scale-name" style="font-family:var(--in)">Caption</div><div style="font-family:var(--in);font-size:11px;font-weight:500;color:var(--stone);letter-spacing:.06em;text-transform:uppercase">Week of May 12 — 18 · Response time: 4m · Source: Facebook</div></div>
+      <div class="scale-item"><div class="scale-size">10px mono</div><div class="scale-name" style="font-family:var(--in)">Data/ID</div><div style="font-family:monospace;font-size:11px;color:var(--stone)">INQ-2024-0047 · 09:42:18 · Branch: Makati · Status: QUALIFIED</div></div>
+    </div>
+  </div>
+</section>
+
+<div class="rule"></div>
+
+<!-- COMPONENTS -->
+<section class="section-alt">
+  <div class="eyebrow">UI components</div>
+  <h2 class="title">Buttons, badges & cards</h2>
+  <p class="lead-sm">All components built from the same palette and type system. No custom one-off colors.</p>
+
+  <div class="comp-section">
+    <div class="comp-label">Buttons — light surface</div>
+    <div class="comp-row">
+      <button class="btn btn-solid">Get started</button>
+      <button class="btn btn-outline">Book walkthrough</button>
+      <button class="btn btn-gold">High value</button>
+      <button class="btn btn-ghost">Sign in</button>
+      <button class="btn btn-solid btn-sm">See how it works</button>
+      <button class="btn btn-outline btn-sm">Learn more</button>
+    </div>
+    <div class="comp-label" style="margin-top:18px">Buttons — dark surface</div>
+    <div class="comp-row" style="background:var(--obsidian);padding:16px 20px;border-radius:10px;border:0.5px solid #1A2025">
+      <button class="btn" style="background:var(--gold);color:var(--obsidian)">Get started</button>
+      <button class="btn btn-dark-outline">Book walkthrough</button>
+      <button class="btn btn-dark-solid">Sign in</button>
+      <button class="btn btn-sm" style="background:var(--green);color:var(--ivory)">Qualify</button>
+    </div>
+  </div>
+
+  <div class="comp-section">
+    <div class="comp-label">Badges & status pills</div>
+    <div class="comp-row">
+      <span class="badge" style="background:#D8EDE4;color:var(--green)">Qualified</span>
+      <span class="badge" style="background:#0B3D2E;color:#1F7A4D">● Live</span>
+      <span class="badge" style="background:#F0E8D8;color:var(--gold)">High value</span>
+      <span class="badge" style="background:#2A1E08;color:var(--champagne)">Handoff ready</span>
+      <span class="badge" style="background:rgba(197,139,59,.15);color:var(--amber)">At risk</span>
+      <span class="badge" style="background:rgba(122,46,46,.15);color:var(--oxblood)">Lost</span>
+      <span class="badge" style="background:var(--ivory-mid);color:var(--stone-deep);border:0.5px solid var(--border-light)">Pending</span>
+      <span class="badge" style="background:var(--green);color:var(--ivory)">New</span>
+    </div>
+  </div>
+
+  <div class="comp-section">
+    <div class="comp-label">Metric cards — light</div>
+    <div class="metric-grid" style="margin-bottom:10px">
+      <div class="metric-card" style="background:var(--ivory);border:0.5px solid var(--border-light)"><div class="metric-label" style="color:var(--stone)">Captured</div><div class="metric-num" style="color:var(--green)">47</div><div class="metric-sub" style="color:var(--green-active)">↑ 12 this week</div></div>
+      <div class="metric-card" style="background:var(--ivory);border:0.5px solid var(--border-light)"><div class="metric-label" style="color:var(--stone)">Qualified</div><div class="metric-num" style="color:var(--green)">12</div><div class="metric-sub" style="color:var(--green-active)">↑ 3 this week</div></div>
+      <div class="metric-card" style="background:var(--ivory);border:0.5px solid var(--gold)"><div class="metric-label" style="color:var(--gold)">High value</div><div class="metric-num" style="color:var(--gold)">3</div><div class="metric-sub" style="color:var(--gold);opacity:.7">Handoff ready</div></div>
+      <div class="metric-card" style="background:var(--ivory);border:0.5px solid var(--border-light)"><div class="metric-label" style="color:var(--stone)">Avg response</div><div class="metric-num" style="color:var(--green)">4m</div><div class="metric-sub" style="color:var(--green-active)">↓ 62% vs baseline</div></div>
+    </div>
+    <div class="comp-label">Metric cards — dark</div>
+    <div class="metric-grid" style="background:var(--obsidian);padding:16px;border-radius:12px;border:0.5px solid #1A2025">
+      <div class="metric-card" style="background:var(--carbon);border:0.5px solid var(--border-dark)"><div class="metric-label" style="color:var(--stone)">Captured</div><div class="metric-num" style="color:var(--ivory)">47</div><div class="metric-sub" style="color:var(--green-active)">↑ 12 this week</div></div>
+      <div class="metric-card" style="background:var(--carbon);border:0.5px solid var(--border-dark)"><div class="metric-label" style="color:var(--stone)">Qualified</div><div class="metric-num" style="color:var(--ivory)">12</div><div class="metric-sub" style="color:var(--green-active)">↑ 3 this week</div></div>
+      <div class="metric-card" style="background:#0F1208;border:0.5px solid var(--gold)"><div class="metric-label" style="color:var(--gold)">High value</div><div class="metric-num" style="color:var(--champagne)">3</div><div class="metric-sub" style="color:var(--gold);opacity:.7">Handoff ready</div></div>
+      <div class="metric-card" style="background:var(--carbon);border:0.5px solid var(--border-dark)"><div class="metric-label" style="color:var(--stone)">Avg response</div><div class="metric-num" style="color:var(--ivory)">4m</div><div class="metric-sub" style="color:var(--green-active)">↓ 62%</div></div>
+    </div>
+  </div>
+
+  <div class="comp-section" style="margin-bottom:0">
+    <div class="comp-label">Content cards</div>
+    <div class="card-grid">
+      <div class="brand-card" style="background:var(--ivory);border:0.5px solid var(--border-light)">
+        <div style="font-family:var(--in);font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--green-active);margin-bottom:12px">01 — Capture</div>
+        <div style="font-family:var(--jf);font-weight:700;font-size:16px;letter-spacing:.04em;text-transform:uppercase;color:var(--green);margin-bottom:8px">Intent assets</div>
+        <div style="font-family:var(--in);font-size:12px;line-height:1.7;color:var(--stone-deep);margin-bottom:16px">Landing pages, funnels, and calculators that capture serious demand — not just traffic.</div>
+        <a style="font-family:var(--in);font-size:11px;font-weight:500;color:var(--gold);letter-spacing:.04em;text-decoration:none">Explore →</a>
+      </div>
+      <div class="brand-card" style="background:var(--ivory);border:0.5px solid var(--gold)">
+        <div style="font-family:var(--in);font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--gold);margin-bottom:12px">Featured</div>
+        <div style="font-family:var(--jf);font-weight:700;font-size:16px;letter-spacing:.04em;text-transform:uppercase;color:var(--green);margin-bottom:8px">Qualification flows</div>
+        <div style="font-family:var(--in);font-size:12px;line-height:1.7;color:var(--stone-deep);margin-bottom:16px">Forms, quizzes, and fit scoring that separate serious buyers from noise before sales time is spent.</div>
+        <a style="font-family:var(--in);font-size:11px;font-weight:500;color:var(--gold);letter-spacing:.04em;text-decoration:none">Explore →</a>
+      </div>
+      <div class="brand-card" style="background:var(--obsidian);border:0.5px solid #1A2025">
+        <div style="font-family:var(--in);font-size:10px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--border-dark);margin-bottom:12px">03 — Route</div>
+        <div style="font-family:var(--jf);font-weight:700;font-size:16px;letter-spacing:.04em;text-transform:uppercase;color:var(--ivory);margin-bottom:8px">Conversation handoff</div>
+        <div style="font-family:var(--in);font-size:12px;line-height:1.7;color:var(--stone);margin-bottom:16px">Instant routing to the right agent or branch — so no serious inquiry waits longer than it should.</div>
+        <a style="font-family:var(--in);font-size:11px;font-weight:500;color:var(--gold);letter-spacing:.04em;text-decoration:none">Explore →</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- VOICE STRIP -->
+<div class="voice-strip">
+  <div class="voice-item"><div class="voice-word">Clear</div><div class="voice-desc">Plain language. No jargon. Every claim connects to demand capture or sales execution.</div></div>
+  <div class="voice-item"><div class="voice-word">Precise</div><div class="voice-desc">Concrete terms: inquiry, qualification, routing, follow-up, response time, branch, agent.</div></div>
+  <div class="voice-item"><div class="voice-word">Controlled</div><div class="voice-desc">No overpromise. No hype. No "10x" or "revolutionary." The tone is a senior operator.</div></div>
+  <div class="voice-item"><div class="voice-word">Strategic</div><div class="voice-desc">Every workflow connects to the bigger operating system. Not features — outcomes.</div></div>
+</div>
+
+<!-- COLOR USAGE TABLE -->
+<section class="section">
+  <div class="eyebrow">Quick reference</div>
+  <h2 class="title">Color usage table</h2>
+  <p class="lead-sm">A single-glance reference for what each color does and where it appears.</p>
+  <table class="usage-table">
+    <thead>
+      <tr><th>Color</th><th>Hex</th><th>Use for</th><th>Never use for</th></tr>
+    </thead>
+    <tbody>
+      <tr><td><div class="color-dot-row"><div class="color-dot" style="background:#F5F1E8;border:0.5px solid #E0DAD0"></div>Ivory</div></td><td style="font-family:monospace;color:var(--stone-deep)">#F5F1E8</td><td>Default background · all marketing · print · light mode text on dark</td><td>Text on ivory · dark card fills</td></tr>
+      <tr><td><div class="color-dot-row"><div class="color-dot" style="background:#080B0D"></div>Obsidian</div></td><td style="font-family:monospace;color:var(--stone)">#080B0D</td><td>Dark sections · dashboard · footer · cockpit accent areas only</td><td>Default page background · primary surface</td></tr>
+      <tr><td><div class="color-dot-row"><div class="color-dot" style="background:#0B3D2E"></div>Racing Green</div></td><td style="font-family:monospace;color:var(--stone)">#0B3D2E</td><td>Headlines · wordmark · CTAs · nav active · card border accent · green CTA section bg</td><td>Body text · large dark fills on ivory · status indicators</td></tr>
+      <tr><td><div class="color-dot-row"><div class="color-dot" style="background:#826D40"></div>Warm Gold</div></td><td style="font-family:monospace;color:var(--stone)">#826D40</td><td>High-value tier · tagline italic · pull quote · card border accent · logo clarity dot</td><td>Body text · navigation · status signals · large fills</td></tr>
+      <tr><td><div class="color-dot-row"><div class="color-dot" style="background:#D8BE8A"></div>Champagne</div></td><td style="font-family:monospace;color:var(--stone)">#D8BE8A</td><td>High-value metric numbers on dark surfaces only</td><td>Any use on light backgrounds · body text</td></tr>
+      <tr><td><div class="color-dot-row"><div class="color-dot" style="background:#A59674"></div>Muted Stone</div></td><td style="font-family:monospace;color:var(--stone)">#A59674</td><td>Secondary labels · metric sublabels · caption text · chart axis labels</td><td>Primary body text · headlines · CTAs</td></tr>
+      <tr><td><div class="color-dot-row"><div class="color-dot" style="background:#1F7A4D"></div>Active Green</div></td><td style="font-family:monospace;color:var(--stone)">#1F7A4D</td><td>Live status · qualified · converted · upward trend signals · healthy system</td><td>Large fills · brand presence · decoration</td></tr>
+      <tr><td><div class="color-dot-row"><div class="color-dot" style="background:#C58B3B"></div>Warning Amber</div></td><td style="font-family:monospace;color:var(--stone)">#C58B3B</td><td>At-risk · slow response · follow-up overdue · system caution</td><td>Brand accent · premium signals · decorative</td></tr>
+      <tr><td><div class="color-dot-row"><div class="color-dot" style="background:#7A2E2E"></div>Oxblood</div></td><td style="font-family:monospace;color:var(--stone)">#7A2E2E</td><td>Error · lost · failed routing · system alert — subdued, never loud</td><td>Brand use of any kind · decoration</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- FOOTER -->
+<div style="background:var(--obsidian);padding:40px 56px;border-top:0.5px solid var(--border-dark);display:flex;justify-content:space-between;align-items:center">
+  <div>
+    <div style="font-family:var(--jf);font-weight:700;font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--ivory);margin-bottom:5px">Klaroha</div>
+    <div style="font-family:var(--in);font-size:11px;font-style:italic;color:var(--gold)">Marketing, Engineered for Clarity.</div>
+  </div>
+  <div style="font-family:var(--in);font-size:10px;color:var(--border-dark);text-align:right;line-height:1.8">
+    Brand Aesthetic Guidelines v1.0<br>
+    Josefin Sans · Inter<br>
+    Racing Green · Warm Gold · Obsidian · Ivory
+  </div>
+</div>
+
+</body>
+</html>
