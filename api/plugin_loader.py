@@ -128,6 +128,40 @@ def get_plugin_for_module(module_id: str) -> Optional[_PluginState]:
     return _loaded.get(plugin_id) if plugin_id else None
 
 
+def get_loaded_plugins() -> dict[str, "_PluginState"]:
+    return dict(_loaded)
+
+
+def _plugin_provider_key(plugin_id: str) -> str:
+    return f"plugin.{plugin_id}"
+
+
+async def _load_db_plugin_vars(db, plugin_id: str, settings) -> dict:
+    """Load DB-stored plugin vars (saved via Admin UI). Falls back to {} on any error."""
+    import json as _json
+    from sqlalchemy import select as _select
+    from models.provider import ProviderKey as _ProviderKey
+    from models.workspace import Workspace as _Workspace
+    from provider_auth import decrypt_secret as _decrypt
+
+    try:
+        ws = (await db.execute(_select(_Workspace).limit(1))).scalar_one_or_none()
+        if not ws:
+            return {}
+        row = (await db.execute(
+            _select(_ProviderKey).where(
+                _ProviderKey.workspace_id == ws.id,
+                _ProviderKey.provider == _plugin_provider_key(plugin_id),
+                _ProviderKey.auth_mode == "plugin_vars",
+            )
+        )).scalar_one_or_none()
+        if not row:
+            return {}
+        return _json.loads(_decrypt(row.key_encrypted, settings))
+    except Exception:
+        return {}
+
+
 async def inject_channel_credentials(
     module_id: str,
     brief: dict,
@@ -187,10 +221,12 @@ async def inject_channel_credentials(
                         credentials["access_token"] = token
                         first = False
 
-    for var in manifest.requires_platform_vars:
-        val = os.getenv(var)
-        if val:
-            credentials[var.lower()] = val
+    if manifest.requires_platform_vars:
+        db_vars = await _load_db_plugin_vars(db, manifest.plugin_id, settings)
+        for var in manifest.requires_platform_vars:
+            val = os.getenv(var) or db_vars.get(var) or db_vars.get(var.lower())
+            if val:
+                credentials[var.lower()] = val
 
     if credentials:
         return {**brief, "_channel_credentials": credentials}

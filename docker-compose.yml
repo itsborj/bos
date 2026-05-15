@@ -50,5 +50,13 @@ services:
       - api
       - web
 
+  public:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "3000:80"
+    volumes:
+      - ./public:/usr/share/nginx/html:ro
+
 volumes:
   postgres_data:

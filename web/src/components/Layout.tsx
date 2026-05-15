@@ -15,6 +15,7 @@ const MOBILE_NAV = [
 const CHAT_MESSAGES_KEY = 'bos_chat_messages';
 const CHAT_CONVERSATIONS_KEY = 'bos_chat_conversations';
 const PENDING_RUNS_KEY = 'bos_pending_run_decisions';
+const ACTIVE_BRAND_KEY = 'bos_active_brand';
 
 type SavedConversation = {
   id: string;
@@ -40,6 +41,19 @@ function conversationLabel(messages: any[]): string {
 
 function isRunResponse(value: unknown): value is RunResponse {
   return !!value && typeof value === 'object' && typeof (value as RunResponse).run_id === 'string' && typeof (value as RunResponse).module_id === 'string';
+}
+
+function readActiveBrand(): ActiveBrand | null {
+  try {
+    const raw = localStorage.getItem(ACTIVE_BRAND_KEY);
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (parsed && typeof parsed.id === 'string' && typeof parsed.name === 'string') {
+      return { id: parsed.id, name: parsed.name };
+    }
+  } catch {
+    return null;
+  }
+  return null;
 }
 
 function readPendingRuns(): Record<string, RunResponse> {
@@ -74,7 +88,7 @@ export function Layout() {
   const [settingsTab, setSettingsTab]     = useState<SettingsTab>('byok');
   const [pendingRunItems, setPendingRunItems] = useState<Record<string, RunResponse>>(() => readPendingRuns());
   const [conversations, setConversations] = useState<SavedConversation[]>([]);
-  const [activeBrand, setActiveBrand] = useState<ActiveBrand | null>(null);
+  const [activeBrand, setActiveBrand] = useState<ActiveBrand | null>(() => readActiveBrand());
   const [activeCampaign, setActiveCampaign] = useState<ActiveCampaign | null>(null);
 
   const refreshConversations = useCallback(() => {
@@ -98,6 +112,14 @@ export function Layout() {
   useEffect(() => {
     localStorage.setItem(PENDING_RUNS_KEY, JSON.stringify(pendingRunItems));
   }, [pendingRunItems]);
+
+  useEffect(() => {
+    if (activeBrand) {
+      localStorage.setItem(ACTIVE_BRAND_KEY, JSON.stringify(activeBrand));
+    } else {
+      localStorage.removeItem(ACTIVE_BRAND_KEY);
+    }
+  }, [activeBrand]);
 
   const addPendingRun = useCallback((run: RunResponse) => {
     setPendingRunItems(prev => ({ ...prev, [run.run_id]: run }));

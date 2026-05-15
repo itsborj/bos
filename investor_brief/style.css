@@ -1,0 +1,159 @@
+/* Klaroha Brand Palette & Typography */
+@import url('https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@400;700&family=Inter:wght@400;500&display=swap');
+
+:root {
+    --ivory: #F5F1E8;
+    --ivory-mid: #EDE5D8;
+    --soft-ivory: #E6DED0;
+    --obsidian: #080B0D;
+    --racing-green: #0B3D2E;
+    --racing-green-deep: #0A2820;
+    --racing-green-mid: #0F5C3E;
+    --active-green: #1F7A4D;
+    --warm-gold: #826D40;
+    --satin-bronze: #B08A57;
+    --champagne: #D8BE8A;
+    --muted-stone: #A59674;
+    --stone-deep: #6A5848;
+    --border-light: #E0DAD0;
+    --carbon: #101417;
+    --gunmetal: #171D20;
+    --smoked-panel: #1F272B;
+    --border-graphite: #2E383D;
+    --warning-amber: #C58B3B;
+    --oxblood: #7A2E2E;
+}
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+    -webkit-font-smoothing: antialiased;
+}
+
+body {
+    font-family: 'Inter', sans-serif;
+    background-color: var(--ivory);
+    color: var(--obsidian);
+    line-height: 1.6;
+}
+
+.slide-container {
+    width: 100%;
+    height: 100vh;
+    padding: 60px 80px;
+    display: flex;
+    flex-direction: column;
+}
+
+.title-main {
+    font-family: 'Josefin Sans', sans-serif;
+    font-size: clamp(32px, 5vw, 48px);
+    font-weight: 700;
+    color: var(--racing-green);
+    line-height: 1.1;
+    margin-bottom: 1rem;
+}
+
+.subtitle-main {
+    font-family: 'Inter', sans-serif;
+    font-size: clamp(16px, 2vw, 20px);
+    color: var(--stone-deep);
+    max-width: 800px;
+    margin-bottom: 2rem;
+}
+
+.divider {
+    width: 60px;
+    height: 4px;
+    background-color: var(--warm-gold);
+    margin-bottom: 3rem;
+}
+
+.card {
+    background: var(--ivory-mid);
+    border-radius: 12px;
+    padding: 30px;
+    border-left: 4px solid var(--racing-green);
+    box-shadow: 0 4px 20px rgba(0,0,0,0.05);
+    margin-bottom: 20px;
+}
+
+.card-title {
+    font-family: 'Josefin Sans', sans-serif;
+    font-size: 24px;
+    font-weight: 700;
+    color: var(--racing-green);
+    margin-bottom: 1rem;
+}
+
+.card-text {
+    font-size: 15px;
+    color: var(--stone-deep);
+    line-height: 1.6;
+}
+
+.hero-box {
+    background: linear-gradient(135deg, var(--racing-green) 0%, var(--racing-green-mid) 100%);
+    color: var(--ivory);
+    padding: 40px;
+    border-radius: 16px;
+    margin-bottom: 40px;
+    box-shadow: 0 10px 30px rgba(11, 61, 46, 0.2);
+}
+
+.hero-box h2 {
+    font-family: 'Josefin Sans', sans-serif;
+    font-size: 32px;
+    margin-bottom: 1rem;
+    color: var(--champagne);
+}
+
+.hero-box p {
+    font-size: 18px;
+    line-height: 1.6;
+    opacity: 0.9;
+}
+
+.data-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 1rem;
+}
+
+.data-table th {
+    text-align: left;
+    font-family: 'Josefin Sans', sans-serif;
+    color: var(--racing-green);
+    padding: 12px;
+    border-bottom: 2px solid var(--warm-gold);
+}
+
+.data-table td {
+    padding: 12px;
+    border-bottom: 1px solid var(--border-light);
+    color: var(--stone-deep);
+    font-size: 14px;
+}
+
+.highlight-row {
+    background: var(--soft-ivory);
+    font-weight: 700;
+    color: var(--racing-green);
+}
+
+/* Dark Mode’d Sections */
+.dark-section {
+    background: var(--obsidian);
+    color: var(--ivory);
+    border-radius: 12px;
+    padding: 30px;
+}
+
+.dark-section h2, .dark-section h3, .dark-section .card-title {
+    color: var(--champagne);
+}
+
+.dark-section p, .dark-section .card-text {
+    color: var(--border-light);
+}

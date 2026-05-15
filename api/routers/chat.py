@@ -43,6 +43,12 @@ _RUN_RE = re.compile(r"RUN:\s*([a-zA-Z0-9_.-]+)")
 # ── @klar command routing ─────────────────────────────────────────────────────
 _KLAR_RE = re.compile(r"^\s*@klar\b", re.IGNORECASE)
 
+_SCOPE_KEYS = {"conversation_brand", "execution_brand", "mode", "confidence", "reason"}
+_SCOPE_PAIR_RE = re.compile(
+    r"(conversation_brand|execution_brand|mode|confidence|reason)\s*:\s*(.*?)(?=\s+(?:conversation_brand|execution_brand|mode|confidence|reason)\s*:|$)",
+    re.IGNORECASE,
+)
+
 
 def _is_klar_command(message: str) -> bool:
     return bool(_KLAR_RE.match(message))
@@ -96,13 +102,66 @@ def _parse_klar_command(message: str) -> dict:
     return {"action": "directive", "text": body}
 
 
-def _strip_run_directives(text: str) -> str:
-    """Remove hidden module-control directives from user-visible CMO copy."""
-    cleaned = _RUN_RE.sub("", text)
+def _parse_scope_pairs(fragment: str) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for match in _SCOPE_PAIR_RE.finditer(fragment or ""):
+        key = match.group(1).strip().lower()
+        value = match.group(2).strip().strip('"\'')
+        if key in _SCOPE_KEYS and value:
+            parsed[key] = value
+    return parsed
+
+
+def _extract_scope_directive(text: str) -> tuple[dict[str, str], str]:
+    """Parse and remove the hidden CMO SCOPE block from a provider reply.
+
+    Providers sometimes compress the block into one line, e.g.
+    `SCOPE: conversation_brand: X execution_brand: Y ...`; accept that shape
+    so the directive never leaks into visible chat.
+    """
+    scope: dict[str, str] = {}
+    kept: list[str] = []
+    in_scope = False
+
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if stripped.upper().startswith("SCOPE:"):
+            scope.update(_parse_scope_pairs(stripped.split(":", 1)[1]))
+            in_scope = not bool(scope)
+            continue
+        if in_scope:
+            if not stripped:
+                in_scope = False
+                continue
+            inline_pairs = _parse_scope_pairs(stripped)
+            if inline_pairs:
+                scope.update(inline_pairs)
+                continue
+            if ":" in stripped:
+                key, value = stripped.split(":", 1)
+                normalized = key.strip().lower()
+                if normalized in _SCOPE_KEYS:
+                    scope[normalized] = value.strip().strip('"\'')
+                    continue
+            in_scope = False
+        kept.append(line)
+
+    return scope, "\n".join(kept)
+
+
+def _strip_control_directives(text: str) -> str:
+    """Remove hidden scope/module-control directives from user-visible CMO copy."""
+    _scope, without_scope = _extract_scope_directive(text)
+    cleaned = _RUN_RE.sub("", without_scope)
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     cleaned = re.sub(r" {2,}", " ", cleaned)
     return cleaned.strip(" \n\t-—")
+
+
+def _strip_run_directives(text: str) -> str:
+    """Backward-compatible wrapper for revision paths."""
+    return _strip_control_directives(text)
 
 
 
@@ -130,12 +189,65 @@ def _marketing_plan_module_id() -> str | None:
     return None
 
 
-async def _brand_scoped_brief(db: AsyncSession, ws, brand: Brand | None, base: dict) -> dict:
-    """Build a module brief scoped to the active Brand when available."""
-    brief = await _resolve_brief(db, ws, base)
-    if not brand:
-        return brief
+async def _workspace_brands(db: AsyncSession, ws) -> list[Brand]:
+    if not ws:
+        return []
+    return (await db.execute(
+        select(Brand).where(Brand.workspace_id == ws.id).order_by(Brand.name.asc())
+    )).scalars().all()
 
+
+async def _resolve_active_brand_for_turn(
+    db: AsyncSession,
+    ws,
+    body: "ChatRequest",
+) -> tuple[Brand | None, KlarAction | None]:
+    """Resolve Brand scope for a chat turn without channel/capability routing.
+
+    This is the pre-LLM scope boundary. It only honors persisted UI state (or a
+    single-brand workspace). Cross-brand follow-up interpretation belongs to the
+    `workspace.scope_resolution` SKILL.md contract and hidden SCOPE directive,
+    not deterministic phrase matching.
+    """
+    if not ws:
+        return None, None
+
+    active_brand = await resolve_brand(db, body.brand_id)
+    if active_brand:
+        return active_brand, None
+
+    all_brands = await _workspace_brands(db, ws)
+    if len(all_brands) == 1:
+        only = all_brands[0]
+        return only, KlarAction(
+            action="brand_switch",
+            data={"brand_id": str(only.id), "brand_name": only.name},
+        )
+
+    return None, None
+
+
+async def _resolve_scope_brand(db: AsyncSession, ws, value: str | None) -> Brand | None:
+    """Resolve a Brand name emitted by the hidden SCOPE directive."""
+    raw = (value or "").strip()
+    if not raw or raw.lower() in {"none", "null", "n/a", "unknown", "unclear"}:
+        return None
+    if not ws:
+        return None
+    return await find_brand_by_name(db, ws.id, raw)
+
+
+async def _brand_scoped_brief(db: AsyncSession, ws, brand: Brand | None, base: dict) -> dict:
+    """Build a module brief scoped to the active Brand when available.
+
+    Active-brand briefs must not call the workspace fallback resolver first: that
+    resolver can inject the first workspace product/audience before brand rows
+    are inspected, which is the exact cross-brand bleed this path prevents.
+    """
+    if not brand:
+        return await _resolve_brief(db, ws, base)
+
+    brief = dict(base)
     brief["brand_name"] = brand.name
     bj = brand.brand_json or {}
     for field in ("tone", "voice", "values", "domain", "website_url", "social_handles"):
@@ -182,6 +294,13 @@ async def _brand_scoped_brief(db: AsyncSession, ws, brand: Brand | None, base: d
         .where(WorkspaceDocument.brand_id == brand.id)
         .order_by(WorkspaceDocument.updated_at.desc())
     )).scalars().all()
+    logger.info(
+        "CMO brand brief scope brand_id=%s products=%s audiences=%s docs=%s",
+        brand.id,
+        len(product_rows),
+        len(audience_rows),
+        len(docs),
+    )
     by_type: dict[str, list[str]] = {}
     for doc in docs:
         if doc.content_markdown:
@@ -233,8 +352,12 @@ async def _build_system_prompt(db: AsyncSession, ws, skill_context: str = "", br
     # Active brand name takes precedence over workspace name
     ws_name = (brand.name if brand else None) or (ws.name if ws else "this business")
 
-    # Resolve brand identity: prefer active Brand row, fall back to legacy workspace.brand_json
-    active_brand_json = (brand.brand_json if brand else None) or (ws.brand_json if ws else None) or {}
+    org_brand_rows = await _workspace_brands(db, ws) if ws and not brand else []
+
+    # Resolve brand identity: prefer active Brand row. Legacy workspace.brand_json
+    # is only safe when no Brand rows exist; otherwise it may describe a
+    # previously imported Brand and bleed into org-level prompts.
+    active_brand_json = (brand.brand_json if brand else None) or ((ws.brand_json if ws else None) if not org_brand_rows else None) or {}
 
     brand_ctx = ""
     if active_brand_json:
@@ -257,46 +380,59 @@ async def _build_system_prompt(db: AsyncSession, ws, skill_context: str = "", br
 
     workspace_ctx = ""
     if ws:
-        # When a brand is active, scope products/audiences/docs to that brand.
-        # Fall back to workspace-level (brand_id IS NULL) rows for backwards compatibility.
-        if brand:
-            product_rows = (await db.execute(
-                select(Product).where(Product.brand_id == brand.id).order_by(Product.created_at.asc())
-            )).scalars().all()
-            audience_rows = (await db.execute(
-                select(Audience).where(Audience.brand_id == brand.id).order_by(Audience.created_at.asc())
-            )).scalars().all()
-            kit = (await db.execute(
-                select(WorkspaceDocument)
-                .where(WorkspaceDocument.brand_id == brand.id, WorkspaceDocument.doc_type == "campaign_brand_kit")
-                .order_by(WorkspaceDocument.status.desc(), WorkspaceDocument.updated_at.desc())
-                .limit(1)
-            )).scalar_one_or_none()
-            brand_guideline = (await db.execute(
-                select(WorkspaceDocument)
-                .where(WorkspaceDocument.brand_id == brand.id, WorkspaceDocument.doc_type == "brand_guideline")
-                .order_by(WorkspaceDocument.status.desc(), WorkspaceDocument.updated_at.desc())
-                .limit(1)
-            )).scalar_one_or_none()
+        org_brands = org_brand_rows
+        org_scope = bool(not brand and org_brands)
+        if org_scope:
+            brand_lines = [f"- {b.name}" for b in org_brands]
+            workspace_ctx = "\n\nKnown org context (no active brand):\n"
+            workspace_ctx += f"Workspace: {ws.name}\n"
+            workspace_ctx += "Available brands:\n" + "\n".join(brand_lines) + "\n"
+            workspace_ctx += "No Brand is active. Do not use workspace products, audiences, or documents as brand facts. For brand-specific artifacts, ask which brand unless the user names one.\n"
+            product_rows = []
+            audience_rows = []
+            kit = None
+            brand_guideline = None
         else:
-            product_rows = (await db.execute(
-                select(Product).where(Product.workspace_id == ws.id).order_by(Product.created_at.asc())
-            )).scalars().all()
-            audience_rows = (await db.execute(
-                select(Audience).where(Audience.workspace_id == ws.id).order_by(Audience.created_at.asc())
-            )).scalars().all()
-            kit = (await db.execute(
-                select(WorkspaceDocument)
-                .where(WorkspaceDocument.workspace_id == ws.id, WorkspaceDocument.doc_type == "campaign_brand_kit")
-                .order_by(WorkspaceDocument.status.desc(), WorkspaceDocument.updated_at.desc())
-                .limit(1)
-            )).scalar_one_or_none()
-            brand_guideline = (await db.execute(
-                select(WorkspaceDocument)
-                .where(WorkspaceDocument.workspace_id == ws.id, WorkspaceDocument.doc_type == "brand_guideline")
-                .order_by(WorkspaceDocument.status.desc(), WorkspaceDocument.updated_at.desc())
-                .limit(1)
-            )).scalar_one_or_none()
+            # When a brand is active, scope products/audiences/docs to that brand.
+            # Legacy workspace fallback is only allowed when no Brand rows exist yet.
+            if brand:
+                product_rows = (await db.execute(
+                    select(Product).where(Product.brand_id == brand.id).order_by(Product.created_at.asc())
+                )).scalars().all()
+                audience_rows = (await db.execute(
+                    select(Audience).where(Audience.brand_id == brand.id).order_by(Audience.created_at.asc())
+                )).scalars().all()
+                kit = (await db.execute(
+                    select(WorkspaceDocument)
+                    .where(WorkspaceDocument.brand_id == brand.id, WorkspaceDocument.doc_type == "campaign_brand_kit")
+                    .order_by(WorkspaceDocument.status.desc(), WorkspaceDocument.updated_at.desc())
+                    .limit(1)
+                )).scalar_one_or_none()
+                brand_guideline = (await db.execute(
+                    select(WorkspaceDocument)
+                    .where(WorkspaceDocument.brand_id == brand.id, WorkspaceDocument.doc_type == "brand_guideline")
+                    .order_by(WorkspaceDocument.status.desc(), WorkspaceDocument.updated_at.desc())
+                    .limit(1)
+                )).scalar_one_or_none()
+            else:
+                product_rows = (await db.execute(
+                    select(Product).where(Product.workspace_id == ws.id).order_by(Product.created_at.asc())
+                )).scalars().all()
+                audience_rows = (await db.execute(
+                    select(Audience).where(Audience.workspace_id == ws.id).order_by(Audience.created_at.asc())
+                )).scalars().all()
+                kit = (await db.execute(
+                    select(WorkspaceDocument)
+                    .where(WorkspaceDocument.workspace_id == ws.id, WorkspaceDocument.doc_type == "campaign_brand_kit")
+                    .order_by(WorkspaceDocument.status.desc(), WorkspaceDocument.updated_at.desc())
+                    .limit(1)
+                )).scalar_one_or_none()
+                brand_guideline = (await db.execute(
+                    select(WorkspaceDocument)
+                    .where(WorkspaceDocument.workspace_id == ws.id, WorkspaceDocument.doc_type == "brand_guideline")
+                    .order_by(WorkspaceDocument.status.desc(), WorkspaceDocument.updated_at.desc())
+                    .limit(1)
+                )).scalar_one_or_none()
 
         product_lines = []
         for p in product_rows:
@@ -328,18 +464,19 @@ async def _build_system_prompt(db: AsyncSession, ws, skill_context: str = "", br
         if brand_guideline and brand_guideline.content_markdown:
             guideline_excerpt = brand_guideline.content_markdown[:6000]
 
-        brand_scope_label = f"brand: {brand.name}" if brand else "workspace"
-        workspace_ctx = f"\n\nKnown project context ({brand_scope_label}):\n"
-        workspace_ctx += f"Company/brand: {ws_name}\n"
-        workspace_ctx += f"Brand kit status: {kit_status}\n"
-        if product_lines:
-            workspace_ctx += "Products/offers:\n" + "\n".join(product_lines) + "\n"
-        if audience_lines:
-            workspace_ctx += "Target audiences:\n" + "\n".join(audience_lines) + "\n"
-        if guideline_excerpt:
-            workspace_ctx += "Brand Guidelines / Strategic Brief excerpt:\n" + guideline_excerpt + "\n"
-        if kit_excerpt:
-            workspace_ctx += "Campaign Brand Kit excerpt:\n" + kit_excerpt + "\n"
+        if not org_scope:
+            brand_scope_label = f"brand: {brand.name}" if brand else "workspace"
+            workspace_ctx = f"\n\nKnown project context ({brand_scope_label}):\n"
+            workspace_ctx += f"Company/brand: {ws_name}\n"
+            workspace_ctx += f"Brand kit status: {kit_status}\n"
+            if product_lines:
+                workspace_ctx += "Products/offers:\n" + "\n".join(product_lines) + "\n"
+            if audience_lines:
+                workspace_ctx += "Target audiences:\n" + "\n".join(audience_lines) + "\n"
+            if guideline_excerpt:
+                workspace_ctx += "Brand Guidelines / Strategic Brief excerpt:\n" + guideline_excerpt + "\n"
+            if kit_excerpt:
+                workspace_ctx += "Campaign Brand Kit excerpt:\n" + kit_excerpt + "\n"
 
     modules_str = format_manifest_for_prompt()
 
@@ -360,6 +497,9 @@ HARD RULES — no exceptions:
 3. Broad or ambiguous sample/draft/example request (no specific platform named): ask exactly one clarifying question and offer installed artifact categories in plain language. Append no RUN line until the user clarifies.
 4. One question max per reply. Never ask multiple clarifying questions in one turn.
 5. "What can you do" replies: group into at most 5 CMO capability areas (e.g. Plan, Execute, Optimize). One short phrase per area. Do not list the brand's own products or services as capabilities.
+6. Active brand isolation: when Known project context says `brand: X`, use only that brand's profile/products/audiences/docs as business facts. Ignore chat-history facts that refer to a different brand unless the scope-resolution note sets a different execution_brand for a new artifact.
+7. Hidden scope directive: every reply must start with a SCOPE block exactly like the scope-resolution skill describes. If you append any RUN line, `execution_brand` must be one existing Brand name, not none.
+8. When the scope-resolution note sets a clear execution_brand for a new/equivalent artifact, append the matching RUN line if the installed capability exists. Do not ask for Brand profile details; BOS hydrates the execution Brand for the module.
 {brand_ctx}{workspace_ctx}{operational_ctx}
 Be mobile-first by default: short lines, one idea per line, no dense paragraphs. When the user asks what the project/brand/system is about, answer using the known project and operational context above. Do not claim details are unspecified if products, audiences, a brand kit, or connector context are present.
 
@@ -751,7 +891,15 @@ async def chat(
         elif cmd["action"] == "directive" and not body.brand_id:
             return ChatResponse(reply="Which brand are we working on?")
 
-    active_brand = await resolve_brand(db, body.brand_id)
+    active_brand, inferred_brand_action = await _resolve_active_brand_for_turn(db, ws, body)
+    if active_brand and body.brand_id != str(active_brand.id):
+        body = ChatRequest(
+            message=body.message,
+            history=body.history,
+            brand_id=str(active_brand.id),
+            campaign_id=body.campaign_id,
+        )
+        _resolved_brand_switch = _resolved_brand_switch or inferred_brand_action
 
     routed = route_chat_skills(body.message)
     if not routed.module_ids and len(body.message.strip().split()) <= 5 and body.history:
@@ -765,6 +913,13 @@ async def chat(
     activated_skill_ids = [route.skill.id for route in routed.routes]
     memory_slots = sorted({slot for route in routed.routes for slot in route.skill.memory_slots})
 
+    scope_skill_manifest = next(
+        (s for s in list_skill_manifests() if s.id == "workspace.scope_resolution"), None
+    )
+    if scope_skill_manifest and ws and scope_skill_manifest.id not in activated_skill_ids and await _workspace_brands(db, ws):
+        activated_skill_ids = [scope_skill_manifest.id] + activated_skill_ids
+        memory_slots = sorted(set(memory_slots) | set(scope_skill_manifest.memory_slots))
+
     # Plan mode: front-load the plan_mode skill and its full resource memory set.
     # This replaces the plain PLAN MODE instruction injected into body.message
     # with a governed skill contract that declares all context slots explicitly.
@@ -776,7 +931,14 @@ async def chat(
             activated_skill_ids = [plan_skill_manifest.id] + activated_skill_ids
             memory_slots = sorted(set(memory_slots) | set(plan_skill_manifest.memory_slots))
 
-    hydrated_memory = await hydrate_memory_slots(db, ws, memory_slots)
+    hydrated_memory = await hydrate_memory_slots(db, ws, memory_slots, brand=active_brand)
+    logger.info(
+        "CMO context scope=%s brand_id=%s skills=%s memory_slots=%s",
+        f"brand:{active_brand.name}" if active_brand else "workspace",
+        body.brand_id,
+        activated_skill_ids,
+        memory_slots,
+    )
     loaded_skills = [get_skill(skill_id) for skill_id in activated_skill_ids]
     skill_sections = [
         format_activated_skill(skill)
@@ -802,8 +964,14 @@ async def chat(
             module_id=None,
         )
 
-    triggered_modules = _RUN_RE.findall(raw_reply)
-    reply_text = _strip_run_directives(raw_reply)
+    scope_decision, reply_without_scope = _extract_scope_directive(raw_reply)
+    triggered_modules = _RUN_RE.findall(reply_without_scope)
+    reply_text = _strip_control_directives(raw_reply)
+
+    scope_conversation_brand = await _resolve_scope_brand(db, ws, scope_decision.get("conversation_brand"))
+    scope_execution_brand = await _resolve_scope_brand(db, ws, scope_decision.get("execution_brand"))
+    execution_brand = scope_execution_brand
+    logger.info("CMO scope decision: %s", {k: v for k, v in scope_decision.items() if k in _SCOPE_KEYS})
 
     # Plan mode: hard-zero all dispatch.
     if pending_plan_action:
@@ -819,19 +987,25 @@ async def chat(
     run_results: list[RunResponse] = []
 
     if triggered_modules and ws:
+        if await _workspace_brands(db, ws) and not execution_brand:
+            logger.warning("CMO blocked artifact dispatch without SCOPE execution_brand modules=%s scope=%s", triggered_modules, scope_decision)
+            return ChatResponse(
+                reply=reply_text or "Which brand is this artifact for?",
+                klar_action=KlarAction(action="pending_brand", data={"reason": "artifact_generation_requires_execution_brand"}),
+            )
         try:
             conversation_lines = [
                 f"{h.role.upper()}: {h.text}" for h in body.history[-12:]
             ] + [f"USER: {body.message}"]
             chat_overrides = {"conversation_context": "\n".join(conversation_lines)}
-            brief = await _brand_scoped_brief(db, ws, active_brand, chat_overrides)
+            brief = await _brand_scoped_brief(db, ws, execution_brand or active_brand, chat_overrides)
             active_campaign_uuid: UUID | None = None
             if body.campaign_id:
                 try:
                     active_campaign_uuid = UUID(body.campaign_id)
                 except (ValueError, TypeError):
                     pass
-            active_brand_uuid: UUID | None = UUID(body.brand_id) if body.brand_id else None
+            active_brand_uuid: UUID | None = (execution_brand or active_brand).id if (execution_brand or active_brand) else None
 
             for module_id in triggered_modules:
                 try:
@@ -856,7 +1030,14 @@ async def chat(
             },
         )
     else:
-        _final_klar = _resolved_brand_switch
+        scope_switch_brand = scope_execution_brand if triggered_modules else scope_conversation_brand
+        if scope_switch_brand and body.brand_id != str(scope_switch_brand.id):
+            _final_klar = KlarAction(
+                action="brand_switch",
+                data={"brand_id": str(scope_switch_brand.id), "brand_name": scope_switch_brand.name},
+            )
+        else:
+            _final_klar = _resolved_brand_switch
 
     return ChatResponse(
         reply=reply_text,
@@ -937,7 +1118,10 @@ Revision thread mode:
             f"Requested change:\n{feedback}"
         )
     })
-    revised = await _execute_module(db, ws, original_run.module_id, brief, settings)
+    revised = await _execute_module(
+        db, ws, original_run.module_id, brief, settings,
+        brand_id=revise_brand.id if revise_brand else None,
+    )
 
     new_run = (await db.execute(select(Run).where(Run.id == UUID(revised.run_id)))).scalar_one_or_none()
     if new_run:

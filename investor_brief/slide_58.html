@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="slide-container">
+        <h1 class="title-main">Financials</h1>
+        <p class="subtitle-main">LLM Cost Model (Platform Mode)</p>
+        <div class="divider"></div>
+        <div class="slide-content">
+            <div class="hero-box">
+                <p>
+                    Klaroha's default package routes AI inference to free-tier providers (Gemini 2.0 Flash, Groq, OpenRouter). A shared local model handles lower-complexity tasks. This brings platform-mode LLM cost to near zero for the first 50–75 customers.
+                </p>
+            </div>
+            <table class="data-table">
+                <thead>
+                    <tr>
+                        <th>LLM Cost Stage</th>
+                        <th>Customers</th>
+                        <th>Monthly LLM Cost</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>Free tier sufficient</td>
+                        <td>1–50</td>
+                        <td>$0–50 (overflow only)</td>
+                    </tr>
+                    <tr>
+                        <td>Partial paid routing</td>
+                        <td>51–100</td>
+                        <td>$150–400</td>
+                    </tr>
+                    <tr>
+                        <td>Mixed free + paid</td>
+                        <td>100+</td>
+                        <td>$400–900</td>
+                    </tr>
+                </tbody>
+            </table>
+            <div class="card" style="margin-top: 30px;">
+                <div class="card-title">BYOK (Bring Your Own Key)</div>
+                <div class="card-text">
+                    Customers who prefer premium models bring their own API keys. Klaroha earns no LLM margin on BYOK customers — revenue is platform fee only. This is a trust signal for enterprise buyers.
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

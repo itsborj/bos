@@ -6,6 +6,6 @@ export default defineConfig({
   server: {
     host: '0.0.0.0',
     port: 5173,
-    allowedHosts: ['klaroha.com', 'www.klaroha.com'],
+    allowedHosts: ['klaroha.com', 'www.klaroha.com', 'hq.klaroha.com'],
   },
 })

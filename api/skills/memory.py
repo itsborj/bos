@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 from uuid import UUID
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.document import WorkspaceDocument
 from models.run import Run, RunResult
-from models.workspace import Audience, Product
+from models.workspace import Audience, Brand, Product
 
 
 def _limit_text(value: str, limit: int = 1800) -> str:
@@ -21,27 +22,64 @@ async def hydrate_memory_slots(
     slots: list[str] | tuple[str, ...] | set[str],
     *,
     current_run_id: UUID | None = None,
+    brand: Brand | None = None,
 ) -> dict[str, object]:
     """Hydrate declared skill memory slots from existing BOS resources.
 
     This is the first implementation of BOS memory: no new memory table yet.
     Skills declare slots; this function maps those slots to durable workspace
     resources already present in PostgreSQL.
+
+    When an active Brand is supplied, memory is strictly scoped to that Brand.
+    Do not fall back to workspace-level rows inside an active-brand chat turn;
+    otherwise one Brand's products/docs can bleed into another Brand's CMO reply.
     """
     if not ws:
         return {}
 
     requested = set(slots)
     memory: dict[str, object] = {}
+    active_brand_id = brand.id if brand else None
+
+    def scoped_doc_query(doc_type: str):
+        query = select(WorkspaceDocument).where(
+            WorkspaceDocument.workspace_id == ws.id,
+            WorkspaceDocument.doc_type == doc_type,
+        )
+        if active_brand_id:
+            query = query.where(WorkspaceDocument.brand_id == active_brand_id)
+        return query
+
+    def scoped_run_query(*criteria: Any):
+        query = select(Run, RunResult).join(RunResult, RunResult.run_id == Run.id, isouter=True).where(
+            Run.workspace_id == ws.id,
+            *criteria,
+        )
+        if active_brand_id:
+            query = query.where(Run.brand_id == active_brand_id)
+        return query
+
+    if "brand_roster" in requested:
+        brands = (await db.execute(select(Brand).where(Brand.workspace_id == ws.id).order_by(Brand.name.asc()))).scalars().all()
+        memory["brand_roster"] = [
+            {
+                "id": str(b.id),
+                "name": b.name,
+            }
+            for b in brands
+        ]
 
     if "brand_profile" in requested:
         memory["brand_profile"] = {
-            "name": ws.name,
-            "brand": ws.brand_json or {},
+            "name": brand.name if brand else ws.name,
+            "brand": (brand.brand_json if brand else ws.brand_json) or {},
         }
 
     if "product_catalog" in requested:
-        products = (await db.execute(select(Product).where(Product.workspace_id == ws.id).order_by(Product.created_at.asc()))).scalars().all()
+        product_query = select(Product).where(Product.workspace_id == ws.id).order_by(Product.created_at.asc())
+        if active_brand_id:
+            product_query = select(Product).where(Product.brand_id == active_brand_id).order_by(Product.created_at.asc())
+        products = (await db.execute(product_query)).scalars().all()
         memory["product_catalog"] = [
             {
                 "name": p.name,
@@ -52,7 +90,10 @@ async def hydrate_memory_slots(
         ]
 
     if "audience_profiles" in requested:
-        audiences = (await db.execute(select(Audience).where(Audience.workspace_id == ws.id).order_by(Audience.created_at.asc()))).scalars().all()
+        audience_query = select(Audience).where(Audience.workspace_id == ws.id).order_by(Audience.created_at.asc())
+        if active_brand_id:
+            audience_query = select(Audience).where(Audience.brand_id == active_brand_id).order_by(Audience.created_at.asc())
+        audiences = (await db.execute(audience_query)).scalars().all()
         memory["audience_profiles"] = [
             {
                 "name": a.name,
@@ -64,8 +105,7 @@ async def hydrate_memory_slots(
     if "campaign_brand_kit" in requested:
         kit = (
             await db.execute(
-                select(WorkspaceDocument)
-                .where(WorkspaceDocument.workspace_id == ws.id, WorkspaceDocument.doc_type == "campaign_brand_kit")
+                scoped_doc_query("campaign_brand_kit")
                 .order_by(WorkspaceDocument.status.desc(), WorkspaceDocument.updated_at.desc())
                 .limit(1)
             )
@@ -81,9 +121,7 @@ async def hydrate_memory_slots(
     if "recent_approved_runs" in requested:
         rows = (
             await db.execute(
-                select(Run, RunResult)
-                .join(RunResult, RunResult.run_id == Run.id, isouter=True)
-                .where(Run.workspace_id == ws.id, Run.approval_status == "approved")
+                scoped_run_query(Run.approval_status == "approved")
                 .order_by(Run.updated_at.desc())
                 .limit(5)
             )
@@ -100,9 +138,7 @@ async def hydrate_memory_slots(
     if "recent_rejected_runs" in requested:
         rows = (
             await db.execute(
-                select(Run, RunResult)
-                .join(RunResult, RunResult.run_id == Run.id, isouter=True)
-                .where(Run.workspace_id == ws.id, Run.approval_status.in_(["rejected", "changes_requested"]))
+                scoped_run_query(Run.approval_status.in_(["rejected", "changes_requested"]))
                 .order_by(Run.updated_at.desc())
                 .limit(5)
             )
@@ -120,8 +156,7 @@ async def hydrate_memory_slots(
     if "brand_guidelines" in requested:
         doc = (
             await db.execute(
-                select(WorkspaceDocument)
-                .where(WorkspaceDocument.workspace_id == ws.id, WorkspaceDocument.doc_type == "brand_guideline")
+                scoped_doc_query("brand_guideline")
                 .order_by(WorkspaceDocument.updated_at.desc())
                 .limit(1)
             )
@@ -136,8 +171,7 @@ async def hydrate_memory_slots(
     if "marketing_reports" in requested:
         docs = (
             await db.execute(
-                select(WorkspaceDocument)
-                .where(WorkspaceDocument.workspace_id == ws.id, WorkspaceDocument.doc_type == "marketing_report")
+                scoped_doc_query("marketing_report")
                 .order_by(WorkspaceDocument.updated_at.desc())
                 .limit(3)
             )
@@ -150,8 +184,7 @@ async def hydrate_memory_slots(
     if "campaign_reports" in requested:
         docs = (
             await db.execute(
-                select(WorkspaceDocument)
-                .where(WorkspaceDocument.workspace_id == ws.id, WorkspaceDocument.doc_type == "campaign_report")
+                scoped_doc_query("campaign_report")
                 .order_by(WorkspaceDocument.updated_at.desc())
                 .limit(3)
             )
@@ -164,8 +197,7 @@ async def hydrate_memory_slots(
     if "competitor_profiles" in requested:
         docs = (
             await db.execute(
-                select(WorkspaceDocument)
-                .where(WorkspaceDocument.workspace_id == ws.id, WorkspaceDocument.doc_type == "competitor_profile")
+                scoped_doc_query("competitor_profile")
                 .order_by(WorkspaceDocument.updated_at.desc())
                 .limit(10)
             )
@@ -178,8 +210,7 @@ async def hydrate_memory_slots(
     if "industry_data" in requested:
         docs = (
             await db.execute(
-                select(WorkspaceDocument)
-                .where(WorkspaceDocument.workspace_id == ws.id, WorkspaceDocument.doc_type == "industry_report")
+                scoped_doc_query("industry_report")
                 .order_by(WorkspaceDocument.updated_at.desc())
                 .limit(2)
             )
@@ -192,9 +223,7 @@ async def hydrate_memory_slots(
     if "current_run_result" in requested and current_run_id:
         row = (
             await db.execute(
-                select(Run, RunResult)
-                .join(RunResult, RunResult.run_id == Run.id, isouter=True)
-                .where(Run.workspace_id == ws.id, Run.id == current_run_id)
+                scoped_run_query(Run.id == current_run_id)
             )
         ).one_or_none()
         memory["current_run_result"] = None if not row else {

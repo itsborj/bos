@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="slide-container">
+        <h1 class="title-main">Appendix</h1>
+        <p class="subtitle-main">Technical Architecture Overview</p>
+        <div class="divider"></div>
+        <div class="slide-content">
+            <div class="card">
+                <div class="card-title">The Stack</div>
+                <div class="card-text">
+                    FastAPI + PostgreSQL backend, React/Vite frontend, deployed via Docker on self-hosted or managed VPS.
+                </div>
+            </div>
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">Operational Design</div>
+                    <div class="card-text">
+                        • <strong>Multi-brand:</strong> Clean data isolation for multiple accounts.<br/>
+                        • <strong>Extensibility:</strong> Plugin-based channel capabilities (Gmail, GAds, Meta).<br/>
+                        • <strong>LLM-Agnostic:</strong> Support for OpenAI, Anthropic, OpenRouter.
+                    </div>
+                </div>
+                <div class="card">
+                    <div class="card-title">Control & Trust</div>
+                    <div class="card-text">
+                        • <strong>BYOK:</strong> Full cost control via customer-owned API keys.<br/>
+                        • <strong>Audit Trail:</strong> Every AI execution is logged with explicit approval gates.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

@@ -1,3 +1,14 @@
+export interface PluginInfo {
+  plugin_id: string;
+  name: string;
+  version: string;
+  implements: string[];
+  requires_platform_vars: string[];
+  credentials_configured: boolean;
+  missing_vars: string[];
+  credential_source: 'database' | 'env_var' | 'partial' | 'none';
+}
+
 export interface BrandOut {
   voice?: string;
   tone?: string;

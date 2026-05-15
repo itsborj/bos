@@ -81,8 +81,13 @@ class GoogleAdsSearchTextDraftModule(ChannelModule):
         clean = " ".join(str(text or "").replace("\n", " ").split()).strip(" -|,.;")
         if len(clean) <= limit:
             return clean
-        shortened = clean[:limit].rstrip(" -|,.;")
-        return shortened or clean[:limit]
+        # Truncate at last full word boundary so long product/brand names
+        # don't produce mid-word cut headlines like "Motorcycle Sa".
+        truncated = clean[:limit]
+        last_space = truncated.rfind(" ")
+        if last_space > 0:
+            return truncated[:last_space].rstrip(" -|,.;")
+        return truncated.rstrip(" -|,.;")
 
     def _dedupe(self, values, limit):
         seen = set()

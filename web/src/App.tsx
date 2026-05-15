@@ -20,6 +20,7 @@ import { AdminRunDetail } from './pages/admin/AdminRunDetail';
 import { AdminWorkspace } from './pages/admin/AdminWorkspace';
 import { AdminProviders } from './pages/admin/AdminProviders';
 import { AdminModules } from './pages/admin/AdminModules';
+import { AdminConnectors } from './pages/admin/AdminConnectors';
 import { AdminCampaigns } from './pages/admin/AdminCampaigns';
 import { AdminBilling } from './pages/admin/AdminBilling';
 import { AdminOnboarding } from './pages/admin/AdminOnboarding';
@@ -73,6 +74,7 @@ export default function App() {
             <Route path="providers"       element={<AdminProviders />} />
             <Route path="billing"         element={<AdminBilling />} />
             <Route path="modules"         element={<AdminModules />} />
+            <Route path="connectors"      element={<AdminConnectors />} />
           </Route>
           <Route path="*" element={<Navigate to="/cmo" replace />} />
         </Routes>

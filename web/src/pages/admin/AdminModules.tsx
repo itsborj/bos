@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { api } from '../../api/client';
-import type { ModuleInfo } from '../../api/types';
+import type { ModuleInfo, PluginInfo } from '../../api/types';
 
 type SpecialistSummary = {
   key: string;
@@ -13,6 +13,7 @@ type SpecialistSummary = {
   risk: string;
   moduleCount: number;
   nextStep?: string;
+  pluginId?: string;
 };
 
 type SocialConnection = {
@@ -49,10 +50,24 @@ function groupKey(mod: ModuleInfo): string {
   if (id.includes('google_ads')) return 'paid-search';
   if (id.includes('search_console') || id.includes('seo')) return 'seo';
   if (id.includes('analytics') || id.includes('tracking')) return 'analytics';
+  if (id.includes('clickup')) return 'project-management';
   return mod.vertical || 'specialist';
 }
 
-function summarizeGroup(key: string, modules: ModuleInfo[], connections: SocialConnection[]): SpecialistSummary {
+function varLabel(varName: string): { label: string; sensitive: boolean; hint: string } {
+  const n = varName.toUpperCase();
+  if (n.endsWith('_API_TOKEN') || n.endsWith('_TOKEN') || n.endsWith('_SECRET') || n.endsWith('_KEY'))
+    return { label: varName.replace(/_/g, ' ').replace(/^[A-Z]+ /, '').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()), sensitive: true, hint: '' };
+  if (n.includes('TEAM_ID') || n.includes('WORKSPACE_ID'))
+    return { label: 'Workspace ID', sensitive: false, hint: 'Found in your ClickUp URL: app.clickup.com/{ID}/...' };
+  if (n.includes('LIST_ID'))
+    return { label: 'Default List ID', sensitive: false, hint: 'Navigate to the list in ClickUp — the ID is in the URL' };
+  if (n.includes('SITE_URL'))
+    return { label: 'Site URL', sensitive: false, hint: 'e.g. sc-domain:example.com or https://www.example.com/' };
+  return { label: varName.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()), sensitive: false, hint: '' };
+}
+
+function summarizeGroup(key: string, modules: ModuleInfo[], connections: SocialConnection[], plugins: PluginInfo[]): SpecialistSummary {
   const jobs = [...new Set(modules.flatMap(implementedJobs))];
   const moduleText = modules.map(m => `${m.id} ${m.platform_hint}`.toLowerCase()).join(' ');
   const gmailConnections = connections.filter(conn => conn.platform === 'gmail' && conn.status !== 'revoked');
@@ -118,6 +133,24 @@ function summarizeGroup(key: string, modules: ModuleInfo[], connections: SocialC
     };
   }
 
+  if (key === 'project-management') {
+    const plugin = plugins.find(p => p.plugin_id === 'channel.clickup');
+    const configured = plugin?.credentials_configured ?? false;
+    return {
+      key,
+      name: 'Project Management',
+      description: 'Reads campaign task status from ClickUp and creates tasks from approved plans.',
+      jobs: ['marketing.execute', 'marketing.optimize'],
+      specialties: ['task tracking', 'campaign execution', 'status intelligence'],
+      readiness: configured ? 'ready' : 'needs_setup',
+      readinessText: configured ? 'ClickUp connected' : 'Add ClickUp credentials to enable task read/create',
+      risk: 'Read by default; task creation requires explicit approval',
+      moduleCount: modules.length,
+      nextStep: configured ? 'Ask the CMO to check clickup or create tasks.' : undefined,
+      pluginId: plugin?.plugin_id,
+    };
+  }
+
   return {
     key,
     name: `${titleCase(key)} Specialist`,
@@ -134,7 +167,17 @@ function summarizeGroup(key: string, modules: ModuleInfo[], connections: SocialC
 export function AdminModules() {
   const [modules, setModules] = useState<ModuleInfo[]>([]);
   const [connections, setConnections] = useState<SocialConnection[]>([]);
+  const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [loading, setLoading] = useState(true);
+  const [configuringPlugin, setConfiguringPlugin] = useState<PluginInfo | null>(null);
+  const [credFields, setCredFields] = useState<Record<string, string>>({});
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState('');
+
+  const refreshPlugins = async () => {
+    const { plugins: p } = await api.listPlugins().catch(() => ({ plugins: [] as PluginInfo[] }));
+    setPlugins(p);
+  };
 
   useEffect(() => {
     async function load() {
@@ -147,6 +190,7 @@ export function AdminModules() {
       );
       setModules(results.flat());
       setConnections(socialConnections as SocialConnection[]);
+      await refreshPlugins();
     }
     load().catch(() => {}).finally(() => setLoading(false));
   }, []);
@@ -158,8 +202,34 @@ export function AdminModules() {
       const key = groupKey(mod);
       grouped.set(key, [...(grouped.get(key) ?? []), mod]);
     });
-    return [...grouped.entries()].map(([key, mods]) => summarizeGroup(key, mods, connections));
-  }, [modules, connections]);
+    return [...grouped.entries()].map(([key, mods]) => summarizeGroup(key, mods, connections, plugins));
+  }, [modules, connections, plugins]);
+
+  async function handleSaveCredentials() {
+    if (!configuringPlugin) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      await api.savePluginCredentials(configuringPlugin.plugin_id, credFields);
+      await refreshPlugins();
+      setConfiguringPlugin(null);
+      setCredFields({});
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to save');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function openConfigure(pluginId: string) {
+    const plugin = plugins.find(p => p.plugin_id === pluginId);
+    if (!plugin) return;
+    const initial: Record<string, string> = {};
+    plugin.requires_platform_vars.forEach(v => { initial[v] = ''; });
+    setCredFields(initial);
+    setSaveError('');
+    setConfiguringPlugin(plugin);
+  }
 
   if (loading) {
     return <div className="admin-page"><div className="loading-full"><span className="spinner" /></div></div>;
@@ -175,6 +245,41 @@ export function AdminModules() {
           </div>
         </div>
       </div>
+
+      {configuringPlugin && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div className="admin-card" style={{ width: '100%', maxWidth: 480, margin: 0 }}>
+            <div style={{ fontWeight: 850, fontSize: 17, marginBottom: 4 }}>Configure {configuringPlugin.name}</div>
+            <div style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 20 }}>Credentials are encrypted and stored in BOS. They are never returned via API.</div>
+            <div style={{ display: 'grid', gap: 14 }}>
+              {configuringPlugin.requires_platform_vars.map(varName => {
+                const { label, sensitive, hint } = varLabel(varName);
+                return (
+                  <div key={varName}>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{label}</label>
+                    {hint && <div style={{ color: 'var(--text2)', fontSize: 11, marginBottom: 5 }}>{hint}</div>}
+                    <input
+                      type={sensitive ? 'password' : 'text'}
+                      className="input"
+                      placeholder={varName}
+                      value={credFields[varName] ?? ''}
+                      onChange={e => setCredFields(f => ({ ...f, [varName]: e.target.value }))}
+                      style={{ width: '100%' }}
+                    />
+                  </div>
+                );
+              })}
+            </div>
+            {saveError && <div style={{ color: 'var(--error)', fontSize: 13, marginTop: 12 }}>{saveError}</div>}
+            <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+              <button className="btn btn-ghost" onClick={() => { setConfiguringPlugin(null); setSaveError(''); }}>Cancel</button>
+              <button className="btn btn-primary" onClick={handleSaveCredentials} disabled={saving}>
+                {saving ? 'Saving…' : 'Save credentials'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {specialists.length === 0 ? (
         <div className="admin-card"><div className="empty-state"><div className="empty-state-icon">◎</div><div className="empty-state-title">No specialists installed</div><div className="empty-state-text">Install capability or plugin packages to see specialists here.</div></div></div>
@@ -211,6 +316,15 @@ export function AdminModules() {
                     <span className="badge badge-muted">{s.moduleCount} tool{s.moduleCount !== 1 ? 's' : ''}</span>
                   </div>
                   {s.nextStep && <div style={{ color: 'var(--text2)', fontSize: 12 }}>{s.nextStep}</div>}
+                  {s.pluginId && (
+                    <button
+                      className="btn btn-ghost"
+                      style={{ fontSize: 12, padding: '4px 10px', alignSelf: 'flex-start' }}
+                      onClick={() => openConfigure(s.pluginId!)}
+                    >
+                      {s.readiness === 'ready' ? 'Update credentials' : 'Configure'}
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

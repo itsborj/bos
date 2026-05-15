@@ -116,6 +116,7 @@ api/capabilities/workspace/
 | `workspace.cmo_artifact_boundary` | cmo-artifact-boundary | workspace | ✅ | Enforces no-inline-native-content rule |
 | `workspace.marketing_jobs` | marketing-jobs | workspace | ✅ | Three-job capability card (Plan/Execute/Optimize) |
 | `workspace.plan_mode` | cmo-strategic-planner | workspace | ❌ | `@klar plan` — omnichannel plan artifact |
+| `workspace.scope_resolution` | brand-scope-resolution | workspace | ✅ | Separates conversation Brand, execution Brand, and comparison scope via hidden `SCOPE:` directive |
 | `workspace.approval_review` | reviewing-and-revising-approvals | workspace | ✅ | Approval/revision round-trip |
 | `workspace.email_specialist_overview` | email-specialist | workspace | ✅ | Full Email Specialist four-job package |
 
@@ -134,31 +135,32 @@ api/capabilities/workspace/
 
 ## Memory Slots
 
-Memory slots are hydrated by `skills/memory.py:hydrate_memory_slots()`. This function is **always workspace-scoped** — it queries by `workspace_id`, not `brand_id`. It populates the CMO system prompt context (skill activation side).
+Memory slots are hydrated by `skills/memory.py:hydrate_memory_slots()`. With no active Brand, hydration is workspace/org-scoped. With an active Brand, hydration is **strictly brand-scoped** and must not fall back to workspace rows, because workspace rows may belong to another Brand.
 
-| Slot | Source |
-|---|---|
-| `brand_profile` | `Workspace.name` + `Workspace.brand_json` |
-| `product_catalog` | `Product` rows filtered by `workspace_id` |
-| `audience_profiles` | `Audience` rows filtered by `workspace_id` |
-| `campaign_brand_kit` | Latest `WorkspaceDocument` with `doc_type=campaign_brand_kit`, filtered by `workspace_id` |
-| `brand_guidelines` | `WorkspaceDocument` with `doc_type=brand_guideline`, filtered by `workspace_id` |
-| `recent_approved_runs` | Approved `Run` + `RunResult` rows filtered by `workspace_id` |
-| `recent_rejected_runs` | Rejected/revised `Run` + `RunResult` rows filtered by `workspace_id` |
-| `current_run_result` | Run-specific review context for approval threads |
-| `marketing_reports` | `WorkspaceDocument` with `doc_type=marketing_report`, filtered by `workspace_id` |
-| `campaign_reports` | `WorkspaceDocument` with `doc_type=campaign_report`, filtered by `workspace_id` |
-| `competitor_profiles` | `WorkspaceDocument` with `doc_type=competitor_profile`, filtered by `workspace_id` |
-| `industry_data` | `WorkspaceDocument` with `doc_type=industry_report`, filtered by `workspace_id` |
+| Slot | Source with no active Brand | Source with active Brand |
+|---|---|---|
+| `brand_profile` | `Workspace.name` + `Workspace.brand_json` | `Brand.name` + `Brand.brand_json` |
+| `product_catalog` | `Product` rows filtered by `workspace_id` | `Product` rows filtered by `brand_id` |
+| `audience_profiles` | `Audience` rows filtered by `workspace_id` | `Audience` rows filtered by `brand_id` |
+| `campaign_brand_kit` | Latest `WorkspaceDocument` with `doc_type=campaign_brand_kit`, filtered by `workspace_id` | Same doc type filtered by `brand_id` |
+| `brand_guidelines` | `WorkspaceDocument` with `doc_type=brand_guideline`, filtered by `workspace_id` | Same doc type filtered by `brand_id` |
+| `recent_approved_runs` | Approved `Run` + `RunResult` rows filtered by `workspace_id` | Approved rows filtered by `brand_id` |
+| `recent_rejected_runs` | Rejected/revised `Run` + `RunResult` rows filtered by `workspace_id` | Rejected/revised rows filtered by `brand_id` |
+| `current_run_result` | Run-specific review context for approval threads | Same run context filtered by `brand_id` |
+| `marketing_reports` | `WorkspaceDocument` with `doc_type=marketing_report`, filtered by `workspace_id` | Same doc type filtered by `brand_id` |
+| `campaign_reports` | `WorkspaceDocument` with `doc_type=campaign_report`, filtered by `workspace_id` | Same doc type filtered by `brand_id` |
+| `competitor_profiles` | `WorkspaceDocument` with `doc_type=competitor_profile`, filtered by `workspace_id` | Same doc type filtered by `brand_id` |
+| `industry_data` | `WorkspaceDocument` with `doc_type=industry_report`, filtered by `workspace_id` | Same doc type filtered by `brand_id` |
 
 ### Brand isolation for module execution
 
-Memory slot hydration (above) is workspace-scoped and feeds the CMO system prompt. Module execution briefs use a separate path:
+Memory slot hydration and module execution briefs both honor active Brand scope:
 
-- **No active brand** → `_resolve_brief(db, ws, overrides)` — workspace-scoped identity, products, audiences
+- **No active brand + no Brand rows yet** → `_resolve_brief(db, ws, overrides)` — legacy workspace-scoped identity, products, audiences
+- **No active brand + Brand rows exist** → org-level only; list available Brands, do not load workspace brand facts, and do not dispatch artifact modules until `workspace.scope_resolution` produces a valid hidden `SCOPE.execution_brand`
 - **Active brand set** → `_brand_scoped_brief(db, ws, brand, overrides)` — identity, products, audiences, and documents scoped to `brand.id`
 
-`_brand_scoped_brief` calls `_resolve_brief` as a base and then overlays brand-specific rows. Any code that builds a module brief must use `_brand_scoped_brief` when `active_brand` is available. Using `_resolve_brief` in a brand-scoped session causes workspace-level data (e.g., a different brand's name or products) to bleed into module output.
+`_brand_scoped_brief` must not call `_resolve_brief` first. Workspace fallback can inject another Brand's first product/audience before brand-specific rows are inspected. Any code that builds a module brief must use `_brand_scoped_brief` when `active_brand` is available.
 
 ---
 

@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <div class="slide-container">
+        <h1 class="title-main">Financials</h1>
+        <p class="subtitle-main">Shared Infrastructure & COGS</p>
+        <div class="divider"></div>
+        <div class="slide-content">
+            <div class="grid-2">
+                <div class="card">
+                    <div class="card-title">Shared Infrastructure</div>
+                    <table class="data-table">
+                        <thead>
+                            <tr><th>Component</th><th>Monthly Cost</th></tr>
+                        </thead>
+                        <tbody>
+                            <tr><td>Mgmt/Deploy VPS</td><td>$50</td></tr>
+                            <tr><td>DNS/Monitoring</td><td>$10–20</td></tr>
+                            <tr><td>CI/CD, Backups</td><td>$20–30</td></tr>
+                            <tr class="highlight-row"><td>Total Shared</td><td>~$80–100/mo</td></tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="card">
+                    <div class="card-title">Total direct COGS</div>
+                    <div class="card-text">
+                        <strong>At 30 Customers:</strong><br/>
+                        $600 (VPS) + $80 (shared) + $50 (LLM) = <strong>~$730/month</strong>
+                        <br/><br/>
+                        <strong>At 75 Customers:</strong><br/>
+                        $1,500 (VPS) + $100 (shared) + $250 (LLM) = <strong>~$1,850/month</strong>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

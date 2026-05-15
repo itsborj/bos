@@ -1,0 +1,1503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Klaroha — Investor Brief — Pre-Seed May 2026</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@700&family=Inter:ital,wght@0,400;0,500;0,600;1,400&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --rg: #0B3D2E;
+  --wg: #826D40;
+  --iv: #F5F1E8;
+  --ob: #080B0D;
+  --ca: #101417;
+  --gm: #171D20;
+  --ch: #D8BE8A;
+  --sd: #6A5848;
+  --ms: #A59674;
+  --fh: 'Josefin Sans', sans-serif;
+  --fb: 'Inter', sans-serif;
+}
+html, body { height: 100%; overflow: hidden; font-family: var(--fb); background: var(--iv); color: var(--rg); }
+
+/* Progress bar */
+#pb {
+  position: fixed; top: 0; left: 0; height: 2px;
+  background: var(--wg); z-index: 200; width: 0;
+  transition: width 0.35s ease;
+}
+
+/* Nav buttons */
+.nav-btn {
+  position: fixed; top: 50%; transform: translateY(-50%);
+  background: none; border: none; color: var(--ms); cursor: pointer;
+  font-size: 20px; padding: 24px 20px; z-index: 100;
+  opacity: 0; transition: opacity 0.2s; line-height: 1;
+  font-family: var(--fb);
+}
+.nav-btn:hover { opacity: 1; color: var(--rg); }
+body:hover .nav-btn { opacity: 0.35; }
+#prev-btn { left: 0; }
+#next-btn { right: 0; }
+
+/* Slide counter */
+#counter {
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  font-family: var(--fb); font-size: 11px; color: var(--ms);
+  letter-spacing: 0.1em; z-index: 100;
+}
+
+/* Deck */
+#deck { width: 100%; height: 100vh; position: relative; }
+
+/* Slide base */
+.slide {
+  position: absolute; top: 0; left: 0;
+  width: 100%; height: 100vh;
+  display: flex; flex-direction: column;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.4s ease;
+}
+.slide.active { opacity: 1; pointer-events: all; }
+
+/* Chapter label (top right) */
+.chapter {
+  position: absolute; top: 28px; right: 48px;
+  font-family: var(--fb); font-size: 10px; font-weight: 500;
+  color: var(--ms); letter-spacing: 0.12em; text-transform: uppercase;
+}
+
+/* ── Cover (Racing Green bg — brand hero) ── */
+.cover {
+  background: var(--rg);
+  align-items: center; justify-content: center; text-align: center;
+}
+.cover h1 {
+  font-family: var(--fh); font-size: clamp(52px, 7vw, 88px);
+  font-weight: 700; color: var(--iv); letter-spacing: 0.12em;
+  text-transform: uppercase; margin-bottom: 20px;
+}
+.cover .tagline {
+  font-family: var(--fb); font-size: clamp(13px, 1.4vw, 18px);
+  color: var(--ch); letter-spacing: 0.04em; margin-bottom: 40px;
+  max-width: 600px; line-height: 1.5;
+}
+.cover .round-label {
+  font-family: var(--fb); font-size: 12px; color: rgba(245,241,232,0.55);
+  letter-spacing: 0.14em; text-transform: uppercase;
+  border: 1px solid rgba(245,241,232,0.2); padding: 8px 20px;
+  display: inline-block;
+}
+
+/* ── Section header (Racing Green bg — primary brand presence) ── */
+.section-hd {
+  background: var(--rg);
+  align-items: center; justify-content: center; text-align: center;
+}
+.section-hd .sec-num {
+  font-family: var(--fh); font-size: 11px; font-weight: 700;
+  color: var(--ch); letter-spacing: 0.22em; text-transform: uppercase;
+  margin-bottom: 20px;
+}
+.section-hd h2 {
+  font-family: var(--fh); font-size: clamp(32px, 4.5vw, 60px);
+  font-weight: 700; color: var(--iv); letter-spacing: 0.02em;
+}
+
+/* ── Content slide (Ivory bg — default) ── */
+.content {
+  background: var(--iv);
+  padding: 60px 96px 72px;
+  justify-content: center;
+}
+.content .slide-label {
+  font-family: var(--fh); font-size: 10px; font-weight: 700;
+  color: var(--wg); letter-spacing: 0.2em; text-transform: uppercase;
+  margin-bottom: 12px;
+}
+.content h3 {
+  font-family: var(--fh); font-size: clamp(22px, 2.6vw, 36px);
+  font-weight: 700; color: var(--rg); letter-spacing: 0.01em;
+  margin-bottom: 24px; line-height: 1.2; max-width: 960px;
+}
+.content p {
+  font-family: var(--fb); font-size: clamp(13px, 1.2vw, 16px);
+  color: var(--sd); line-height: 1.72;
+  margin-bottom: 14px; max-width: 920px;
+}
+.content p strong { color: var(--rg); font-weight: 600; }
+.content p em { color: var(--wg); font-style: normal; }
+.content ul { list-style: none; padding: 0; max-width: 900px; }
+.content ul li {
+  font-family: var(--fb); font-size: clamp(12px, 1.15vw, 15px);
+  color: var(--sd); line-height: 1.65;
+  padding: 7px 0 7px 22px; position: relative;
+}
+.content ul li::before {
+  content: ''; position: absolute; left: 0; top: 16px;
+  width: 8px; height: 1px; background: var(--wg);
+}
+.content ul li strong { color: var(--rg); font-weight: 600; }
+.content .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; }
+.content .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 32px; align-items: start; }
+.content .metric { font-family: var(--fh); font-size: clamp(28px, 3.5vw, 48px); font-weight: 700; color: var(--wg); line-height: 1; }
+.content .metric-label { font-family: var(--fb); font-size: 12px; color: var(--ms); letter-spacing: 0.06em; margin-top: 6px; }
+.content .divider { width: 40px; height: 1px; background: var(--wg); opacity: 0.35; margin: 20px 0; }
+
+/* Dark variant (cockpit / founders note) */
+.content.dark { background: var(--gm); }
+.content.dark h3 { color: var(--iv); }
+.content.dark p { color: rgba(245,241,232,0.88); }
+.content.dark p strong { color: var(--iv); }
+.content.dark ul li { color: rgba(245,241,232,0.88); }
+.content.dark ul li strong { color: var(--iv); }
+.content.dark .slide-label { color: var(--wg); }
+
+/* ── Quote slide (Obsidian — high-contrast accent moment) ── */
+.quote-slide {
+  background: var(--ob);
+  align-items: center; justify-content: center; text-align: center;
+  padding: 80px 120px;
+}
+.quote-slide .quote-mark {
+  font-family: var(--fh); font-size: 64px; color: var(--wg);
+  line-height: 0.6; display: block; margin-bottom: 24px;
+}
+.quote-slide blockquote {
+  font-family: var(--fb); font-size: clamp(14px, 1.6vw, 20px);
+  color: var(--iv); font-style: italic; line-height: 1.75;
+  max-width: 820px; margin-bottom: 32px;
+}
+.quote-slide .q-attr {
+  font-family: var(--fb); font-size: 12px; color: var(--ms); letter-spacing: 0.08em;
+}
+
+/* ── Tables (light bg default) ── */
+table { width: 100%; border-collapse: collapse; margin-top: 20px; }
+th {
+  font-family: var(--fh); font-size: 10px; font-weight: 700;
+  color: var(--wg); letter-spacing: 0.14em; text-transform: uppercase;
+  padding: 9px 14px; border-bottom: 1px solid rgba(130,109,64,0.3);
+  text-align: left;
+}
+td {
+  font-family: var(--fb); font-size: clamp(11px, 1.1vw, 13px);
+  color: var(--sd); padding: 9px 14px;
+  border-bottom: 1px solid rgba(106,88,72,0.1); line-height: 1.5;
+  vertical-align: top;
+}
+td:first-child { color: var(--wg); font-weight: 500; }
+td strong { color: var(--rg); font-weight: 600; }
+tr:last-child td { border-bottom: none; }
+tr.total-row td { border-top: 1px solid rgba(130,109,64,0.3); color: var(--rg) !important; font-weight: 600; padding-top: 12px; }
+.table-note {
+  font-family: var(--fb); font-size: 11px; color: var(--ms);
+  font-style: italic; margin-top: 12px; line-height: 1.6;
+}
+
+/* ── Compact slides ── */
+.compact .content p { font-size: clamp(12px, 1.05vw, 14px); }
+.compact td { font-size: clamp(11px, 1vw, 12px); padding: 7px 12px; }
+.compact th { font-size: 9px; padding: 7px 12px; }
+
+/* ── Contact card ── */
+.contact-card {
+  display: inline-block;
+  margin-top: 20px; padding: 12px 20px;
+  border: 1px solid rgba(130,109,64,0.3);
+}
+.contact-card p { font-size: 12px; color: var(--ms); margin-bottom: 2px; }
+.contact-card p strong { color: var(--rg); }
+
+/* ── Section tag ── */
+.sec-tag {
+  font-family: var(--fb); font-size: 10px; color: var(--ms);
+  letter-spacing: 0.1em; text-transform: uppercase;
+  position: absolute; top: 24px; right: 48px;
+}
+
+/* ── Function item ── */
+.fn-item { margin-bottom: 20px; }
+.fn-num {
+  font-family: var(--fh); font-size: 10px; font-weight: 700;
+  color: var(--wg); letter-spacing: 0.18em; text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.fn-title {
+  font-family: var(--fh); font-size: clamp(14px, 1.4vw, 18px);
+  font-weight: 700; color: var(--rg); margin-bottom: 6px;
+}
+.fn-body {
+  font-family: var(--fb); font-size: clamp(12px, 1.1vw, 14px);
+  color: var(--sd); line-height: 1.65;
+}
+
+/* ── Closing slide (Racing Green bg) ── */
+.closing {
+  background: var(--rg);
+  align-items: center; justify-content: center; text-align: center;
+  padding: 80px;
+}
+.closing p {
+  font-family: var(--fb); font-size: clamp(12px, 1.1vw, 14px);
+  color: rgba(245,241,232,0.6); line-height: 1.8; max-width: 600px;
+  font-style: italic;
+}
+</style>
+</head>
+<body>
+
+<div id="pb"></div>
+<button class="nav-btn" id="prev-btn" aria-label="Previous slide">&#8592;</button>
+<button class="nav-btn" id="next-btn" aria-label="Next slide">&#8594;</button>
+<div id="counter"></div>
+
+<div id="deck">
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 0 — COVER
+     ═══════════════════════════════════════════════════ -->
+<div class="slide cover active">
+  <h1>Klaroha</h1>
+  <p class="tagline">Demand-Capture Infrastructure for Distributed Sales Organizations</p>
+  <span class="round-label">Pre-Seed Round &mdash; May 2026</span>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 1 — SECTION: EXECUTIVE SUMMARY
+     ═══════════════════════════════════════════════════ -->
+<div class="slide section-hd">
+  <div class="sec-num">01</div>
+  <h2>Executive Summary</h2>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 2 — THE COMPANY
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Executive Summary</div>
+  <div class="slide-label">The Company</div>
+  <h3>The Operating Layer Between Marketing and Sales Execution</h3>
+  <p>Klaroha is the demand-capture and sales-execution operating system for distributed sales organizations. It gives brokerages, franchise networks, dealer groups, lending networks, and multi-location service brands the operating layer between marketing activity and sales execution — capturing buyer intent, qualifying it, routing it to the right agent or branch, enabling fast follow-up, and making performance visible from HQ to the individual agent.</p>
+  <p>The product collapses what currently requires a marketing department, a CRM, a lead-routing tool, a follow-up engine, and a reporting stack into a single AI-powered operating system. For the business owner it feels like a CMO in their pocket — they give intent, the system produces work, they approve decisions, and it remembers what worked. Not twenty-seven SaaS dashboards and a hiring problem.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 3 — THE PROBLEM (EXEC SUMMARY)
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Executive Summary</div>
+  <div class="slide-label">The Problem</div>
+  <h3>Distributed Sales Organizations Leak Qualified Demand</h3>
+  <p>Distributed sales organizations lose qualified demand not from lack of market activity but from a broken operating layer. Inquiries scatter across Messenger, WhatsApp, email, forms, and phone. Agents reply inconsistently. Follow-up depends on individual discipline. HQ cannot see which channels produce qualified conversations or which playbooks convert. One good agent or one good branch cannot transfer their execution to the rest of the network. The best organizations in high-value categories — real estate, mortgage, franchise, insurance, professional services — systematically lose revenue to this structural gap.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 4 — THE SOLUTION (EXEC SUMMARY)
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Executive Summary</div>
+  <div class="slide-label">The Solution</div>
+  <h3>Installed Knowing Your Category. Operational from Day One.</h3>
+  <p>Klaroha installs knowing the customer's category. A real estate brokerage network does not configure the system from scratch — it onboards to a platform that already understands buyer qualification, agent routing, and HQ visibility for real estate. Vertical playbooks, qualification flows, follow-up scripts, performance dashboards, and a branch-and-agent routing engine are live from day one.</p>
+  <p>The AI CMO holds the organization's brand, product, and operating context and can be directed through natural language to run campaigns, qualify prospects, surface performance gaps, and draft follow-up sequences — all subject to human approval before any action executes.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 5 — THE MARKET (EXEC SUMMARY)
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Executive Summary</div>
+  <div class="slide-label">The Market</div>
+  <h3>Fastest Path to Adoption</h3>
+  <p>Klaroha's fastest path to adoption is not through enterprise procurement. It is through the individuals and small teams who currently carry the full weight of marketing execution themselves: freelance digital marketers, marketing agencies, and small business owners.</p>
+  <p><strong>Fastest path — Freelancers, marketing service providers, and small business owners.</strong> A freelance digital marketer running five client accounts today uses five different tools, repeats client context constantly, and manually coordinates copy, approval, and reporting across each engagement. Klaroha collapses that entire workflow into a single CMO-in-pocket operating system. One deployment, five client brands, all context held. For the small business owner, Klaroha replaces the need to hire a marketing team or pay an agency — they direct the AI CMO the way they would direct a senior hire, approve decisions, and the system builds institutional memory over time. These buyers make individual purchasing decisions, have zero procurement friction, and feel the value immediately. The PH-based marketing cooperative — co-owners of Klaroha — is precisely this segment. Freelancers and agency operators who are already inside AU, UK, and US client organizations and have direct commercial incentive to deploy the platform they co-own. Target ACV: $299–$499/month.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 6 — MARKET SEGMENTS
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Executive Summary</div>
+  <div class="slide-label">Market Segments</div>
+  <h3>Three Additional Growth Layers</h3>
+  <p><strong>Middle layer — Fragmented high-value sellers (beachhead to enterprise).</strong> Individual operators in high-value categories — real estate agents, mortgage advisors, insurance agents, vehicle sellers, clinic operators — who are part of larger distributed networks but make their own tool decisions. They adopt Klaroha to capture serious inquiries, qualify faster, and follow up before interest cools. When enough practitioners in a brokerage or lending network adopt independently, the network HQ takes notice. This is the low-friction entry to enterprise without the enterprise sales cycle. Target ACV: $499–$699/month.</p>
+  <p><strong>Enterprise expansion — Distributed sales organizations.</strong> Brokerages, franchise networks, developer sales teams, dealer groups, and multi-location service brands. Not the cold-call target — they are the natural second step after practitioner adoption demonstrates measurable performance differences. Target ACV: $699–$1,499+/month.</p>
+  <p><strong>Parallel segment — B2B professional service providers.</strong> Microsoft MSPs, cybersecurity firms, HubSpot and RevOps partners, ERP consultants, accounting and fractional CFO firms. Klaroha gives them assessment-led funnels, qualification scoring, and sales handoff that turn intent-showing companies into actual meetings. Target ACV: $499–$999/month.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 7 — SAM TABLE (EXEC)
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Executive Summary</div>
+  <div class="slide-label">Market Sizing — AU, UK, US, PH</div>
+  <h3>~$17.8B Serviceable Addressable Market</h3>
+  <table>
+    <thead><tr><th>Segment</th><th>Est. qualifying buyers</th><th>Avg monthly ACV</th><th>Segment SAM</th></tr></thead>
+    <tbody>
+      <tr><td>Freelancers and marketing service providers</td><td>1,000,000+</td><td>$380</td><td>$4.6B/yr</td></tr>
+      <tr><td>Small business owners (replacing agency or in-house team)</td><td>2,000,000+</td><td>$320</td><td>$7.7B/yr</td></tr>
+      <tr><td>Fragmented high-value sellers</td><td>500,000+</td><td>$570</td><td>$3.4B/yr</td></tr>
+      <tr><td>Distributed networks</td><td>80,000+</td><td>$1,100</td><td>$1.1B/yr</td></tr>
+      <tr><td>B2B service providers</td><td>120,000+</td><td>$700</td><td>$1.0B/yr</td></tr>
+      <tr class="total-row"><td><strong>Combined SAM</strong></td><td><strong>3,700,000+</strong></td><td></td><td><strong>~$17.8B/yr</strong></td></tr>
+    </tbody>
+  </table>
+  <p class="table-note">Initial serviceable target (first 24 months): freelancer and small business owner beachhead via cooperative distribution in PH and English-speaking markets, parallel entry through fragmented sellers in real estate and mortgage in AU and UK, and B2B service providers as a third motion. Conservative 24-month target: 150 paying organizations and practitioners generating $1.98M ARR, with two or more distributed network contracts in progress.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 8 — BUSINESS MODEL (EXEC)
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Executive Summary</div>
+  <div class="slide-label">Business Model</div>
+  <h3>90%+ Gross Margin at Steady State</h3>
+  <p>Platform subscription plus usage. Base fees of $299–$1,499/month by organizational size, plus usage fees for AI module runs and active contacts. Gross margin 90%+ at steady state — the primary per-customer cost is a $20/month VPS, not labour or expensive LLM API.</p>
+  <p>Customers on BYOK (their own API keys) pay platform fee only. Default platform-mode LLM cost is near zero, routed to free-tier providers (Gemini, Groq, open models) at early scale.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 9 — TRACTION & STAGE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Executive Summary</div>
+  <div class="slide-label">Traction &amp; Stage</div>
+  <h3>Pre-Revenue. Platform Built and Deployed.</h3>
+  <p>Pre-revenue. The core platform is built and deployed — FastAPI backend, PostgreSQL, React frontend, multi-brand workspace architecture, AI capability manifest, Gmail and Google Ads integrations, plugin system, and BITE execution pipeline with full audit trail.</p>
+  <p>Both co-founders have been Technical Support Officers at MoxiWorks, a North American real estate brokerage platform, since 2020. The product is built from four years of direct operational exposure to the problem it solves, not from market research.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 10 — THE TEAM (EXEC)
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Executive Summary</div>
+  <div class="slide-label">The Team</div>
+  <h3>Built by People Who've Lived the Problem</h3>
+  <p><strong>Junard "Borj" Catingub — Co-Founder, CEO.</strong> Thirteen years across digital marketing, growth operations, and AI systems architecture. Head of Growth at Teko.ph (2021–2023): grew monthly customer acquisition from 1,000 to 3,900 orders with limited budget by building the data and process system behind the number, not by increasing spend. Marketing automation consultant for a US law firm (2023–2025): built and handed off a content production pipeline running hundreds of daily published articles, operated by non-technical staff. Built the entire Klaroha technical stack himself — backend, frontend, LLM routing, plugin architecture, and deployment infrastructure. His thesis: he has been building informal versions of Klaroha for clients across his entire career. Now it is built properly.</p>
+  <p><strong>Kyle Christian Eric Babatid — Co-Founder, Head of Customer Operations.</strong> Six years in IT, web platforms, and CRM integrations. Technical Support Officer at MoxiWorks (2020–present) — a North American real estate brokerage platform — handling CRM API integrations, FTP issues, and client-facing operations for distributed brokerage clients. Kyle's role in Klaroha is getting customers from signed contract to live deployment without full engineering involvement at every step.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 11 — OWNERSHIP (EXEC)
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Executive Summary</div>
+  <div class="slide-label">Ownership Structure</div>
+  <h3>Go-to-Market Architecture Built into the Cap Table</h3>
+  <table>
+    <thead><tr><th>Stakeholder</th><th>%</th><th>Notes</th></tr></thead>
+    <tbody>
+      <tr><td>Founders</td><td>10%</td><td>Borj 7%, Kyle 3%</td></tr>
+      <tr><td>Multi-purpose cooperative</td><td>40%</td><td>PH-based marketing freelancers and service providers — community ownership and distribution network</td></tr>
+      <tr><td>Operations pool</td><td>20%</td><td>Team equity alongside market-rate compensation</td></tr>
+      <tr><td>Investors</td><td>30%</td><td>This round</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:20px;">The cooperative's 40% is the go-to-market architecture. PH freelancers and agencies already operate inside the distributed organizations Klaroha targets as outsourced marketing providers. Co-ownership aligns their commercial incentives with Klaroha's growth.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 12 — THE ASK (EXEC)
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Executive Summary</div>
+  <div class="slide-label">The Ask</div>
+  <h3>$175,000 Pre-Seed</h3>
+  <div class="three-col" style="margin-top:8px;margin-bottom:24px;">
+    <div><div class="metric">$175K</div><div class="metric-label">Raise amount</div></div>
+    <div><div class="metric">12–14 mo</div><div class="metric-label">Funded runway</div></div>
+    <div><div class="metric">30 orgs</div><div class="metric-label">Month 12 target</div></div>
+  </div>
+  <p>Sized to cover the cash deficit trough (maximum ~$120,000 around month 9) with buffer. Revenue covers operations from month 12 onward. The raise funds product completion, first ten paying customers, PH core team, and AU/UK market entry.</p>
+  <p><strong>Hard milestones:</strong> 10 paying organizations by month 9, 30 organizations and $300K+ ARR by month 12, seed round at month 14–16.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 13 — SECTION: THE PROBLEM
+     ═══════════════════════════════════════════════════ -->
+<div class="slide section-hd">
+  <div class="sec-num">02</div>
+  <h2>The Problem</h2>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 14 — DEMAND LEAKAGE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">The Problem</div>
+  <div class="slide-label">Structural Failure</div>
+  <h3>Distributed Sales Organizations Leak Qualified Demand</h3>
+  <p>The typical distributed sales organization has solved the wrong problem. It has invested in brand, advertising, and lead generation. It has not solved the operating layer between market attention and sales execution.</p>
+  <p>The result is predictable leakage:</p>
+  <ul>
+    <li>Serious buyers receive slow or no replies because inquiries are scattered across Messenger, WhatsApp, email, forms, and phone.</li>
+    <li>Sales time is wasted on low-quality leads because qualification depends on the individual agent's judgment and discipline.</li>
+    <li>Follow-up is inconsistent. Some agents call back in minutes. Others wait days. Most do not have a system.</li>
+    <li>HQ cannot standardize local execution. Every branch or office runs a slightly different playbook. Some agents are high performers. Most are average. The average stays average because there is no scalable way to transfer what the top agents do.</li>
+    <li>Performance is opaque. The organization knows spend. It does not know which source produced a qualified conversation, which agent converted it, or which offer closed it.</li>
+  </ul>
+  <p style="margin-top:16px;">This is not a small-business problem. It is a structural problem in every distributed sales organization that operates with local agents, branches, franchisees, or dealers in high-value categories.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 15 — CATEGORIES WHERE THIS MATTERS
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">The Problem</div>
+  <div class="slide-label">High-Value Categories</div>
+  <h3>The Categories Where This Matters Most</h3>
+  <p>High-value categories share a common pattern: one qualified conversation can produce thousands of dollars in revenue, yet the system between market attention and that conversation is broken.</p>
+  <ul>
+    <li><strong>Real estate brokerages and developer sales teams.</strong> A typical developer sales team for a mid-market project may receive hundreds of inquiries per month. Only a fraction are qualified. Response speed, consistent qualification scripts, and professional follow-up determine which developer closes the most sales — not advertising spend alone.</li>
+    <li><strong>Mortgage and lending networks.</strong> Distributed loan agent networks suffer the same problem. Borrower intent is high-signal but time-sensitive. The agent who responds with the right message in the first fifteen minutes is far more likely to convert than the one who calls back the next day.</li>
+    <li><strong>Franchise and dealer networks.</strong> Multi-location consumer service brands, vehicle dealer groups, and equipment dealer networks all face the same HQ-versus-local tension: the brand is standardized; the sales execution is not.</li>
+    <li><strong>Commercial insurance brokers.</strong> Distributed broker networks with multiple specialists in different lines of coverage. A prospect's inquiry may touch multiple specialists. Routing, qualification, and follow-up are almost entirely manual.</li>
+    <li><strong>Professional service networks.</strong> Accounting, legal, and specialist consulting practices with multiple offices or partner networks face identical problems: inquiry capture is fragmented, qualification depends on the intake coordinator, and no one measures which referral source or channel produces the best clients.</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 16 — WHY TOOLS DON'T SOLVE IT
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">The Problem</div>
+  <div class="slide-label">Existing Tools</div>
+  <h3>Why Existing Tools Don't Solve It</h3>
+  <p>The tools that exist today solve pieces of the problem without solving the operating layer.</p>
+  <ul>
+    <li><strong>CRMs</strong> (Salesforce, HubSpot, Zoho) are record-keeping systems, not demand-capture systems. They require agents to enter data. Most agents don't. They also require someone to build the qualification logic, routing rules, and follow-up sequences — which is the expertise that distributed organizations don't have.</li>
+    <li><strong>Marketing automation platforms</strong> (Klaviyo, ActiveCampaign, Mailchimp) are audience-broadcast tools. They are not designed for real-time inquiry qualification or branch routing.</li>
+    <li><strong>Messaging platforms</strong> (Podium, Intercom, Tidio) handle conversation, not qualification and routing. They do not learn which offers produce qualified conversations or standardize scripts across agents.</li>
+    <li><strong>Agency-run lead generation</strong> (outsourced ads and landing pages) produces inquiries but provides no operating layer. The agency delivers leads; the organization still has the same execution problem on the other side.</li>
+    <li><strong>GoHighLevel and similar platforms</strong> serve marketing agencies, not the distributed organizations themselves. The resulting product is a white-labeled tool stack that an agency configures and manages — not an operating system the organization can run.</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 17 — THE FUNDAMENTAL QUESTION
+     ═══════════════════════════════════════════════════ -->
+<div class="slide quote-slide">
+  <div class="sec-tag" style="color:var(--ms);">The Problem</div>
+  <span class="quote-mark">&ldquo;</span>
+  <blockquote>Which channels are producing qualified conversations, which agents are converting them, and what should every agent do differently?</blockquote>
+  <p class="q-attr">None of the tools that exist today answer the fundamental question a distributed sales leader needs answered.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 18 — SECTION: THE SOLUTION
+     ═══════════════════════════════════════════════════ -->
+<div class="slide section-hd">
+  <div class="sec-num">03</div>
+  <h2>The Solution</h2>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 19 — DEMAND-CAPTURE INFRASTRUCTURE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">The Solution</div>
+  <div class="slide-label">What Klaroha Is</div>
+  <h3>Demand-Capture Infrastructure, Not Another Tool</h3>
+  <p>Klaroha is not a CRM, not a marketing automation platform, and not an agency service. It is the operating layer between market attention and sales execution.</p>
+  <p>The core system handles six operating functions:</p>
+  <div class="two-col" style="margin-top:16px;">
+    <div>
+      <div class="fn-item">
+        <div class="fn-num">01 — Intent Capture</div>
+        <div class="fn-body">Pages, funnels, forms, and inquiry assets that capture demand from every channel the organization uses — Google, Meta, WhatsApp, Messenger, direct, referral, listings, and partner networks — into a single qualified pipeline.</div>
+      </div>
+      <div class="fn-item">
+        <div class="fn-num">02 — Qualification Flows</div>
+        <div class="fn-body">Mechanisms that determine buyer seriousness before sales time is spent. Category-specific: a real estate inquiry qualification flow asks different questions than a mortgage inquiry flow or a commercial insurance inquiry flow. Klaroha comes installed with vertical playbooks.</div>
+      </div>
+      <div class="fn-item">
+        <div class="fn-num">03 — Conversation Routing</div>
+        <div class="fn-body">The operational transition from qualified inquiry to the right agent, branch, or specialist. Routing rules are configurable by product, geography, capacity, or business rules. Speed-to-lead is monitored.</div>
+      </div>
+    </div>
+    <div>
+      <div class="fn-item">
+        <div class="fn-num">04 — Follow-Up Engine</div>
+        <div class="fn-body">Automated and assisted follow-up that prevents interest from going cold. Scripts, reminders, nurture sequences, and reactivation workflows tailored to the organization's category and offer.</div>
+      </div>
+      <div class="fn-item">
+        <div class="fn-num">05 — Performance Visibility</div>
+        <div class="fn-body">Inquiry source, qualification rate, response time, routing outcome, agent performance, branch performance, and conversion readiness — all in one operating view. HQ sees the full picture; managers see their team; agents see their pipeline.</div>
+      </div>
+      <div class="fn-item">
+        <div class="fn-num">06 — Vertical Playbooks</div>
+        <div class="fn-body">Category-specific templates, scripts, qualification frameworks, and benchmarks installed at setup. The system does not start blank. A real estate brokerage onboards to a system that already understands inquiry flow, buyer qualification, and agent performance in their category.</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 20 — CMO-IN-POCKET MODEL
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">The Solution</div>
+  <div class="slide-label">Product Experience</div>
+  <h3>The CMO-in-Pocket Model</h3>
+  <p>The product is delivered through a CMO-facing command interface backed by an AI operating system internally called BOS (Business Operating System). The AI CMO holds the organization's brand, product, audience, and operating context. It can be directed through natural language to produce campaign plans, draft assets, run qualification analyses, identify performance issues, and recommend next actions.</p>
+  <p>The owner or sales director interacts with the system the way they would interact with a senior CMO: by giving intent, not by operating tools.</p>
+  <p>The CMO understands the business. It delegates execution to specialist modules. It produces artifacts — plans, drafts, qualification flows, performance reports — for human approval. It learns from what the organization approves and rejects.</p>
+  <p>The alternative — hiring a CMO, a CRM administrator, a paid ads specialist, a follow-up automation specialist, and a performance analyst — costs $300,000+ per year for a distributed organization with multiple locations. Klaroha delivers that operating capacity at a fraction of the cost, with the additional advantage that the system is consistent across every branch.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 21 — CMO DIRECTIVES (QUOTE)
+     ═══════════════════════════════════════════════════ -->
+<div class="slide quote-slide">
+  <div class="sec-tag" style="color:var(--ms);">The Solution</div>
+  <span class="quote-mark">&ldquo;</span>
+  <blockquote>
+    Find out why our inquiry volume is up but our qualified conversation rate is down.<br><br>
+    Draft the follow-up sequence for our new townhouse release.<br><br>
+    Create a qualification checklist for the commercial loan inquiry form.
+  </blockquote>
+  <p class="q-attr">Example directives to the AI CMO — intent in, approved execution out.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 22 — WHAT MAKES KLAROHA DEFENSIBLE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">The Solution</div>
+  <div class="slide-label">Defensibility</div>
+  <h3>What Makes Klaroha Defensible</h3>
+  <ul>
+    <li><strong>Vertical intelligence at setup.</strong> Generic tools require months of configuration before they reflect the organization's category. Klaroha onboards with vertical-specific playbooks, qualification frameworks, and performance benchmarks already installed. The organization's CMO is ready to operate from day one.</li>
+    <li><strong>Multi-brand, multi-market architecture.</strong> The system is designed for operators managing multiple brands, clients, or markets from a single interface. An agency managing ten developer clients, a network managing forty franchisee locations, or a brokerage managing multiple specialist teams can all operate from one command center with clean separation of brand context and performance data.</li>
+    <li><strong>LLM-driven capability manifest.</strong> Klaroha's operating system is extensible. Channel capabilities (Gmail, Google Ads, Meta, Search Console) are installed as plugins. Adding a new channel or specialist capability does not change the core operating contract — it adds a new specialist with its own skill and operating rules. This design means the platform scales its capabilities without becoming architecturally complex for the operator.</li>
+    <li><strong>BITE pipeline architecture.</strong> The internal execution pipeline (Bridge–Intent–Transform–Evaluate) ensures that every marketing handoff is tracked, every AI execution is reversible with an audit trail, and no approved action happens without an explicit human decision. This is critical infrastructure for distributed organizations where compliance, brand consistency, and audit requirements are real.</li>
+    <li><strong>Approval-gated execution.</strong> No AI module executes a campaign, sends a message, or changes an ad budget without human approval. The organization retains control; the system provides execution capacity. This is not a limitation — it is the design principle that makes the system trustworthy to an organization running multiple agents, branches, or client accounts.</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 23 — SECTION: MARKET OPPORTUNITY
+     ═══════════════════════════════════════════════════ -->
+<div class="slide section-hd">
+  <div class="sec-num">04</div>
+  <h2>Market Opportunity</h2>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 24 — SHORTEST PATH TO ADOPTION
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Market Opportunity</div>
+  <div class="slide-label">Go-to-Market Entry Point</div>
+  <h3>The Shortest Path to Adoption</h3>
+  <p>Before reaching distributed networks and enterprise organizations, Klaroha's fastest path to adoption runs through the people who currently do all of this manually: freelance digital marketers, marketing agencies, and small business owners.</p>
+  <p>A freelancer managing five client accounts repeats client context across five different tools, switches between platforms for copy, scheduling, reporting, and approval, and has no persistent memory of what worked for each client. Klaroha collapses that entire operational burden into one system. One deployment, multiple client brands, all context held and reused. The value is not incremental — it replaces the entire workflow.</p>
+  <p>A small business owner paying an agency $2,000–$5,000 a month gets output they cannot direct, context that resets on every call, and a relationship that disappears if they stop paying. Klaroha gives them a CMO they can direct in plain language, a system that remembers every decision, and execution capacity they approve and own.</p>
+  <p>This segment — practitioners and small operators who feel the problem personally — has the shortest sales cycle, zero procurement friction, and a direct line to every client organization they serve. The PH-based marketing cooperative that co-owns 40% of Klaroha is precisely this segment. These are not passive shareholders. They are the first wave of operators with commercial incentive to deploy the platform they own.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 25 — STRUCTURAL PROBLEM PATTERN
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Market Opportunity</div>
+  <div class="slide-label">Target Customer Pattern</div>
+  <h3>A Structural Problem Across High-Value Distributed Categories</h3>
+  <p>Beyond the practitioner beachhead, the target customer pattern is:</p>
+  <ul>
+    <li>Fragmented sellers or distributed sales teams</li>
+    <li>High transaction value or recurring revenue potential</li>
+    <li>Buyers show intent before purchase</li>
+    <li>Inquiries come through messy channels</li>
+    <li>Response speed affects conversion</li>
+    <li>Trust and proof matter before a sale can close</li>
+    <li>Sales performance varies significantly by person, branch, or location</li>
+    <li>HQ needs visibility into field performance and some ability to standardize execution</li>
+  </ul>
+  <p style="margin-top:16px;">This pattern exists at scale in every developed English-speaking market.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 26 — MARKET SIZING CONTEXT
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Market Opportunity</div>
+  <div class="slide-label">Market Sizing</div>
+  <h3>Scale Across AU, UK, and US</h3>
+  <p><strong>Real estate and mortgage.</strong> The United States alone has over 86,000 real estate brokerage offices (NAR) and more than 70,000 registered mortgage companies. Australia has approximately 14,000 real estate agencies and over 2,500 mortgage broking businesses. The UK has over 21,000 estate agencies and 3,000+ mortgage intermediaries. These are distributed networks where every branch and every agent represents both the same problem and a potential Klaroha seat.</p>
+  <p><strong>Franchise networks.</strong> The US franchise sector operates over 775,000 franchise establishments across 3,000+ brands (IFA). Australia has over 90,000 franchise units. UK has over 48,000. Franchise networks have a structural need for local execution standardization that corporate cannot achieve through training alone.</p>
+  <p><strong>Insurance distribution.</strong> Independent insurance agencies and broker networks in the US exceed 36,000 firms. The UK's appointed representative network model creates thousands of distributed broker points. Australia's financial advisory and insurance brokerage sector is similarly fragmented.</p>
+  <p><strong>Addressable market estimate.</strong> Klaroha's total market spans from individual marketing practitioners to enterprise distributed networks. The segments stack, not compete.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 27 — SAM TABLE (FULL)
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Market Opportunity</div>
+  <div class="slide-label">Serviceable Addressable Market</div>
+  <h3>Combined SAM: ~$17.8 Billion Annually</h3>
+  <table>
+    <thead><tr><th>Segment</th><th>Est. qualifying buyers (AU, UK, US, PH)</th><th>Avg monthly ACV</th></tr></thead>
+    <tbody>
+      <tr><td>Freelancers and marketing service providers</td><td>1,000,000+</td><td>$380</td></tr>
+      <tr><td>Small business owners (replacing agency or team)</td><td>2,000,000+</td><td>$320</td></tr>
+      <tr><td>Fragmented high-value sellers (practitioners in distributed networks)</td><td>500,000+</td><td>$570</td></tr>
+      <tr><td>Distributed sales organizations</td><td>80,000+</td><td>$1,100</td></tr>
+      <tr><td>B2B professional service providers</td><td>120,000+</td><td>$700</td></tr>
+    </tbody>
+  </table>
+  <p class="table-note">Initial 24-month serviceable target: freelancer and small business beachhead via cooperative distribution, parallel entry through individual real estate and mortgage practitioners in AU and UK, and B2B service providers as a third motion. Enterprise network expansion follows practitioner adoption — not cold outreach.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 28 — SECTION: BUSINESS MODEL
+     ═══════════════════════════════════════════════════ -->
+<div class="slide section-hd">
+  <div class="sec-num">05</div>
+  <h2>Business Model</h2>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 29 — PLATFORM + USAGE HYBRID
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Business Model</div>
+  <div class="slide-label">Pricing Structure</div>
+  <h3>Platform + Usage Hybrid</h3>
+  <p>Klaroha is priced on a base platform fee plus usage, scaled by organizational size and AI consumption.</p>
+  <table>
+    <thead><tr><th>Tier</th><th>Target org size</th><th>Platform fee</th></tr></thead>
+    <tbody>
+      <tr><td>Starter</td><td>1–5 agents / locations</td><td>$299/month</td></tr>
+      <tr><td>Growth</td><td>6–20 agents / locations</td><td>$699/month</td></tr>
+      <tr><td>Scale</td><td>21–100 agents / locations</td><td>$1,499/month</td></tr>
+      <tr><td>Enterprise</td><td>100+ / custom networks</td><td>Custom</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:20px;"><strong>Usage components:</strong></p>
+  <ul>
+    <li>AI runs (qualification flows, campaign plans, copy generation): charged per run above a monthly included allowance</li>
+    <li>Active contacts in qualification pipeline: charged per 1,000 above tier baseline</li>
+    <li>Plugin execution (e.g., Google Ads optimization run, Gmail send): charged at marginal cost plus margin</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 30 — WHY MODEL WORKS + UNIT ECONOMICS
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Business Model</div>
+  <div class="slide-label">Unit Economics</div>
+  <h3>Revenue That Scales With Value Delivered</h3>
+  <p>The platform fee provides predictable recurring revenue anchored to organizational commitment. Usage pricing aligns Klaroha's revenue to the organization's activity level — when campaigns run, when inquiries flow, when the AI CMO is actively working, usage fees accrue. An organization that is getting value from the system naturally generates more usage revenue.</p>
+  <p>For larger distributed networks (franchise chains, brokerage groups with 30+ locations), enterprise contracts with annual commitments and volume pricing are appropriate. These contracts also create natural expansion revenue as the organization grows its network.</p>
+  <p><strong>Unit economics target (Growth tier, steady state):</strong></p>
+  <ul>
+    <li>Average contract value: $699 platform + ~$300 average usage = ~$999/month</li>
+    <li>Target gross margin: 70–75% (AI cost pass-through is the primary variable cost)</li>
+    <li>Payback period target: 8–12 months</li>
+    <li>Net revenue retention target: 115%+ (expansion from added agents, locations, and usage)</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 31 — SECTION: GO-TO-MARKET
+     ═══════════════════════════════════════════════════ -->
+<div class="slide section-hd">
+  <div class="sec-num">06</div>
+  <h2>Go-to-Market</h2>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 32 — BEACHHEAD: AU AND UK
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Go-to-Market</div>
+  <div class="slide-label">Beachhead</div>
+  <h3>Beachhead: English-Speaking Distributed Sales Orgs in AU and UK</h3>
+  <p>The initial go-to-market targets Australia and the United Kingdom as the beachhead for three reasons:</p>
+  <ul>
+    <li><strong>1. High-value categories with strong distributed networks.</strong> AU and UK have mature real estate, mortgage brokerage, franchise, and insurance distribution networks. Organizations in these categories are commercially sophisticated, have existing technology budgets, and operate at price points where a $699–$1,499/month operating system represents a small fraction of potential revenue impact.</li>
+    <li><strong>2. English-speaking product advantage.</strong> Klaroha's LLM-driven CMO and qualification flows are built in English. Expanding within English-speaking markets allows the product to reach scale before adding localization complexity. US expansion follows AU/UK market fit with a larger addressable market.</li>
+    <li><strong>3. Founder proximity and network.</strong> [Expand with founder-specific context here.]</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 33 — COOPERATIVE DISTRIBUTION
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Go-to-Market</div>
+  <div class="slide-label">Primary Channel</div>
+  <h3>Cooperative Distribution — The Primary Early Channel</h3>
+  <p>The PH-based marketing cooperative that co-owns 40% of Klaroha is the most direct initial channel. PH freelancers and marketing agencies already manage digital marketing, paid ads, content, and lead generation for thousands of AU, UK, and US clients. As co-owners with financial upside in Klaroha's growth, they have commercial incentive to deploy the platform for their clients rather than continuing to operate fragmented tool stacks. One cooperative member with eight clients represents eight potential deployments from a single aligned relationship. This channel requires no cold outreach — it is built into the ownership structure.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 34 — OTHER CHANNELS
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Go-to-Market</div>
+  <div class="slide-label">Channel Strategy</div>
+  <h3>Four Additional Distribution Channels</h3>
+  <ul>
+    <li><strong>Freelancer and agency community.</strong> Beyond the cooperative, the broader English-speaking freelancer and digital marketing agency market is a natural fit for Klaroha's multi-brand architecture. A Klaroha deployment manages multiple client brands from one interface — exactly how a freelancer or agency operates. Community-led distribution through digital marketing forums, freelancer networks (Upwork, LinkedIn communities, PH freelancer groups), and agency owner networks builds adoption through practitioners who influence their clients' tool decisions.</li>
+    <li><strong>Practitioner-to-network (bottom-up enterprise).</strong> For real estate, mortgage, and insurance categories, the entry point is the individual agent or advisor — not the brokerage network. When practitioners adopt, network HQ takes notice. This channel requires no enterprise sales cycle at the start. It requires a product compelling enough that practitioners recommend it upward.</li>
+    <li><strong>Content and organic.</strong> Borj's track record as a systems builder and growth architect in exactly the categories Klaroha targets supports a content strategy aimed at marketing operators, freelancers, and small business owners who feel the problem being solved. Content that addresses demand leakage, marketing system design, and AI-enabled execution creates organic pipeline and positions Klaroha credibly before any paid acquisition is needed.</li>
+    <li><strong>Category partnerships — Phase 2.</strong> Once the practitioner and freelancer base is established, partnerships with category associations (real estate institutes, mortgage broker associations, franchise councils) and direct outreach to network headquarters become the leverage play. A single network partnership converts practitioner adoption into a standardized group deployment.</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 35 — SALES MOTION
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Go-to-Market</div>
+  <div class="slide-label">Sales Motion</div>
+  <h3>Founder-Led Discovery to Network Rollout</h3>
+  <p>For the Growth and Scale tiers, the sales motion is founder-led discovery → product demo → pilot with one brand or market unit → full network rollout.</p>
+  <p>The pilot design is critical. A well-designed 60-day pilot with a distributed sales team in a single market — with measurable outcomes including inquiry qualification rate, response time improvement, and qualified conversation volume — creates an ROI story that scales the network sale.</p>
+  <p>For Enterprise and network contracts, a more structured account executive and solutions consultant motion is appropriate from year two onward.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 36 — SECTION: PRODUCT ROADMAP
+     ═══════════════════════════════════════════════════ -->
+<div class="slide section-hd">
+  <div class="sec-num">07</div>
+  <h2>Product Roadmap</h2>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 37 — CURRENT STATE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Product Roadmap</div>
+  <div class="slide-label">Current State</div>
+  <h3>Core Platform Built and Operational</h3>
+  <p>The BOS core architecture and Klaroha interface are built and operational. The system includes:</p>
+  <ul>
+    <li>Multi-brand, multi-workspace architecture (Org → Brand → Campaign hierarchy)</li>
+    <li>AI CMO interface with capability manifest and skill-driven dispatch</li>
+    <li>Brand onboarding and Campaign Brand Kit generation</li>
+    <li>Email outreach capability (Gmail OAuth integration)</li>
+    <li>Google Ads read and draft capability (full-control roadmap)</li>
+    <li>Google Search Console read capability (SEO optimization)</li>
+    <li>Plugin architecture for channel specialists (extensible without core changes)</li>
+    <li>Workspace artifact approval loop (draft → review → approve/revise/dismiss)</li>
+    <li>BITE execution pipeline with audit trail</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 38 — PHASE 1
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Product Roadmap</div>
+  <div class="slide-label">Phase 1 — Months 1–4</div>
+  <h3>Distribution-Ready Product</h3>
+  <p><em>Goal: First ten paying distributed organizations.</em></p>
+  <ul>
+    <li>Complete vertical qualification flow builder for real estate, mortgage, and franchise categories</li>
+    <li>Branch and agent routing engine with configurable rules</li>
+    <li>Performance visibility dashboard (inquiry source, qualification rate, response time, agent/branch performance)</li>
+    <li>WhatsApp and Messenger inquiry capture integration</li>
+    <li>Mobile-first CMO interface (current interface is web-first; mobile is the primary sales director interface)</li>
+    <li>Onboarding flow for distributed organizations (HQ setup → brand/location setup → agent provisioning)</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 39 — PHASE 2
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Product Roadmap</div>
+  <div class="slide-label">Phase 2 — Months 5–9</div>
+  <h3>Network-Scale Features</h3>
+  <p><em>Goal: First enterprise network contract (10+ locations).</em></p>
+  <ul>
+    <li>HQ performance reporting (aggregate view across all locations or agents)</li>
+    <li>Template and playbook library (HQ creates approved scripts, offers, and qualification flows; agents use them)</li>
+    <li>Agent performance benchmarking (compare against network average and top performers)</li>
+    <li>Approval workflow for HQ-controlled content (HQ approves all outbound before agents can use)</li>
+    <li>Network-level billing (one invoice for the entire network, per-seat breakdown)</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 40 — PHASE 3
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Product Roadmap</div>
+  <div class="slide-label">Phase 3 — Months 10–18</div>
+  <h3>Market Expansion and Integrations</h3>
+  <p><em>Goal: US market entry, $[target ARR] ARR.</em></p>
+  <ul>
+    <li>US-specific category playbooks (franchise networks, commercial real estate, lending)</li>
+    <li>CRM integrations (Salesforce, HubSpot, Follow Up Boss) for organizations with existing tech stack</li>
+    <li>Voice and SMS inquiry capture</li>
+    <li>Advanced attribution reporting (source → qualified conversation → closed sale)</li>
+    <li>Partner/reseller program for category associations and technology consultants</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 41 — SECTION: COMPETITIVE LANDSCAPE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide section-hd">
+  <div class="sec-num">08</div>
+  <h2>Competitive Landscape</h2>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 42 — POSITIONING
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Competitive Landscape</div>
+  <div class="slide-label">Positioning</div>
+  <h3>A Category Without a Direct Competitor</h3>
+  <p>Klaroha is not competing in the CRM category, the marketing automation category, or the generalist AI assistant category. Klaroha is the first product to target the specific problem of distributed sales execution and demand qualification at the category level.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 43 — COMPETITOR TABLE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Competitive Landscape</div>
+  <div class="slide-label">Competitive Map</div>
+  <h3>Existing Tools Solve Pieces. Not the Operating Layer.</h3>
+  <table>
+    <thead><tr><th>Competitor</th><th>What they solve</th><th>What they miss</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Salesforce / HubSpot</strong></td><td>CRM record-keeping, marketing automation</td><td>Require extensive configuration, don't solve qualification or branch routing, expensive for SMB distributed orgs</td></tr>
+      <tr><td><strong>Follow Up Boss / BoomTown</strong></td><td>Real estate lead follow-up</td><td>Single-vertical (real estate only), follow-up tool not a full operating system, no AI CMO</td></tr>
+      <tr><td><strong>Podium</strong></td><td>Messaging and review management</td><td>Handles conversation, not qualification or routing, no AI strategy layer</td></tr>
+      <tr><td><strong>GoHighLevel</strong></td><td>Agency white-label tool stack</td><td>Designed for agencies, not for distributed orgs; still requires agency to configure and operate</td></tr>
+      <tr><td><strong>ActiveCampaign / Klaviyo</strong></td><td>Broadcast marketing automation</td><td>Audience broadcast, not real-time inquiry qualification or distributed team management</td></tr>
+      <tr><td><strong>Generic AI assistants</strong> (ChatGPT, Claude, Gemini)</td><td>General intelligence</td><td>No vertical context, no org structure, no approval pipeline, no performance visibility</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 44 — KLAROHA'S COMPETITIVE POSITION
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Competitive Landscape</div>
+  <div class="slide-label">Klaroha's Position</div>
+  <h3>Four Structural Advantages</h3>
+  <ul>
+    <li><strong>Category intelligence.</strong> Klaroha installs knowing the category. A real estate network does not configure the system — it onboards to a system that already understands real estate buyer qualification, agent routing, and HQ visibility requirements.</li>
+    <li><strong>Distributed-org-native architecture.</strong> No other product in the market has been designed from the ground up for organizations with multiple agents, branches, or locations under one operating system with HQ/local permission and reporting structure.</li>
+    <li><strong>AI operating system, not AI feature.</strong> Generic SaaS tools are adding AI features. Klaroha is an AI-first operating system that happens to have CRM, qualification, follow-up, and performance visibility built in. The CMO-in-pocket model is not a feature — it is the core product experience.</li>
+    <li><strong>Extensible plugin architecture.</strong> As channels and capabilities evolve (new social platforms, new ad channels, new data connectors), Klaroha extends through plugins without changing the core operating contract. Competitors face rebuild cycles when channels change. Klaroha adds a plugin.</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 45 — SECTION: FINANCIALS
+     ═══════════════════════════════════════════════════ -->
+<div class="slide section-hd">
+  <div class="sec-num">09</div>
+  <h2>Financials</h2>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 46 — REVENUE PROJECTIONS
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Financials</div>
+  <div class="slide-label">Revenue Projections</div>
+  <h3>Conservative Ramp — 150 Orgs at Month 24</h3>
+  <p>These projections assume product-market fit validation at the beachhead and a steady-state conversion rate of franchise/brokerage network onboarding from month 6 onward.</p>
+  <table>
+    <thead><tr><th>Period</th><th>Paying Orgs (end of period)</th><th>Avg MRR/Org</th><th>MRR</th><th>ARR</th></tr></thead>
+    <tbody>
+      <tr><td>Month 6</td><td>10</td><td>$800</td><td>$8,000</td><td>$96,000</td></tr>
+      <tr><td>Month 12</td><td>30</td><td>$900</td><td>$27,000</td><td>$324,000</td></tr>
+      <tr><td>Month 18</td><td>75</td><td>$1,000</td><td>$75,000</td><td>$900,000</td></tr>
+      <tr><td>Month 24</td><td>150</td><td>$1,100</td><td>$165,000</td><td>$1,980,000</td></tr>
+    </tbody>
+  </table>
+  <p class="table-note">Conservative scenario assumes 5–8 new orgs per month from month 6 onward via direct outbound and category partnerships.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 47 — INFRASTRUCTURE COST PER CUSTOMER
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Financials</div>
+  <div class="slide-label">Cost Structure — Infrastructure</div>
+  <h3>~$20/Month Per Customer. Data-Isolated VPS Deployment.</h3>
+  <p>Each customer runs on a dedicated VPS instance. This provides full data isolation — important for real estate, mortgage, and franchise categories with client data sensitivity — and eliminates multi-tenant complexity at early stage.</p>
+  <table>
+    <thead><tr><th>Component</th><th>Specification</th><th>Monthly Cost (USD)</th></tr></thead>
+    <tbody>
+      <tr><td>Customer VPS — AU/UK/US markets</td><td>2–4 vCPU, 4–8 GB RAM, 80 GB SSD (Vultr/Upcloud Sydney/London/US)</td><td>$15–24</td></tr>
+      <tr><td>Customer VPS — PH/SEA markets</td><td>2–4 vCPU, 4 GB RAM, 80 GB SSD (Hetzner Singapore)</td><td>$8–12</td></tr>
+      <tr class="total-row"><td><strong>Blended average per customer</strong></td><td></td><td><strong>~$20/month</strong></td></tr>
+      <tr><td>One-time setup per customer</td><td>Domain, SSL, deployment configuration</td><td>~$15 one-time</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 48 — LLM COST MODEL
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Financials</div>
+  <div class="slide-label">Cost Structure — LLM</div>
+  <h3>Near-Zero LLM Cost for First 50–75 Customers</h3>
+  <p>Klaroha's default package routes AI inference to free-tier providers — Gemini 2.0 Flash (1M tokens/day free), Groq (Llama 3.1 fast inference, free tier), and OpenRouter free models. A shared local model handles lower-complexity tasks (CMO conversation context, short qualification prompts). This brings platform-mode LLM cost to near zero for the first 50–75 customers.</p>
+  <table>
+    <thead><tr><th>LLM cost stage</th><th>Customers</th><th>Monthly LLM cost</th></tr></thead>
+    <tbody>
+      <tr><td>Free tier sufficient</td><td>1–50</td><td>$0–50 (overflow only)</td></tr>
+      <tr><td>Partial paid routing</td><td>51–100</td><td>$150–400</td></tr>
+      <tr><td>Mixed free + paid</td><td>100+</td><td>$400–900</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:16px;">Customers who prefer premium models (GPT-4o, Claude Sonnet) bring their own API keys (BYOK). Klaroha earns no LLM margin on BYOK customers — revenue is platform fee only. This is intentional: BYOK is a trust signal for enterprise buyers, not a revenue centre.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 49 — SHARED INFRA + TOTAL COGS
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Financials</div>
+  <div class="slide-label">Cost Structure — Shared Infrastructure</div>
+  <h3>Shared Infrastructure: ~$80–100/Month</h3>
+  <table>
+    <thead><tr><th>Component</th><th>Monthly Cost</th></tr></thead>
+    <tbody>
+      <tr><td>Management/deployment orchestration VPS</td><td>$50</td></tr>
+      <tr><td>DNS, monitoring (UptimeRobot, self-hosted Grafana)</td><td>$10–20</td></tr>
+      <tr><td>CI/CD, backups</td><td>$20–30</td></tr>
+      <tr class="total-row"><td><strong>Shared infra total</strong></td><td><strong>~$80–100/month</strong></td></tr>
+    </tbody>
+  </table>
+  <div class="divider"></div>
+  <p><strong>Total direct infrastructure COGS at 30 customers:</strong> $600 (VPS) + $80 (shared) + $50 (LLM overflow) = ~$730/month</p>
+  <p><strong>Total direct infrastructure COGS at 75 customers:</strong> $1,500 + $100 + $250 = ~$1,850/month</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 50 — GROSS MARGIN MODEL
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Financials</div>
+  <div class="slide-label">Gross Margin</div>
+  <h3>90%+ Gross Margin — Preserved at Scale</h3>
+  <table>
+    <thead><tr><th>Item</th><th>Per customer/month</th></tr></thead>
+    <tbody>
+      <tr><td>Average revenue</td><td>$999</td></tr>
+      <tr><td>VPS hosting</td><td>($20)</td></tr>
+      <tr><td>LLM cost (platform mode, blended)</td><td>($8)</td></tr>
+      <tr><td>Stripe processing (2.9% + $0.30)</td><td>($29)</td></tr>
+      <tr><td>Support allocation (Kyle / CS rep)</td><td>($40 early → $20 at scale)</td></tr>
+      <tr class="total-row"><td><strong>Gross margin — early</strong></td><td><strong>~$902 (90%)</strong></td></tr>
+      <tr class="total-row"><td><strong>Gross margin — at scale</strong></td><td><strong>~$922 (92%)</strong></td></tr>
+    </tbody>
+  </table>
+  <p class="table-note">Gross margin is high because the primary cost of delivery is a $20 VPS, not a labour-heavy implementation or expensive LLM API. The model is designed to preserve margin as volume grows.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 51 — TEAM PHASE 1
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Financials</div>
+  <div class="slide-label">Team Build Plan — Phase 1</div>
+  <h3>Validation (Months 1–6): Founders + Community Contractors</h3>
+  <p>The team is built in three phases aligned to revenue milestones. Core roles are Philippines-based. Revenue-generating and market-facing roles in AU/UK are added when the product is validated and the sales motion is repeatable.</p>
+  <table>
+    <thead><tr><th>Role</th><th>Location</th><th>Monthly Cost</th></tr></thead>
+    <tbody>
+      <tr><td>Borj Catingub — CEO/CTO</td><td>PH</td><td>$1,000 (founder stipend)</td></tr>
+      <tr><td>Kyle Babatid — Head of Operations</td><td>PH</td><td>$800 (founder stipend)</td></tr>
+      <tr><td>2 × PH cooperative contractors (content, CS support)</td><td>PH</td><td>$400/month each</td></tr>
+      <tr class="total-row"><td><strong>Phase 1 people total</strong></td><td></td><td><strong>$2,600/month</strong></td></tr>
+    </tbody>
+  </table>
+  <p class="table-note">Founders take below-market stipends. Market-rate salaries begin when MRR covers them.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 52 — TEAM PHASE 2
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Financials</div>
+  <div class="slide-label">Team Build Plan — Phase 2</div>
+  <h3>First Customers (Months 7–12): First Commercial Hires</h3>
+  <table>
+    <thead><tr><th>Role</th><th>Location</th><th>Monthly Cost</th></tr></thead>
+    <tbody>
+      <tr><td>Borj — CEO/CTO</td><td>PH</td><td>$2,000</td></tr>
+      <tr><td>Kyle — Head of Operations</td><td>PH</td><td>$1,500</td></tr>
+      <tr><td>PH Full-Stack Developer #1</td><td>PH</td><td>$1,200</td></tr>
+      <tr><td>PH Customer Success Rep</td><td>PH</td><td>$700</td></tr>
+      <tr><td>AU/UK Sales Development Rep</td><td>AU or UK</td><td>$2,500 base + commission</td></tr>
+      <tr class="total-row"><td><strong>Phase 2 people total</strong></td><td></td><td><strong>$7,900/month</strong></td></tr>
+    </tbody>
+  </table>
+  <p class="table-note">AU/UK SDR hired on a lean base with performance commission. Can be structured as a part-time or contractor engagement until the sales pipeline is validated.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 53 — TEAM PHASE 3
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Financials</div>
+  <div class="slide-label">Team Build Plan — Phase 3</div>
+  <h3>Growth (Months 13–18): Scale Toward $1M ARR</h3>
+  <table>
+    <thead><tr><th>Role</th><th>Location</th><th>Monthly Cost</th></tr></thead>
+    <tbody>
+      <tr><td>Borj — CEO/CTO</td><td>PH</td><td>$3,000</td></tr>
+      <tr><td>Kyle — Head of Operations</td><td>PH</td><td>$2,500</td></tr>
+      <tr><td>PH Developer #1</td><td>PH</td><td>$1,400</td></tr>
+      <tr><td>PH Developer #2</td><td>PH</td><td>$1,000</td></tr>
+      <tr><td>PH Customer Success Rep</td><td>PH</td><td>$700</td></tr>
+      <tr><td>PH Marketing/Content Specialist</td><td>PH</td><td>$700</td></tr>
+      <tr><td>AU/UK Account Executive</td><td>AU or UK</td><td>$4,500 base + commission</td></tr>
+      <tr><td>AU/UK SDR (continued)</td><td>AU or UK</td><td>$2,500</td></tr>
+      <tr class="total-row"><td><strong>Phase 3 people total</strong></td><td></td><td><strong>$16,300/month</strong></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 54 — FIXED OPERATING COSTS
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Financials</div>
+  <div class="slide-label">Fixed Operating Costs</div>
+  <h3>Lean Operating Structure</h3>
+  <div class="two-col">
+    <div>
+      <p><strong>Monthly recurring:</strong></p>
+      <table>
+        <thead><tr><th>Item</th><th>Monthly Cost</th></tr></thead>
+        <tbody>
+          <tr><td>Wyoming LLC registered agent</td><td>$15</td></tr>
+          <tr><td>PH entity compliance and accounting</td><td>$400</td></tr>
+          <tr><td>Stripe Atlas / US banking</td><td>$15</td></tr>
+          <tr><td>Developer tools (GitHub, CI, hosting for internal tooling)</td><td>$50</td></tr>
+          <tr><td>Customer support platform (Crisp or similar)</td><td>$60</td></tr>
+          <tr><td>Project management and communication tools</td><td>$50</td></tr>
+          <tr class="total-row"><td><strong>Fixed ops total</strong></td><td><strong>~$590/month</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div>
+      <p><strong>One-time setup costs:</strong></p>
+      <table>
+        <thead><tr><th>Item</th><th>Cost</th></tr></thead>
+        <tbody>
+          <tr><td>Wyoming LLC formation</td><td>$150</td></tr>
+          <tr><td>PH SEC entity registration</td><td>$700</td></tr>
+          <tr><td>Legal setup (terms of service, privacy policy, contracts)</td><td>$2,500</td></tr>
+          <tr><td>Cooperative charter and legal structure</td><td>$1,500</td></tr>
+          <tr><td>Brand production (logo finalization, marketing materials)</td><td>$800</td></tr>
+          <tr class="total-row"><td><strong>One-time total</strong></td><td><strong>~$5,650</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 55 — MONTHLY BURN SUMMARY
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Financials</div>
+  <div class="slide-label">Monthly Burn Summary</div>
+  <h3>Cash Flow Positive by Month 14–15</h3>
+  <table>
+    <thead><tr><th>Phase</th><th>Period</th><th>People</th><th>Infra</th><th>Fixed Ops</th><th>Other</th><th>Total Burn</th></tr></thead>
+    <tbody>
+      <tr><td>Validation</td><td>M1–6</td><td>$2,600</td><td>$200</td><td>$590</td><td>—</td><td><strong style="color:var(--ch);">~$3,390/month</strong></td></tr>
+      <tr><td>First Customers</td><td>M7–12</td><td>$7,900</td><td>$730</td><td>$590</td><td>$500 travel</td><td><strong style="color:var(--ch);">~$9,720/month</strong></td></tr>
+      <tr><td>Growth</td><td>M13–18</td><td>$16,300</td><td>$1,950</td><td>$590</td><td>$1,000 market dev</td><td><strong style="color:var(--ch);">~$19,840/month</strong></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 56 — CUMULATIVE SPEND + REVENUE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Financials</div>
+  <div class="slide-label">18-Month Cash Summary</div>
+  <h3>Revenue-Funded from Month 12</h3>
+  <p><strong>Cumulative gross spend (18 months):</strong></p>
+  <ul>
+    <li>Phase 1: $20,340 + $5,650 one-time = <strong>$25,990</strong></li>
+    <li>Phase 2: $58,320</li>
+    <li>Phase 3: $119,040</li>
+    <li>Total 18-month gross spend: <strong>~$203,350</strong></li>
+  </ul>
+  <div class="divider"></div>
+  <p><strong>Revenue offset (cumulative):</strong></p>
+  <ul>
+    <li>Months 1–6: ~$12,000 (ramping from first paid customers at month 4–5)</li>
+    <li>Months 7–12: ~$105,000 (average ~$17,500/month over the period)</li>
+    <li>Months 13–18: ~$300,000 (average ~$50,000/month over the period)</li>
+    <li>Total 18-month revenue: <strong>~$417,000</strong></li>
+  </ul>
+  <div class="divider"></div>
+  <p><strong>Net cash position:</strong> The business becomes cash flow positive around month 14–15. The maximum cash deficit (trough) occurs around month 8–10, reaching approximately $100,000–$120,000 in cumulative net spend before revenue acceleration begins covering monthly burn.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 57 — USE OF FUNDS
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Financials</div>
+  <div class="slide-label">Use of Funds</div>
+  <h3>$175,000 — Sized to Cover the Trough, Not 18 Months</h3>
+  <p>The raise covers the cash deficit trough and provides buffer for market timing variance. It does not need to fund all 18 months — revenue does that from month 12 onward.</p>
+  <table>
+    <thead><tr><th>Category</th><th>Amount</th><th>Description</th></tr></thead>
+    <tbody>
+      <tr><td>Product completion (M1–6)</td><td>$40,000</td><td>Vertical qualification flows, branch routing, mobile CMO interface, HQ dashboard</td></tr>
+      <tr><td>Team build — PH core (M7–12)</td><td>$60,000</td><td>First developer, customer success hire, founder salary normalization</td></tr>
+      <tr><td>Market development — AU/UK (M7–12)</td><td>$30,000</td><td>SDR hire, 1–2 in-market trips, category partnership outreach</td></tr>
+      <tr><td>Infrastructure build-out</td><td>$20,000</td><td>Customer VPS deployments, shared infra, LLM overflow budget</td></tr>
+      <tr><td>Entity setup and legal</td><td>$8,000</td><td>Wyoming LLC, PH entity, legal docs, cooperative charter</td></tr>
+      <tr><td>Operating reserve</td><td>$17,000</td><td>Buffer for market timing variance and unexpected costs</td></tr>
+      <tr class="total-row"><td><strong>Total raise</strong></td><td><strong>$175,000</strong></td><td></td></tr>
+    </tbody>
+  </table>
+  <p class="table-note">The raise is sized to reach month 12 milestones with 2–3 months of additional buffer. From month 12 onward, the business is projected to be revenue-funded. A seed round at month 14–16 — backed by $300K+ ARR and a validated network sales motion — is the intended next capital event.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 58 — RUNWAY AND MILESTONES
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Financials</div>
+  <div class="slide-label">Runway &amp; Milestones</div>
+  <h3>12–14 Months of Funded Runway</h3>
+  <p>The raise provides 12–14 months of funded runway with the following hard milestones before the cash is deployed:</p>
+  <ul>
+    <li><strong>Month 6:</strong> Product distribution-ready. Vertical qualification flows and branch routing operational for at least one category (real estate or mortgage). Ten pilot deployments running.</li>
+    <li><strong>Month 9:</strong> Ten paying organizations confirmed. First network contract (5+ locations) in negotiation.</li>
+    <li><strong>Month 12:</strong> Thirty paying organizations, $300K+ ARR run rate. AU or UK go-to-market motion validated. Seed round preparation begins.</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 59 — SECTION: THE ASK
+     ═══════════════════════════════════════════════════ -->
+<div class="slide section-hd">
+  <div class="sec-num">10</div>
+  <h2>The Ask</h2>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 60 — THE ASK DETAILS
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">The Ask</div>
+  <div class="slide-label">Round Details</div>
+  <h3>$175,000 Pre-Seed</h3>
+  <ul>
+    <li><strong>Raising:</strong> $175,000</li>
+    <li><strong>Stage:</strong> Pre-seed</li>
+    <li><strong>Instrument:</strong> [SAFE / Convertible Note — to be confirmed with investors]</li>
+    <li><strong>Cap / Discount:</strong> [To be negotiated]</li>
+  </ul>
+  <div class="divider"></div>
+  <p>This raise is not for growth marketing. It is to complete the product to distribution-ready standard, sign the first ten paying distributed organizations, and validate the go-to-market in one English-speaking market.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 61 — WHAT THIS ROUND FUNDS
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">The Ask</div>
+  <div class="slide-label">What This Round Funds</div>
+  <h3>Three Milestones That Matter</h3>
+  <p>The milestones that matter for this raise:</p>
+  <ul>
+    <li><strong>Product milestone:</strong> Vertical qualification flows, branch routing, and HQ performance dashboard shipped and stable for real estate or mortgage category.</li>
+    <li><strong>Commercial milestone:</strong> Ten paying organizations signed. At least three with 10+ agents or locations.</li>
+    <li><strong>Go-to-market milestone:</strong> At least one category partnership or network agreement signed (franchise council, brokerage group, or lending network).</li>
+  </ul>
+  <p style="margin-top:16px;">These milestones are achievable in twelve months and create the data needed to raise a seed round with demonstrated product-market fit.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 62 — SECTION: OWNERSHIP STRUCTURE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide section-hd">
+  <div class="sec-num">11</div>
+  <h2>Ownership Structure</h2>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 63 — OWNERSHIP TABLE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content compact">
+  <div class="sec-tag">Ownership Structure</div>
+  <div class="slide-label">Cap Table</div>
+  <h3>A Distribution Architecture Baked into the Cap Table</h3>
+  <p>Klaroha is structured around four stakeholder groups. The distribution is intentional — it is both a governance model and a go-to-market architecture.</p>
+  <table>
+    <thead><tr><th>Stakeholder</th><th>Ownership</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td>Founding team</td><td>10%</td><td>Junard "Borj" Catingub (7%) and Kyle Christian Eric Babatid (3%)</td></tr>
+      <tr><td>Multi-purpose cooperative</td><td>40%</td><td>Community ownership pool — PH-based marketing freelancers and service providers</td></tr>
+      <tr><td>Operations pool</td><td>20%</td><td>Team equity — distributed as part of compensation alongside market-rate pay</td></tr>
+      <tr><td>Investor allocation</td><td>30%</td><td>Open for pre-seed and seed investors</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 64 — THE COOPERATIVE: 40%
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Ownership Structure</div>
+  <div class="slide-label">The Cooperative</div>
+  <h3>The Cooperative: 40%</h3>
+  <p>The largest single stakeholder in Klaroha is not the founders or the investors. It is a multi-purpose cooperative of Philippines-based marketing freelancers and service providers.</p>
+  <p>This is deliberate, and it is strategic.</p>
+  <p>The Philippines has become one of the world's most significant contributors to outsourced digital marketing. PH-based freelancers and agencies manage social media, run Google and Meta campaigns, handle SEO, produce content, and operate lead generation systems for thousands of businesses across Australia, the United Kingdom, the United States, and the broader English-speaking world. Many of the distributed sales organizations in Klaroha's target market — real estate agencies, franchise networks, lending companies — already have a PH-based marketing support function, either directly or through outsourcing.</p>
+  <p>Making this community co-owners of Klaroha creates an adoption dynamic that no competitor can replicate:</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 65 — COOPERATIVE STRATEGIC VALUE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Ownership Structure</div>
+  <div class="slide-label">Cooperative — Strategic Value</div>
+  <h3>Four Dynamics No Competitor Can Replicate</h3>
+  <ul>
+    <li><strong>Distribution alignment.</strong> A PH freelancer or agency that co-owns Klaroha has a financial incentive to deploy it for their clients. When Klaroha wins, the cooperative wins. The cooperative is not a passive shareholder — it is a distributed go-to-market network embedded in the exact markets Klaroha targets.</li>
+    <li><strong>Credibility at the point of service delivery.</strong> The marketing freelancer who manages a franchise network's Google Ads and social accounts has more influence over that client's technology decisions than any sales representative Klaroha could hire. Cooperative ownership converts that influence into an aligned commercial relationship.</li>
+    <li><strong>Supply-side integration.</strong> Klaroha's vertical playbooks, qualification flows, and performance reporting are tools that PH marketing professionals can deploy, customize, and deliver as a service. The cooperative creates a ready-made implementation and support layer for Klaroha's target market without the cost of a direct field team.</li>
+    <li><strong>Community and social purpose.</strong> The cooperative structure is also the right thing to do. The PH freelance economy is large, skilled, and systematically undervalued in the global marketing supply chain. Giving this community meaningful ownership in a platform that industrializes and elevates their contribution is both a mission statement and a talent magnet.</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 66 — COOPERATIVE LEGAL NOTE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Ownership Structure</div>
+  <div class="slide-label">Legal Structure</div>
+  <h3>Legal Note on Cooperative Structure</h3>
+  <p>The cooperative's shareholding will be formalized through a multi-purpose cooperative entity registered in the Philippines, holding shares in the Klaroha operating company on behalf of its members. Governance rights, profit distribution mechanics, and membership criteria are being defined in the cooperative charter and will be available for investor review. This structure is consistent with PH cooperative law and requires no unusual international legal mechanism.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 67 — OPERATIONS POOL + INVESTOR ALLOCATION
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Ownership Structure</div>
+  <div class="slide-label">Operations Pool &amp; Investors</div>
+  <h3>Operations Pool: 20% &mdash; Investor Allocation: 30%</h3>
+  <p><strong>Operations pool: 20%</strong></p>
+  <p>The operations pool is allocated to team members who contribute to Klaroha's operation — engineering, product, sales, delivery, and support. Allocation is discretionary and milestone-based, determined by the founding team. This pool is not a standard options plan — it is equity distributed as part of compensation alongside market-rate pay, creating alignment beyond salary.</p>
+  <div class="divider"></div>
+  <p><strong>Investor allocation: 30%</strong></p>
+  <p>Investors receive 30% of the company. At pre-seed stage, this is the negotiating anchor. The founders' willingness to limit their own stake to 10% — rather than the more conventional 60–80% at formation — reflects conviction in the cooperative model and the operations pool as strategic assets, not personal enrichment goals.</p>
+  <p>For investors, 30% of a company with a committed community distribution network, a ready-made supply-side channel, and an aligned operator pool is materially different from 30% of a conventional two-founder startup with the same cap table math.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 68 — SECTION: FOUNDING TEAM
+     ═══════════════════════════════════════════════════ -->
+<div class="slide section-hd">
+  <div class="sec-num">12</div>
+  <h2>Founding Team</h2>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 69 — TEAM OVERVIEW
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Founding Team</div>
+  <div class="slide-label">Overview</div>
+  <h3>One Built the System. One Has Been Watching the Problem from the Inside.</h3>
+  <p>Borj and Kyle bring complementary backgrounds that between them cover the full arc of the problem Klaroha solves. Borj has spent thirteen years being hired to fix demand-capture problems for businesses — as a consultant, a growth lead, an agency founder — and built Klaroha because he has been building informal versions of it his whole career. Kyle has spent six years inside a real estate technology platform serving the exact type of distributed sales organizations Klaroha targets, handling the integration and operations failures that happen when those platforms fall short.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 70 — BORJ: THE PRACTITIONER SIDE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Founding Team</div>
+  <div class="slide-label">Junard "Borj" Catingub — Co-Founder, CEO / 7%</div>
+  <h3>Thirteen Years Building the Machine Behind the Number</h3>
+  <p>Borj is a digital marketing practitioner and AI systems architect with thirteen years of experience across paid search, growth operations, marketing infrastructure, and AI-enabled workflow design. He built Klaroha's entire technical architecture — backend, frontend, LLM routing, plugin system, and deployment infrastructure — himself.</p>
+  <p><strong>The problem from the practitioner side.</strong> Borj has spent thirteen years being the person hired to fix demand-capture for businesses that had market activity but couldn't convert it. As a PPC specialist managing $150,000/month budgets at Author Solutions. As a consultant rebuilding campaigns for solar, vehicles, and home services at 2B Interactive. As the growth lead who took Teko.ph from 1,000 to 3,900 orders with a fractured team and no budget increase. As the automation consultant who built a content production system for a US law firm, handed it to non-technical staff, and left a machine that ran without him. In each case the pattern was the same: the business had demand, the system for handling it was broken, and fixing it meant building infrastructure — not just running better campaigns. Klaroha is not a hypothesis built from market research. It is the product Borj has been building informally for clients across his entire career, now built properly.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 71 — BORJ: PROOF OF EXECUTION
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Founding Team</div>
+  <div class="slide-label">Borj — Proof of Execution</div>
+  <h3>The Operating Model Klaroha Delivers to Its Customers</h3>
+  <p><strong>The proof he can execute.</strong> As Head of Growth at Teko.ph (2021–2023), Borj grew monthly customer acquisition from a prior high of approximately 1,000 orders to a new record of 3,900 — with insufficient ad spend and a team of untrained marketers and part-time freelancers. He accomplished this not by increasing budget but by mining four years of accumulated data, building content production processes, and implementing dashboards and trackers that made a distributed, non-collocated team executable without daily supervision. This is the same operating model Klaroha delivers to its customers.</p>
+  <p><strong>The commercial range.</strong> Borj's marketing career spans PPC management at $150,000/month budgets for US, Canadian, and UK markets (Author Solutions); reducing a solar panel campaign's cost per lead from $45–$60 to $9 while maintaining volume (2B Interactive); growing a data science marketplace from zero to 813 expert partners (SageLegion); and bootstrapping a marketing agency to five clients in under five months (2019). He has operated at every level from hands-on campaign specialist to growth architect to agency founder — and built the measurement infrastructure behind each one.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 72 — BORJ: TECHNICAL + TRANSITION
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Founding Team</div>
+  <div class="slide-label">Borj — Technical Capability</div>
+  <h3>From Operator to Architect</h3>
+  <p><strong>The technical capability.</strong> Borj built the Klaroha/BOS platform from scratch: FastAPI + PostgreSQL backend, React/Vite frontend, Docker Compose deployment, LLM provider abstraction, plugin architecture, capability manifest, BITE execution pipeline, OAuth integrations, and multi-brand workspace architecture. A pre-revenue AI operating system with full-stack production infrastructure is not a mock-up. He built the product and deployed it.</p>
+  <p><strong>The transition from operator to architect.</strong> The pattern across Borj's career is consistent: he builds the machine, not just runs it. At Teko.ph, he built the data trackers and content processes, not just the ads. At the US law firm engagement (2023–2025), he built and handed off a content production operating system that published hundreds of articles daily, run by non-technical staff with no ongoing support dependency. At ECFData, he introduced a digital transformation marketing play (Activate DTx) and built customer journeys across five enterprise Microsoft products. Each role moved further from execution and closer to infrastructure. Klaroha is the culmination of that progression.</p>
+  <div class="contact-card">
+    <p><strong>jvcatingub@gmail.com</strong></p>
+    <p>+632 991 455 6550</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 73 — KYLE: INSIDE VIEW
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Founding Team</div>
+  <div class="slide-label">Kyle Christian Eric Babatid — Co-Founder, Head of Customer Operations / 3%</div>
+  <h3>Six Years Inside the Target Market</h3>
+  <p>Kyle is an IT and technical support specialist with over six years of experience in web platforms, CRM integrations, and client operations in the digital services industry.</p>
+  <p><strong>The inside view of the target market.</strong> Kyle has been a Technical Support Officer at MoxiWorks since 2020. MoxiWorks is a real estate technology platform providing integrated marketing, sphere lead generation, recruiting, and back-office operations to real estate brokerages across North America. Kyle's role covers client-facing technical support — resolving CRM API and FTP integration issues, communicating with third-party platforms on behalf of brokerage clients, and documenting new operational processes for the support team. He sees where the platform falls short: where CRMs fail to connect, where onboarding stalls, where process gaps create friction between marketing activity and sales execution in real brokerage environments. Klaroha's target customer is the type of organization Kyle has been supporting for five years. He knows where the current tooling breaks.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 74 — KYLE: DELIVERY + ROLE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Founding Team</div>
+  <div class="slide-label">Kyle — Role in Klaroha</div>
+  <h3>Contract to Configured and Operating</h3>
+  <p><strong>Client onboarding and delivery.</strong> Kyle's time at MOPRO (2017–2018) as a Digital Account Specialist on a reputation management and social media platform mirrors Klaroha's early customer journey directly. He onboarded new clients by extracting their branding, business model, and requirements, then coordinated between designers and developers to deliver results. He performed live revisions and handled technical troubleshooting in real time. This is the operational muscle Klaroha needs in its first customer cohort — someone who can take a new distributed sales organization from contract to configured and operating, without full engineering involvement at every step.</p>
+  <p><strong>His role in Klaroha.</strong> Kyle owns the customer operations layer: onboarding, technical setup, integration support, and process documentation. For the first ten to thirty customers — the validation phase that determines whether Klaroha achieves product-market fit — this is the function that makes the difference between a product that works in demos and a product that works in production at a real estate brokerage or franchise network.</p>
+  <div class="contact-card">
+    <p><strong>kce.babatid@gmail.com</strong></p>
+    <p>09277303480</p>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 75 — FOUNDERS' NOTE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content dark">
+  <div class="sec-tag">Founding Team</div>
+  <div class="slide-label">Note for Investors</div>
+  <h3>Why 10% for the Founders Is a Signal, Not a Sacrifice</h3>
+  <p>The cooperative structure and the low founder ownership percentage will invite questions. The answer is direct: the founders' thesis is that a 40% cooperative of PH-based marketing professionals — who are already inside the client organizations Klaroha targets — is a more durable distribution asset than a larger personal stake.</p>
+  <p>The founders' conviction is demonstrated by what Borj built from scratch and by Kyle's five years of direct operational exposure to the exact market Klaroha serves.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 76 — SECTION: APPENDIX
+     ═══════════════════════════════════════════════════ -->
+<div class="slide section-hd">
+  <div class="sec-num">A</div>
+  <h2>Appendix</h2>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 77 — TECHNICAL ARCHITECTURE
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Appendix</div>
+  <div class="slide-label">A. Technical Architecture Overview</div>
+  <h3>FastAPI + PostgreSQL + React/Vite on Self-Hosted VPS</h3>
+  <p>Klaroha runs on a FastAPI + PostgreSQL backend with a React/Vite frontend deployed via Docker on a self-hosted or managed VPS. The architecture is designed for:</p>
+  <ul>
+    <li><strong>Multi-brand operation:</strong> One deployment supports multiple brands or client accounts with clean data isolation.</li>
+    <li><strong>Plugin extensibility:</strong> Channel capabilities (Gmail, Google Ads, Meta, Search Console) are installed as independent plugins. Adding a channel does not require changes to the core operating system.</li>
+    <li><strong>LLM-agnostic execution:</strong> The CMO can be backed by any LLM (OpenAI, Anthropic, OpenRouter). Individual specialist modules can use different models and providers optimized for their task.</li>
+    <li><strong>BYOK or platform-mode AI:</strong> Organizations can use Klaroha's pooled AI access (platform mode) or register their own API keys (BYOK) for full cost control.</li>
+    <li><strong>Audit trail and approval gates:</strong> Every AI execution is logged, every approved action has an explicit approval event, and no spend or publish action executes without human decision.</li>
+  </ul>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 78 — BRAND & CATEGORY EXPANSION
+     ═══════════════════════════════════════════════════ -->
+<div class="slide content">
+  <div class="sec-tag">Appendix</div>
+  <div class="slide-label">B &amp; C. Brand &mdash; Category Expansion</div>
+  <h3>Premium Brand for Commercial Buyers</h3>
+  <p><strong>B. Brand and visual identity.</strong> Klaroha is built as a premium brand for commercial buyers. The visual identity references luxury performance (deep teal, obsidian, satin bronze, restrained racing green) rather than the colorful SaaS aesthetic of generic marketing tools. The brand is designed to feel credible in a procurement decision at a 50-location franchise network.</p>
+  <p>Full brand guidelines available on request.</p>
+  <div class="divider"></div>
+  <p><strong>C. Category expansion roadmap.</strong> After real estate, mortgage, and franchise networks:</p>
+  <ul>
+    <li><strong>Commercial insurance distribution</strong> — distributed broker networks with specialist routing requirements</li>
+    <li><strong>Vehicle dealer networks</strong> — high-value transaction, structured inquiry qualification, HQ/dealer tension</li>
+    <li><strong>Healthcare practice networks</strong> — specialist referral routing, patient qualification, multi-location performance</li>
+    <li><strong>IT and professional services networks</strong> — MSP and specialist consulting practices with distributed delivery teams</li>
+  </ul>
+  <p>Each category shares the same structural pattern and requires only a vertical playbook layer on top of the core operating system.</p>
+</div>
+
+<!-- ═══════════════════════════════════════════════════
+     SLIDE 79 — CLOSING
+     ═══════════════════════════════════════════════════ -->
+<div class="slide closing">
+  <p>This document is confidential and intended solely for the use of the intended recipient. It does not constitute an offer to sell or a solicitation to buy any security.</p>
+</div>
+
+</div><!-- /deck -->
+
+<script>
+  const slides = document.querySelectorAll('.slide');
+  const pb = document.getElementById('pb');
+  const counter = document.getElementById('counter');
+  let current = 0;
+  const total = slides.length;
+
+  function show(n) {
+    slides[current].classList.remove('active');
+    current = Math.max(0, Math.min(total - 1, n));
+    slides[current].classList.add('active');
+    pb.style.width = ((current / (total - 1)) * 100) + '%';
+    counter.textContent = (current + 1) + ' — ' + total;
+  }
+
+  document.getElementById('prev-btn').addEventListener('click', () => show(current - 1));
+  document.getElementById('next-btn').addEventListener('click', () => show(current + 1));
+
+  document.addEventListener('keydown', e => {
+    if (e.key === 'ArrowRight' || e.key === 'ArrowDown' || e.key === ' ') {
+      e.preventDefault(); show(current + 1);
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+      e.preventDefault(); show(current - 1);
+    }
+  });
+
+  // Touch swipe
+  let touchStartX = 0;
+  document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; });
+  document.addEventListener('touchend', e => {
+    const dx = e.changedTouches[0].clientX - touchStartX;
+    if (Math.abs(dx) > 50) show(dx < 0 ? current + 1 : current - 1);
+  });
+
+  show(0);
+</script>
+</body>
+</html>

@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Klaroha — Marketing, Engineered for Clarity.</title>
+  <meta name="description" content="Turn buyer intent into qualified conversations. Klaroha is demand-capture infrastructure for sales-led businesses.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Josefin+Sans:wght@400;600;700&family=Inter:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --racing-green:   #0B3D2E;
+      --green-deep:     #0A2820;
+      --green-mid:      #0F5C3E;
+      --active-green:   #1F7A4D;
+      --warm-gold:      #826D40;
+      --satin-bronze:   #B08A57;
+      --champagne:      #D8BE8A;
+      --ivory:          #F5F1E8;
+      --ivory-mid:      #EDE5D8;
+      --soft-ivory:     #E6DED0;
+      --obsidian:       #080B0D;
+      --carbon:         #101417;
+      --gunmetal:       #171D20;
+      --smoked-panel:   #1F272B;
+      --border-graphite:#2E383D;
+      --stone-deep:     #6A5848;
+      --muted-stone:    #A59674;
+      --border-light:   #E0DAD0;
+      --font-display:   'Josefin Sans', system-ui, sans-serif;
+      --font-body:      'Inter', system-ui, sans-serif;
+      --max-w:          1200px;
+      --pad-x:          32px;
+      --section-v:      104px;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--font-body);
+      font-size: 15px;
+      line-height: 1.6;
+      color: var(--stone-deep);
+      background: var(--ivory);
+      -webkit-font-smoothing: antialiased;
+    }
+
+    a { text-decoration: none; color: inherit; }
+    img, svg { display: block; }
+
+    .container {
+      max-width: var(--max-w);
+      margin: 0 auto;
+      padding: 0 var(--pad-x);
+    }
+
+    .eyebrow {
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: var(--muted-stone);
+    }
+    .eyebrow--gold  { color: var(--warm-gold); }
+    .eyebrow--light { color: var(--muted-stone); opacity: 0.65; }
+
+    /* ── NAV ─────────────────────────────────────── */
+    .nav {
+      position: fixed;
+      top: 0; left: 0; right: 0;
+      z-index: 100;
+      padding: 0 var(--pad-x);
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      transition: background 0.3s, box-shadow 0.3s;
+    }
+    .nav.scrolled {
+      background: var(--racing-green);
+      box-shadow: 0 1px 0 rgba(255,255,255,0.07);
+    }
+
+    .nav__logo {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      color: var(--ivory);
+    }
+    .nav__wordmark {
+      font-family: var(--font-display);
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ivory);
+    }
+
+    .nav__links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      list-style: none;
+    }
+    .nav__links a {
+      font-size: 13px;
+      font-weight: 500;
+      color: rgba(245,241,232,0.7);
+      transition: color 0.2s;
+    }
+    .nav__links a:hover { color: var(--ivory); }
+
+    .nav__cta {
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--ivory);
+      border: 1px solid rgba(130,109,64,0.55);
+      padding: 8px 20px;
+      border-radius: 3px;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .nav__cta:hover {
+      border-color: var(--warm-gold);
+      background: rgba(130,109,64,0.1);
+    }
+
+    /* ── HERO ────────────────────────────────────── */
+    .hero {
+      background: var(--racing-green);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      padding-top: 64px;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .hero__bg-mark {
+      position: absolute;
+      right: -80px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 560px;
+      height: 560px;
+      opacity: 0.045;
+      pointer-events: none;
+    }
+
+    .hero__inner {
+      max-width: var(--max-w);
+      margin: 0 auto;
+      padding: 88px var(--pad-x);
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 64px;
+      align-items: center;
+      width: 100%;
+    }
+
+    .hero__eyebrow { margin-bottom: 24px; color: rgba(165,150,116,0.85); }
+
+    .hero__headline {
+      font-family: var(--font-display);
+      font-size: clamp(38px, 5vw, 60px);
+      font-weight: 700;
+      line-height: 1.08;
+      color: var(--ivory);
+      margin-bottom: 22px;
+      letter-spacing: -0.01em;
+    }
+
+    .hero__tagline {
+      font-size: clamp(18px, 2.2vw, 22px);
+      font-weight: 400;
+      color: rgba(245,241,232,0.88);
+      margin-bottom: 18px;
+      line-height: 1.4;
+    }
+
+    .hero__sub {
+      font-size: 15px;
+      color: rgba(245,241,232,0.62);
+      line-height: 1.75;
+      max-width: 560px;
+      margin-bottom: 40px;
+    }
+
+    .hero__actions { display: flex; gap: 14px; flex-wrap: wrap; }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-family: var(--font-body);
+      font-size: 14px;
+      font-weight: 500;
+      padding: 13px 28px;
+      border-radius: 3px;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s;
+    }
+    .btn--primary { background: var(--warm-gold); color: var(--ivory); }
+    .btn--primary:hover { background: var(--satin-bronze); }
+    .btn--ghost {
+      background: transparent;
+      color: var(--ivory);
+      border: 1px solid rgba(245,241,232,0.28);
+    }
+    .btn--ghost:hover {
+      border-color: rgba(245,241,232,0.55);
+      background: rgba(245,241,232,0.05);
+    }
+
+    /* hero signal card */
+    .hero__signal-card {
+      background: rgba(255,255,255,0.04);
+      border: 0.5px solid rgba(245,241,232,0.1);
+      border-radius: 6px;
+      padding: 28px;
+    }
+    .signal-card__label {
+      font-family: var(--font-display);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--warm-gold);
+      margin-bottom: 20px;
+    }
+    .signal-items { display: flex; flex-direction: column; gap: 11px; }
+    .signal-item {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+      color: rgba(245,241,232,0.68);
+    }
+    .signal-dot {
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .signal-dot--active  { background: var(--active-green); }
+    .signal-dot--pending { background: var(--warm-gold); }
+    .signal-dot--muted   { background: var(--muted-stone); opacity: 0.55; }
+
+    .signal-divider {
+      height: 0.5px;
+      background: rgba(245,241,232,0.08);
+      margin: 18px 0;
+    }
+    .signal-stats {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-end;
+    }
+    .signal-stat__num {
+      font-family: var(--font-display);
+      font-size: 30px;
+      font-weight: 700;
+      color: var(--champagne);
+      line-height: 1;
+    }
+    .signal-stat__label {
+      font-size: 11px;
+      color: var(--muted-stone);
+      margin-top: 4px;
+    }
+
+    /* ── PROBLEM ─────────────────────────────────── */
+    .section-problem {
+      background: var(--ivory);
+      padding: var(--section-v) 0;
+    }
+    .section-problem .eyebrow { margin-bottom: 20px; }
+    .section-problem__headline {
+      font-family: var(--font-display);
+      font-size: clamp(26px, 3.5vw, 40px);
+      font-weight: 700;
+      color: var(--racing-green);
+      max-width: 580px;
+      line-height: 1.18;
+      margin-bottom: 20px;
+    }
+    .section-problem__body {
+      font-size: 16px;
+      color: var(--stone-deep);
+      max-width: 600px;
+      line-height: 1.75;
+      margin-bottom: 64px;
+    }
+
+    .problem-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      border: 0.5px solid var(--border-light);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .problem-card {
+      padding: 36px 32px;
+      border-right: 0.5px solid var(--border-light);
+    }
+    .problem-card:last-child { border-right: none; }
+
+    .problem-card__icon {
+      width: 40px; height: 40px;
+      margin-bottom: 22px;
+    }
+    .problem-card__title {
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--racing-green);
+      margin-bottom: 10px;
+    }
+    .problem-card__body {
+      font-size: 14px;
+      color: var(--stone-deep);
+      line-height: 1.7;
+    }
+
+    /* ── SOLUTION ────────────────────────────────── */
+    .section-solution {
+      background: var(--ivory-mid);
+      padding: var(--section-v) 0;
+    }
+    .section-solution__header { margin-bottom: 60px; }
+    .section-solution__headline {
+      font-family: var(--font-display);
+      font-size: clamp(26px, 3.5vw, 40px);
+      font-weight: 700;
+      color: var(--racing-green);
+      max-width: 560px;
+      line-height: 1.18;
+      margin: 20px 0 16px;
+    }
+    .section-solution__sub {
+      font-size: 15px;
+      color: var(--stone-deep);
+      max-width: 540px;
+      line-height: 1.75;
+    }
+
+    .capabilities-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 1px;
+      background: var(--border-graphite);
+      border: 0.5px solid var(--border-graphite);
+      border-radius: 6px;
+      overflow: hidden;
+    }
+    .cap-tile {
+      background: var(--ivory);
+      padding: 36px 32px;
+      transition: background 0.2s;
+    }
+    .cap-tile:hover { background: #e8e2d6; }
+    .cap-tile__num {
+      font-family: var(--font-display);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      color: var(--warm-gold);
+      margin-bottom: 16px;
+    }
+    .cap-tile__title {
+      font-family: var(--font-display);
+      font-size: 17px;
+      font-weight: 700;
+      color: var(--racing-green);
+      margin-bottom: 10px;
+    }
+    .cap-tile__body {
+      font-size: 13px;
+      color: var(--stone-deep);
+      line-height: 1.7;
+    }
+
+    /* ── AUDIENCES ───────────────────────────────── */
+    .section-audiences {
+      background: var(--ivory-mid);
+      padding: var(--section-v) 0;
+    }
+    .section-audiences__header { margin-bottom: 60px; }
+    .section-audiences__headline {
+      font-family: var(--font-display);
+      font-size: clamp(26px, 3.5vw, 40px);
+      font-weight: 700;
+      color: var(--racing-green);
+      max-width: 620px;
+      line-height: 1.18;
+      margin-top: 20px;
+    }
+
+    .audience-cards {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 20px;
+    }
+    .audience-card {
+      background: var(--ivory);
+      border: 0.5px solid var(--border-light);
+      border-radius: 6px;
+      padding: 36px 32px;
+      position: relative;
+    }
+    .audience-card__bar {
+      position: absolute;
+      top: 0; left: 0;
+      width: 3px; height: 52px;
+      background: var(--warm-gold);
+      border-radius: 6px 0 0 0;
+    }
+    .audience-card__tag {
+      font-family: var(--font-display);
+      font-size: 10px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--muted-stone);
+      margin-bottom: 14px;
+    }
+    .audience-card__title {
+      font-family: var(--font-display);
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--racing-green);
+      margin-bottom: 14px;
+    }
+    .audience-card__examples {
+      font-size: 13px;
+      color: var(--muted-stone);
+      line-height: 1.65;
+      margin-bottom: 24px;
+    }
+    .audience-card__quote {
+      font-size: 14px;
+      font-style: italic;
+      color: var(--stone-deep);
+      line-height: 1.65;
+      padding-left: 16px;
+      border-left: 2px solid var(--warm-gold);
+    }
+
+    /* ── CTA ─────────────────────────────────────── */
+    .section-cta {
+      background: var(--racing-green);
+      padding: 120px 0;
+      text-align: center;
+    }
+    .section-cta .eyebrow { margin-bottom: 24px; }
+    .section-cta__headline {
+      font-family: var(--font-display);
+      font-size: clamp(30px, 4.5vw, 52px);
+      font-weight: 700;
+      color: var(--ivory);
+      line-height: 1.12;
+      margin-bottom: 16px;
+    }
+    .section-cta__sub {
+      font-size: 16px;
+      color: rgba(245,241,232,0.72);
+      max-width: 440px;
+      margin: 0 auto 40px;
+      line-height: 1.75;
+    }
+    .section-cta__tagline {
+      margin-top: 52px;
+      font-size: 13px;
+      font-style: italic;
+      color: var(--champagne);
+      opacity: 0.8;
+    }
+
+    /* ── FOOTER ──────────────────────────────────── */
+    .footer {
+      background: var(--racing-green);
+      padding: 40px 0;
+    }
+    .footer__inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .footer__left { display: flex; flex-direction: column; gap: 8px; }
+    .footer__logo {
+      display: flex;
+      align-items: center;
+      gap: 11px;
+      color: var(--ivory);
+    }
+    .footer__wordmark {
+      font-family: var(--font-display);
+      font-size: 14px;
+      font-weight: 700;
+      letter-spacing: 0.22em;
+      text-transform: uppercase;
+      color: var(--ivory);
+    }
+    .footer__tagline {
+      font-size: 12px;
+      font-style: italic;
+      color: var(--warm-gold);
+      opacity: 0.75;
+      padding-left: 33px;
+    }
+    .footer__copy {
+      font-size: 12px;
+      color: rgba(245,241,232,0.38);
+    }
+
+    /* ── FADE-IN ─────────────────────────────────── */
+    .fade-in {
+      opacity: 0;
+      transform: translateY(18px);
+      transition: opacity 0.55s ease, transform 0.55s ease;
+    }
+    .fade-in.visible { opacity: 1; transform: none; }
+    .fade-in:nth-child(2) { transition-delay: 0.08s; }
+    .fade-in:nth-child(3) { transition-delay: 0.16s; }
+
+    /* ── RESPONSIVE ──────────────────────────────── */
+    @media (max-width: 1024px) {
+      .hero__inner { grid-template-columns: 1fr; }
+      .hero__visual { display: none; }
+      .capabilities-grid,
+      .problem-grid { grid-template-columns: repeat(2, 1fr); }
+      .problem-card:nth-child(2) { border-right: none; }
+      .problem-card:nth-child(3) {
+        grid-column: 1 / -1;
+        border-right: none;
+        border-top: 0.5px solid var(--border-light);
+      }
+    }
+    @media (max-width: 768px) {
+      :root { --section-v: 72px; --pad-x: 20px; }
+      .nav__links { display: none; }
+      .audience-cards,
+      .capabilities-grid,
+      .problem-grid { grid-template-columns: 1fr; }
+      .problem-card { border-right: none; border-bottom: 0.5px solid var(--border-light); }
+      .problem-card:last-child { border-bottom: none; }
+      .problem-card:nth-child(3) { grid-column: auto; border-top: none; }
+      .footer__inner { flex-direction: column; gap: 16px; text-align: center; }
+      .footer__tagline { padding-left: 0; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ── K MARK (reusable inline SVG) ───────────────────────────────────── -->
+<!-- viewBox 0 0 40 44 — stem 10px wide, junction at (10,22), 5 signal lines per arm -->
+
+<!-- ── NAV ──────────────────────────────────────────────────────────────── -->
+<nav class="nav" id="nav">
+  <a href="#" class="nav__logo" aria-label="Klaroha">
+    <span class="nav__wordmark">Klaroha</span>
+  </a>
+
+  <ul class="nav__links">
+    <li><a href="#solution">Platform</a></li>
+    <li><a href="#audiences">Who It's For</a></li>
+  </ul>
+
+  <a href="#cta" class="nav__cta">Request Access →</a>
+</nav>
+
+
+<!-- ── HERO ─────────────────────────────────────────────────────────────── -->
+<section class="hero">
+  <div class="hero__inner">
+    <!-- Copy -->
+    <div class="hero__content">
+      <p class="eyebrow hero__eyebrow">Demand-capture infrastructure</p>
+      <h1 class="hero__headline">Marketing,<br>Engineered<br>for Clarity.</h1>
+      <p class="hero__tagline">Turn buyer intent into qualified conversations.</p>
+      <p class="hero__sub">Klaroha captures, qualifies, routes, and follows up on demand across messy channels — so sales-led businesses stop losing serious buyers in DMs, forms, calls, referrals, and branch handoffs.</p>
+      <div class="hero__actions">
+        <a href="#cta" class="btn btn--primary">Request Early Access</a>
+        <a href="#solution" class="btn btn--ghost">See How It Works ↓</a>
+      </div>
+    </div>
+
+    <!-- Signal preview card -->
+    <div class="hero__visual">
+      <div class="hero__signal-card">
+        <div class="signal-card__label">Live demand — today</div>
+        <div class="signal-items">
+          <div class="signal-item">
+            <div class="signal-dot signal-dot--active"></div>
+            <span>3 qualified conversations routed</span>
+          </div>
+          <div class="signal-item">
+            <div class="signal-dot signal-dot--pending"></div>
+            <span>7 inquiries awaiting qualification</span>
+          </div>
+          <div class="signal-item">
+            <div class="signal-dot signal-dot--muted"></div>
+            <span>12 channel signals captured</span>
+          </div>
+        </div>
+        <div class="signal-divider"></div>
+        <div class="signal-stats">
+          <div>
+            <div class="signal-stat__num">3</div>
+            <div class="signal-stat__label">Qualified today</div>
+          </div>
+          <div style="text-align:right">
+            <div class="signal-stat__num" style="color:var(--champagne)">84%</div>
+            <div class="signal-stat__label">Response rate</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ── PROBLEM ───────────────────────────────────────────────────────────── -->
+<section class="section-problem" id="problem">
+  <div class="container">
+    <p class="eyebrow fade-in">The problem</p>
+    <h2 class="section-problem__headline fade-in">Demand is already happening.<br>Most of it leaks.</h2>
+    <p class="section-problem__body fade-in">Your buyers are asking questions, clicking ads, sending DMs, requesting quotes, checking reviews, walking into branches. The problem isn't demand. It's the operating layer between demand and your sales team.</p>
+
+    <div class="problem-grid">
+      <div class="problem-card fade-in">
+        <!-- icon: converging signal dot -->
+        <svg class="problem-card__icon" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <circle cx="20" cy="20" r="19" fill="none" stroke="var(--border-light)" stroke-width="1"/>
+          <circle cx="20" cy="20" r="3.5" fill="var(--warm-gold)"/>
+          <line x1="20" y1="20" x2="6"  y2="9"  stroke="var(--muted-stone)" stroke-width="1" opacity="0.55"/>
+          <line x1="20" y1="20" x2="33" y2="7"  stroke="var(--muted-stone)" stroke-width="1" opacity="0.42"/>
+          <line x1="20" y1="20" x2="35" y2="22" stroke="var(--muted-stone)" stroke-width="1" opacity="0.62"/>
+          <line x1="20" y1="20" x2="8"  y2="31" stroke="var(--muted-stone)" stroke-width="1" opacity="0.38"/>
+          <line x1="20" y1="20" x2="26" y2="33" stroke="var(--muted-stone)" stroke-width="1" opacity="0.48"/>
+        </svg>
+        <h3 class="problem-card__title">Serious buyers get slow replies</h3>
+        <p class="problem-card__body">Inquiries sit in inboxes, DMs, and form submissions. By the time someone responds, the buyer has already moved on.</p>
+      </div>
+
+      <div class="problem-card fade-in">
+        <!-- icon: scattered channel blocks -->
+        <svg class="problem-card__icon" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <rect x="2"  y="9"  width="8" height="6" rx="1" fill="var(--border-light)"/>
+          <rect x="2"  y="17" width="8" height="6" rx="1" fill="var(--border-light)"/>
+          <rect x="2"  y="25" width="8" height="6" rx="1" fill="var(--border-light)"/>
+          <rect x="13" y="11" width="8" height="6" rx="1" fill="var(--muted-stone)" opacity="0.55"/>
+          <rect x="13" y="21" width="8" height="6" rx="1" fill="var(--muted-stone)" opacity="0.45"/>
+          <rect x="24" y="13" width="8" height="6" rx="1" fill="var(--warm-gold)" opacity="0.65"/>
+          <rect x="24" y="22" width="8" height="6" rx="1" fill="var(--racing-green)" opacity="0.45"/>
+          <rect x="34" y="16" width="5" height="6" rx="1" fill="var(--warm-gold)"/>
+        </svg>
+        <h3 class="problem-card__title">Inquiries arrive across 12+ channels</h3>
+        <p class="problem-card__body">Facebook, WhatsApp, Google, forms, calls, walk-ins, referrals. No clean operating layer between all that noise and your sales team.</p>
+      </div>
+
+      <div class="problem-card fade-in">
+        <!-- icon: uneven bar chart -->
+        <svg class="problem-card__icon" viewBox="0 0 40 40" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+          <line x1="4" y1="12" x2="36" y2="12" stroke="var(--border-light)" stroke-width="0.75"/>
+          <rect x="5"  y="26" width="7" height="12" rx="1" fill="var(--active-green)"/>
+          <rect x="16" y="17" width="7" height="21" rx="1" fill="var(--warm-gold)"/>
+          <rect x="27" y="21" width="7" height="17" rx="1" fill="var(--muted-stone)" opacity="0.7"/>
+        </svg>
+        <h3 class="problem-card__title">Sales performance varies by agent and branch</h3>
+        <p class="problem-card__body">Your best team converts. Everyone else is guessing. Without a standard system, performance gaps are invisible until the quarter is over.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ── SOLUTION ──────────────────────────────────────────────────────────── -->
+<section class="section-solution" id="solution">
+  <div class="container">
+    <div class="section-solution__header fade-in">
+      <p class="eyebrow eyebrow--gold">The platform</p>
+      <h2 class="section-solution__headline">One system between market attention and sales execution.</h2>
+      <p class="section-solution__sub">Klaroha captures intent across every channel. Qualifies it. Routes it. Follows up on it. And makes performance visible — by source, by agent, by branch.</p>
+    </div>
+
+    <div class="capabilities-grid fade-in">
+      <div class="cap-tile">
+        <div class="cap-tile__num">01</div>
+        <h3 class="cap-tile__title">Intent Assets</h3>
+        <p class="cap-tile__body">Pages and funnels designed to capture demand. Landing pages, assessment funnels, listing pages, calculators, offer pages, lead magnets.</p>
+      </div>
+      <div class="cap-tile">
+        <div class="cap-tile__num">02</div>
+        <h3 class="cap-tile__title">Qualification Flows</h3>
+        <p class="cap-tile__body">Score buyers before your sales team spends a minute on them. Forms, quizzes, budget and timeline questions, fit scoring, document-readiness flows.</p>
+      </div>
+      <div class="cap-tile">
+        <div class="cap-tile__num">03</div>
+        <h3 class="cap-tile__title">Conversation Handoff</h3>
+        <p class="cap-tile__body">Route serious prospects to the right person, fast. Messenger, WhatsApp, SMS, email, calendar booking, CRM assignment, branch and agent routing.</p>
+      </div>
+      <div class="cap-tile">
+        <div class="cap-tile__num">04</div>
+        <h3 class="cap-tile__title">Follow-up Engine</h3>
+        <p class="cap-tile__body">Never let interest go cold again. Nurture sequences, reminders, abandoned inquiry recovery, reactivation, referral requests, review requests, sales scripts.</p>
+      </div>
+      <div class="cap-tile">
+        <div class="cap-tile__num">05</div>
+        <h3 class="cap-tile__title">Performance Visibility</h3>
+        <p class="cap-tile__body">See what's working by channel, branch, and agent. Inquiries, qualified conversations, response time, conversion rates, source performance, campaign lift.</p>
+      </div>
+      <div class="cap-tile">
+        <div class="cap-tile__num">06</div>
+        <h3 class="cap-tile__title">Vertical Playbooks</h3>
+        <p class="cap-tile__body">Pre-built for your category. Not generic SMB templates. Real estate, loans, vehicles, clinics, MSPs, insurance, multi-location services — ready to deploy.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ── AUDIENCES ─────────────────────────────────────────────────────────── -->
+<section class="section-audiences" id="audiences">
+  <div class="container">
+    <div class="section-audiences__header fade-in">
+      <p class="eyebrow">Built for</p>
+      <h2 class="section-audiences__headline">High-value categories where one qualified conversation matters.</h2>
+    </div>
+
+    <div class="audience-cards">
+      <div class="audience-card fade-in">
+        <div class="audience-card__bar"></div>
+        <div class="audience-card__tag">Individual Operators</div>
+        <h3 class="audience-card__title">Fragmented Sellers</h3>
+        <p class="audience-card__examples">Real estate professionals · Loan and financing agents · Vehicle dealers · Insurance advisors · Clinics · Home services · Professional service providers</p>
+        <blockquote class="audience-card__quote">"Help me attract better prospects, qualify them, and stop losing them in DMs."</blockquote>
+      </div>
+
+      <div class="audience-card fade-in">
+        <div class="audience-card__bar"></div>
+        <div class="audience-card__tag">Multi-Location &amp; Network</div>
+        <h3 class="audience-card__title">Distributed Sales Organizations</h3>
+        <p class="audience-card__examples">Brokerages · Developer sales teams · Dealer networks · Franchise brands · Clinic chains · Lending networks · Multi-location service businesses</p>
+        <blockquote class="audience-card__quote">"Make every local team execute like our best team — without losing visibility or brand control."</blockquote>
+      </div>
+
+      <div class="audience-card fade-in">
+        <div class="audience-card__bar"></div>
+        <div class="audience-card__tag">B2B Service Providers</div>
+        <h3 class="audience-card__title">International Service Firms</h3>
+        <p class="audience-card__examples">Microsoft MSPs · Cybersecurity firms · IT service providers · HubSpot &amp; RevOps partners · NetSuite &amp; ERP implementors · Accounting &amp; fractional CFO firms</p>
+        <blockquote class="audience-card__quote">"Stop giving me generic leads. Give me qualified conversations with companies that have a real problem."</blockquote>
+      </div>
+    </div>
+  </div>
+</section>
+
+
+<!-- ── CTA ───────────────────────────────────────────────────────────────── -->
+<section class="section-cta" id="cta">
+  <div class="container">
+    <p class="eyebrow eyebrow--gold fade-in">Private access</p>
+    <h2 class="section-cta__headline fade-in">Stop losing serious buyers in DMs.</h2>
+    <p class="section-cta__sub fade-in">Klaroha is currently in private access. Request your spot.</p>
+    <div class="fade-in">
+      <a href="mailto:hello@klaroha.com" class="btn btn--primary" style="font-size:15px; padding:15px 36px; display:inline-flex; margin:0 auto;">Request Access →</a>
+    </div>
+    <p class="section-cta__tagline fade-in">Marketing, Engineered for Clarity.</p>
+  </div>
+</section>
+
+
+<!-- ── FOOTER ────────────────────────────────────────────────────────────── -->
+<footer class="footer">
+  <div class="container">
+    <div class="footer__inner">
+      <div class="footer__left">
+        <div class="footer__logo">
+          <span class="footer__wordmark">Klaroha</span>
+        </div>
+        <p class="footer__tagline">Marketing, Engineered for Clarity.</p>
+      </div>
+      <p class="footer__copy">© 2026 Klaroha. All rights reserved.</p>
+    </div>
+  </div>
+</footer>
+
+
+<script>
+  // Nav background on scroll
+  const nav = document.getElementById('nav');
+  window.addEventListener('scroll', () => {
+    nav.classList.toggle('scrolled', window.scrollY > 20);
+  }, { passive: true });
+
+  // Fade-in on scroll
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(e => {
+      if (e.isIntersecting) {
+        e.target.classList.add('visible');
+        observer.unobserve(e.target);
+      }
+    });
+  }, { threshold: 0.12 });
+  document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>

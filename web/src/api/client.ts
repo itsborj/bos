@@ -341,4 +341,16 @@ export const api = {
 
   disconnectSocial: (connection_id: string) =>
     request<{ status: string }>(`/social/connections/${connection_id}`, { method: 'DELETE' }),
+
+  listPlugins: () =>
+    request<{ plugins: import('./types').PluginInfo[] }>('/plugins'),
+
+  savePluginCredentials: (pluginId: string, vars: Record<string, string>) =>
+    request<{ ok: boolean; plugin_id: string }>(`/plugins/${encodeURIComponent(pluginId)}/credentials`, {
+      method: 'POST',
+      body: JSON.stringify({ vars }),
+    }),
+
+  deletePluginCredentials: (pluginId: string) =>
+    request<void>(`/plugins/${encodeURIComponent(pluginId)}/credentials`, { method: 'DELETE' }),
 };

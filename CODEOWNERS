@@ -1,0 +1,25 @@
+# CODEOWNERS — BOS repository
+#
+# Format: <path pattern>  <github-username(s)>
+# The last matching rule wins.
+# Main dev (@itsborj) reviews everything.
+# Dev 2 (@dev2-handle) is the plugin specialist — replace with actual GitHub handle.
+
+# Default — main dev reviews all PRs
+* @itsborj
+
+# BOS core paths — main dev only; any PR touching these requires @itsborj review
+/api/routers/     @itsborj
+/api/skills/      @itsborj
+/api/providers/   @itsborj
+/api/migrations/  @itsborj
+/api/main.py      @itsborj
+/api/capability_manifest.py @itsborj
+/web/             @itsborj
+*.md              @itsborj
+CLAUDE.md         @itsborj
+BACKLOG.md        @itsborj
+
+# Plugin directory — Dev 2 owns, main dev also required (branch protection handles the 1-review rule)
+# Replace @dev2-handle with Dev 2's actual GitHub username before granting access.
+/api/plugins/     @itsborj @dev2-handle

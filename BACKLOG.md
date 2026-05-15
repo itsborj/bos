@@ -219,6 +219,12 @@
 - [x] Stream generation (block generators, types, builder)
 - [x] Chat agent integration — `clients/claude/` scaffold
 ### Bug Fixes (Phase 3)
+- [x] FEATURE: Replace mechanical brand hardlock with SKILL.md-owned scope resolution for CMO chat; parse/validate LLM SCOPE directives and require execution_brand for artifacts.
+- [x] BUG: Natural-language brand switching is broken when activeBrand is already set; messages like "how about for Motormoto" or "shift to Motormoto" stay scoped to Klaroha instead of resolving the named Brand.
+- [x] TEST: Re-verify brand switching after chat.py changes — explicit follow-up switch dispatches MotorMoto artifact with MotorMoto `brand_id`, while incidental Brand mention remains in the persisted active Brand scope.
+- [x] BUG: Gmail/Google artifacts in Klaroha context still contain MotorMoto copy; traced runs had `brand_id=NULL` because activeBrand was not persisted and org-level prompt fell back to MotorMoto workspace context. Fixed backend brand-name inference, no-brand org prompt isolation, unscoped artifact dispatch block, frontend activeBrand persistence, and dismissed the two wrong pending artifacts.
+- [x] BUG: Localhost returns nginx 502 Bad Gateway after live server upload/deploy changes; traced nginx upstream to web:80 while stale web container was still Vite on :5173; rebuilt/recreated web/api and localhost now returns 200.
+- [x] BUG: CMO chat leaks/cross-pulls context from another brand during active-brand turns. Bad sample: active Brand B asks "what do you know about us?" and answer mentions Brand A products/docs. Fixed sample: active Brand B answer only uses Brand B name/profile/products/audiences/docs, with no Brand A references; test via brand-scoped trace.
 - [x] BUG: CMO answers capability questions like customer support/VA and generic sample ads bypass native channel output
 - [x] BUG: Facebook plan/post chat requests produce generic CMO prose instead of dispatching platform-native module output
 - [x] Update Klaroha brand docs to retain primary tagline Marketing, Engineered for Clarity
@@ -369,6 +375,10 @@
 - [x] DOCS: Mark Search Console as the next plugin-owned `marketing.optimize` specialist after Google Ads read expansion; update PROJECT_BRIEF.md to v3.14 and preserve BITE sample-first gate
 - [x] SEARCH CONSOLE PLUGIN: Produce Stage 2 sample output for Search Console property inventory, query/page performance, indexing signals, and SEO opportunity artifacts before spec/build — approved by user; custom BOS/native API only
 - [x] SEARCH CONSOLE PLUGIN: Reverse-spec approved sample and build custom native Google Search Console plugin v1 read-only capabilities — added `api/plugins/search-console/` native API plugin with properties, performance, URL inspection, sitemaps, and opportunity plan capabilities
+- [x] CLICKUP PLUGIN: BITE sample approved 2026-05-15 (tasks.read intelligence artifact + tasks.create approval-gated write). Reverse-spec and built native ClickUp plugin v0.1.0 — `api/plugins/clickup/` with `tasks.read` (marketing.optimize, read-only) and `tasks.create` (marketing.execute, approval-gated). Personal API token auth via `CLICKUP_API_TOKEN` + `CLICKUP_DEFAULT_LIST_ID`. Reference: ClickUp REST API v2 + Composio skill doc for pitfall inventory (no MCP, no CLI).
+- [x] CLICKUP PLUGIN: In-BOS credential setup — `GET/POST/DELETE /plugins/{id}/credentials` stores encrypted plugin vars in `provider_keys` table (no migration needed); `inject_channel_credentials` checks DB before env vars so users configure connectors via Admin UI; Admin Specialists page shows ClickUp card with Configure modal.
+- [x] CLICKUP PLUGIN: Full workspace coverage — removed `CLICKUP_DEFAULT_LIST_ID` from required credentials; `tasks.read` traverses all spaces/folders/lists and returns workspace-wide status grouped by space; `tasks.create` resolves target list from `brief["list_id"]` or `brief["list_name"]`, returns available lists if neither provided. v0.1.1.
+- [x] CLICKUP PLUGIN: Exported full BOS backlog (642 tasks) to ClickUp Development list with phase/section context and status mapping ([x]→shipped, [ ]→backlog, [~]→in development, [!]→blocked, [-]→cancelled).
 
 ### Testing
 - [x] BUG: `api/tests/test_google_ads_skill_routing.py` imports removed chat intent helper `_has_diagnostic_intent`; updated stale test to SKILL.md/manifest-driven routing contract
@@ -640,6 +650,74 @@ Deferred to Phase 4.
 - [x] DOC: Updated PROJECT_BRIEF.md to v3.8 — channel table, CMO Capability Registry section, version/status, decision log
 - [x] DOC: Updated BACKLOG.md with all 2026-05-12 architectural changes
 
+## Phase 6 — Full-Stack Marketing Automation
+> Goal: replace every role in a marketing department. CMO orchestrates. Plugins are the specialists. Owner approves decisions. BOS remembers what worked.
+
+### 6.1 — Visual Production (image gen)
+> Force multiplier. Feeds every channel. Build before social.
+- [ ] `api/plugins/image-gen/` — brand-scoped image generation plugin (`marketing.execute`)
+- [ ] Reads Campaign Brand Kit for style constraints (colors, tone, visual identity) before generating
+- [ ] Supports multiple backends: OpenAI image-1, Flux, Stable Diffusion (provider-routed)
+- [ ] Output: reviewable `image_artifact` in Workspace — approve, revise, or dismiss before use
+- [ ] Paired output: copy + image as a single `creative_bundle` artifact for ads and social
+- [ ] Quality gate: brand compliance check (color palette, no banned elements) before surfacing
+
+### 6.2 — Email Campaign Infrastructure
+> Moves email from placeholder to full marketing.execute + marketing.optimize channel.
+- [ ] Deploy Listmonk on VDS (Docker, shares PostgreSQL instance)
+- [ ] Configure Amazon SES or Mailgun as SMTP relay — never send directly from Contabo IP
+- [ ] `api/plugins/listmonk/` — implements `marketing.execute` (push approved campaign) and `marketing.optimize` (pull open/click/bounce data back as workspace document)
+- [ ] Per-brand contact lists + unsubscribe compliance (CAN-SPAM/GDPR)
+- [ ] HTML email template per brand generated from Campaign Brand Kit + image gen plugin output
+- [ ] Performance data feeds back into BOS optimization memory automatically
+
+### 6.3 — Social Publishing Channels
+> Requires image gen complete first — text-only social posts are weak.
+- [ ] `api/plugins/meta/` — Facebook + Instagram organic publishing and paid ads (`marketing.execute` + `marketing.optimize`)
+- [ ] `api/plugins/linkedin/` — organic posts + sponsored content
+- [ ] `api/plugins/tiktok/` — organic posts (video-dependent; stub until video gen is ready)
+- [ ] Agency app model: one platform developer app, brands authorize via OAuth, system holds long-lived tokens per brand — same pattern as existing Facebook/Gmail auth
+- [ ] Scheduling: CMO sets publish time, plugin queues and executes
+- [ ] Engagement monitoring: comments, replies, DMs surfaced as inbox intelligence artifacts
+
+### 6.4 — Paid Channels Beyond Google
+- [ ] `api/plugins/meta-ads/` — Meta paid campaigns, creative, audience targeting (`marketing.execute` + `marketing.optimize`)
+- [ ] `api/plugins/tiktok-ads/` — TikTok paid campaigns
+- [ ] `api/plugins/linkedin-ads/` — LinkedIn sponsored content
+- [ ] All follow Google Ads plugin contract: read/draft first, approval-gated mutations, audit trail
+
+### 6.5 — Analytics Unification
+> Closes the analyst role. Unified signal across all channels.
+- [ ] `api/plugins/ga4/` — session data, conversion events, traffic sources (`marketing.optimize`)
+- [ ] Cross-channel attribution: GA4 + Google Ads + Search Console + email + social in one optimization view
+- [ ] Unified performance workspace document generated on cadence (weekly/monthly)
+- [ ] CMO can ask "what's working?" and get a cross-channel answer from BOS memory, not a dashboard
+
+### 6.6 — Landing Page Generation + Deployment
+> Closes the web dev role for campaign-specific pages.
+- [ ] BOS generates HTML/copy landing page from campaign brief and Campaign Brand Kit
+- [ ] Deploys to brand subdomain (Cloudflare Pages or nginx-served static)
+- [ ] A/B variant generation: two versions approved by CMO, traffic split tracked via GA4
+- [ ] Approval gate before any page goes live
+
+### 6.7 — Audio / Voice
+- [ ] `api/plugins/audio/` — TTS for ad voiceovers, podcast intros, short-form audio (`marketing.execute`)
+- [ ] Backends: ElevenLabs, OpenAI TTS (provider-routed)
+- [ ] Output: reviewable `audio_artifact` — approve before use in ads or social
+
+### 6.8 — Video Generation
+> Model-dependent. Hold until output quality is reliable for brand use.
+- [ ] `api/plugins/video-gen/` — short-form video for social and ads (`marketing.execute`)
+- [ ] Backends: Sora, Runway Gen-3, Kling (provider-routed when ready)
+- [ ] Prerequisite: audio plugin complete (voiceover pairs with video)
+
+### 6.9 — Optimization Memory Loop (cross-cutting)
+> The thing that makes BOS better than hiring back all these roles over time.
+- [ ] Approved learnings from every channel (email open rates, ad CTR, social engagement, GA4 conversions) flow automatically into CMO planning brief for next campaign
+- [ ] Dismissed variants and rejected artifacts stored as negative memory — CMO doesn't repeat mistakes
+- [ ] `Outcomes` section in Admin surfaces approved learnings, measured results, and trend signals per brand
+- [ ] Next campaign `marketing.plan` call loads prior outcomes as a memory slot automatically
+
 ## Phase 5 — Hardening + Second Vertical
 ### Hardening
 - [ ] Retry with structured feedback (BITE failure-feedback loop)
@@ -670,9 +748,17 @@ Deferred to Phase 4.
 - Native mobile app
 - Enterprise billing and reporting
 - Automated provider model catalog refresh
+- **klaroha.com public marketing site (Astro):** Static site at klaroha.com built with Astro. BOS generates copy/landing pages as approved artifacts; a `api/plugins/klaroha-site/` plugin commits markdown content to the Astro repo and triggers a GitHub Actions rebuild. Design and aesthetics live in the Astro repo; BOS only touches content. Prerequisite: hq.klaroha.com move complete, multi-dev CI/branch setup done.
+- **CMS publish plugins (WordPress, Webflow, Shopify, etc.):** Each client CMS is a plugin publish target — same model as Gmail/Google Ads. WordPress uses Application Passwords (built-in since WP 5.6); credentials stored per brand in `social_connections` table. BOS generates and approves content artifacts; plugin pushes via CMS REST API. One plugin per CMS type, serves all clients on that platform. Prerequisite: plugin dev workflow and staging environment live first.
+- Email campaign infrastructure: Listmonk (self-hosted, Go + PostgreSQL) for list management, campaign orchestration, unsubscribe compliance, and open/click tracking; Listmonk (self-hosted, Go + PostgreSQL) for list management, campaign orchestration, unsubscribe compliance, and open/click tracking; Amazon SES or Mailgun as SMTP relay (Contabo IPs are untrusted by Gmail/Outlook — never send directly from VDS). BOS plugin: `api/plugins/listmonk/` implementing `marketing.execute` (push approved campaign) and `marketing.optimize` (pull performance data back as workspace document). Closes the "BOS remembers what worked" loop for email. Prerequisite: Email Specialist MVP (v3.12 decision) must be complete first.
 ## Decisions Log
 | Date | Decision | Rationale |
 |---|---|---|
+| 2026-05-15 | Self-contained HTML is the portable artifact format for landing pages and campaigns | Works on every host (S3, Cloudflare Pages, Netlify, bare VPS) with no build step. Injects into WordPress via a blank/no-theme page template without touching page builders. Drops into `public/` on an Astro site as a static file. BOS owns the edit workflow; clients do not edit the HTML directly — they revise in Klaroha, approve, and republish. |
+| 2026-05-15 | BOS generates content artifacts; CMS publish plugins deploy them — separation is non-negotiable | BOS must never become a CMS. The artifact record (content, approval state, publish audit) lives in BOS. The platform-specific deploy step lives in a plugin. Same plugin contract as channel plugins: `channel.json` + `ChannelModule` + `SKILL.md`. The approval gate sits between generation and publish; no artifact reaches a live site without an approved status. |
+| 2026-05-15 | WordPress is the first CMS publish plugin target | Most clients are on WordPress with custom themes and page builders (Elementor, Divi, Beaver). Safe path: create/update a page using a blank/no-theme template via WP REST API (`POST /wp-json/wp/v2/pages`), inject the self-contained HTML, tag managed pages with `_klaroha_managed: true` meta. Application Passwords (native WP 5.6+) make auth straightforward; no OAuth dance. Plugin must never touch the theme, other pages, or plugins. |
+| 2026-05-15 | Landing page plugin build order: HTML generation → WordPress → static host → Astro/GitHub | Stage 1 (now): `marketing.execute.landing_page` first-party capability — brand brief + copy intent → self-contained HTML artifact → Workspace for review. Stage 2: WordPress publish plugin. Stage 3: static host plugin (SFTP/S3). Stage 4: Astro/GitHub plugin for `klaroha.com` once it exits Parking Lot. All stages share the same approved artifact record. |
+| 2026-05-15 | Klaroha public landing page deployed as `public` docker service on port 3000 (local only) | Self-contained HTML at `public/index.html`, served by `nginx:alpine` on port 3000. Not routed through Cloudflare or any public domain. This is the first artifact produced by the landing page generation flow — the template/sample before the capability module exists. |
 | 2026-05-13 | Search Console is a custom native plugin-owned marketing optimization specialist | It follows the Google Ads pattern: sample first, plugin-only capability package, read-only intelligence artifacts first, no CMO router logic, and no BOS core Search Console behavior. It is custom-built for BOS using native Google Search Console APIs only — no Membrane, Rube, Composio, or arbitrary MCP sidecar. |
 | 2026-05-13 | Native Marketing Planning Specialist owns campaign plan artifacts | Approved sample `sample/marketing_planning_specialist_v1.md` establishes the target: CMO chat stays short, `@klar plan` calls a first-party planning Transform, and Workspace owns the reviewable `plan_artifact` layout. |
 | 2026-05-13 | CMO replies are mobile-first short-line messages by default | Approved sample `sample/mobile_cmo_reply_style_v1.md` establishes the target: 1–4 short lines, one idea per line, bullets for choices, one question max, and no dense paragraphs unless the user asks for detail. |
@@ -680,6 +766,9 @@ Deferred to Phase 4.
 | 2026-05-13 | Workspace Artifacts are the canonical artifact plane; CMO chat shows artifact references only | Keeps chat conversational and stable while plugins/capabilities produce native artifacts. Workspace owns native preview, approval, revision, and system details; Stream reads the same persisted artifacts for mobile. |
 | 2026-05-14 | CMO hard rules belong in the base system prompt, not only in skill context | Skill context is injected after potentially thousands of tokens of brand/product/audience context; LLM weights brand context over skill guidance; invariants that must hold on every turn (no inline artifacts, dispatch-first, one question max) must appear in the base prompt before any brand data so they cannot be overridden by generative instincts. |
 | 2026-05-14 | Web container runs a production nginx build, not Vite dev server | Vite dev server caused full page reloads on every navigation, wiping localStorage and clearing the API key session; production build (multi-stage Dockerfile: node build → nginx static serve) eliminates HMR and serves the SPA correctly with react-router fallback to index.html |
+| 2026-05-15 | BOS Command Hub lives at hq.klaroha.com; klaroha.com is reserved for the public Astro marketing site | Keeps internal tooling off the marketing domain; allows klaroha.com to be a standalone static site later without disrupting the running BOS instance; subdomain separation also simplifies SSL and Cloudflare routing |
+| 2026-05-15 | CMS platforms (WordPress, Webflow, Shopify) are plugin publish targets, not BOS core integrations | Same model as Gmail/Google Ads: credentials per brand in social_connections, content pushed via CMS REST API on artifact approval, one plugin per CMS type serves all clients on that platform; parked until multi-dev workflow and staging are live |
+| 2026-05-15 | Per-capability dev notes (`*_notes.md`) are the regression prevention system | Co-located with the file they cover (e.g. api/routers/chat_notes.md, api/plugins/google-ads/plugin_notes.md); capture invariants, fixed bug patterns, do-nots, and a local backlog; master BACKLOG.md stays core BOS only; plugin regressions stay in their plugin's notes file |
 | 2026-05-14 | Staging lives at staging.klaroha.com on the same VDS as production | Separate Docker stack on different ports, separate database; plugin dev PRs target staging branch first, reviewed by main dev before merging to main/production; keeps costs low while maintaining isolation |
 | 2026-05-14 | Plugin dev (Dev 2) has GitHub repo access only — no server SSH | Internal junior dev scoped to api/plugins/ via branch protection; pushes to plugin/* branches, PRs to staging; main dev reviews before any code reaches production; server deploy is webhook-triggered on merge, not manual |
 | 2026-05-14 | Database is not in the git repo — each server deployment is a clean install | postgres_data Docker volume stays on the server across restarts; only docker compose down -v wipes it; this makes each new client/server deployment a clean isolated instance by default |
@@ -865,7 +954,9 @@ Deferred to Phase 4.
 - [x] BUG: Brand isolation — CMO chat dispatched modules with workspace-scoped brief even when an active Brand was set; `_resolve_brief(db, ws)` always pulls `ws.name`, `ws.brand_json`, and `Product/Audience` rows by `workspace_id`; fixed: CMO module dispatch (chat.py:820) and revise endpoint (chat.py:924+898) now use `_brand_scoped_brief(db, ws, active_brand)` so products, audiences, documents, and identity are scoped to the correct brand
 - [x] BUG: CMO LLM compliance failures — three violations observed in live MotorMoto session: (1) "what can you do" returned product list instead of CMO capability card; (2) "lets make a marketing plan" asked 6 clarifying questions instead of dispatching `RUN: marketing.plan.campaign_strategy`; (3) "give me sample ad copies" generated inline Headline/Description blocks violating Rule 6. Root cause: `_build_system_prompt` placed brand/product/audience context before skill rules, causing the LLM to weight brand context over artifact boundary constraints. Fixed: added HARD RULES block (5 rules: no inline native content, dispatch-first, ambiguous→one question, one question max, capability card format) at top of system prompt before brand context in `api/routers/chat.py:_build_system_prompt`.
 
-### Production Deployment — klaroha.com (2026-05-14)
+### Production Deployment — hq.klaroha.com (2026-05-14)
+
+**Domain structure:** `hq.klaroha.com` = BOS Command Hub (internal). `klaroha.com` = reserved for public Astro marketing site (Parking Lot). `staging.klaroha.com` = staging stack.
 
 - [x] INFRA: VDS provisioned — Contabo Virtual Dedicated Server M, Ubuntu 22.04 LTS, 194.233.76.143
 - [x] INFRA: DNS on Cloudflare — klaroha.com A record → 194.233.76.143, proxied (orange cloud), TLS handled by Cloudflare
@@ -875,8 +966,14 @@ Deferred to Phase 4.
 - [x] INFRA: Alembic migrations applied on production DB
 - [x] INFRA: Web container switched from Vite dev server to production build (nginx serving static files) — fixes session wipe on navigation
 - [x] INFRA: Workspace initialized, bootstrap API key created
+- [~] INFRA: Move live to hq.klaroha.com — vite.config.ts updated; pending: add `hq` A record on Cloudflare, update server .env FRONTEND_URL=https://hq.klaroha.com, git pull + docker compose up --build on server
 - [ ] INFRA: Create non-root user + lock down SSH (root login still enabled)
-- [ ] INFRA: staging.klaroha.com — separate Docker stack on same VDS, auto-deploys from `staging` branch
-- [ ] INFRA: Deploy webhook — GitHub push to `main` triggers `git pull + docker compose up` on server
-- [ ] INFRA: Plugin dev access — Dev 2 gets GitHub collaborator access scoped to `plugin/*` branches, PRs target `staging`
+- [ ] INFRA: staging.klaroha.com — docker-compose.staging.yml created (ports 8080/8001/5174, separate DB bos_staging); pending: copy .env → .env.staging on server, add Cloudflare staging.klaroha.com A record → port 8080, run first deploy
+- [x] INFRA: GitHub Actions CI — .github/workflows/ci.yml created; runs pytest + banned-pattern guardrails on PR; deploys to staging on staging branch push, production on main branch push
+- [x] INFRA: CODEOWNERS — created; api/plugins/ owned by @itsborj + @dev2-handle; core paths owned by @itsborj only
+- [ ] INFRA: GitHub secrets — add VDS_HOST, VDS_USER, VDS_DEPLOY_KEY, STAGING_PATH, PROD_PATH to repo secrets before CI deploy steps work; generate a deploy SSH key pair (ssh-keygen -t ed25519), add public key to server authorized_keys, private key to GitHub secret VDS_DEPLOY_KEY
+- [ ] INFRA: Branch protection — configure in GitHub repo settings: `main` require CI green + 1 review; `staging` require CI green only
+- [ ] INFRA: Plugin dev access — replace @dev2-handle in CODEOWNERS with actual GitHub username; add as repo collaborator; push plugin/* branch access
 - [ ] INFRA: Demo API key — separate named key for walkthrough sessions
+- [ ] INFRA: SSL via nginx + certbot (currently Cloudflare proxy handles TLS; needed if Cloudflare proxy ever bypassed)
+- [ ] INFRA: PostgreSQL backup strategy

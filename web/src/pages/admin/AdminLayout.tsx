@@ -13,8 +13,9 @@ const NAV_SECTIONS = [
   {
     label: 'Marketing Ops',
     items: [
-      { to: '/admin/modules', label: 'Specialists', icon: '◎' },
-      { to: '/admin/reports', label: 'Outcomes',    icon: '📊' },
+      { to: '/admin/modules',     label: 'Specialists', icon: '◎' },
+      { to: '/admin/connectors',  label: 'Connectors',  icon: '⇄' },
+      { to: '/admin/reports',     label: 'Outcomes',    icon: '📊' },
     ],
   },
   {
