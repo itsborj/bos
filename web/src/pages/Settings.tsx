@@ -59,9 +59,9 @@ export function Settings() {
   }
 
   function provDot(status: string) {
-    if (status === 'healthy') return <div className="prov-dot" style={{ background: '#28a745' }} />;
-    if (status === 'degraded') return <div className="prov-dot" style={{ background: '#e6a817' }} />;
-    return <div className="prov-dot" style={{ background: '#dc3545' }} />;
+    if (status === 'healthy') return <div className="prov-dot" style={{ background: 'var(--active-green)' }} />;
+    if (status === 'degraded') return <div className="prov-dot" style={{ background: 'var(--warning-amber)' }} />;
+    return <div className="prov-dot" style={{ background: 'var(--oxblood)' }} />;
   }
 
   const providerCost = Number(summary?.total_provider_cost ?? 0) || 0;
@@ -71,7 +71,7 @@ export function Settings() {
 
   function provPill(status: string) {
     if (status === 'healthy')  return <span className="status-pill sp-live"><span className="sp-dot" />Healthy</span>;
-    if (status === 'degraded') return <span className="status-pill" style={{ background: '#fff3cd', color: '#856404' }}><span className="sp-dot" />Slow</span>;
+    if (status === 'degraded') return <span className="status-pill" style={{ background: 'var(--soft-ivory)', color: 'var(--warning-amber)', border: '1px solid var(--border-light)' }}><span className="sp-dot" />Slow</span>;
     return <span className="status-pill sp-error"><span className="sp-dot" />Down</span>;
   }
 
@@ -107,7 +107,7 @@ export function Settings() {
           <span className="section-title">Provider Health</span>
         </div>
         {providers.length === 0 ? (
-          <div className="card" style={{ color: '#999', fontSize: 13 }}>No providers configured.</div>
+          <div className="card" style={{ color: 'var(--muted-stone)', fontSize: 13 }}>No providers configured.</div>
         ) : (
           providers.map(p => (
             <div key={p.provider} className="provider-card">
@@ -173,7 +173,7 @@ export function Settings() {
             <div className="api-key-display">{wsKey.slice(0, 12)}••••••••••••••••{wsKey.slice(-4)}</div>
             <button className="copy-btn" onClick={copyKey}>{copied ? '✓ Copied' : 'Copy'}</button>
           </div>
-          <div style={{ fontSize: 11, color: '#999', marginTop: 8 }}>
+          <div style={{ fontSize: 11, color: 'var(--muted-stone)', marginTop: 8 }}>
             Used by Claude agent · WhatsApp bridge · any REST client
           </div>
           <button

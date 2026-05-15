@@ -292,11 +292,10 @@ export function CmoChat() {
       {/* ── Input ── */}
       <div className="bos-cmo-input-area">
         {pendingPlan && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10, padding: '10px 14px', background: 'var(--surface2)', borderRadius: 10, border: '1px solid #6366f1', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, color: 'var(--text2)', flex: 1 }}>Plan drafted — confirm to create the campaign and tag all runs to it.</span>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, padding: '10px 14px', background: 'var(--soft-ivory)', borderRadius: 8, border: '1px solid var(--warm-gold)', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: 'var(--stone-deep)', flex: 1 }}>Plan drafted — confirm to create the campaign and tag all runs to it.</span>
             <button
               className="btn btn-dark btn-sm"
-              style={{ background: '#6366f1', borderColor: '#6366f1' }}
               onClick={() => send('@klar confirm', { skipUserMessage: false })}
               disabled={busy}
             >
