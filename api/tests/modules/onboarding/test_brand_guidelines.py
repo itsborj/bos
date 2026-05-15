@@ -69,7 +69,7 @@ Use `font-heading`, `font-body`, and `font-label` with system-safe sans-serif de
 - `component-email-subject`: specific, human subject line.
 - `component-landing-hero`: campaign promise and CTA.
 
-## 6. Platform Rules 🔲
+## 6. Multi-Platform Rules 🔲
 - email: human, specific, one CTA.
 - landing page: match campaign promise exactly.
 
@@ -95,7 +95,7 @@ class TestModuleInfo:
 
     def test_module_attributes(self, module):
         assert module.id == "onboarding.brand_guidelines"
-        assert module.template == "onboarding/brand_guidelines.j2"
+        assert module.template == "onboarding/brand_guidelines/template.j2"
         assert module.policy_default == "balanced"
 
 
