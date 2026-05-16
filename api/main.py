@@ -2,6 +2,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from config import get_settings
 from db import get_engine
@@ -39,6 +40,12 @@ app = FastAPI(
 )
 
 app.add_middleware(RequestLoggingMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
 app.add_exception_handler(BosError, bos_error_handler)
 app.add_exception_handler(Exception, unhandled_error_handler)
 

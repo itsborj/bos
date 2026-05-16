@@ -1,4 +1,7 @@
+from typing import Optional
+
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,6 +36,7 @@ async def _build_response(db: AsyncSession, ws: Workspace) -> WorkspaceResponse:
     return WorkspaceResponse(
         id=ws.id,
         name=ws.name,
+        booking_url=ws.booking_url,
         brand=BrandOut(**(ws.brand_json or {})) if ws.brand_json else None,
         products=[
             ProductOut(
@@ -149,6 +153,25 @@ async def put_products(
                 )
             )
 
+    await db.commit()
+    await db.refresh(ws)
+    return await _build_response(db, ws)
+
+
+class BookingUrlPayload(BaseModel):
+    url: Optional[str] = None
+
+
+@router.put("/booking", response_model=WorkspaceResponse, summary="Set booking page URL")
+async def put_booking_url(
+    payload: BookingUrlPayload,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    ws = await get_singleton(db)
+    if not ws:
+        _not_initialized()
+    ws.booking_url = payload.url or None
     await db.commit()
     await db.refresh(ws)
     return await _build_response(db, ws)

@@ -75,5 +75,6 @@ class WorkspaceResponse(BaseModel):
     brand: Optional[BrandOut] = None
     products: list[ProductOut] = []
     audiences: list[AudienceOut] = []
+    booking_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime

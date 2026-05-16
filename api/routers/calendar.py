@@ -1,624 +1,95 @@
 from __future__ import annotations
 
-import base64
-import email.mime.text
-import uuid
-from datetime import date, datetime, timedelta, timezone
-from typing import Optional
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
-
-import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse
-from sqlalchemy import select
+from fastapi import APIRouter, Depends
+from fastapi.responses import Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from auth import require_api_key
 from config import get_settings
 from db import get_db
-from models.calendar import CalendarBooking, CalendarPage
-from models.social import SocialConnection
-from routers.social import get_page_token
 from routers.workspace import get_singleton
-from schemas.calendar import (
-    AvailabilityResponse,
-    BookingRequest,
-    BookingResponse,
-    CalendarPageCreate,
-    CalendarPageResponse,
-    CalendarPageUpdate,
-    DaySlots,
-)
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
 
-_DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
-_DEFAULT_HOURS = {
-    "mon": {"start": "09:00", "end": "17:00"},
-    "tue": {"start": "09:00", "end": "17:00"},
-    "wed": {"start": "09:00", "end": "17:00"},
-    "thu": {"start": "09:00", "end": "17:00"},
-    "fri": {"start": "09:00", "end": "17:00"},
-}
 
-
-def _tz(name: str) -> ZoneInfo:
-    try:
-        return ZoneInfo(name)
-    except (ZoneInfoNotFoundError, Exception):
-        return ZoneInfo("UTC")
-
-
-def _page_response(p: CalendarPage, api_base: str) -> CalendarPageResponse:
-    return CalendarPageResponse(
-        id=str(p.id),
-        workspace_id=str(p.workspace_id),
-        brand_id=str(p.brand_id) if p.brand_id else None,
-        connection_id=str(p.connection_id) if p.connection_id else None,
-        slug=p.slug,
-        title=p.title,
-        description=p.description,
-        duration_minutes=p.duration_minutes,
-        buffer_minutes=p.buffer_minutes,
-        working_hours_json=p.working_hours_json,
-        timezone=p.timezone,
-        max_days_ahead=p.max_days_ahead,
-        is_active=p.is_active,
-        embed_url=f"{api_base}/calendar/book/{p.slug}",
-        created_at=p.created_at,
-        updated_at=p.updated_at,
-    )
-
-
-def _slots_for_day(page: CalendarPage, day: date, existing: list[CalendarBooking], busy: list[tuple[datetime, datetime]]) -> list[str]:
-    wh = page.working_hours_json or _DEFAULT_HOURS
-    day_key = _DAY_NAMES[day.weekday()]
-    if day_key not in wh:
-        return []
-
-    tz = _tz(page.timezone)
-    h = wh[day_key]
-    sh, sm = map(int, h["start"].split(":"))
-    eh, em = map(int, h["end"].split(":"))
-
-    slot_start = datetime(day.year, day.month, day.day, sh, sm, tzinfo=tz)
-    day_end = datetime(day.year, day.month, day.day, eh, em, tzinfo=tz)
-    duration = timedelta(minutes=page.duration_minutes)
-    buf = timedelta(minutes=page.buffer_minutes)
-
-    blocked = []
-    for b in existing:
-        bs = b.start_at.astimezone(tz)
-        be = b.end_at.astimezone(tz)
-        blocked.append((bs - buf, be + buf))
-    for gs, ge in busy:
-        blocked.append((gs.astimezone(tz) - buf, ge.astimezone(tz) + buf))
-
-    slots = []
-    cur = slot_start
-    while cur + duration <= day_end:
-        end = cur + duration
-        if not any(cur < be and end > bs for bs, be in blocked):
-            slots.append(cur.strftime("%H:%M"))
-        cur += duration
-    return slots
-
-
-async def _gcal_busy(token: str, tz_name: str, t_min: datetime, t_max: datetime) -> list[tuple[datetime, datetime]]:
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as c:
-            r = await c.post(
-                "https://www.googleapis.com/calendar/v3/freeBusy",
-                headers={"Authorization": f"Bearer {token}"},
-                json={
-                    "timeMin": t_min.isoformat(),
-                    "timeMax": t_max.isoformat(),
-                    "timeZone": tz_name,
-                    "items": [{"id": "primary"}],
-                },
-            )
-            r.raise_for_status()
-            data = r.json()
-        return [
-            (
-                datetime.fromisoformat(b["start"].replace("Z", "+00:00")),
-                datetime.fromisoformat(b["end"].replace("Z", "+00:00")),
-            )
-            for b in data.get("calendars", {}).get("primary", {}).get("busy", [])
-        ]
-    except Exception:
-        return []
-
-
-async def _gcal_create(token: str, page: CalendarPage, booking: CalendarBooking) -> str | None:
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as c:
-            r = await c.post(
-                "https://www.googleapis.com/calendar/v3/calendars/primary/events",
-                headers={"Authorization": f"Bearer {token}"},
-                json={
-                    "summary": f"{booking.attendee_name} — {page.title}",
-                    "description": booking.message or "",
-                    "start": {"dateTime": booking.start_at.isoformat(), "timeZone": page.timezone},
-                    "end": {"dateTime": booking.end_at.isoformat(), "timeZone": page.timezone},
-                    "attendees": [{"email": booking.attendee_email, "displayName": booking.attendee_name}],
-                    "reminders": {"useDefault": True},
-                },
-            )
-            r.raise_for_status()
-            return r.json().get("id")
-    except Exception:
-        return None
-
-
-async def _send_confirm(token: str, page: CalendarPage, booking: CalendarBooking) -> None:
-    tz = _tz(page.timezone)
-    start = booking.start_at.astimezone(tz)
-    end = booking.end_at.astimezone(tz)
-    time_str = f"{start.strftime('%A, %B %-d, %Y')} · {start.strftime('%-I:%M %p')}–{end.strftime('%-I:%M %p')} ({page.timezone})"
-    note = f"\nYour note: {booking.message}\n" if booking.message else ""
-    body = f"Hi {booking.attendee_name},\n\nYour booking is confirmed.\n\nMeeting: {page.title}\nWhen: {time_str}\nDuration: {page.duration_minutes} minutes\n{note}\nWe look forward to speaking with you.\n"
-    msg = email.mime.text.MIMEText(body)
-    msg["To"] = booking.attendee_email
-    msg["Subject"] = f"Confirmed: {page.title}"
-    raw = base64.urlsafe_b64encode(msg.as_bytes()).decode()
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as c:
-            await c.post(
-                "https://gmail.googleapis.com/gmail/v1/users/me/messages/send",
-                headers={"Authorization": f"Bearer {token}"},
-                json={"raw": raw},
-            )
-    except Exception:
-        pass
-
-
-# ── Authenticated: page management ────────────────────────────────────────────
-
-@router.get("/pages", response_model=list[CalendarPageResponse], dependencies=[Depends(require_api_key)])
-async def list_pages(brand_id: Optional[str] = None, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
+@router.get("/booking-url")
+async def get_booking_url(db: AsyncSession = Depends(get_db)):
     ws = await get_singleton(db)
+    return {"url": ws.booking_url if ws else None}
+
+
+@router.get("/widget.js")
+async def booking_widget_js(settings=Depends(get_settings)):
     api_base = settings.frontend_url.rstrip("/") + "/api"
-    q = select(CalendarPage).where(CalendarPage.workspace_id == ws.id)
-    if brand_id:
-        q = q.where(CalendarPage.brand_id == uuid.UUID(brand_id))
-    rows = (await db.execute(q.order_by(CalendarPage.created_at.desc()))).scalars().all()
-    return [_page_response(r, api_base) for r in rows]
-
-
-@router.post("/pages", response_model=CalendarPageResponse, dependencies=[Depends(require_api_key)])
-async def create_page(body: CalendarPageCreate, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
-    ws = await get_singleton(db)
-    api_base = settings.frontend_url.rstrip("/") + "/api"
-    page = CalendarPage(
-        id=uuid.uuid4(),
-        workspace_id=ws.id,
-        brand_id=uuid.UUID(body.brand_id) if body.brand_id else None,
-        connection_id=uuid.UUID(body.connection_id) if body.connection_id else None,
-        slug=body.slug,
-        title=body.title,
-        description=body.description,
-        duration_minutes=body.duration_minutes,
-        buffer_minutes=body.buffer_minutes,
-        working_hours_json=body.working_hours_json,
-        timezone=body.timezone,
-        max_days_ahead=body.max_days_ahead,
-        is_active=body.is_active,
-    )
-    db.add(page)
-    await db.commit()
-    await db.refresh(page)
-    return _page_response(page, api_base)
-
-
-@router.patch("/pages/{page_id}", response_model=CalendarPageResponse, dependencies=[Depends(require_api_key)])
-async def update_page(page_id: str, body: CalendarPageUpdate, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
-    ws = await get_singleton(db)
-    api_base = settings.frontend_url.rstrip("/") + "/api"
-    page = (await db.execute(
-        select(CalendarPage).where(CalendarPage.id == uuid.UUID(page_id), CalendarPage.workspace_id == ws.id)
-    )).scalar_one_or_none()
-    if not page:
-        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "Page not found", "details": None}})
-    for field, value in body.model_dump(exclude_unset=True).items():
-        if field == "connection_id" and value:
-            value = uuid.UUID(value)
-        setattr(page, field, value)
-    await db.commit()
-    await db.refresh(page)
-    return _page_response(page, api_base)
-
-
-@router.delete("/pages/{page_id}", dependencies=[Depends(require_api_key)])
-async def delete_page(page_id: str, db: AsyncSession = Depends(get_db)):
-    ws = await get_singleton(db)
-    page = (await db.execute(
-        select(CalendarPage).where(CalendarPage.id == uuid.UUID(page_id), CalendarPage.workspace_id == ws.id)
-    )).scalar_one_or_none()
-    if not page:
-        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "Page not found", "details": None}})
-    await db.delete(page)
-    await db.commit()
-    return {"status": "deleted"}
-
-
-@router.get("/bookings", response_model=list[BookingResponse], dependencies=[Depends(require_api_key)])
-async def list_bookings(page_id: Optional[str] = None, brand_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
-    ws = await get_singleton(db)
-    q = (
-        select(CalendarBooking)
-        .join(CalendarPage, CalendarBooking.page_id == CalendarPage.id)
-        .where(CalendarPage.workspace_id == ws.id)
-    )
-    if page_id:
-        q = q.where(CalendarBooking.page_id == uuid.UUID(page_id))
-    if brand_id:
-        q = q.where(CalendarPage.brand_id == uuid.UUID(brand_id))
-    rows = (await db.execute(q.order_by(CalendarBooking.start_at.asc()))).scalars().all()
-    return [
-        BookingResponse(
-            id=str(r.id),
-            attendee_name=r.attendee_name,
-            attendee_email=r.attendee_email,
-            start_at=r.start_at,
-            end_at=r.end_at,
-            status=r.status,
-            created_at=r.created_at,
-        )
-        for r in rows
-    ]
-
-
-@router.delete("/bookings/{booking_id}", dependencies=[Depends(require_api_key)])
-async def cancel_booking(booking_id: str, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
-    ws = await get_singleton(db)
-    booking = (await db.execute(
-        select(CalendarBooking)
-        .join(CalendarPage, CalendarBooking.page_id == CalendarPage.id)
-        .where(CalendarBooking.id == uuid.UUID(booking_id), CalendarPage.workspace_id == ws.id)
-    )).scalar_one_or_none()
-    if not booking:
-        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "Booking not found", "details": None}})
-
-    if booking.google_event_id:
-        page = (await db.execute(select(CalendarPage).where(CalendarPage.id == booking.page_id))).scalar_one_or_none()
-        if page and page.brand_id and page.connection_id:
-            token, _ = await get_page_token(db, str(page.brand_id), "google_calendar", settings)
-            if token:
-                try:
-                    async with httpx.AsyncClient(timeout=10.0) as c:
-                        await c.delete(
-                            f"https://www.googleapis.com/calendar/v3/calendars/primary/events/{booking.google_event_id}",
-                            headers={"Authorization": f"Bearer {token}"},
-                        )
-                except Exception:
-                    pass
-
-    booking.status = "cancelled"
-    await db.commit()
-    return {"status": "cancelled"}
-
-
-# ── Public: availability & booking ────────────────────────────────────────────
-
-@router.get("/availability/{slug}", response_model=AvailabilityResponse)
-async def get_availability(slug: str, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
-    page = (await db.execute(
-        select(CalendarPage).where(CalendarPage.slug == slug, CalendarPage.is_active == True)  # noqa: E712
-    )).scalar_one_or_none()
-    if not page:
-        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "Booking page not found", "details": None}})
-
-    tz = _tz(page.timezone)
-    now = datetime.now(tz)
-    start_date = (now + timedelta(days=1)).date()
-    end_date = start_date + timedelta(days=page.max_days_ahead)
-    range_start = datetime(start_date.year, start_date.month, start_date.day, tzinfo=tz)
-    range_end = datetime(end_date.year, end_date.month, end_date.day, tzinfo=tz) + timedelta(days=1)
-
-    existing = (await db.execute(
-        select(CalendarBooking).where(
-            CalendarBooking.page_id == page.id,
-            CalendarBooking.status == "confirmed",
-            CalendarBooking.start_at >= range_start,
-            CalendarBooking.start_at < range_end,
-        )
-    )).scalars().all()
-
-    busy: list[tuple[datetime, datetime]] = []
-    if page.connection_id and page.brand_id:
-        token, _ = await get_page_token(db, str(page.brand_id), "google_calendar", settings)
-        if token:
-            busy = await _gcal_busy(token, page.timezone, range_start.astimezone(timezone.utc), range_end.astimezone(timezone.utc))
-
-    days = []
-    cur = start_date
-    while cur < end_date:
-        slots = _slots_for_day(page, cur, list(existing), busy)
-        if slots:
-            days.append(DaySlots(date=cur.isoformat(), slots=slots))
-        cur += timedelta(days=1)
-
-    return AvailabilityResponse(
-        slug=slug,
-        title=page.title,
-        description=page.description,
-        timezone=page.timezone,
-        duration_minutes=page.duration_minutes,
-        days=days,
+    js = _WIDGET_JS_TEMPLATE.replace("__API_BASE__", api_base)
+    return Response(
+        content=js,
+        media_type="application/javascript",
+        headers={"Cache-Control": "public, max-age=3600"},
     )
 
 
-@router.post("/book/{slug}", response_model=BookingResponse)
-async def create_booking(slug: str, body: BookingRequest, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
-    page = (await db.execute(
-        select(CalendarPage).where(CalendarPage.slug == slug, CalendarPage.is_active == True)  # noqa: E712
-    )).scalar_one_or_none()
-    if not page:
-        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "Booking page not found", "details": None}})
+# Universal embed snippet — works on WordPress, plain HTML, Webflow, anything.
+# Usage: <div data-klaroha-booking></div>
+#        <script src="https://yourdomain.com/api/calendar/widget.js" async></script>
+_WIDGET_JS_TEMPLATE = r"""(function () {
+  'use strict';
+  var API = '__API_BASE__';
 
-    tz = _tz(page.timezone)
-    try:
-        start_at = datetime.fromisoformat(body.start_at)
-        if start_at.tzinfo is None:
-            start_at = start_at.replace(tzinfo=tz)
-    except ValueError:
-        raise HTTPException(status_code=400, detail={"error": {"code": "INVALID_TIME", "message": "Invalid start_at format", "details": None}})
+  function injectStyles() {
+    if (document.getElementById('klr-widget-styles')) return;
+    var s = document.createElement('style');
+    s.id = 'klr-widget-styles';
+    s.textContent = [
+      '.klr-cal-wrap{width:100%}',
+      '.klr-cal-wrap iframe{border:0;width:100%;height:700px;border-radius:8px;display:block}',
+      '.klr-loading{color:#6b6560;font-size:14px;padding:12px 0}',
+      '.klr-unavail{color:#6b6560;font-size:14px;padding:12px 0;font-style:italic}',
+    ].join('');
+    document.head.appendChild(s);
+  }
 
-    end_at = start_at + timedelta(minutes=page.duration_minutes)
-    buf = timedelta(minutes=page.buffer_minutes)
+  function initContainer(el) {
+    var loadEl = document.createElement('div');
+    loadEl.className = 'klr-loading';
+    loadEl.textContent = 'Loading calendar…';
+    el.appendChild(loadEl);
 
-    conflict = (await db.execute(
-        select(CalendarBooking).where(
-            CalendarBooking.page_id == page.id,
-            CalendarBooking.status == "confirmed",
-            CalendarBooking.start_at < end_at + buf,
-            CalendarBooking.end_at > start_at - buf,
-        )
-    )).scalar_one_or_none()
-    if conflict:
-        raise HTTPException(status_code=409, detail={"error": {"code": "SLOT_TAKEN", "message": "This time slot is no longer available", "details": None}})
+    fetch(API + '/calendar/booking-url')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        loadEl.style.display = 'none';
+        if (!data.url) {
+          var msg = document.createElement('div');
+          msg.className = 'klr-unavail';
+          msg.textContent = 'Booking is not available at this time.';
+          el.appendChild(msg);
+          return;
+        }
+        var wrap = document.createElement('div');
+        wrap.className = 'klr-cal-wrap';
+        var iframe = document.createElement('iframe');
+        iframe.src = data.url;
+        iframe.title = 'Book a meeting';
+        iframe.setAttribute('allowfullscreen', '');
+        wrap.appendChild(iframe);
+        el.appendChild(wrap);
+      })
+      .catch(function () {
+        loadEl.textContent = 'Could not load the booking calendar.';
+      });
+  }
 
-    booking = CalendarBooking(
-        id=uuid.uuid4(),
-        page_id=page.id,
-        attendee_name=body.attendee_name,
-        attendee_email=body.attendee_email,
-        start_at=start_at,
-        end_at=end_at,
-        message=body.message,
-        status="confirmed",
-    )
-    db.add(booking)
-    await db.flush()
+  function init() {
+    injectStyles();
+    document.querySelectorAll('[data-klaroha-booking]').forEach(function (el) {
+      initContainer(el);
+    });
+  }
 
-    if page.connection_id and page.brand_id:
-        token, _ = await get_page_token(db, str(page.brand_id), "google_calendar", settings)
-        if token:
-            event_id = await _gcal_create(token, page, booking)
-            if event_id:
-                booking.google_event_id = event_id
-            await _send_confirm(token, page, booking)
-
-    await db.commit()
-    await db.refresh(booking)
-    return BookingResponse(
-        id=str(booking.id),
-        attendee_name=booking.attendee_name,
-        attendee_email=booking.attendee_email,
-        start_at=booking.start_at,
-        end_at=booking.end_at,
-        status=booking.status,
-        created_at=booking.created_at,
-    )
-
-
-# ── Public: embeddable HTML widget ────────────────────────────────────────────
-
-@router.get("/book/{slug}", response_class=HTMLResponse)
-async def booking_widget(slug: str, settings=Depends(get_settings)):
-    api_base = settings.frontend_url.rstrip("/") + "/api"
-    return HTMLResponse(_widget_html(slug, api_base))
-
-
-def _widget_html(slug: str, api_base: str) -> str:
-    return f"""<!DOCTYPE html>
-<html lang="en">
-<head>
-<meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Book a Meeting</title>
-<style>
-*,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
-:root{{
-  --obsidian:#0a0a0a;--ivory:#faf8f4;--ivory-mid:#f2ede6;
-  --sage:#4a7c59;--sage-dark:#3a6347;
-  --border:#e0d9ce;--text-secondary:#6b6560;
-  --radius:8px;--font:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-}}
-html,body{{height:100%;background:var(--ivory);color:var(--obsidian);font-family:var(--font);font-size:15px;line-height:1.5}}
-#app{{max-width:640px;margin:0 auto;padding:32px 24px 64px}}
-h1{{font-size:22px;font-weight:600;letter-spacing:-.3px;margin-bottom:4px}}
-.desc{{color:var(--text-secondary);font-size:14px;margin-bottom:32px}}
-.label{{font-size:12px;font-weight:600;letter-spacing:.5px;text-transform:uppercase;color:var(--text-secondary);margin-bottom:10px}}
-/* Date strip */
-.dates{{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:28px}}
-.date-btn{{border:1.5px solid var(--border);background:white;border-radius:var(--radius);padding:8px 14px;cursor:pointer;font-size:13px;font-weight:500;transition:all .15s;white-space:nowrap}}
-.date-btn:hover{{border-color:var(--sage);color:var(--sage)}}
-.date-btn.active{{background:var(--sage);border-color:var(--sage);color:white}}
-.date-btn.no-slots{{opacity:.4;cursor:default;pointer-events:none}}
-/* Slots */
-.slots{{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:32px}}
-.slot-btn{{border:1.5px solid var(--border);background:white;border-radius:var(--radius);padding:9px 18px;cursor:pointer;font-size:14px;font-weight:500;transition:all .15s}}
-.slot-btn:hover{{border-color:var(--sage);color:var(--sage)}}
-.slot-btn.active{{background:var(--sage);border-color:var(--sage);color:white}}
-/* Form */
-form{{display:flex;flex-direction:column;gap:14px}}
-input,textarea{{width:100%;padding:12px 14px;border:1.5px solid var(--border);border-radius:var(--radius);font-size:14px;font-family:inherit;background:white;transition:border-color .15s;outline:none}}
-input:focus,textarea:focus{{border-color:var(--sage)}}
-textarea{{resize:vertical;min-height:80px}}
-.btn-submit{{background:var(--sage);color:white;border:none;border-radius:var(--radius);padding:13px 28px;font-size:15px;font-weight:600;cursor:pointer;transition:background .15s;align-self:flex-start}}
-.btn-submit:hover{{background:var(--sage-dark)}}
-.btn-submit:disabled{{opacity:.5;cursor:default}}
-/* Confirmed */
-#confirmed{{text-align:center;padding:48px 0}}
-.check-icon{{width:56px;height:56px;background:var(--sage);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px}}
-.check-icon svg{{stroke:white;stroke-width:2.5}}
-#confirmed h2{{font-size:20px;font-weight:600;margin-bottom:8px}}
-#confirmed p{{color:var(--text-secondary);font-size:14px}}
-.confirm-details{{background:var(--ivory-mid);border-radius:var(--radius);padding:16px 20px;margin:20px auto 0;max-width:340px;font-size:14px;text-align:left}}
-.confirm-details strong{{display:block;margin-bottom:4px;font-size:13px;color:var(--text-secondary);font-weight:600;text-transform:uppercase;letter-spacing:.4px}}
-/* Error / loading */
-#loading{{color:var(--text-secondary);font-size:14px;padding:24px 0}}
-.err{{color:#c0392b;font-size:13px;margin-top:-6px}}
-.sep{{height:1px;background:var(--border);margin:4px 0 24px}}
-</style>
-</head>
-<body>
-<div id="app">
-  <div id="loading">Loading availability…</div>
-  <div id="calendar" style="display:none">
-    <h1 id="pg-title"></h1>
-    <p class="desc" id="pg-desc"></p>
-    <div class="label" id="label-date">Select a date</div>
-    <div class="dates" id="date-list"></div>
-    <div id="slot-section" style="display:none">
-      <div class="label">Select a time</div>
-      <div class="slots" id="slot-list"></div>
-    </div>
-    <div id="form-section" style="display:none">
-      <div class="sep"></div>
-      <div class="label">Your details</div>
-      <form id="booking-form">
-        <input id="f-name" type="text" placeholder="Your name" required>
-        <input id="f-email" type="email" placeholder="Email address" required>
-        <textarea id="f-msg" placeholder="Anything you'd like to share? (optional)"></textarea>
-        <p class="err" id="form-err" style="display:none"></p>
-        <button type="submit" class="btn-submit" id="submit-btn">Confirm booking</button>
-      </form>
-    </div>
-  </div>
-  <div id="confirmed" style="display:none">
-    <div class="check-icon"><svg width="28" height="28" viewBox="0 0 24 24" fill="none"><polyline points="20 6 9 17 4 12"/></svg></div>
-    <h2>You're booked!</h2>
-    <p>A confirmation has been sent to your email.</p>
-    <div class="confirm-details">
-      <strong>Meeting</strong><span id="c-title"></span>
-      <strong style="margin-top:12px">When</strong><span id="c-when"></span>
-    </div>
-  </div>
-</div>
-<script>
-(function(){{
-  const API="{api_base}",SLUG="{slug}";
-  let avail=null,selDate=null,selSlot=null,tz="UTC",dur=30;
-
-  async function load(){{
-    try{{
-      const r=await fetch(API+"/calendar/availability/"+SLUG);
-      if(!r.ok)throw new Error("Not found");
-      avail=await r.json();
-      tz=avail.timezone;dur=avail.duration_minutes;
-      document.getElementById("pg-title").textContent=avail.title;
-      const d=document.getElementById("pg-desc");
-      if(avail.description){{d.textContent=avail.description}}else{{d.style.display="none"}}
-      renderDates();
-      document.getElementById("loading").style.display="none";
-      document.getElementById("calendar").style.display="block";
-    }}catch(e){{
-      document.getElementById("loading").textContent="This booking page is not available.";
-    }}
-  }}
-
-  function fmtDate(iso){{
-    const d=new Date(iso+"T00:00:00");
-    return d.toLocaleDateString("en-US",{{weekday:"short",month:"short",day:"numeric"}});
-  }}
-
-  function fmtSlot(hhmm,tzName){{
-    const [h,m]=hhmm.split(":").map(Number);
-    const base=new Date();base.setHours(h,m,0,0);
-    return base.toLocaleTimeString("en-US",{{hour:"numeric",minute:"2-digit",hour12:true}});
-  }}
-
-  function renderDates(){{
-    const el=document.getElementById("date-list");
-    el.innerHTML="";
-    (avail.days||[]).forEach(day=>{{
-      const btn=document.createElement("button");
-      btn.className="date-btn"+(day.slots.length===0?" no-slots":"");
-      btn.textContent=fmtDate(day.date);
-      btn.dataset.date=day.date;
-      btn.addEventListener("click",()=>selectDate(day));
-      el.appendChild(btn);
-    }});
-  }}
-
-  function selectDate(day){{
-    selDate=day;selSlot=null;
-    document.querySelectorAll(".date-btn").forEach(b=>b.classList.toggle("active",b.dataset.date===day.date));
-    document.getElementById("slot-section").style.display="block";
-    document.getElementById("form-section").style.display="none";
-    const el=document.getElementById("slot-list");
-    el.innerHTML="";
-    day.slots.forEach(s=>{{
-      const btn=document.createElement("button");
-      btn.className="slot-btn";
-      btn.textContent=fmtSlot(s,tz);
-      btn.dataset.slot=s;
-      btn.addEventListener("click",()=>selectSlot(day.date,s,btn));
-      el.appendChild(btn);
-    }});
-  }}
-
-  function selectSlot(isoDate,hhmm,btn){{
-    selSlot={{date:isoDate,time:hhmm}};
-    document.querySelectorAll(".slot-btn").forEach(b=>b.classList.remove("active"));
-    btn.classList.add("active");
-    document.getElementById("form-section").style.display="block";
-  }}
-
-  document.getElementById("booking-form").addEventListener("submit",async function(e){{
-    e.preventDefault();
-    if(!selSlot)return;
-    const name=document.getElementById("f-name").value.trim();
-    const email=document.getElementById("f-email").value.trim();
-    const msg=document.getElementById("f-msg").value.trim();
-    const errEl=document.getElementById("form-err");
-    errEl.style.display="none";
-    const btn=document.getElementById("submit-btn");
-    btn.disabled=true;btn.textContent="Booking…";
-
-    const [h,m]=selSlot.time.split(":").map(Number);
-    const startDt=new Date(selSlot.date+"T"+selSlot.time+":00");
-    const endDt=new Date(startDt.getTime()+dur*60000);
-
-    try{{
-      const r=await fetch(API+"/calendar/book/"+SLUG,{{
-        method:"POST",
-        headers:{{"Content-Type":"application/json"}},
-        body:JSON.stringify({{attendee_name:name,attendee_email:email,start_at:startDt.toISOString(),message:msg||null}}),
-      }});
-      const data=await r.json();
-      if(!r.ok){{
-        const msg2=(data.error&&data.error.message)||"Something went wrong. Please try again.";
-        errEl.textContent=msg2;errEl.style.display="block";
-        btn.disabled=false;btn.textContent="Confirm booking";
-        return;
-      }}
-      document.getElementById("c-title").textContent=avail.title;
-      const opts={{weekday:"long",year:"numeric",month:"long",day:"numeric",hour:"numeric",minute:"2-digit",hour12:true,timeZone:tz}};
-      document.getElementById("c-when").textContent=new Date(data.start_at).toLocaleString("en-US",opts)+" ("+tz+")";
-      document.getElementById("calendar").style.display="none";
-      document.getElementById("confirmed").style.display="block";
-    }}catch(ex){{
-      errEl.textContent="Network error. Please try again.";errEl.style.display="block";
-      btn.disabled=false;btn.textContent="Confirm booking";
-    }}
-  }});
-
-  load();
-}})();
-</script>
-</body>
-</html>"""
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();
+"""
