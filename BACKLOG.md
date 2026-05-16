@@ -396,6 +396,13 @@
 - [x] FEATURE: Create launch-sequencing skill (PLF-style launch orchestration, v1.0.0)
 - [x] BUG: Google Ads RSA headlines truncated/repetitive (e.g., "turn search demand into qualified leads with clearer Googl"); added template constraints + module self_check for truncation, trailing spaces, repetitive patterns, and boring "Brand | X" structures
 Deferred to Phase 4.
+- [x] BUG: Import Brand Brief overlapped org/brand data — importing via Getting Started with no brand_id in nav state silently wrote to workspace-level (`brand_id=NULL`), overwriting existing workspace profile and polluting org context in multi-brand workspaces
+- [x] FEATURE: Import Brief scope gate — on first import (no brands): "Is this your Organization or a Brand?" step; when brands exist: brand selector listing existing brands + "New Brand" option; update mode (brand_id in nav state) is locked to that brand with a scope badge and cannot write to any other scope
+- [x] FEATURE: New brand imports always create a Brand row first (via `POST /brands`) then pass the new `brand_id` to ingest — workspace-level slot (`brand_id=NULL`) is never touched in new-brand or update-brand flows
+- [x] FEATURE: Getting Started checklist banner on all admin pages — fetches onboarding status on mount; shows dismissible amber strip until `workspace_configured && campaign_brand_kit_approved`; dismissal persisted in localStorage (`bos_gs_dismissed`)
+- [x] FEATURE: Getting Started quick actions reordered — Import Brief (primary), Review Brand Memory, Manage AI Providers, Go to CMO (last); setup checklist labels updated to reflect multi-brand flow
+- [x] BUG: Getting Started banner showed "Setup incomplete" when all 5 checklist steps were done — `all_ready` from onboarding status includes module routing checks that fail even with a complete setup; banner now uses `workspace_configured && campaign_brand_kit_approved` instead
+- [x] BUG: `brand_profile_configured` in `GET /onboarding/status` only checked `ws.brand_json` — false in multi-brand workspaces where brand data lives in Brand rows; now also checks if any Brand row has `brand_json` set
 ## Admin Web Dashboard ✓
 - [x] Route `/admin` — standalone dashboard shell
 - [x] Overview: workspace name, billing summary, provider health
@@ -541,7 +548,7 @@ Deferred to Phase 4.
 ### Pending (carry forward)
 - [x] Run migrations: docker compose exec api alembic upgrade head
 - [x] Admin brand management UI — brand list, add brand, brand detail (products/audiences/docs per brand)
-- [ ] Onboarding flow: import brand brief into a named brand (brand_id on products/audiences/docs)
+- [x] Onboarding flow: import brand brief into a named brand (brand_id on products/audiences/docs)
 - [x] @klar plan confirmation flow — save IntentContract + Campaign to DB after user approves plan draft; tags runs with campaign_id
   - [x] @klar confirm handler: creates Campaign + IntentContract + CampaignIntent in DB
   - [x] @klar run handler: resolves campaign by ID or name, falls through to LLM module dispatch
@@ -804,6 +811,10 @@ Deferred to Phase 4.
 | 2026-05-14 | Staging lives at staging.klaroha.com on the same VDS as production | Separate Docker stack on different ports, separate database; plugin dev PRs target staging branch first, reviewed by main dev before merging to main/production; keeps costs low while maintaining isolation |
 | 2026-05-14 | Plugin dev (Dev 2) has GitHub repo access only — no server SSH | Internal junior dev scoped to api/plugins/ via branch protection; pushes to plugin/* branches, PRs to staging; main dev reviews before any code reaches production; server deploy is webhook-triggered on merge, not manual |
 | 2026-05-14 | Database is not in the git repo — each server deployment is a clean install | postgres_data Docker volume stays on the server across restarts; only docker compose down -v wipes it; this makes each new client/server deployment a clean isolated instance by default |
+| 2026-05-17 | Import Brief scope is determined by UI step 0, not inferred from nav state alone | Before: arriving at `/admin/onboarding` without `brand_id` in nav state silently wrote to workspace-level. Now: no-brand-id path always shows a scope selector first — org vs brand (first import) or brand picker (brands exist). Update mode (brand_id in nav state) is locked and shows a scope badge. Prevents workspace-level data from being overwritten by a misrouted import. |
+| 2026-05-17 | New brand imports create the Brand row before calling ingest | Frontend calls `POST /brands` first, then passes the new `brand_id` to `POST /onboarding/ingest`. Workspace-level slot (`brand_id=NULL`) is never written in new-brand or update-brand flows. Ensures every brand import is always scoped and traceable to a Brand row. |
+| 2026-05-17 | Getting Started banner uses `campaign_brand_kit_approved`, not `all_ready` | `all_ready` from `GET /onboarding/status` requires every registered module to have a routable provider — it can be false even when all 5 UI checklist steps pass. Banner condition is `workspace_configured && campaign_brand_kit_approved`; if the kit is approved the core onboarding is done regardless of module routing state. |
+| 2026-05-17 | `brand_profile_configured` in onboarding status checks Brand row `brand_json`, not only `ws.brand_json` | In multi-brand workspaces the workspace-level `brand_json` may be empty while Brand rows are fully populated. Updated check: if `ws.brand_json` is falsy, query Brand rows and accept any row with `brand_json` set. Products and audiences are already workspace-wide counts so no change there. |
 | 2026-05-12 | Capability questions may produce capability artifacts, but not execution artifacts | Fixes the email CMO failure without banning artifacts. `what can you do with email` should produce an Email Specialist capability card; it must not read Gmail, send Gmail, plan a campaign, or draft email unless the user asks for that work |
 | 2026-05-12 | Email Specialist MVP is the next optimization focus | Email should implement `marketing.plan`, `marketing.execute`, and `marketing.optimize` as one owner-facing specialist: setup/readiness, plan artifacts, draft artifacts, approval-gated send/test, inbox reply intelligence, and optimization learnings. Gmail/module IDs remain internal tool details |
 | 2026-05-12 | Lean hierarchy is `Org → Brand/Client → Market Unit → Campaign`; no Portfolio layer | Keeps architecture lean while supporting agencies, ecommerce multi-brand, multi-location services, and broker/agent networks. The Org acts as portfolio/control plane; Market Unit handles location/agent/territory/marketplace/SKU/service-line scope only when needed |

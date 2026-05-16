@@ -76,7 +76,12 @@ async def onboarding_status(
     else:
         product_count = len((await db.execute(select(Product).where(Product.workspace_id == ws.id))).scalars().all())
         audience_count = len((await db.execute(select(Audience).where(Audience.workspace_id == ws.id))).scalars().all())
-        brand_profile_configured = bool(ws.brand_json and product_count > 0 and audience_count > 0)
+        # Accept brand_json at either workspace level OR on any Brand row (multi-brand setup)
+        has_brand_json = bool(ws.brand_json)
+        if not has_brand_json and product_count > 0:
+            brand_rows = (await db.execute(select(Brand).where(Brand.workspace_id == ws.id))).scalars().all()
+            has_brand_json = any(bool(b.brand_json) for b in brand_rows)
+        brand_profile_configured = bool(has_brand_json and product_count > 0 and audience_count > 0)
         if not brand_profile_configured:
             issues.append("Brand profile incomplete — import or enter brand, product, and audience context")
 

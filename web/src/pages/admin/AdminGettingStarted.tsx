@@ -45,41 +45,51 @@ export function AdminGettingStarted() {
 
   const steps = useMemo<Step[]>(() => [
     {
-      label: 'Connect OpenAI Chat',
+      label: 'Connect AI Provider',
       done: openai?.connected === true,
       hint: openai?.connected ? 'OpenAI login is connected.' : 'Use login auth or an API key to activate BOS.',
     },
     {
       label: 'Import brand brief',
       done: brandImported,
-      hint: brandImported ? 'Brand context has been extracted into the workspace.' : 'Paste a brief or company description to build the workspace profile.',
+      hint: brandImported
+        ? 'Brand context has been extracted.'
+        : 'Import a brief for your organization or a brand — BOS will guide the setup.',
     },
     {
-      label: 'Review workspace profile',
+      label: 'Review brand profile',
       done: brandImported && Boolean(workspace?.name),
-      hint: workspace?.name ? `Workspace: ${workspace.name}` : 'Review brand memory before asking the CMO to plan, execute, or optimize.'
+      hint: workspace?.name
+        ? `Organization: ${workspace.name}`
+        : 'Confirm the extracted brand, products, and audiences are correct before running campaigns.',
     },
     {
       label: 'Approve Campaign Brand Kit',
       done: brandKitApproved,
-      hint: brandKitApproved ? 'Campaign Brand Kit is approved.' : 'Required for cohesive multi-platform campaigns before first launch.',
+      hint: brandKitApproved
+        ? 'Campaign Brand Kit is approved.'
+        : 'Required for cohesive multi-platform campaigns before first launch.',
     },
     {
       label: 'Create first CMO artifact',
       done: firstRunDone,
-      hint: firstRunDone ? `${runs?.total ?? 0} specialist execution${(runs?.total ?? 0) !== 1 ? 's' : ''} recorded.` : 'Ask the CMO to plan, execute, or optimize once setup is ready.',
+      hint: firstRunDone
+        ? `${runs?.total ?? 0} specialist execution${(runs?.total ?? 0) !== 1 ? 's' : ''} recorded.`
+        : 'Use the CMO to plan, execute, or optimize once setup is complete.',
     },
   ], [openai?.connected, brandImported, workspace?.name, brandKitApproved, firstRunDone, runs?.total]);
 
   const nextStep = !steps[0].done
-    ? { label: 'Connect provider', action: () => navigate('/admin/providers') }
+    ? { label: 'Connect AI Provider', action: () => navigate('/admin/providers') }
     : !steps[1].done
       ? { label: 'Import brand brief', action: () => navigate('/admin/onboarding') }
-      : !steps[3].done
-        ? { label: 'Generate Brand Kit', action: () => navigate('/admin/onboarding') }
-        : !steps[4].done
-          ? { label: 'Go to CMO', action: () => navigate('/cmo') }
-          : { label: 'View workspace', action: () => navigate('/admin/workspace') };
+      : !steps[2].done
+        ? { label: 'Review brand profile', action: () => navigate('/admin/brands') }
+        : !steps[3].done
+          ? { label: 'Generate Brand Kit', action: () => navigate('/admin/onboarding') }
+          : !steps[4].done
+            ? { label: 'Go to CMO', action: () => navigate('/cmo') }
+            : { label: 'View brands', action: () => navigate('/admin/brands') };
 
   if (loading) {
     return (
@@ -137,10 +147,10 @@ export function AdminGettingStarted() {
         <div className="admin-card">
           <div className="admin-card-title">Quick actions</div>
           <div style={{ display: 'grid', gap: 10 }}>
-            <button className="btn btn-dark" onClick={() => navigate('/cmo')}>Go to CMO</button>
-            <button className="btn btn-secondary" onClick={() => navigate('/admin/onboarding')}>Import Brand Brief</button>
+            <button className="btn btn-dark" onClick={() => navigate('/admin/onboarding')}>Import Brand Brief</button>
             <button className="btn btn-secondary" onClick={() => navigate('/admin/workspace')}>Review Brand Memory</button>
             <button className="btn btn-secondary" onClick={() => navigate('/admin/providers')}>Manage AI Providers</button>
+            <button className="btn btn-secondary" onClick={() => navigate('/cmo')}>Go to CMO</button>
           </div>
           <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 14 }}>
             OpenAI Chat is the primary login-auth provider for this deployment. Other providers remain available through API keys.

@@ -1,39 +1,136 @@
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { BrandKitResponse, IngestResponse, ProviderInfo, WorkspaceDocument } from '../../api/types';
+import type { BrandKitResponse, BrandResponse, IngestResponse, ProviderInfo, WorkspaceDocument } from '../../api/types';
 
 type OnboardingNavState = {
   brand_id?: string;
   brand_name?: string;
 };
 
+// 'org'          — writing to workspace-level (brand_id=NULL)
+// 'new_brand'    — creating a brand row first, then importing to it
+// 'update_brand' — locked to an existing brand (always tied to its brand_id)
+type ImportScope = 'org' | 'new_brand' | 'update_brand';
+
+// UI step before the form is ready
+type ScopeStep = 'loading' | 'org_or_brand' | 'select_target' | 'form';
+
 export function AdminOnboarding() {
   const navigate = useNavigate();
   const location = useLocation();
   const navState = (location.state || {}) as OnboardingNavState;
-  const selectedBrandId = navState.brand_id;
-  const selectedBrandName = navState.brand_name;
-  const [providers, setProviders]       = useState<ProviderInfo[]>([]);
-  const [docText, setDocText]           = useState('');
+  const navBrandId   = navState.brand_id;
+  const navBrandName = navState.brand_name;
+
+  // scope resolution
+  const [scopeStep, setScopeStep]         = useState<ScopeStep>('loading');
+  const [scope, setScope]                 = useState<ImportScope | null>(null);
+  const [existingBrands, setExistingBrands] = useState<BrandResponse[]>([]);
+  const [targetBrandId, setTargetBrandId] = useState<string | null>(navBrandId || null);
+  const [targetBrandName, setTargetBrandName] = useState<string>(navBrandName || '');
+
+  // "this is a brand, not org" sub-fields
+  const [orgName, setOrgName]             = useState('');
+  const [newBrandName, setNewBrandName]   = useState('');
+  const [showBrandFields, setShowBrandFields] = useState(false);
+
+  // "select existing brand" sub-state for select_target step
+  const [selectedExisting, setSelectedExisting] = useState<string | null>(null);
+  const [showNewBrandField, setShowNewBrandField] = useState(false);
+
+  // form
+  const [providers, setProviders]   = useState<ProviderInfo[]>([]);
+  const [docText, setDocText]       = useState('');
   const [workspaceName, setWorkspaceName] = useState('');
-  const [ingesting, setIngesting]       = useState(false);
-  const [result, setResult]             = useState<IngestResponse | null>(null);
-  const [brandKit, setBrandKit]         = useState<WorkspaceDocument | null>(null);
-  const [kitBusy, setKitBusy]           = useState(false);
-  const [kitCopied, setKitCopied]       = useState(false);
-  const [error, setError]               = useState<string | null>(null);
+  const [ingesting, setIngesting]   = useState(false);
+  const [result, setResult]         = useState<IngestResponse | null>(null);
+  const [brandKit, setBrandKit]     = useState<WorkspaceDocument | null>(null);
+  const [kitBusy, setKitBusy]       = useState(false);
+  const [kitCopied, setKitCopied]   = useState(false);
+  const [error, setError]           = useState<string | null>(null);
+  const [kitWarning, setKitWarning] = useState(false);
 
   useEffect(() => {
-    Promise.all([
-      api.getProviders().then(r => setProviders(r.providers)).catch(() => {}),
-      api.getDocuments({ doc_type: 'campaign_brand_kit', brand_id: selectedBrandId })
-        .then(docs => setBrandKit(docs[0] ?? null))
-        .catch(() => {}),
-    ]);
-  }, [selectedBrandId]);
+    api.getProviders().then(r => setProviders(r.providers)).catch(() => {});
 
-  const byokCount = providers.filter(p => p.has_byok_key).length;
+    if (navBrandId) {
+      // Update mode — locked to this brand, no scope negotiation
+      setScope('update_brand');
+      setScopeStep('form');
+      // Check for existing brand kit so we can warn before overwrite
+      api.getDocuments({ doc_type: 'campaign_brand_kit', brand_id: navBrandId })
+        .then(docs => { if (docs.length > 0) setKitWarning(true); })
+        .catch(() => {});
+      api.getDocuments({ doc_type: 'campaign_brand_kit', brand_id: navBrandId })
+        .then(docs => setBrandKit(docs[0] ?? null))
+        .catch(() => {});
+    } else {
+      api.getBrands()
+        .then(r => {
+          if (r.brands.length > 0) {
+            setExistingBrands(r.brands);
+            setScopeStep('select_target');
+          } else {
+            setScopeStep('org_or_brand');
+          }
+        })
+        .catch(() => setScopeStep('org_or_brand'));
+    }
+  }, [navBrandId]);
+
+  // ── Scope step: org vs brand (first-time, no brands exist) ──────────────────
+
+  function handleChooseOrg() {
+    setScope('org');
+    setScopeStep('form');
+    // Check if workspace-level slot already has a kit
+    api.getDocuments({ doc_type: 'campaign_brand_kit' })
+      .then(docs => { if (docs.length > 0) setKitWarning(true); })
+      .catch(() => {});
+    api.getDocuments({ doc_type: 'campaign_brand_kit' })
+      .then(docs => setBrandKit(docs[0] ?? null))
+      .catch(() => {});
+  }
+
+  function handleChooseBrand() {
+    setShowBrandFields(true);
+  }
+
+  function handleConfirmBrandScope() {
+    if (!newBrandName.trim()) return;
+    setScope('new_brand');
+    setScopeStep('form');
+  }
+
+  // ── Scope step: select target (brands exist) ─────────────────────────────────
+
+  function handleSelectExistingBrand(brand: BrandResponse) {
+    setSelectedExisting(brand.id);
+    setTargetBrandId(brand.id);
+    setTargetBrandName(brand.name);
+    setScope('update_brand');
+    setScopeStep('form');
+    api.getDocuments({ doc_type: 'campaign_brand_kit', brand_id: brand.id })
+      .then(docs => { if (docs.length > 0) setKitWarning(true); })
+      .catch(() => {});
+    api.getDocuments({ doc_type: 'campaign_brand_kit', brand_id: brand.id })
+      .then(docs => setBrandKit(docs[0] ?? null))
+      .catch(() => {});
+  }
+
+  function handleSelectNewBrand() {
+    setSelectedExisting(null);
+    setShowNewBrandField(true);
+  }
+
+  function handleConfirmNewBrand() {
+    if (!newBrandName.trim()) return;
+    setScope('new_brand');
+    setScopeStep('form');
+  }
+
+  // ── Form submission ──────────────────────────────────────────────────────────
 
   async function handleIngest(e: React.FormEvent) {
     e.preventDefault();
@@ -41,9 +138,29 @@ export function AdminOnboarding() {
     setIngesting(true);
     setError(null);
     try {
-      const res = await api.ingestBrandDoc(docText.trim(), workspaceName.trim() || undefined, selectedBrandId);
+      let effectiveBrandId: string | undefined = undefined;
+
+      if (scope === 'update_brand' && targetBrandId) {
+        effectiveBrandId = targetBrandId;
+      } else if (scope === 'new_brand') {
+        if (orgName.trim()) {
+          await api.putWorkspace(orgName.trim());
+        }
+        const newBrand = await api.createBrand({ name: newBrandName.trim() });
+        effectiveBrandId = newBrand.id;
+        setTargetBrandId(newBrand.id);
+        setTargetBrandName(newBrand.name);
+      }
+      // scope === 'org': effectiveBrandId stays undefined → workspace-level
+
+      const res = await api.ingestBrandDoc(
+        docText.trim(),
+        scope === 'org' ? (workspaceName.trim() || undefined) : undefined,
+        effectiveBrandId,
+      );
       setResult(res);
       setBrandKit(null);
+      setKitWarning(false);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Ingestion failed');
     } finally {
@@ -55,7 +172,8 @@ export function AdminOnboarding() {
     setKitBusy(true);
     setError(null);
     try {
-      const res: BrandKitResponse = await api.generateBrandKit(additionalContext, selectedBrandId);
+      const effectiveBrandId = scope === 'update_brand' || scope === 'new_brand' ? (targetBrandId || undefined) : undefined;
+      const res: BrandKitResponse = await api.generateBrandKit(additionalContext, effectiveBrandId);
       setBrandKit(res.document);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Brand Kit generation failed');
@@ -85,21 +203,33 @@ export function AdminOnboarding() {
     setTimeout(() => setKitCopied(false), 1800);
   }
 
+  const byokCount = providers.filter(p => p.has_byok_key).length;
+
+  // ── Result view (post-ingest) ────────────────────────────────────────────────
+
   if (result) {
     const { workspace } = result;
     const profile = result.profile || workspace.brand || {};
-    const visibleProducts = selectedBrandId
-      ? workspace.products.filter(p => p.brand_id === selectedBrandId)
+    const isBrandScope = scope === 'update_brand' || scope === 'new_brand';
+    const visibleProducts = isBrandScope
+      ? workspace.products.filter(p => p.brand_id === targetBrandId)
       : workspace.products.filter(p => !p.brand_id);
-    const visibleAudiences = selectedBrandId
-      ? workspace.audiences.filter(a => a.brand_id === selectedBrandId)
+    const visibleAudiences = isBrandScope
+      ? workspace.audiences.filter(a => a.brand_id === targetBrandId)
       : workspace.audiences.filter(a => !a.brand_id);
+
     return (
       <div className="admin-page">
         <div className="admin-page-header">
           <div>
             <div className="admin-page-title">Brand Brief Processed</div>
-            <div className="admin-page-subtitle">{selectedBrandId ? 'Brand record updated from your document' : 'Workspace populated from your document'}</div>
+            <div className="admin-page-subtitle">
+              {scope === 'new_brand'
+                ? `${result.brand_name} created and populated from your document`
+                : isBrandScope
+                  ? `${targetBrandName} updated from your document`
+                  : 'Workspace populated from your document'}
+            </div>
           </div>
         </div>
 
@@ -171,8 +301,14 @@ export function AdminOnboarding() {
         </div>
 
         <div style={{ display: 'flex', gap: 10 }}>
-          <button className="btn btn-dark" onClick={() => selectedBrandId ? navigate(`/admin/brands/${selectedBrandId}`) : navigate('/admin/workspace')}>
-            {selectedBrandId ? 'Review Brand →' : 'Review Workspace →'}
+          <button
+            className="btn btn-dark"
+            onClick={() => {
+              if (isBrandScope && targetBrandId) navigate(`/admin/brands/${targetBrandId}`);
+              else navigate('/admin/workspace');
+            }}
+          >
+            {isBrandScope ? 'Review Brand →' : 'Review Workspace →'}
           </button>
           <button className="btn btn-secondary" onClick={() => { setResult(null); setDocText(''); setWorkspaceName(''); }}>
             Submit Another Document
@@ -182,39 +318,255 @@ export function AdminOnboarding() {
     );
   }
 
+  // ── Loading ──────────────────────────────────────────────────────────────────
+
+  if (scopeStep === 'loading') {
+    return (
+      <div className="admin-page">
+        <div className="loading-full"><span className="spinner" /></div>
+      </div>
+    );
+  }
+
+  // ── Step 0A: First import — is this your Organization or a Brand? ─────────────
+
+  if (scopeStep === 'org_or_brand') {
+    return (
+      <div className="admin-page">
+        <div className="admin-page-header">
+          <div>
+            <div className="admin-page-title">Set Up BOS</div>
+            <div className="admin-page-subtitle">Tell us what you're setting up so we can scope it correctly.</div>
+          </div>
+        </div>
+
+        <div className="admin-card">
+          <div className="admin-card-title">What is this first brief for?</div>
+          <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 20 }}>
+            Choose correctly — this determines whether the brief is saved at the organization level or as a brand within your organization.
+          </div>
+
+          {!showBrandFields ? (
+            <div style={{ display: 'grid', gap: 12 }}>
+              <button
+                className="btn btn-dark"
+                style={{ textAlign: 'left', padding: '14px 18px', height: 'auto', display: 'block' }}
+                onClick={handleChooseOrg}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 2 }}>This is my Organization</div>
+                <div style={{ fontSize: 12, fontWeight: 400, opacity: 0.8 }}>
+                  The brief describes the business as a whole. BOS treats this as your organization profile.
+                </div>
+              </button>
+              <button
+                className="btn btn-secondary"
+                style={{ textAlign: 'left', padding: '14px 18px', height: 'auto', display: 'block' }}
+                onClick={handleChooseBrand}
+              >
+                <div style={{ fontWeight: 700, marginBottom: 2 }}>This is a Brand within my Organization</div>
+                <div style={{ fontSize: 12, fontWeight: 400, opacity: 0.8 }}>
+                  The brief describes one brand or client. You'll name your organization first, then this becomes a sub-brand.
+                </div>
+              </button>
+            </div>
+          ) : (
+            <div>
+              <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>
+                Name your organization (the parent), then name this brand.
+              </div>
+              <div className="form-group">
+                <label className="label">Organization Name <span className="label-hint">required</span></label>
+                <input
+                  className="input"
+                  value={orgName}
+                  onChange={e => setOrgName(e.target.value)}
+                  placeholder="e.g. Acme Agency"
+                />
+              </div>
+              <div className="form-group">
+                <label className="label">Brand Name <span className="label-hint">required — will be created as a new brand</span></label>
+                <input
+                  className="input"
+                  value={newBrandName}
+                  onChange={e => setNewBrandName(e.target.value)}
+                  placeholder="e.g. Klaroha"
+                />
+              </div>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  className="btn btn-dark"
+                  onClick={handleConfirmBrandScope}
+                  disabled={!newBrandName.trim() || !orgName.trim()}
+                >
+                  Continue — Import Brief for {newBrandName.trim() || 'Brand'}
+                </button>
+                <button className="btn btn-secondary" onClick={() => setShowBrandFields(false)}>← Back</button>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Step 0B: Brands exist — select target ────────────────────────────────────
+
+  if (scopeStep === 'select_target') {
+    return (
+      <div className="admin-page">
+        <div className="admin-page-header">
+          <div>
+            <div className="admin-page-title">Import Brand Brief</div>
+            <div className="admin-page-subtitle">Choose which brand you're importing for, or create a new one.</div>
+          </div>
+        </div>
+
+        <div className="admin-card">
+          <div className="admin-card-title">Who is this brief for?</div>
+          <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>
+            Each import is scoped to a specific brand. Select an existing brand to update its brief, or create a new one.
+          </div>
+
+          <div style={{ display: 'grid', gap: 8, marginBottom: 16 }}>
+            {existingBrands.map(brand => (
+              <button
+                key={brand.id}
+                className={`btn ${selectedExisting === brand.id ? 'btn-dark' : 'btn-secondary'}`}
+                style={{ textAlign: 'left', padding: '12px 16px', height: 'auto', display: 'block' }}
+                onClick={() => handleSelectExistingBrand(brand)}
+              >
+                <div style={{ fontWeight: 700 }}>{brand.name}</div>
+                {brand.voice && <div style={{ fontSize: 12, fontWeight: 400, opacity: 0.7 }}>Voice: {brand.voice}</div>}
+              </button>
+            ))}
+          </div>
+
+          <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+            {!showNewBrandField ? (
+              <button className="btn btn-secondary" onClick={handleSelectNewBrand}>
+                + Import for a new brand
+              </button>
+            ) : (
+              <div>
+                <div className="form-group">
+                  <label className="label">New Brand Name <span className="label-hint">required</span></label>
+                  <input
+                    className="input"
+                    value={newBrandName}
+                    onChange={e => setNewBrandName(e.target.value)}
+                    placeholder="e.g. Nexus Labs"
+                    autoFocus
+                  />
+                </div>
+                <div style={{ display: 'flex', gap: 10 }}>
+                  <button
+                    className="btn btn-dark"
+                    onClick={handleConfirmNewBrand}
+                    disabled={!newBrandName.trim()}
+                  >
+                    Continue — Import for {newBrandName.trim() || 'New Brand'}
+                  </button>
+                  <button className="btn btn-secondary" onClick={() => { setShowNewBrandField(false); setNewBrandName(''); }}>
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Form ─────────────────────────────────────────────────────────────────────
+
+  const isUpdateMode = scope === 'update_brand';
+  const isNewBrand   = scope === 'new_brand';
+  const isOrg        = scope === 'org';
+
+  const scopeLabel = isUpdateMode
+    ? targetBrandName
+    : isNewBrand
+      ? newBrandName
+      : 'Organization';
+
   return (
     <div className="admin-page">
       <div className="admin-page-header">
         <div>
-          <div className="admin-page-title">{selectedBrandId ? 'Update Brand Brief' : 'New Workspace Setup'}</div>
+          <div className="admin-page-title">
+            {isUpdateMode ? `Update Brief — ${scopeLabel}` : isNewBrand ? `Import Brief — ${scopeLabel}` : 'Organization Setup'}
+          </div>
           <div className="admin-page-subtitle">
-            {selectedBrandId
-              ? `Import a fresh brief for ${selectedBrandName || 'this brand'} and update its profile, products, audiences, and Brand Kit.`
-              : 'Guided setup: import the brand brief, generate the required Campaign Brand Kit, then optionally add BYOK provider access.'}
+            {isUpdateMode
+              ? `Updating profile, products, audiences, and Brand Kit for ${scopeLabel}. This brief is locked to this brand.`
+              : isNewBrand
+                ? `Creating ${scopeLabel} as a new brand within your organization and importing its brief.`
+                : 'Guided setup: import the organization brief, generate the required Campaign Brand Kit, then optionally add BYOK provider access.'}
           </div>
         </div>
+        {!isUpdateMode && (
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={() => { setScopeStep(existingBrands.length > 0 ? 'select_target' : 'org_or_brand'); setScope(null); setError(null); setKitWarning(false); }}
+          >
+            ← Change target
+          </button>
+        )}
       </div>
+
+      {/* Scope lock badge for update mode */}
+      {isUpdateMode && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: 'var(--admin-surface)', border: '1px solid var(--admin-border)', borderRadius: 8, fontSize: 13 }}>
+          <span className="badge badge-info">Locked scope</span>
+          <span>This import will only update <strong>{scopeLabel}</strong>. It cannot write to any other brand or the organization profile.</span>
+        </div>
+      )}
+
+      {/* Existing brand kit warning */}
+      {kitWarning && (
+        <div style={{ padding: '10px 14px', background: '#fdf0de', border: '1px solid #f0d5a0', borderRadius: 8, fontSize: 13, color: '#92400e' }}>
+          <strong>Existing brand kit found</strong> — importing this brief will replace the current profile, products, and audiences for {scopeLabel}. The existing Campaign Brand Kit will need to be regenerated after import.
+        </div>
+      )}
 
       {/* Step 1 — Brand Brief */}
       <div className="admin-card" style={{ marginBottom: 16 }}>
         <div className="admin-card-title">Step 1 — Import Brand Brief</div>
         <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>
           Paste any brand document — a brief, one-pager, deck notes, or description. BOS will extract brand voice,
-          tone, values, products, and audiences automatically, then write them into {selectedBrandId ? 'the selected brand record' : 'the workspace profile'} for review.
+          tone, values, products, and audiences automatically, then write them into{' '}
+          {isUpdateMode ? `the ${scopeLabel} brand record` : isNewBrand ? `the new ${scopeLabel} brand` : 'the organization profile'}.
         </div>
         <form onSubmit={handleIngest}>
-          <div className="form-group">
-            <label className="label">
-              Brand / Project Name Override <span className="label-hint">optional — leave blank to extract from document</span>
-            </label>
-            <input
-              className="input"
-              value={workspaceName}
-              onChange={e => setWorkspaceName(e.target.value)}
-              placeholder={selectedBrandName ? `Current: ${selectedBrandName}; leave blank to let the brief rename it` : 'e.g. Nexus Labs'}
-              disabled={ingesting}
-            />
-          </div>
+          {isOrg && (
+            <div className="form-group">
+              <label className="label">
+                Organization Name Override <span className="label-hint">optional — leave blank to extract from document</span>
+              </label>
+              <input
+                className="input"
+                value={workspaceName}
+                onChange={e => setWorkspaceName(e.target.value)}
+                placeholder="e.g. Acme Agency"
+                disabled={ingesting}
+              />
+            </div>
+          )}
+          {isUpdateMode && (
+            <div className="form-group">
+              <label className="label">
+                Brand Name Override <span className="label-hint">optional — leave blank to let the brief rename {scopeLabel}</span>
+              </label>
+              <input
+                className="input"
+                value={workspaceName}
+                onChange={e => setWorkspaceName(e.target.value)}
+                placeholder={`Current: ${scopeLabel}; leave blank to keep or extract new name`}
+                disabled={ingesting}
+              />
+            </div>
+          )}
           <div className="form-group">
             <label className="label">Brand Document</label>
             <textarea
@@ -236,7 +588,13 @@ export function AdminOnboarding() {
             className="btn btn-dark"
             disabled={ingesting || !docText.trim()}
           >
-            {ingesting ? 'Processing…' : selectedBrandId ? 'Update Brand Profile' : 'Create Workspace Profile'}
+            {ingesting
+              ? 'Processing…'
+              : isUpdateMode
+                ? `Update ${scopeLabel} Profile`
+                : isNewBrand
+                  ? `Create ${scopeLabel} and Import Brief`
+                  : 'Create Organization Profile'}
           </button>
         </form>
       </div>
@@ -250,7 +608,7 @@ export function AdminOnboarding() {
           </span>
         </div>
         <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 12 }}>
-          Required before launching the first campaign. It stores the basic color palette, tone of voice, typography, campaign components, and platform consistency rules as a tagged PostgreSQL document.
+          Required before launching the first campaign. It stores the basic color palette, tone of voice, typography, campaign components, and platform consistency rules as a tagged document.
         </div>
         {brandKit ? (
           <div>
@@ -262,8 +620,11 @@ export function AdminOnboarding() {
               <button className="btn btn-secondary btn-sm" onClick={handleCopyBrandKit}>
                 {kitCopied ? 'Copied' : 'Copy Markdown'}
               </button>
-              <button className="btn btn-secondary btn-sm" onClick={() => selectedBrandId ? navigate(`/admin/brands/${selectedBrandId}`) : navigate('/admin/workspace')}>
-                {selectedBrandId ? 'Open Brand →' : 'Open in Workspace →'}
+              <button
+                className="btn btn-secondary btn-sm"
+                onClick={() => (isUpdateMode || isNewBrand) && targetBrandId ? navigate(`/admin/brands/${targetBrandId}`) : navigate('/admin/workspace')}
+              >
+                {(isUpdateMode || isNewBrand) && targetBrandId ? 'Open Brand →' : 'Open in Workspace →'}
               </button>
               {brandKit.status !== 'approved' && (
                 <button className="btn btn-dark btn-sm" onClick={handleApproveBrandKit} disabled={kitBusy}>
@@ -291,7 +652,7 @@ export function AdminOnboarding() {
           </span>
         </div>
         <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 12 }}>
-          Bring-your-own-key is optional. Add BYOK if you want runs billed directly to your provider account; otherwise the workspace can use connected login/platform access where available.
+          Bring-your-own-key is optional. Add BYOK if you want runs billed directly to your provider account.
         </div>
         <div style={{ marginBottom: 12 }}>
           {providers.length === 0 ? (
@@ -327,7 +688,14 @@ export function AdminOnboarding() {
             </div>
           )}
         </div>
-        <button className="btn btn-secondary btn-sm" onClick={() => navigate('/admin/providers', { state: selectedBrandId ? { brand_id: selectedBrandId, brand_name: selectedBrandName } : undefined })}>
+        <button
+          className="btn btn-secondary btn-sm"
+          onClick={() => navigate('/admin/providers', {
+            state: (isUpdateMode || isNewBrand) && targetBrandId
+              ? { brand_id: targetBrandId, brand_name: targetBrandName || newBrandName }
+              : undefined,
+          })}
+        >
           Manage BYOK / Provider Access →
         </button>
       </div>
