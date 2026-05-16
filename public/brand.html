@@ -31,6 +31,7 @@
   --text-dark:    #1C1208;
   --jf: 'Josefin Sans', sans-serif;
   --in: 'Inter', sans-serif;
+  --max: 960px;
 }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: var(--ivory); font-family: var(--in); color: var(--text-dark); -webkit-font-smoothing: antialiased; }
@@ -39,7 +40,7 @@ body { background: var(--ivory); font-family: var(--in); color: var(--text-dark)
 .system-banner {
   background: var(--obsidian);
   border-bottom: 0.5px solid var(--border-dark);
-  padding: 9px 56px;
+  padding: 9px 48px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -65,12 +66,12 @@ body { background: var(--ivory); font-family: var(--in); color: var(--text-dark)
 .system-banner-back:hover { color: var(--ivory); }
 
 /* UTILS */
-.container { max-width: 100%; padding: 0 56px; }
-.section { padding: 80px 56px; }
-.section-alt { padding: 80px 56px; background: var(--ivory-mid); border-top: 0.5px solid var(--border-light); border-bottom: 0.5px solid var(--border-light); }
-.section-dark { padding: 80px 56px; background: var(--obsidian); }
+.container { max-width: var(--max); margin: 0 auto; padding: 0; }
+.section { padding: 80px 48px; max-width: calc(var(--max) + 96px); margin: 0 auto; }
+.section-alt { padding: 80px max(48px, calc((100% - var(--max)) / 2)); background: var(--ivory-mid); border-top: 0.5px solid var(--border-light); border-bottom: 0.5px solid var(--border-light); }
+.section-dark { padding: 80px max(48px, calc((100% - var(--max)) / 2)); background: var(--obsidian); }
 .eyebrow { font-family: var(--in); font-size: 10px; font-weight: 500; letter-spacing: .14em; text-transform: uppercase; color: var(--gold); margin-bottom: 14px; }
-.rule { height: 0.5px; background: var(--border-light); margin: 0 56px; }
+.rule { height: 0.5px; background: var(--border-light); max-width: calc(var(--max) + 96px); margin: 0 auto; }
 .rule-dark { height: 0.5px; background: var(--border-dark); }
 h1.display { font-family: var(--jf); font-weight: 700; font-size: 48px; line-height: 1.08; letter-spacing: -.01em; color: var(--green); }
 h2.title { font-family: var(--jf); font-weight: 700; font-size: 28px; line-height: 1.15; letter-spacing: .01em; color: var(--green); margin-bottom: 8px; }
@@ -80,7 +81,7 @@ p.lead-sm { font-family: var(--in); font-size: 13px; line-height: 1.75; color: v
 /* COVER */
 .cover {
   background: var(--green);
-  padding: 80px 56px 72px;
+  padding: 80px max(48px, calc((100% - var(--max)) / 2)) 72px;
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
@@ -164,7 +165,7 @@ p.lead-sm { font-family: var(--in); font-size: 13px; line-height: 1.75; color: v
 .color-dot { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
 
 /* BRAND VOICE STRIP */
-.voice-strip { background: var(--green); padding: 32px 56px; display: flex; gap: 0; }
+.voice-strip { background: var(--green); padding: 32px max(48px, calc((100% - var(--max)) / 2)); display: flex; gap: 0; }
 .voice-item { flex: 1; padding: 0 28px; border-right: 0.5px solid rgba(245,241,232,.12); }
 .voice-item:first-child { padding-left: 0; }
 .voice-item:last-child { border-right: none; }
@@ -174,8 +175,9 @@ p.lead-sm { font-family: var(--in); font-size: 13px; line-height: 1.75; color: v
 /* RESPONSIVE */
 @media (max-width: 768px) {
   .system-banner { padding: 9px 20px; }
-  .section, .section-alt, .section-dark { padding: 48px 20px; }
-  .rule { margin: 0 20px; }
+  .section { padding: 48px 20px; max-width: none; }
+  .section-alt, .section-dark { padding: 48px 20px; }
+  .rule { margin: 0 20px; max-width: none; }
   .cover { padding: 48px 20px 40px; flex-direction: column; align-items: flex-start; gap: 24px; }
   .cover-h1 { font-size: 36px; }
   .cover-right { text-align: left; }
@@ -694,7 +696,7 @@ p.lead-sm { font-family: var(--in); font-size: 13px; line-height: 1.75; color: v
 </section>
 
 <!-- FOOTER -->
-<div style="background:var(--obsidian);padding:40px 56px;border-top:0.5px solid var(--border-dark);display:flex;justify-content:space-between;align-items:center">
+<div style="background:var(--obsidian);padding:40px max(48px, calc((100% - var(--max)) / 2));border-top:0.5px solid var(--border-dark);display:flex;justify-content:space-between;align-items:center">
   <div>
     <div style="font-family:var(--jf);font-weight:700;font-size:13px;letter-spacing:.22em;text-transform:uppercase;color:var(--ivory);margin-bottom:5px">Klaroha</div>
     <div style="font-family:var(--in);font-size:11px;font-style:italic;color:var(--gold)">Marketing, Engineered for Clarity.</div>
@@ -705,7 +707,7 @@ p.lead-sm { font-family: var(--in); font-size: 13px; line-height: 1.75; color: v
     Racing Green · Warm Gold · Obsidian · Ivory
   </div>
 </div>
-<div style="background:var(--obsidian);padding:12px 56px 16px;text-align:center;font-family:var(--in);font-size:10px;color:rgba(245,241,232,0.18);letter-spacing:0.04em;border-top:1px solid rgba(255,255,255,0.04)">
+<div style="background:var(--obsidian);padding:12px 48px 16px;text-align:center;font-family:var(--in);font-size:10px;color:rgba(245,241,232,0.18);letter-spacing:0.04em;border-top:1px solid rgba(255,255,255,0.04)">
   Generated by Klaroha BOS
 </div>
 

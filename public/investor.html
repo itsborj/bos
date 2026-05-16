@@ -21,6 +21,7 @@
   --ms: #A59674;
   --fh: 'Josefin Sans', sans-serif;
   --fb: 'Inter', sans-serif;
+  --max: 960px;
 }
 html, body { height: 100%; overflow: hidden; font-family: var(--fb); background: var(--iv); color: var(--rg); }
 
@@ -111,7 +112,7 @@ body:hover .nav-btn { opacity: 0.35; }
 /* ── Content slide (Ivory bg — default) ── */
 .content {
   background: var(--iv);
-  padding: 60px 96px 72px;
+  padding: 60px max(96px, calc((100% - var(--max)) / 2)) 72px;
   justify-content: center;
 }
 .content .slide-label {
@@ -161,7 +162,7 @@ body:hover .nav-btn { opacity: 0.35; }
 .quote-slide {
   background: var(--ob);
   align-items: center; justify-content: center; text-align: center;
-  padding: 80px 120px;
+  padding: 80px max(120px, calc((100% - var(--max)) / 2));
 }
 .quote-slide .quote-mark {
   font-family: var(--fh); font-size: 64px; color: var(--wg);
