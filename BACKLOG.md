@@ -380,6 +380,17 @@
 - [x] CLICKUP PLUGIN: Full workspace coverage — removed `CLICKUP_DEFAULT_LIST_ID` from required credentials; `tasks.read` traverses all spaces/folders/lists and returns workspace-wide status grouped by space; `tasks.create` resolves target list from `brief["list_id"]` or `brief["list_name"]`, returns available lists if neither provided. v0.1.1.
 - [x] CLICKUP PLUGIN: Exported full BOS backlog (642 tasks) to ClickUp Development list with phase/section context and status mapping ([x]→shipped, [ ]→backlog, [~]→in development, [!]→blocked, [-]→cancelled).
 
+### Multi-Dev Pipeline (2026-05-16)
+- [x] INFRA: Host nginx deployed as edge router — routes hq.klaroha.com → prod Docker nginx (8090), staging.klaroha.com → staging Docker nginx (8080), unknown hosts rejected (444)
+- [x] INFRA: Production Docker nginx moved from port 80 to 8090; both domains live and isolated with separate DBs
+- [x] INFRA: `docker-compose.staging.yml` deployed to server; staging stack live at staging.klaroha.com with isolated `bos_staging` DB
+- [x] INFRA: GitHub Actions CI end-to-end verified — `Test & lint` (33/33) passes, `Deploy → staging` auto-deploys on push to staging branch
+- [x] BUG: 8 stale test files importing from deleted `capabilities.marketing.channel` path removed from `api/tests/`
+- [x] BUG: `test_brand_guidelines.py` had stale template path assertion (`brand_guidelines.j2` → `brand_guidelines/template.j2`) and section name mismatch (`Platform Rules` → `Multi-Platform Rules`)
+- [x] INFRA: Dev 2 (@kibanu) added as plugin specialist — GitHub collaborator with Write access, CODEOWNERS scoped to `api/plugins/`
+- [x] BUG: Production Docker nginx cached stale API container IP after rebuild; fixed by `docker compose restart nginx`
+- [x] BUG: Production and staging API keys lost after stack restarts; bootstrapped fresh keys for both environments
+
 ### Testing
 - [x] BUG: `api/tests/test_google_ads_skill_routing.py` imports removed chat intent helper `_has_diagnostic_intent`; updated stale test to SKILL.md/manifest-driven routing contract
 - [x] FEATURE: Create launch-sequencing skill (PLF-style launch orchestration, v1.0.0)
