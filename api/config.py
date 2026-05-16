@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     google_client_id: str = ""
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/social/gmail/callback"
+    google_calendar_redirect_uri: str = ""
 
     # Frontend base URL — used to redirect after OAuth callbacks
     frontend_url: str = "http://localhost"

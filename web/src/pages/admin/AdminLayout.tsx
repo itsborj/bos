@@ -8,6 +8,7 @@ const NAV_SECTIONS = [
       { to: '/admin/brands',     label: 'Brands / Clients', icon: '⊞' },
       { to: '/admin/onboarding', label: 'Import Brief',     icon: '✦' },
       { to: '/admin/campaigns',  label: 'Campaign Plans',   icon: '◷' },
+      { to: '/admin/calendar',   label: 'Scheduling',       icon: '📅' },
     ],
   },
   {

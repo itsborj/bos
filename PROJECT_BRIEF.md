@@ -2,8 +2,8 @@
 ## Unified Project Brief
 
 **Date:** 2026-05-16  
-**Status:** Phase 3 in progress — Workspace artifact plane hardening, CMO-in-pocket operating model, plugin-owned channel specialists, LLM-driven capability dispatch; multi-dev pipeline fully operational (CI/CD, staging, prod isolation, Dev 2 onboarded); domain structure live (hq.klaroha.com = Command Hub, staging.klaroha.com = staging, klaroha.com = public marketing/investor pages)  
-**Version:** 3.23 (Multi-dev pipeline operational)  
+**Status:** Phase 3 in progress — Workspace artifact plane hardening, CMO-in-pocket operating model, plugin-owned channel specialists, LLM-driven capability dispatch; multi-dev pipeline fully operational (CI/CD, staging, prod isolation, Dev 2 onboarded); domain structure live (hq.klaroha.com = Command Hub, staging.klaroha.com = staging, klaroha.com = public marketing/investor pages); Google Calendar Booking plugin live  
+**Version:** 3.24 (Google Calendar Booking plugin)  
 
 > **MANDATORY READING:** Before any new system update, feature build, or architectural change, read `BITE.md`. It is both the Business Implementation by Example methodology and the BOS architecture constitution for minimal core, plugin/package extensibility, SKILL.md ownership, live manifests, MCP boundaries, lifecycle hooks, and command registration.
 ---
@@ -48,6 +48,7 @@
 | 3.20 | 2026-05-15 | **Per-capability dev notes + bug sweep:** Introduced co-located `*_notes.md` files as the regression prevention system for each capability/plugin. Each notes file captures invariants, fixed bugs with the pattern that caused them, do-nots, and a short local backlog. Master `BACKLOG.md` remains core BOS only; plugin regressions stay in their plugin's notes file. Bug fixes this session: (1) named-brand mention in chat no longer overrides a persisted brand_id without explicit switch intent (`_BRAND_SWITCH_INTENT_RE`); (2) revision runs now carry `brand_id` into `_execute_module()` (were getting `brand_id=NULL`); (3) Google Ads RSA headlines no longer cut mid-word — `_clip()` now truncates at word boundary. `api/routers/chat_notes.md` and `api/plugins/google-ads/plugin_notes.md` are the first two notes files. |
 | 3.21 | 2026-05-15 | **Multi-dev workflow + domain structure:** Established full multi-dev engineering workflow. Domain structure: `hq.klaroha.com` = BOS Command Hub (internal); `staging.klaroha.com` = staging stack; `klaroha.com` = reserved for public Astro marketing site (Parking Lot). Infrastructure created: `.github/workflows/ci.yml` (pytest + banned-pattern guardrails on PR, SSH auto-deploy to staging on staging branch push, production on main push); `CODEOWNERS` (api/plugins/ scoped to Dev 2 + main dev, core paths main dev only); `docker-compose.staging.yml` (ports 8080/8001/5174, isolated bos_staging DB). CMS platforms (WordPress, Webflow, Shopify) parked as plugin publish targets following same model as Gmail/Google Ads. Pending server-side: Cloudflare DNS records, SSH deploy key setup, GitHub secrets, branch protection rules, non-root SSH lockdown. |
 | 3.23 | 2026-05-16 | **Multi-dev pipeline operational:** All server-side infrastructure live. Host nginx deployed as edge router — `hq.klaroha.com` → prod stack (port 8090), `staging.klaroha.com` → staging stack (port 8080), unknown hosts rejected. CI/CD fully verified end-to-end: 33/33 tests pass, push to `staging` branch auto-deploys to staging.klaroha.com. Dev 2 (@kibanu) onboarded as plugin specialist with Write access scoped to `api/plugins/` via CODEOWNERS. GitHub secrets and branch protection pending GitHub Team upgrade for enforcement. Plugin architecture documented as WordPress/VS Code model — separate `bos-plugins` repo pattern identified for contractor access without core exposure. |
+| 3.24 | 2026-05-16 | **Google Calendar Booking plugin:** First scheduling plugin added (`api/plugins/google-calendar/`). OAuth uses same Google app as Gmail — no new env vars for deploying orgs; calendar redirect URI auto-derives from `GOOGLE_REDIRECT_URI`. New models: `CalendarPage` (booking page settings per brand) + `CalendarBooking` (appointments). New router `/calendar/`: 5 authenticated endpoints (page CRUD, bookings list/cancel) + 3 public endpoints (availability, booking form, embeddable HTML widget). Availability engine checks existing bookings + Google Calendar FreeBusy API; creates Google Calendar events and sends Gmail confirmation on booking. Widget served at `/api/calendar/book/{slug}` — clients embed as an iframe. `FRONTEND_URL` local dev bug fixed: was `http://localhost` (port 80, nothing listening); corrected to `http://localhost:8090`. |
 
 ---
 
@@ -64,11 +65,12 @@
 ```
 BOS core (api/capabilities/)             Channel plugins (api/plugins/)
 ─────────────────────────────────────    ──────────────────────────────────
-workspace/  ← CMO, plan mode, approval   gmail/      ← outreach draft (BYOK SMTP)
-onboarding/ ← brand setup, brand kit     gmail-auth/ ← send + receive (OAuth/brand)
-copywriting/← shared copy principles     google-ads/ ← paid search read/draft now; full-control roadmap
-workflows/  ← operational checklists     search-console/ ← next marketing.optimize plugin target
-                                         test_stub/  ← test harness
+workspace/  ← CMO, plan mode, approval   gmail/           ← outreach draft (BYOK SMTP)
+onboarding/ ← brand setup, brand kit     gmail-auth/      ← send + receive (OAuth/brand)
+copywriting/← shared copy principles     google-ads/      ← paid search read/draft now; full-control roadmap
+workflows/  ← operational checklists     search-console/  ← SEO signals, marketing.optimize
+                                         google-calendar/ ← booking pages, availability, iframe widget
+                                         test_stub/       ← test harness
 ```
 
 **Why the boundary matters:**

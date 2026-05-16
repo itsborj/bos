@@ -353,4 +353,46 @@ export const api = {
 
   deletePluginCredentials: (pluginId: string) =>
     request<void>(`/plugins/${encodeURIComponent(pluginId)}/credentials`, { method: 'DELETE' }),
+
+  listCalendarPages: (brand_id?: string) =>
+    request<import('./types').CalendarPageResponse[]>(
+      `/calendar/pages${brand_id ? `?brand_id=${brand_id}` : ''}`
+    ),
+
+  createCalendarPage: (body: {
+    brand_id?: string;
+    connection_id?: string;
+    slug: string;
+    title: string;
+    description?: string;
+    duration_minutes?: number;
+    buffer_minutes?: number;
+    timezone?: string;
+    max_days_ahead?: number;
+    is_active?: boolean;
+  }) =>
+    request<import('./types').CalendarPageResponse>('/calendar/pages', {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  updateCalendarPage: (pageId: string, body: Partial<{ title: string; description: string; duration_minutes: number; buffer_minutes: number; timezone: string; max_days_ahead: number; is_active: boolean; connection_id: string }>) =>
+    request<import('./types').CalendarPageResponse>(`/calendar/pages/${pageId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  deleteCalendarPage: (pageId: string) =>
+    request<{ status: string }>(`/calendar/pages/${pageId}`, { method: 'DELETE' }),
+
+  listBookings: (page_id?: string, brand_id?: string) => {
+    const params = new URLSearchParams();
+    if (page_id) params.set('page_id', page_id);
+    if (brand_id) params.set('brand_id', brand_id);
+    const qs = params.toString();
+    return request<import('./types').BookingResponse[]>(`/calendar/bookings${qs ? `?${qs}` : ''}`);
+  },
+
+  cancelBooking: (bookingId: string) =>
+    request<{ status: string }>(`/calendar/bookings/${bookingId}`, { method: 'DELETE' }),
 };

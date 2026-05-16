@@ -645,6 +645,27 @@ Deferred to Phase 4.
 - [x] BUG: gmail send dispatched from chat with empty brief (no to/subject/body) — module would fail; added `_extract_email_fields()` to parse recipient from USER messages and email body from most recent AI message in conversation context before dispatching
 - [x] BUG: `inject_channel_credentials` skipped credential lookup when brand_id=None (no @klar brand active in chat) — plugin modules always failed with "missing OAuth access token"; fixed by auto-resolving: query social_connections for the first connected brand for the required platform; also added `access_token` as an explicit credential alias alongside `page_token`
 
+### Google Calendar OAuth + Admin Scheduling UI (2026-05-16)
+**Architecture:** Brand-scoped Google Calendar OAuth. Each brand connects its own Google account via PKCE OAuth2. Tokens stored encrypted with refresh in token_meta_json. Booking pages and bookings managed via `/calendar/` router.
+- [x] `provider_auth.py`: GoogleCalendarOAuthHandler — PKCE OAuth2, calendar-only scopes (`calendar openid email`), token exchange, userinfo fetch, refresh_auth
+- [x] `provider_auth.py`: GOOGLE_CALENDAR_REDIRECT_URI auto-derived from GOOGLE_REDIRECT_URI when not set
+- [x] `routers/social.py`: GET /social/google-calendar/callback — validates session, completes login, stores SocialConnection(platform="google_calendar")
+- [x] `routers/social.py`: renamed `_admin_brands_redirect` → `_admin_connectors_redirect` — all OAuth callbacks now land at `/admin/connectors`
+- [x] `nginx.conf`: added `/social/` and `/calendar/` proxy blocks — OAuth callbacks must hit nginx, not direct API port
+- [x] `.env.example`: added GOOGLE_CALENDAR_REDIRECT_URI
+- [x] `web/src/api/types.ts`: CalendarPageResponse, BookingResponse interfaces
+- [x] `web/src/api/client.ts`: listCalendarPages, createCalendarPage, updateCalendarPage, deleteCalendarPage, listBookings, cancelBooking
+- [x] `web/AdminBrands.tsx`: Google Calendar connect/disconnect row per brand card; google_calendar URL param handling + toasts
+- [x] `web/AdminCalendar.tsx` (new): full scheduling page — booking page CRUD, duration/timezone/slug config, booking list with cancel
+- [x] `web/AdminLayout.tsx`: Scheduling nav item added (Business section)
+- [x] `web/App.tsx`: /admin/calendar route added
+- [x] `web/AdminConnectors.tsx`: major rewrite — read-only OAuth connection summary with "Manage in Brands →" link; plugin connectors unchanged below
+- [x] BUG FIX: `_GOOGLE_CALENDAR_SCOPES` included `gmail.send` — Google silently rejects Calendar redirect URI when Gmail scopes are included; fixed by removing `gmail.send`, leaving only `calendar openid email`
+- [x] BUG FIX: `AdminCalendar.tsx` unused `pageBookings` variable causing tsc build failure
+- [x] BUG FIX: web static build not hot-reloading — documented `docker compose build web && docker compose up -d web` rebuild requirement in CLAUDE.md
+- [ ] SETUP REQUIRED: Add `https://hq.klaroha.com/social/google-calendar/callback` to Google Cloud Console authorized redirect URIs before production use
+- [ ] FUTURE: `calendar.py` `_send_confirm()` uses Gmail API to send booking confirmations — Calendar token lacks `gmail.send` scope; wire through brand's Gmail SocialConnection token instead
+
 ### Channel Cleanup + CMO Architecture (2026-05-12)
 - [x] ARCH: Removed all Facebook capabilities — capabilities/, plugins/facebook/, providers/facebook.py, FacebookPageOAuthHandler, config fields, social router endpoints (/facebook/callback, /facebook/publish, select-page), connector registry entry, 7 test files
 - [x] ARCH: Removed all Twitter capabilities — capabilities/marketing/channel/twitter/, related test files

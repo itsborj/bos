@@ -244,9 +244,107 @@ class GmailOAuthHandler:
         )
 
 
+_GOOGLE_CALENDAR_SCOPES = "https://www.googleapis.com/auth/calendar openid email"
+
+
+class GoogleCalendarOAuthHandler:
+    provider = "google_calendar"
+    display_name = "Google Calendar"
+
+    async def start_login(self, settings) -> LoginStart:
+        if not settings.google_client_id:
+            raise ValueError("GOOGLE_CLIENT_ID is not configured")
+        if not settings.google_client_secret:
+            raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
+        redirect_uri = settings.google_calendar_redirect_uri or (
+            settings.google_redirect_uri.replace("/social/gmail/callback", "/social/google-calendar/callback")
+        )
+        verifier, challenge = _generate_pkce()
+        state = secrets.token_hex(16)
+        params = {
+            "client_id": settings.google_client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": _GOOGLE_CALENDAR_SCOPES,
+            "access_type": "offline",
+            "prompt": "consent",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": state,
+        }
+        return LoginStart(
+            login_type="browser",
+            authorize_url=f"{_GOOGLE_AUTHORIZE_URL}?{urlencode(params)}",
+            state=state,
+            verifier=verifier,
+            redirect_uri=redirect_uri,
+        )
+
+    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                    "code_verifier": verifier,
+                },
+            )
+            r.raise_for_status()
+            token_data = r.json()
+
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise ValueError("Google token exchange failed — no access_token in response")
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                _GOOGLE_USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            r.raise_for_status()
+            userinfo = r.json()
+
+        expires_in = token_data.get("expires_in", 3600)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=token_data.get("refresh_token"),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+            metadata={"email": userinfo.get("email"), "name": userinfo.get("name")},
+        )
+
+    async def refresh_auth(self, refresh_token: str, settings) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "refresh_token": refresh_token,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+
+        access_token = data.get("access_token")
+        if not access_token:
+            raise ValueError("Google Calendar token refresh failed")
+        expires_in = data.get("expires_in", 3600)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+        )
+
+
 _OAUTH_HANDLERS: dict[str, OAuthProviderHandler] = {
     "openai": OpenAICodexOAuthHandler(),
     "gmail": GmailOAuthHandler(),
+    "google_calendar": GoogleCalendarOAuthHandler(),
 }
 
 

@@ -1,10 +1,12 @@
 from .api_key import ApiKey
 from .backend import ExecutionBackendOverride
+from .calendar import CalendarBooking, CalendarPage
 from .capability import Capability, ModelOption
 from .document import WorkspaceDocument
 from .intent import CampaignIntent, IntentContract, ModuleCriterion
 from .provider import ProviderKey, ProviderLoginSession
 from .run import Run, RunAttempt, RunResult, RunTrace
+from .social import SocialConnection
 from .stream import StreamUpdate
 from .workspace import Audience, Brand, Campaign, Product, Workspace
 
@@ -29,4 +31,7 @@ __all__ = [
     "CampaignIntent",
     "ModuleCriterion",
     "StreamUpdate",
+    "SocialConnection",
+    "CalendarPage",
+    "CalendarBooking",
 ]

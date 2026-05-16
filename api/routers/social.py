@@ -6,7 +6,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, HTTPException
+import logging
+
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -22,6 +24,7 @@ from provider_auth import encrypt_secret, decrypt_secret, get_oauth_handler
 from routers.workspace import get_singleton
 
 router = APIRouter(prefix="/social", tags=["social"])
+logger = logging.getLogger("bos.social")
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -52,11 +55,11 @@ class SelectPageRequest(BaseModel):
     page_id: str
 
 
-def _admin_brands_redirect(frontend: str, **params: str | None) -> RedirectResponse:
+def _admin_connectors_redirect(frontend: str, **params: str | None) -> RedirectResponse:
     clean = {k: v for k, v in params.items() if v is not None and v != ""}
     qs = urlencode(clean)
     suffix = f"?{qs}" if qs else ""
-    return RedirectResponse(url=f"{frontend}/admin/brands{suffix}")
+    return RedirectResponse(url=f"{frontend}/admin/connectors{suffix}")
 
 
 # ── Start OAuth ───────────────────────────────────────────────────────────────
@@ -132,7 +135,7 @@ async def gmail_callback(
     frontend = settings.frontend_url.rstrip("/")
 
     if error or not code:
-        return _admin_brands_redirect(frontend, gmail="denied", reason=error or "no_code")
+        return _admin_connectors_redirect(frontend, gmail="denied", reason=error or "no_code")
 
     session = (await db.execute(
         select(ProviderLoginSession).where(
@@ -142,7 +145,7 @@ async def gmail_callback(
     )).scalar_one_or_none()
 
     if not session:
-        return _admin_brands_redirect(frontend, gmail="error", reason="session_not_found")
+        return _admin_connectors_redirect(frontend, gmail="error", reason="session_not_found")
 
     raw = decrypt_secret(session.verifier_encrypted, settings)
     stored_verifier, brand_id = (raw.split("|", 1) + [""])[:2]
@@ -161,14 +164,14 @@ async def gmail_callback(
     except Exception:
         await db.delete(session)
         await db.commit()
-        return _admin_brands_redirect(frontend, gmail="error", reason="token_exchange_failed")
+        return _admin_connectors_redirect(frontend, gmail="error", reason="token_exchange_failed")
 
     metadata = credential.metadata or {}
     email = metadata.get("email", "")
     if not email:
         await db.delete(session)
         await db.commit()
-        return _admin_brands_redirect(frontend, gmail="error", reason="no_email_returned")
+        return _admin_connectors_redirect(frontend, gmail="error", reason="no_email_returned")
 
     token_meta = None
     if credential.refresh_token:
@@ -188,7 +191,83 @@ async def gmail_callback(
     await _store_connection(db, ws.id, brand_id or None, settings, "gmail", page)
     await db.delete(session)
     await db.commit()
-    return _admin_brands_redirect(frontend, gmail="connected", brand_id=brand_id, account=email)
+    return _admin_connectors_redirect(frontend, gmail="connected", brand_id=brand_id, account=email)
+
+
+# ── Google Calendar OAuth Callback ───────────────────────────────────────────
+
+@router.get("/google-calendar/callback")
+async def google_calendar_callback(
+    request: Request,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    logger.info("Calendar callback received — code=%r state=%r error=%r all_params=%s",
+                code[:8] + "..." if code else "", state[:8] + "..." if state else "", error,
+                dict(request.query_params))
+    frontend = settings.frontend_url.rstrip("/")
+
+    if error or not code:
+        return _admin_connectors_redirect(frontend, google_calendar="denied", reason=error or "no_code")
+
+    session = (await db.execute(
+        select(ProviderLoginSession).where(
+            ProviderLoginSession.provider == "google_calendar",
+            ProviderLoginSession.state == state,
+        )
+    )).scalar_one_or_none()
+
+    if not session:
+        return _admin_connectors_redirect(frontend, google_calendar="error", reason="session_not_found")
+
+    raw = decrypt_secret(session.verifier_encrypted, settings)
+    stored_verifier, brand_id = (raw.split("|", 1) + [""])[:2]
+
+    ws = await get_singleton(db)
+    handler = get_oauth_handler("google_calendar")
+
+    try:
+        credential = await handler.complete_login(
+            code,
+            settings,
+            state=session.state,
+            verifier=stored_verifier,
+            redirect_uri=session.redirect_uri,
+        )
+    except Exception:
+        await db.delete(session)
+        await db.commit()
+        return _admin_connectors_redirect(frontend, google_calendar="error", reason="token_exchange_failed")
+
+    metadata = credential.metadata or {}
+    email = metadata.get("email", "")
+    if not email:
+        await db.delete(session)
+        await db.commit()
+        return _admin_connectors_redirect(frontend, google_calendar="error", reason="no_email_returned")
+
+    token_meta = None
+    if credential.refresh_token:
+        token_meta = {
+            "refresh_token_encrypted": encrypt_secret(credential.refresh_token, settings),
+            "expires_at": credential.expires_at.isoformat() if credential.expires_at else None,
+        }
+
+    page = {
+        "id": email,
+        "access_token": credential.access_token,
+        "name": metadata.get("name") or email,
+        "username": email,
+        "token_meta": token_meta,
+    }
+
+    await _store_connection(db, ws.id, brand_id or None, settings, "google_calendar", page)
+    await db.delete(session)
+    await db.commit()
+    return _admin_connectors_redirect(frontend, google_calendar="connected", brand_id=brand_id, account=email)
 
 
 # ── List connections ──────────────────────────────────────────────────────────

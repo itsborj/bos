@@ -326,3 +326,32 @@ export interface SocialPageOption {
   page_name: string | null;
   page_handle: string | null;
 }
+
+export interface CalendarPageResponse {
+  id: string;
+  workspace_id: string;
+  brand_id: string | null;
+  connection_id: string | null;
+  slug: string;
+  title: string;
+  description: string | null;
+  duration_minutes: number;
+  buffer_minutes: number;
+  working_hours_json: Record<string, { start: string; end: string }> | null;
+  timezone: string;
+  max_days_ahead: number;
+  is_active: boolean;
+  embed_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface BookingResponse {
+  id: string;
+  attendee_name: string;
+  attendee_email: string;
+  start_at: string;
+  end_at: string;
+  status: string;
+  created_at: string;
+}
