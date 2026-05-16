@@ -2,8 +2,8 @@
 ## Unified Project Brief
 
 **Date:** 2026-05-15  
-**Status:** Phase 3 in progress — Workspace artifact plane hardening, CMO-in-pocket operating model, plugin-owned channel specialists, LLM-driven capability dispatch; multi-dev workflow infrastructure established; domain structure settled (hq.klaroha.com = Command Hub, staging.klaroha.com = staging, klaroha.com reserved for public Astro site)  
-**Version:** 3.21 (Multi-dev workflow + domain structure)  
+**Status:** Phase 3 in progress — Workspace artifact plane hardening, CMO-in-pocket operating model, plugin-owned channel specialists, LLM-driven capability dispatch; multi-dev workflow infrastructure established; domain structure live (hq.klaroha.com = Command Hub, staging.klaroha.com = staging, klaroha.com = public marketing/investor pages)  
+**Version:** 3.22 (Public site live on klaroha.com)  
 
 > **MANDATORY READING:** Before any new system update, feature build, or architectural change, read `BITE.md`. It is both the Business Implementation by Example methodology and the BOS architecture constitution for minimal core, plugin/package extensibility, SKILL.md ownership, live manifests, MCP boundaries, lifecycle hooks, and command registration.
 ---
