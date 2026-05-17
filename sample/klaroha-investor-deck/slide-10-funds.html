@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Klaroha — Use of Funds</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --obsidian: #080B0D; --gunmetal: #171D20; --border: #2E383D;
+  --teal: #055C71; --petrol: #073A47; --ivory: #F5F1E8;
+  --soft-ivory: #E6DED0; --stone: #AFA89C; --bronze: #B08A57; --green: #1F7A4D;
+}
+html, body { width: 100%; height: 100%; background: #050708; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.wrapper { width: 1920px; height: 1080px; transform-origin: center center; flex-shrink: 0; }
+.slide { width: 1920px; height: 1080px; background: var(--obsidian); position: relative; overflow: hidden; }
+.line-top { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--teal); }
+.line-bottom { position: absolute; bottom: 88px; left: 88px; right: 88px; height: 1px; background: var(--border); }
+.bg-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(46,56,61,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(46,56,61,0.5) 1px, transparent 1px); background-size: 96px 96px; opacity: 0.05; }
+
+.header { position: absolute; top: 64px; left: 120px; right: 120px; display: flex; justify-content: space-between; align-items: baseline; }
+.slide-id { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--teal); }
+
+.title-block { position: absolute; top: 116px; left: 120px; }
+.section-title { font-family: 'DM Serif Display', serif; font-size: 52px; color: var(--ivory); letter-spacing: -0.02em; }
+.section-sub { font-family: 'DM Sans', sans-serif; font-size: 16px; font-weight: 300; color: var(--stone); margin-top: 10px; max-width: 700px; }
+
+/* Main allocation grid */
+.alloc-grid { position: absolute; top: 264px; left: 120px; right: 120px; display: grid; grid-template-columns: repeat(3, 1fr) 320px; gap: 12px; height: 360px; }
+
+.alloc-card { background: var(--gunmetal); border: 1px solid var(--border); padding: 36px 40px; display: flex; flex-direction: column; }
+.alloc-card.primary { border-top: 2px solid var(--bronze); }
+.alloc-card.secondary { border-top: 2px solid var(--teal); }
+
+.alloc-amount { font-family: 'DM Serif Display', serif; font-size: 44px; color: var(--bronze); letter-spacing: -0.02em; line-height: 1; margin-bottom: 8px; }
+.alloc-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--teal); margin-bottom: 16px; }
+.alloc-rule { width: 24px; height: 1px; background: var(--border); margin-bottom: 16px; }
+.alloc-desc { font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 300; color: var(--stone); line-height: 1.6; flex: 1; }
+.alloc-items { margin-top: 16px; display: flex; flex-direction: column; gap: 5px; }
+.alloc-item { font-family: 'DM Sans', sans-serif; font-size: 12px; font-weight: 300; color: var(--stone); opacity: 0.75; }
+.alloc-item::before { content: '— '; color: var(--border); }
+
+.alloc-total { background: var(--petrol); border: 1px solid var(--teal); padding: 36px 40px; display: flex; flex-direction: column; justify-content: center; }
+.total-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--teal); margin-bottom: 16px; }
+.total-amount { font-family: 'DM Serif Display', serif; font-size: 64px; color: var(--ivory); letter-spacing: -0.03em; line-height: 0.9; margin-bottom: 12px; }
+.total-note { font-family: 'DM Sans', sans-serif; font-size: 13px; font-weight: 300; color: var(--stone); line-height: 1.55; }
+
+/* Milestone timeline */
+.milestones { position: absolute; top: 660px; left: 120px; right: 120px; }
+.mile-label { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--stone); opacity: 0.5; margin-bottom: 20px; }
+.mile-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+.mile-card { background: var(--gunmetal); border: 1px solid var(--border); padding: 20px 28px; display: flex; gap: 20px; align-items: flex-start; }
+.mile-month { font-family: 'JetBrains Mono', monospace; font-size: 12px; color: var(--teal); letter-spacing: 0.12em; flex-shrink: 0; margin-top: 2px; }
+.mile-text { font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 300; color: var(--stone); line-height: 1.5; }
+.mile-text strong { color: var(--soft-ivory); font-weight: 400; }
+
+.bottom-meta { position: absolute; bottom: 48px; left: 120px; right: 120px; display: flex; justify-content: space-between; }
+.page-id { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--stone); opacity: 0.4; }
+</style>
+</head>
+<body>
+<div class="wrapper" id="wrapper">
+  <div class="slide">
+    <div class="bg-grid"></div>
+    <div class="line-top"></div>
+    <div class="line-bottom"></div>
+
+    <div class="header">
+      <div class="slide-id">10 / Use of Funds</div>
+    </div>
+
+    <div class="title-block">
+      <div class="section-title">Where $175,000 goes.</div>
+      <div class="section-sub">Sized to cover the cash deficit trough (~$120K at Month 9) with buffer. Revenue covers operations from Month 12 onward.</div>
+    </div>
+
+    <div class="alloc-grid">
+      <div class="alloc-card primary">
+        <div class="alloc-amount">$40K</div>
+        <div class="alloc-label">Product Completion · M1–6</div>
+        <div class="alloc-rule"></div>
+        <div class="alloc-desc">Distribution-ready product — vertical qualification flows, branch routing, mobile CMO interface, HQ dashboard.</div>
+        <div class="alloc-items">
+          <div class="alloc-item">Vertical qualification flow builder</div>
+          <div class="alloc-item">Branch and agent routing engine</div>
+          <div class="alloc-item">Performance visibility dashboard</div>
+          <div class="alloc-item">Mobile-first CMO interface</div>
+        </div>
+      </div>
+
+      <div class="alloc-card secondary">
+        <div class="alloc-amount">$60K</div>
+        <div class="alloc-label">Team Build · PH Core · M7–12</div>
+        <div class="alloc-rule"></div>
+        <div class="alloc-desc">First developer, customer success hire, and founder salary normalization toward market rate.</div>
+        <div class="alloc-items">
+          <div class="alloc-item">PH Full-Stack Developer #1</div>
+          <div class="alloc-item">PH Customer Success Rep</div>
+          <div class="alloc-item">Founder stipend normalization</div>
+        </div>
+      </div>
+
+      <div class="alloc-card secondary">
+        <div class="alloc-amount">$30K</div>
+        <div class="alloc-label">Market Development · M7–12</div>
+        <div class="alloc-rule"></div>
+        <div class="alloc-desc">AU/UK SDR hire, one to two in-market trips, and category partnership outreach.</div>
+        <div class="alloc-items">
+          <div class="alloc-item">AU/UK Sales Development Rep</div>
+          <div class="alloc-item">1–2 in-market trips</div>
+          <div class="alloc-item">Category partnership outreach</div>
+        </div>
+      </div>
+
+      <div class="alloc-total">
+        <div class="total-label">Total Raise</div>
+        <div class="total-amount">$175,000</div>
+        <div class="total-note">$45K remaining covers infrastructure ($20K), entity setup and legal ($8K), and operating reserve ($17K).</div>
+      </div>
+    </div>
+
+    <div class="milestones">
+      <div class="mile-label">Hard milestones before capital is deployed</div>
+      <div class="mile-row">
+        <div class="mile-card">
+          <div class="mile-month">M06</div>
+          <div class="mile-text"><strong>Product distribution-ready.</strong> Vertical qualification flows and branch routing for real estate or mortgage. Ten pilot deployments running.</div>
+        </div>
+        <div class="mile-card">
+          <div class="mile-month">M09</div>
+          <div class="mile-text"><strong>Ten paying organizations confirmed.</strong> First network contract (5+ locations) in negotiation.</div>
+        </div>
+        <div class="mile-card">
+          <div class="mile-month">M12</div>
+          <div class="mile-text"><strong>Thirty paying organizations · $300K+ ARR.</strong> AU or UK go-to-market motion validated. Seed round preparation begins.</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-meta">
+      <div class="page-id">Klaroha · Pre-Seed 2026 · Confidential</div>
+      <div class="page-id">10</div>
+    </div>
+  </div>
+</div>
+<script>
+function scale() { const w = document.getElementById('wrapper'); const s = Math.min(window.innerWidth/1920, window.innerHeight/1080); w.style.transform=`scale(${s})`; }
+scale(); window.addEventListener('resize', scale);
+</script>
+</body>
+</html>

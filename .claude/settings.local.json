@@ -142,7 +142,8 @@
       "Bash(git *)",
       "Bash(nginx -v)",
       "Bash(gh run *)",
-      "Bash(conda run *)"
+      "Bash(conda run *)",
+      "Read(//tmp/**)"
     ]
   }
 }
