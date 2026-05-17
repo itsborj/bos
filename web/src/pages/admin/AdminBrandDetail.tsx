@@ -444,6 +444,7 @@ function ProjectManagementTab({ brand, onUpdate }: { brand: BrandResponse; onUpd
   const [plugin, setPlugin]                 = useState(existing.plugin || 'channel.clickup');
   const [syncEnabled, setSyncEnabled]       = useState(existing.sync_enabled);
   const [listId, setListId]                 = useState(existing.list_id || '');
+  const [teamId, setTeamId]                 = useState(existing.team_id || '');
   const [pendingStatus, setPendingStatus]   = useState(existing.status_map?.pending || 'review');
   const [approvedStatus, setApprovedStatus] = useState(existing.status_map?.approved || 'complete');
   const [rejectedStatus, setRejectedStatus] = useState(existing.status_map?.rejected || 'revise');
@@ -463,6 +464,7 @@ function ProjectManagementTab({ brand, onUpdate }: { brand: BrandResponse; onUpd
           plugin,
           sync_enabled: syncEnabled,
           list_id: listId.trim(),
+          ...(teamId.trim() ? { team_id: teamId.trim() } : {}),
           status_map: { pending: pendingStatus, approved: approvedStatus, rejected: rejectedStatus },
         },
       });
@@ -523,6 +525,19 @@ function ProjectManagementTab({ brand, onUpdate }: { brand: BrandResponse; onUpd
             onChange={e => setListId(e.target.value)}
             placeholder={activePlugin.list_id_placeholder}
             disabled={!syncEnabled}
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="label" htmlFor="pm-team-id">
+            Workspace ID <span className="label-hint">optional — override if this brand uses a different ClickUp workspace</span>
+          </label>
+          <input
+            id="pm-team-id"
+            className="input"
+            value={teamId}
+            onChange={e => setTeamId(e.target.value)}
+            placeholder="e.g. 90161625082 — from app.clickup.com/{ID}/..."
           />
         </div>
 

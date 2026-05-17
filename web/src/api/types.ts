@@ -290,6 +290,7 @@ export interface PmConfig {
   plugin: string;
   sync_enabled: boolean;
   list_id: string;
+  team_id?: string;
   status_map: { pending: string; approved: string; rejected: string };
 }
 

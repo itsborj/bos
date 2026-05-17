@@ -238,6 +238,22 @@ async def inject_channel_credentials(
             if env_val:
                 credentials[var.lower()] = env_val
 
+    # Inject per-brand pm_config (team_id, list_id) so plugin modules can scope reads/writes
+    if brand_id and credentials:
+        try:
+            from models.brand import Brand as _Brand
+            from sqlalchemy import select as _sel
+            _brand = (await db.execute(_sel(_Brand).where(_Brand.id == brand_id))).scalar_one_or_none()
+            if _brand:
+                _pm = (_brand.brand_json or {}).get("pm_config") or {}
+                if _pm.get("team_id"):
+                    credentials["pm_team_id"] = _pm["team_id"]
+                    credentials["clickup_team_id"] = _pm["team_id"]  # override workspace-level default
+                if _pm.get("list_id"):
+                    credentials["pm_list_id"] = _pm["list_id"]
+        except Exception:
+            pass
+
     if credentials:
         return {**brief, "_channel_credentials": credentials}
     return brief
