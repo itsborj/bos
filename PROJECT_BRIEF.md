@@ -1,9 +1,9 @@
 # BOS — Business Operating System
 ## Unified Project Brief
 
-**Date:** 2026-05-16  
+**Date:** 2026-05-18  
 **Status:** Phase 3 in progress — Workspace artifact plane hardening, CMO-in-pocket operating model, plugin-owned channel specialists, LLM-driven capability dispatch; multi-dev pipeline fully operational (CI/CD, staging, prod isolation, Dev 2 onboarded); domain structure live (hq.klaroha.com = Command Hub, staging.klaroha.com = staging, klaroha.com = public marketing/investor pages); Google Calendar Booking plugin live  
-**Version:** 3.24 (Google Calendar Booking plugin)  
+**Version:** 3.26 (Backlog → ClickUp sync documented as build process)  
 
 > **MANDATORY READING:** Before any new system update, feature build, or architectural change, read `BITE.md`. It is both the Business Implementation by Example methodology and the BOS architecture constitution for minimal core, plugin/package extensibility, SKILL.md ownership, live manifests, MCP boundaries, lifecycle hooks, and command registration.
 ---
@@ -49,6 +49,7 @@
 | 3.21 | 2026-05-15 | **Multi-dev workflow + domain structure:** Established full multi-dev engineering workflow. Domain structure: `hq.klaroha.com` = BOS Command Hub (internal); `staging.klaroha.com` = staging stack; `klaroha.com` = reserved for public Astro marketing site (Parking Lot). Infrastructure created: `.github/workflows/ci.yml` (pytest + banned-pattern guardrails on PR, SSH auto-deploy to staging on staging branch push, production on main push); `CODEOWNERS` (api/plugins/ scoped to Dev 2 + main dev, core paths main dev only); `docker-compose.staging.yml` (ports 8080/8001/5174, isolated bos_staging DB). CMS platforms (WordPress, Webflow, Shopify) parked as plugin publish targets following same model as Gmail/Google Ads. Pending server-side: Cloudflare DNS records, SSH deploy key setup, GitHub secrets, branch protection rules, non-root SSH lockdown. |
 | 3.23 | 2026-05-16 | **Multi-dev pipeline operational:** All server-side infrastructure live. Host nginx deployed as edge router — `hq.klaroha.com` → prod stack (port 8090), `staging.klaroha.com` → staging stack (port 8080), unknown hosts rejected. CI/CD fully verified end-to-end: 33/33 tests pass, push to `staging` branch auto-deploys to staging.klaroha.com. Dev 2 (@kibanu) onboarded as plugin specialist with Write access scoped to `api/plugins/` via CODEOWNERS. GitHub secrets and branch protection pending GitHub Team upgrade for enforcement. Plugin architecture documented as WordPress/VS Code model — separate `bos-plugins` repo pattern identified for contractor access without core exposure. |
 | 3.24 | 2026-05-16 | **Google Calendar Booking plugin:** First scheduling plugin added (`api/plugins/google-calendar/`). OAuth uses same Google app as Gmail — no new env vars for deploying orgs; calendar redirect URI auto-derives from `GOOGLE_REDIRECT_URI`. New models: `CalendarPage` (booking page settings per brand) + `CalendarBooking` (appointments). New router `/calendar/`: 5 authenticated endpoints (page CRUD, bookings list/cancel) + 3 public endpoints (availability, booking form, embeddable HTML widget). Availability engine checks existing bookings + Google Calendar FreeBusy API; creates Google Calendar events and sends Gmail confirmation on booking. Widget served at `/api/calendar/book/{slug}` — clients embed as an iframe. `FRONTEND_URL` local dev bug fixed: was `http://localhost` (port 80, nothing listening); corrected to `http://localhost:8090`. |
+| 3.26 | 2026-05-18 | **Backlog → ClickUp sync as build process:** `BACKLOG.md` is the source of truth; `Klaroha BOS` ClickUp list mirrors it for team visibility. Sync script at `api/plugins/clickup/scripts/sync_backlog.py` — idempotent, creates missing tasks, updates changed statuses, rate-limited to stay under ClickUp's 100 req/min cap. Documented in Section 9 (Technical Reference). Distinct from the product-level ClickUp plugin (`tasks.create`/`tasks.read` for client org workflows — app users never touch the backlog sync). |
 | 3.25 | 2026-05-17 | **Import Brief scope gate + Getting Started banner:** AdminOnboarding now requires a scope selection step before the form — first-time users choose org vs brand; returning users pick from existing brands or create new. New brand imports create the Brand row first, then pass `brand_id` to ingest — workspace-level slot (`brand_id=NULL`) is never touched. Scope lock badge shown in update mode. Getting Started banner added to all admin pages; uses `workspace_configured && campaign_brand_kit_approved` instead of `all_ready` (which also checks module routing). `brand_profile_configured` in onboarding status now accepts `brand_json` on any Brand row, not only `ws.brand_json`. Deployment ops documented: two stacks (`bos` + `staging`) run from `~/bos/` using `docker-compose.yml` and `docker-compose.staging.yml`; correct deploy commands and known pitfalls captured in `git.md`. |
 
 ---
@@ -719,6 +720,40 @@ Every renderable unit (e.g., `PerformanceReport`) is a self-contained component:
 ### Deployment Operations
 
 Both stacks run on one VDS from `~/bos/` using different compose files. Production (`hq.klaroha.com`) uses `docker-compose.yml` with project name `bos`; staging (`staging.klaroha.com`) uses `docker-compose.staging.yml` with project name `staging`. See **`git.md`** for the full deploy runbook, correct commands, and lessons from known pitfalls (wrong stack, divergent branches, cached builds).
+
+### Backlog → ClickUp Sync
+
+`BACKLOG.md` is the source of truth for BOS development tasks. ClickUp (`Klaroha BOS` list) mirrors it for team visibility. These are two separate concerns:
+
+- **BOS build tracking** — `BACKLOG.md` → ClickUp (`Klaroha BOS` list). Internal dev workflow only. App users never see or interact with this.
+- **Client/org marketing ops** — CMO artifact plane → brand's ClickUp via the ClickUp plugin (`tasks.create`, `tasks.read`). Product-level workflow; no BACKLOG.md involved.
+
+**Running the sync** (run from `~/bos/` on the host):
+
+```bash
+export CLICKUP_API_TOKEN=pk_...
+export CLICKUP_TEAM_ID=90161582949
+
+# Dry run — see what would change without applying
+python3 api/plugins/clickup/scripts/sync_backlog.py --dry-run --list "Klaroha BOS"
+
+# Apply
+python3 api/plugins/clickup/scripts/sync_backlog.py --list "Klaroha BOS"
+```
+
+Credentials are stored encrypted in the BOS database (`provider_keys` table, `provider = 'plugin.channel.clickup'`). Decrypt with `ENCRYPTION_KEY` from `.env` using `cryptography.fernet.Fernet` if you need to retrieve them outside the app.
+
+**Status mapping** (matches ClickUp custom statuses in the `Klaroha BOS` list):
+
+| `BACKLOG.md` | ClickUp status |
+|---|---|
+| `[x]` | `shipped` |
+| `[~]` | `in development` |
+| `[!]` | `blocked` → falls back to `backlog` if list has no blocked status |
+| `[-]` | `cancelled` |
+| `[ ]` | `backlog` |
+
+Run this sync whenever a significant batch of tasks is completed or added. The script is idempotent — tasks already in sync are skipped.
 
 ### Directory Layout
 - `api/capabilities/{vertical}/{domain}/{task}/`: First-party, non-channel capability packages. Each executable package contains `SKILL.md`, `module.py`, `template.j2`, and optional resources/validators. Marketing job-level packages should align to `marketing.plan`, `marketing.execute`, and `marketing.optimize` where possible.
