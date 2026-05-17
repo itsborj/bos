@@ -144,6 +144,12 @@ def _extract_scope_directive(text: str) -> tuple[dict[str, str], str]:
                     scope[normalized] = value.strip().strip('"\'')
                     continue
             in_scope = False
+        else:
+            # LLM sometimes emits scope keys without SCOPE: prefix — strip those too
+            inline_pairs = _parse_scope_pairs(stripped)
+            if inline_pairs and all(k in _SCOPE_KEYS for k in inline_pairs):
+                scope.update(inline_pairs)
+                continue
         kept.append(line)
 
     return scope, "\n".join(kept)

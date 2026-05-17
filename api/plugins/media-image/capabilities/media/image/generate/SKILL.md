@@ -45,11 +45,11 @@ metadata:
 
 ## When to activate
 
-Activate when the user explicitly asks to generate, create, or produce an image or visual asset from a description or prompt. Also activate when another capability requests an image asset as part of its workflow.
+Activate when the user asks for any image or visual asset — with or without a specific description. The module auto-generates a prompt from the active brand brief (product, tone, audience) when no explicit prompt is provided. Dispatch immediately; do not ask the user for a prompt or image type before dispatching.
 
 ## When NOT to activate
 
-Do not activate for text generation, copywriting, or content requests that do not involve visual media. Do not activate if no prompt or description is provided.
+Do not activate for text generation, copywriting, or content requests that do not involve visual media.
 
 ## Output contract
 
