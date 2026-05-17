@@ -344,7 +344,7 @@ class GoogleCalendarOAuthHandler:
 _FACEBOOK_AUTHORIZE_URL = "https://www.facebook.com/dialog/oauth"
 _FACEBOOK_TOKEN_URL = "https://graph.facebook.com/oauth/access_token"
 _FACEBOOK_GRAPH_URL = "https://graph.facebook.com/v21.0"
-_FACEBOOK_SCOPES = "pages_show_list,pages_read_engagement,pages_manage_posts,pages_read_user_content"
+_FACEBOOK_SCOPES = "pages_show_list,pages_manage_posts"
 
 
 class FacebookOAuthHandler:
