@@ -339,6 +339,15 @@ export const api = {
       body: JSON.stringify({ session_id, page_id }),
     }),
 
+  facebookPendingPages: (session_id: string) =>
+    request<{ pages: { id: string; name: string }[] }>(`/social/facebook/pending-pages?session_id=${session_id}`),
+
+  facebookSelectPage: (session_id: string, page_id: string) =>
+    request<{ status: string; page_id: string; page_name: string }>('/social/facebook/select-page', {
+      method: 'POST',
+      body: JSON.stringify({ session_id, page_id }),
+    }),
+
   disconnectSocial: (connection_id: string) =>
     request<{ status: string }>(`/social/connections/${connection_id}`, { method: 'DELETE' }),
 

@@ -53,6 +53,8 @@ export function AdminBrands() {
     }).finally(() => setLoading(false));
   }, []);
 
+  const [fbPendingSession, setFbPendingSession] = useState<{ sessionId: string; pages: { id: string; name: string }[] } | null>(null);
+
   // Handle OAuth callback params from installed connector redirects.
   useEffect(() => {
     const gc = searchParams.get('google_calendar');
@@ -83,6 +85,27 @@ export function AdminBrands() {
       } else {
         const reason = searchParams.get('reason') || 'unknown';
         showToast(`⚠️ Gmail connection failed — ${reason.replace(/_/g, ' ')}`);
+      }
+    }
+    const fb = searchParams.get('facebook');
+    if (fb) {
+      setSearchParams({}, { replace: true });
+      if (fb === 'connected') {
+        const account = searchParams.get('account') || 'Facebook page';
+        showToast(`✅ Facebook "${account}" connected`);
+        api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
+      } else if (fb === 'select_page') {
+        const sessionId = searchParams.get('session_id') || '';
+        if (sessionId) {
+          api.facebookPendingPages(sessionId)
+            .then(res => setFbPendingSession({ sessionId, pages: res.pages }))
+            .catch(() => showToast('⚠️ Could not load Facebook pages — try connecting again'));
+        }
+      } else if (fb === 'denied') {
+        showToast('Facebook connection cancelled');
+      } else {
+        const reason = searchParams.get('reason') || 'unknown';
+        showToast(`⚠️ Facebook connection failed — ${reason.replace(/_/g, ' ')}`);
       }
     }
   }, []);
@@ -125,6 +148,45 @@ export function AdminBrands() {
       setError(e instanceof Error ? e.message : 'Could not seed from workspace');
     } finally {
       setSeeding(false);
+    }
+  }
+
+  async function handleConnectFacebook(brandId: string) {
+    setConnectingId(brandId + '_facebook');
+    try {
+      const res = await api.startSocialConnect(brandId, 'facebook');
+      window.location.href = res.authorize_url;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'check META_APP_ID in settings';
+      showToast(`⚠️ Could not start Facebook connect — ${msg}`);
+    } finally {
+      setConnectingId(null);
+    }
+  }
+
+  async function handleDisconnectFacebook(brandId: string) {
+    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'facebook');
+    if (!conn) return;
+    if (!window.confirm(`Disconnect Facebook page "${conn.page_name}"?`)) return;
+    try {
+      await api.disconnectSocial(conn.id);
+      setConnections(prev => prev.filter(c => c.id !== conn.id));
+      showToast('Facebook page disconnected');
+    } catch {
+      showToast('⚠️ Could not disconnect — try again');
+    }
+  }
+
+  async function handleSelectFacebookPage(pageId: string) {
+    if (!fbPendingSession) return;
+    try {
+      await api.facebookSelectPage(fbPendingSession.sessionId, pageId);
+      const page = fbPendingSession.pages.find(p => p.id === pageId);
+      setFbPendingSession(null);
+      showToast(`✅ Facebook "${page?.name || pageId}" connected`);
+      api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
+    } catch {
+      showToast('⚠️ Could not connect page — try again');
     }
   }
 
@@ -242,6 +304,30 @@ export function AdminBrands() {
         </div>
       )}
 
+      {fbPendingSession && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div className="admin-card" style={{ width: 360, margin: 0, padding: 24 }}>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 6 }}>Select a Facebook Page</div>
+            <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>
+              Your account manages multiple pages. Choose which one to connect to this brand.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {fbPendingSession.pages.map(p => (
+                <button
+                  key={p.id}
+                  className="btn btn-secondary"
+                  style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+                  onClick={() => handleSelectFacebookPage(p.id)}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+            <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => setFbPendingSession(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
       {brands.length === 0 && !adding ? (
         <div className="admin-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>⊞</div>
@@ -326,8 +412,31 @@ export function AdminBrands() {
                 {(() => {
                   const gmConn = connections.find(c => c.brand_id === brand.id && c.platform === 'gmail');
                   const gcConn = connections.find(c => c.brand_id === brand.id && c.platform === 'google_calendar');
+                  const fbConn = connections.find(c => c.brand_id === brand.id && c.platform === 'facebook');
                   return (
                     <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <span style={{ fontSize: 13 }}>📘</span>
+                        {fbConn ? (
+                          <>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{fbConn.page_name || fbConn.page_id}</span>
+                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectFacebook(brand.id)}>Disconnect</button>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>Facebook Page</span>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: 11, padding: '3px 10px' }}
+                              onClick={() => handleConnectFacebook(brand.id)}
+                              disabled={connectingId === brand.id + '_facebook'}
+                            >
+                              {connectingId === brand.id + '_facebook' ? 'Redirecting…' : 'Connect'}
+                            </button>
+                          </>
+                        )}
+                      </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
                         <span style={{ fontSize: 13 }}>✉️</span>
                         {gmConn ? (

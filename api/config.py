@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     google_redirect_uri: str = "http://localhost:8000/social/gmail/callback"
     google_calendar_redirect_uri: str = ""
 
+    # Meta (Facebook / Instagram) OAuth
+    meta_app_id: str = ""
+    meta_app_secret: str = ""
+    meta_redirect_uri: str = "http://localhost/social/facebook/callback"
+
     # Frontend base URL — used to redirect after OAuth callbacks
     frontend_url: str = "http://localhost"
 

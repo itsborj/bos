@@ -705,6 +705,27 @@ Deferred to Phase 4.
 - [x] DOC: Updated PROJECT_BRIEF.md to v3.8 — channel table, CMO Capability Registry section, version/status, decision log
 - [x] DOC: Updated BACKLOG.md with all 2026-05-12 architectural changes
 
+### Meta Plugin — Phase 1: Facebook Page + Posts (2026-05-18)
+**Architecture:** Plugin-native Meta integration. `api/plugins/meta/` follows same channel plugin pattern as ClickUp/Gmail. OAuth uses `FacebookOAuthHandler` in provider_auth.py. Credentials injected via `inject_channel_credentials` from `social_connections` table. No providers/facebook.py — all API calls are in module.py files using urllib.request only.
+- [x] Migration 026: widen `provider_login_sessions.verifier_encrypted` from VARCHAR(1024) to Text (needed for multi-page JSON storage in OAuth session)
+- [x] `api/config.py`: add `meta_app_id`, `meta_app_secret`, `meta_redirect_uri` settings
+- [x] `api/provider_auth.py`: `FacebookOAuthHandler` — step 1: exchange code → short-lived token; step 2: exchange → long-lived user token (60d); step 3: GET /me/accounts for pages + IG account IDs; registered as "facebook" in _OAUTH_HANDLERS
+- [x] `api/routers/social.py`: `_admin_brands_redirect()` helper; `GET /social/facebook/callback` — auto-selects if 1 page, stores pages in session if multiple; `GET /social/facebook/pending-pages` — returns page list for session; `POST /social/facebook/select-page` — completes connection for selected page
+- [x] `api/plugins/meta/channel.json`: plugin manifest v0.1.0, `requires_social_connection: ["facebook"]`, 4 capability IDs
+- [x] `api/plugins/meta/capabilities/.../pages/read/`: `module.py` + `SKILL.md` — read-only page inventory via GET /{page_id}?fields=name,category,fan_count,...
+- [x] `api/plugins/meta/capabilities/.../posts/read/`: `module.py` + `SKILL.md` — GET /{page_id}/posts, last 25 posts with engagement metrics
+- [x] `api/plugins/meta/capabilities/.../posts/draft/`: `module.py` + `SKILL.md` + `template.j2` — LLM drafts post copy using brand voice/tone; returns `fb_page_post_draft` via `_build_block`
+- [x] `api/plugins/meta/capabilities/.../posts/publish/`: `module.py` + `SKILL.md` — approval-gated POST /{page_id}/feed; returns `fb_page_post_result`
+- [x] `.env.example`: Meta OAuth vars documented with setup instructions and redirect URI examples
+- [x] `web/src/pages/admin/AdminBrands.tsx`: Facebook connect/disconnect row per brand card; multi-page picker modal; callback param handling (`facebook=connected/denied/error/select_page`)
+- [x] `web/src/api/client.ts`: `facebookPendingPages()`, `facebookSelectPage()` methods
+- [ ] SETUP REQUIRED: Create Meta Developer App at developers.facebook.com → add Facebook Login → register redirect URI → add META_APP_ID + META_APP_SECRET to .env; go through App Review for production publish scope (`pages_manage_posts`)
+- [ ] Migration 026 must be run on staging + production: `cd api && alembic upgrade head`
+- [ ] TEST: connect a brand's Facebook page end-to-end — OAuth → page selection → SocialConnection row stored
+- [ ] TEST: CMO chat → "show my facebook page" → `meta_page_inventory` artifact
+- [ ] TEST: CMO chat → "draft a facebook post about X" → `fb_page_post_draft` artifact in Workspace
+- [ ] TEST: approve draft → "publish this" → `fb_page_post_result` artifact, post live on page
+
 ## Phase 6 — Full-Stack Marketing Automation
 > Goal: replace every role in a marketing department. CMO orchestrates. Plugins are the specialists. Owner approves decisions. BOS remembers what worked.
 

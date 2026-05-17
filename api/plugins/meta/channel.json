@@ -1,0 +1,21 @@
+{
+  "plugin_id": "channel.meta",
+  "name": "Meta Channel",
+  "version": "0.1.0",
+  "klaroha_min_version": "3.5",
+  "capabilities_root": "capabilities/",
+  "implements": ["marketing.execute", "marketing.optimize"],
+  "specialty": ["facebook_pages", "facebook_posts", "instagram", "social_media", "content_publishing"],
+  "platforms": ["facebook", "instagram"],
+  "connector_protocol": "meta_graph_api_v21",
+  "risk_policy": "read_is_read_only; publish_is_approval_gated; draft_is_draft_only",
+  "output_contracts": ["meta_page_inventory", "meta_page_posts", "fb_page_post_draft", "fb_page_post_result"],
+  "requires_social_connection": ["facebook"],
+  "requires_platform_vars": [],
+  "capability_ids": [
+    "marketing.channel.meta.pages.read",
+    "marketing.channel.meta.posts.read",
+    "marketing.channel.meta.posts.draft",
+    "marketing.channel.meta.posts.publish"
+  ]
+}

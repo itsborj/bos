@@ -341,10 +341,111 @@ class GoogleCalendarOAuthHandler:
         )
 
 
+_FACEBOOK_AUTHORIZE_URL = "https://www.facebook.com/dialog/oauth"
+_FACEBOOK_TOKEN_URL = "https://graph.facebook.com/oauth/access_token"
+_FACEBOOK_GRAPH_URL = "https://graph.facebook.com/v21.0"
+_FACEBOOK_SCOPES = "pages_show_list,pages_read_engagement,pages_manage_posts,pages_read_user_content"
+
+
+class FacebookOAuthHandler:
+    provider = "facebook"
+    display_name = "Facebook"
+
+    async def start_login(self, settings) -> LoginStart:
+        if not settings.meta_app_id:
+            raise ValueError("META_APP_ID is not configured")
+        if not settings.meta_app_secret:
+            raise ValueError("META_APP_SECRET is not configured")
+        state = secrets.token_hex(16)
+        params = {
+            "client_id": settings.meta_app_id,
+            "redirect_uri": settings.meta_redirect_uri,
+            "scope": _FACEBOOK_SCOPES,
+            "state": state,
+            "response_type": "code",
+        }
+        return LoginStart(
+            login_type="browser",
+            authorize_url=f"{_FACEBOOK_AUTHORIZE_URL}?{urlencode(params)}",
+            state=state,
+            verifier=state,
+            redirect_uri=settings.meta_redirect_uri,
+        )
+
+    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(
+                _FACEBOOK_TOKEN_URL,
+                params={
+                    "client_id": settings.meta_app_id,
+                    "client_secret": settings.meta_app_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                },
+            )
+            r.raise_for_status()
+            short_data = r.json()
+
+        short_token = short_data.get("access_token")
+        if not short_token:
+            raise ValueError("Facebook token exchange failed — no access_token")
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(
+                _FACEBOOK_TOKEN_URL,
+                params={
+                    "grant_type": "fb_exchange_token",
+                    "client_id": settings.meta_app_id,
+                    "client_secret": settings.meta_app_secret,
+                    "fb_exchange_token": short_token,
+                },
+            )
+            r.raise_for_status()
+            long_data = r.json()
+
+        long_token = long_data.get("access_token")
+        if not long_token:
+            raise ValueError("Facebook long-lived token exchange failed")
+
+        expires_in = long_data.get("expires_in", 5184000)
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(
+                f"{_FACEBOOK_GRAPH_URL}/me/accounts",
+                params={
+                    "fields": "id,name,access_token,instagram_business_account",
+                    "access_token": long_token,
+                },
+            )
+            r.raise_for_status()
+            accounts = r.json()
+
+        pages = [
+            {
+                "id": p["id"],
+                "name": p.get("name", p["id"]),
+                "access_token": p.get("access_token", ""),
+                "ig_account_id": (p.get("instagram_business_account") or {}).get("id"),
+            }
+            for p in accounts.get("data", [])
+        ]
+
+        return OAuthCredential(
+            access_token=long_token,
+            refresh_token=None,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+            metadata={"pages": pages},
+        )
+
+    async def refresh_auth(self, refresh_token: str, settings) -> OAuthCredential:
+        raise NotImplementedError("Facebook Page Access Tokens do not expire — refresh is not supported")
+
+
 _OAUTH_HANDLERS: dict[str, OAuthProviderHandler] = {
     "openai": OpenAICodexOAuthHandler(),
     "gmail": GmailOAuthHandler(),
     "google_calendar": GoogleCalendarOAuthHandler(),
+    "facebook": FacebookOAuthHandler(),
 }
 
 

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -60,6 +61,13 @@ def _admin_connectors_redirect(frontend: str, **params: str | None) -> RedirectR
     qs = urlencode(clean)
     suffix = f"?{qs}" if qs else ""
     return RedirectResponse(url=f"{frontend}/admin/connectors{suffix}")
+
+
+def _admin_brands_redirect(frontend: str, **params: str | None) -> RedirectResponse:
+    clean = {k: v for k, v in params.items() if v is not None and v != ""}
+    qs = urlencode(clean)
+    suffix = f"?{qs}" if qs else ""
+    return RedirectResponse(url=f"{frontend}/admin/brands{suffix}")
 
 
 # ── Start OAuth ───────────────────────────────────────────────────────────────
@@ -268,6 +276,154 @@ async def google_calendar_callback(
     await db.delete(session)
     await db.commit()
     return _admin_connectors_redirect(frontend, google_calendar="connected", brand_id=brand_id, account=email)
+
+
+# ── Facebook OAuth Callback ───────────────────────────────────────────────────
+
+@router.get("/facebook/callback")
+async def facebook_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    frontend = settings.frontend_url.rstrip("/")
+
+    if error or not code:
+        return _admin_brands_redirect(frontend, facebook="denied", reason=error or "no_code")
+
+    session = (await db.execute(
+        select(ProviderLoginSession).where(
+            ProviderLoginSession.provider == "facebook",
+            ProviderLoginSession.state == state,
+        )
+    )).scalar_one_or_none()
+
+    if not session:
+        return _admin_brands_redirect(frontend, facebook="error", reason="session_not_found")
+
+    raw = decrypt_secret(session.verifier_encrypted, settings)
+    _, brand_id = (raw.split("|", 1) + [""])[:2]
+
+    handler = get_oauth_handler("facebook")
+
+    try:
+        credential = await handler.complete_login(
+            code,
+            settings,
+            state=session.state,
+            verifier=session.state,
+            redirect_uri=session.redirect_uri,
+        )
+    except Exception:
+        await db.delete(session)
+        await db.commit()
+        return _admin_brands_redirect(frontend, facebook="error", reason="token_exchange_failed")
+
+    pages = (credential.metadata or {}).get("pages", [])
+
+    if not pages:
+        await db.delete(session)
+        await db.commit()
+        return _admin_brands_redirect(frontend, facebook="error", reason="no_pages_found")
+
+    ws = await get_singleton(db)
+
+    if len(pages) == 1:
+        page = pages[0]
+        await _store_connection(db, ws.id, brand_id or None, settings, "facebook", {
+            "id": page["id"],
+            "name": page["name"],
+            "access_token": page["access_token"],
+            "username": None,
+            "token_meta": {"ig_account_id": page.get("ig_account_id")},
+        })
+        await db.delete(session)
+        await db.commit()
+        return _admin_brands_redirect(frontend, facebook="connected", brand_id=brand_id, account=page["name"])
+
+    # Multiple pages: store pages in session for user selection
+    session.verifier_encrypted = encrypt_secret(
+        json.dumps({"brand_id": brand_id or "", "pages": pages}), settings
+    )
+    await db.commit()
+    return _admin_brands_redirect(frontend, facebook="select_page", session_id=str(session.id))
+
+
+@router.get("/facebook/pending-pages", dependencies=[Depends(require_api_key)])
+async def facebook_pending_pages(
+    session_id: str,
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    try:
+        sid = uuid.UUID(session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail={"error": {"code": "INVALID_SESSION", "message": "Invalid session_id", "details": None}})
+
+    session = (await db.execute(
+        select(ProviderLoginSession).where(
+            ProviderLoginSession.id == sid,
+            ProviderLoginSession.provider == "facebook",
+        )
+    )).scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(status_code=404, detail={"error": {"code": "SESSION_NOT_FOUND", "message": "Session not found or expired", "details": None}})
+
+    try:
+        data = json.loads(decrypt_secret(session.verifier_encrypted, settings))
+        pages = data.get("pages", [])
+    except Exception:
+        raise HTTPException(status_code=400, detail={"error": {"code": "SESSION_CORRUPT", "message": "Could not read session data", "details": None}})
+
+    return {"pages": [{"id": p["id"], "name": p["name"]} for p in pages]}
+
+
+@router.post("/facebook/select-page", dependencies=[Depends(require_api_key)])
+async def facebook_select_page(
+    body: SelectPageRequest,
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    try:
+        sid = uuid.UUID(body.session_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail={"error": {"code": "INVALID_SESSION", "message": "Invalid session_id", "details": None}})
+
+    session = (await db.execute(
+        select(ProviderLoginSession).where(
+            ProviderLoginSession.id == sid,
+            ProviderLoginSession.provider == "facebook",
+        )
+    )).scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(status_code=404, detail={"error": {"code": "SESSION_NOT_FOUND", "message": "Session not found or expired", "details": None}})
+
+    try:
+        data = json.loads(decrypt_secret(session.verifier_encrypted, settings))
+        brand_id = data.get("brand_id") or None
+        pages = data.get("pages", [])
+    except Exception:
+        raise HTTPException(status_code=400, detail={"error": {"code": "SESSION_CORRUPT", "message": "Could not read session data", "details": None}})
+
+    page = next((p for p in pages if p["id"] == body.page_id), None)
+    if not page:
+        raise HTTPException(status_code=404, detail={"error": {"code": "PAGE_NOT_FOUND", "message": f"Page {body.page_id!r} not in session", "details": None}})
+
+    ws = await get_singleton(db)
+    await _store_connection(db, ws.id, brand_id, settings, "facebook", {
+        "id": page["id"],
+        "name": page["name"],
+        "access_token": page["access_token"],
+        "username": None,
+        "token_meta": {"ig_account_id": page.get("ig_account_id")},
+    })
+    await db.delete(session)
+    await db.commit()
+    return {"status": "connected", "page_id": page["id"], "page_name": page["name"]}
 
 
 # ── List connections ──────────────────────────────────────────────────────────
