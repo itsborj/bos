@@ -21,8 +21,14 @@ from db import get_db
 from models.provider import ProviderLoginSession
 from models.social import SocialConnection
 from models.workspace import Brand
+from plugin_loader import get_plugin_vars
 from provider_auth import encrypt_secret, decrypt_secret, get_oauth_handler
 from routers.workspace import get_singleton
+
+# Platforms that load OAuth app credentials from plugin vars (DB) rather than .env
+_PLATFORM_PLUGIN_ID: dict[str, str] = {
+    "facebook": "channel.meta",
+}
 
 router = APIRouter(prefix="/social", tags=["social"])
 logger = logging.getLogger("bos.social")
@@ -96,8 +102,11 @@ async def start_social_connect(
     if not brand:
         raise HTTPException(status_code=404, detail={"error": {"code": "BRAND_NOT_FOUND", "message": "Brand not found", "details": None}})
 
+    plugin_id = _PLATFORM_PLUGIN_ID.get(body.platform)
+    plugin_vars = await get_plugin_vars(plugin_id, db, settings) if plugin_id else {}
+
     try:
-        start = await handler.start_login(settings)
+        start = await handler.start_login(settings, overrides=plugin_vars)
     except ValueError as exc:
         raise HTTPException(
             status_code=412,
@@ -307,6 +316,7 @@ async def facebook_callback(
     _, brand_id = (raw.split("|", 1) + [""])[:2]
 
     handler = get_oauth_handler("facebook")
+    plugin_vars = await get_plugin_vars("channel.meta", db, settings)
 
     try:
         credential = await handler.complete_login(
@@ -315,6 +325,7 @@ async def facebook_callback(
             state=session.state,
             verifier=session.state,
             redirect_uri=session.redirect_uri,
+            overrides=plugin_vars,
         )
     except Exception:
         await db.delete(session)

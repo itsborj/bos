@@ -351,15 +351,33 @@ class FacebookOAuthHandler:
     provider = "facebook"
     display_name = "Facebook"
 
-    async def start_login(self, settings) -> LoginStart:
-        if not settings.meta_app_id:
-            raise ValueError("META_APP_ID is not configured")
-        if not settings.meta_app_secret:
-            raise ValueError("META_APP_SECRET is not configured")
+    def _app_id(self, settings, overrides: dict) -> str:
+        v = overrides.get("meta_app_id") or overrides.get("META_APP_ID") or settings.meta_app_id
+        if not v:
+            raise ValueError("META_APP_ID not configured — add it via Admin → Plugins → Meta Channel")
+        return v
+
+    def _app_secret(self, settings, overrides: dict) -> str:
+        v = overrides.get("meta_app_secret") or overrides.get("META_APP_SECRET") or settings.meta_app_secret
+        if not v:
+            raise ValueError("META_APP_SECRET not configured — add it via Admin → Plugins → Meta Channel")
+        return v
+
+    def _redirect_uri(self, settings, overrides: dict) -> str:
+        return (
+            overrides.get("meta_redirect_uri")
+            or overrides.get("META_REDIRECT_URI")
+            or settings.meta_redirect_uri
+        )
+
+    async def start_login(self, settings, overrides: dict | None = None) -> LoginStart:
+        overrides = overrides or {}
+        app_id = self._app_id(settings, overrides)
+        redirect_uri = self._redirect_uri(settings, overrides)
         state = secrets.token_hex(16)
         params = {
-            "client_id": settings.meta_app_id,
-            "redirect_uri": settings.meta_redirect_uri,
+            "client_id": app_id,
+            "redirect_uri": redirect_uri,
             "scope": _FACEBOOK_SCOPES,
             "state": state,
             "response_type": "code",
@@ -369,16 +387,20 @@ class FacebookOAuthHandler:
             authorize_url=f"{_FACEBOOK_AUTHORIZE_URL}?{urlencode(params)}",
             state=state,
             verifier=state,
-            redirect_uri=settings.meta_redirect_uri,
+            redirect_uri=redirect_uri,
         )
 
-    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str) -> OAuthCredential:
+    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str, overrides: dict | None = None) -> OAuthCredential:
+        overrides = overrides or {}
+        app_id = self._app_id(settings, overrides)
+        app_secret = self._app_secret(settings, overrides)
+
         async with httpx.AsyncClient(timeout=20.0) as client:
             r = await client.get(
                 _FACEBOOK_TOKEN_URL,
                 params={
-                    "client_id": settings.meta_app_id,
-                    "client_secret": settings.meta_app_secret,
+                    "client_id": app_id,
+                    "client_secret": app_secret,
                     "redirect_uri": redirect_uri,
                     "code": code,
                 },
@@ -395,8 +417,8 @@ class FacebookOAuthHandler:
                 _FACEBOOK_TOKEN_URL,
                 params={
                     "grant_type": "fb_exchange_token",
-                    "client_id": settings.meta_app_id,
-                    "client_secret": settings.meta_app_secret,
+                    "client_id": app_id,
+                    "client_secret": app_secret,
                     "fb_exchange_token": short_token,
                 },
             )
