@@ -226,12 +226,17 @@ async def inject_channel_credentials(
                         credentials["access_token"] = token
                         first = False
 
-    if manifest.requires_platform_vars:
+    if manifest.requires_platform_vars or True:
         db_vars = await _load_db_plugin_vars(db, manifest.plugin_id, settings)
-        for var in manifest.requires_platform_vars:
-            val = os.getenv(var) or db_vars.get(var) or db_vars.get(var.lower())
+        # Inject all stored DB vars (required + extras like CLICKUP_TEAM_ID saved alongside token)
+        for var, val in db_vars.items():
             if val:
                 credentials[var.lower()] = val
+        # Env var overrides take precedence for declared required vars
+        for var in manifest.requires_platform_vars:
+            env_val = os.getenv(var)
+            if env_val:
+                credentials[var.lower()] = env_val
 
     if credentials:
         return {**brief, "_channel_credentials": credentials}

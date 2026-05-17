@@ -63,6 +63,9 @@ type ConfigModal = {
   fields: Record<string, string>;
 };
 
+type ClickUpStep = 'token' | 'workspace';
+type ClickUpWorkspace = { id: string; name: string };
+
 const OAUTH_PLATFORMS: Record<string, { label: string; icon: string }> = {
   gmail:           { label: 'Gmail',           icon: '✉️' },
   google_calendar: { label: 'Google Calendar', icon: '📅' },
@@ -78,6 +81,12 @@ export function AdminConnectors() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saved, setSaved] = useState<string | null>(null);
+  const [cuStep, setCuStep] = useState<ClickUpStep>('token');
+  const [cuToken, setCuToken] = useState('');
+  const [cuWorkspaces, setCuWorkspaces] = useState<ClickUpWorkspace[]>([]);
+  const [cuSelected, setCuSelected] = useState('');
+  const [cuResolving, setCuResolving] = useState(false);
+  const [cuError, setCuError] = useState('');
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const navigate = useNavigate();
@@ -125,7 +134,31 @@ export function AdminConnectors() {
     plugin.requires_platform_vars.forEach(v => { fields[v] = ''; });
     setSaveError('');
     setSaved(null);
+    if (plugin.plugin_id === 'channel.clickup') {
+      setCuStep('token');
+      setCuToken('');
+      setCuWorkspaces([]);
+      setCuSelected('');
+      setCuError('');
+    }
     setModal({ plugin, fields });
+  }
+
+  async function handleClickUpResolve() {
+    if (!cuToken.trim()) return;
+    setCuResolving(true);
+    setCuError('');
+    try {
+      const { workspaces } = await api.resolvePluginWorkspaces('channel.clickup', cuToken.trim());
+      if (!workspaces.length) { setCuError('No workspaces found for this token.'); return; }
+      setCuWorkspaces(workspaces);
+      setCuSelected(workspaces[0].id);
+      setCuStep('workspace');
+    } catch (e: unknown) {
+      setCuError(e instanceof Error ? e.message : 'Could not reach ClickUp — check your token.');
+    } finally {
+      setCuResolving(false);
+    }
   }
 
   async function handleSave() {
@@ -133,7 +166,10 @@ export function AdminConnectors() {
     setSaving(true);
     setSaveError('');
     try {
-      await api.savePluginCredentials(modal.plugin.plugin_id, modal.fields);
+      const vars = modal.plugin.plugin_id === 'channel.clickup'
+        ? { CLICKUP_API_TOKEN: cuToken.trim(), CLICKUP_TEAM_ID: cuSelected }
+        : modal.fields;
+      await api.savePluginCredentials(modal.plugin.plugin_id, vars);
       setSaved(modal.plugin.plugin_id);
       setModal(null);
       await load();
@@ -213,38 +249,84 @@ export function AdminConnectors() {
             <div style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 20 }}>
               Credentials are encrypted at rest and never returned via API.
             </div>
-            <div style={{ display: 'grid', gap: 16 }}>
-              {modal.plugin.requires_platform_vars.map(varName => {
-                const { label, sensitive, hint } = varLabel(varName);
-                return (
-                  <div key={varName}>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-                      {label}
-                    </label>
-                    {hint && (
-                      <div style={{ color: 'var(--text2)', fontSize: 11, marginBottom: 6 }}>{hint}</div>
-                    )}
+            {modal.plugin.plugin_id === 'channel.clickup' ? (
+              <div style={{ display: 'grid', gap: 16 }}>
+                {cuStep === 'token' && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>API Token</label>
+                    <div style={{ color: 'var(--text2)', fontSize: 11, marginBottom: 6 }}>Get from ClickUp → Settings → Apps → API Token</div>
                     <input
-                      type={sensitive ? 'password' : 'text'}
+                      type="password"
                       className="input"
-                      placeholder={varName}
-                      value={modal.fields[varName] ?? ''}
-                      onChange={e => setModal(m => m ? { ...m, fields: { ...m.fields, [varName]: e.target.value } } : m)}
-                      style={{ width: '100%', fontFamily: sensitive ? 'monospace' : undefined }}
+                      placeholder="pk_..."
+                      value={cuToken}
+                      onChange={e => { setCuToken(e.target.value); setCuError(''); }}
+                      style={{ width: '100%', fontFamily: 'monospace' }}
                       autoComplete="off"
                     />
+                    {cuError && <div style={{ color: 'var(--error)', fontSize: 12, marginTop: 6 }}>{cuError}</div>}
                   </div>
-                );
-              })}
-            </div>
+                )}
+                {cuStep === 'workspace' && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Select Workspace</label>
+                    <div style={{ color: 'var(--text2)', fontSize: 11, marginBottom: 6 }}>Choose the ClickUp workspace to connect.</div>
+                    <select
+                      className="input"
+                      value={cuSelected}
+                      onChange={e => setCuSelected(e.target.value)}
+                      style={{ width: '100%' }}
+                    >
+                      {cuWorkspaces.map(w => (
+                        <option key={w.id} value={w.id}>{w.name} ({w.id})</option>
+                      ))}
+                    </select>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ marginTop: 8, fontSize: 12 }}
+                      onClick={() => { setCuStep('token'); setCuWorkspaces([]); }}
+                    >
+                      ← Use a different token
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 16 }}>
+                {modal.plugin.requires_platform_vars.map(varName => {
+                  const { label, sensitive, hint } = varLabel(varName);
+                  return (
+                    <div key={varName}>
+                      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{label}</label>
+                      {hint && <div style={{ color: 'var(--text2)', fontSize: 11, marginBottom: 6 }}>{hint}</div>}
+                      <input
+                        type={sensitive ? 'password' : 'text'}
+                        className="input"
+                        placeholder={varName}
+                        value={modal.fields[varName] ?? ''}
+                        onChange={e => setModal(m => m ? { ...m, fields: { ...m.fields, [varName]: e.target.value } } : m)}
+                        style={{ width: '100%', fontFamily: sensitive ? 'monospace' : undefined }}
+                        autoComplete="off"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {saveError && (
               <div style={{ color: 'var(--error)', fontSize: 13, marginTop: 12 }}>{saveError}</div>
             )}
             <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving…' : 'Save credentials'}
-              </button>
+              {modal.plugin.plugin_id === 'channel.clickup' && cuStep === 'token' ? (
+                <button className="btn btn-primary" onClick={handleClickUpResolve} disabled={cuResolving || !cuToken.trim()}>
+                  {cuResolving ? 'Fetching…' : 'Fetch Workspaces'}
+                </button>
+              ) : (
+                <button className="btn btn-primary" onClick={handleSave} disabled={saving || (modal.plugin.plugin_id === 'channel.clickup' && !cuSelected)}>
+                  {saving ? 'Saving…' : 'Save credentials'}
+                </button>
+              )}
             </div>
           </div>
         </div>

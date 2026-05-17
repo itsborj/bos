@@ -12,8 +12,9 @@
   "output_contracts": ["clickup_task_status", "clickup_tasks_created"],
   "requires_social_connection": [],
   "requires_platform_vars": [
-    "CLICKUP_API_TOKEN",
-    "CLICKUP_TEAM_ID",
+    "CLICKUP_API_TOKEN"
+  ],
+  "optional_platform_vars": [
     "CLICKUP_WEBHOOK_SECRET"
   ],
   "pm_capabilities": ["tasks.create", "tasks.update"],

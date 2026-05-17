@@ -351,6 +351,12 @@ export const api = {
       body: JSON.stringify({ vars }),
     }),
 
+  resolvePluginWorkspaces: (pluginId: string, apiToken: string) =>
+    request<{ workspaces: { id: string; name: string }[] }>(`/plugins/${encodeURIComponent(pluginId)}/resolve-workspaces`, {
+      method: 'POST',
+      body: JSON.stringify({ api_token: apiToken }),
+    }),
+
   deletePluginCredentials: (pluginId: string) =>
     request<void>(`/plugins/${encodeURIComponent(pluginId)}/credentials`, { method: 'DELETE' }),
 

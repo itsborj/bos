@@ -286,6 +286,90 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, re
       );
     }
 
+    if (result.block?.type === 'clickup_task_status') {
+      const b = result.block as any;
+      const spaceNames: string[] = b.list_index
+        ? [...new Set<string>((b.list_index as any[]).map((l: any) => l.space))]
+        : [];
+      const spaceTaskCounts: Record<string, number> = {};
+      if (b.list_index) {
+        (b.list_index as any[]).forEach((l: any) => {
+          spaceTaskCounts[l.space] = (spaceTaskCounts[l.space] || 0) + (l.count || 0);
+        });
+      }
+      const blocked: any[] = b.blocked || [];
+      const overdue: any[] = b.overdue || [];
+      const inProgress: any[] = b.in_progress || [];
+      const hasAttention = blocked.length > 0 || overdue.length > 0;
+      const buckets = [
+        { label: 'Blocked', count: blocked.length, color: '#ef4444', bg: '#fef2f2' },
+        { label: 'Overdue', count: overdue.length, color: '#f97316', bg: '#fff7ed' },
+        { label: 'In Progress', count: inProgress.length, color: '#3b82f6', bg: '#eff6ff' },
+        { label: 'To Do', count: b.todo_count || 0, color: '#6b7280', bg: '#f9fafb' },
+        { label: 'Done', count: b.done_count || 0, color: '#16a34a', bg: '#f0fdf4' },
+      ];
+      return (
+        <div style={{ padding: '16px 20px', textAlign: 'left', color: '#1f2937', fontSize: 13, maxWidth: 560 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 14 }}>
+            <div style={{ fontWeight: 800, fontSize: 15 }}>ClickUp Workspace</div>
+            <div style={{ color: '#6b7280', fontSize: 12 }}>
+              {b.space_count} space{b.space_count !== 1 ? 's' : ''} · {b.list_count} lists · {b.task_count} tasks
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 16 }}>
+            {buckets.map(bk => (
+              <div key={bk.label} style={{ background: bk.bg, border: `1px solid ${bk.color}22`, borderRadius: 8, padding: '6px 12px', display: 'flex', alignItems: 'center', gap: 6 }}>
+                <span style={{ fontWeight: 700, color: bk.color, fontSize: 16 }}>{bk.count}</span>
+                <span style={{ color: '#374151', fontSize: 12 }}>{bk.label}</span>
+              </div>
+            ))}
+          </div>
+
+          {spaceNames.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Spaces</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {spaceNames.map(space => (
+                  <div key={space} style={{ display: 'flex', justifyContent: 'space-between', padding: '5px 10px', background: '#f9fafb', borderRadius: 6, fontSize: 12 }}>
+                    <span style={{ fontWeight: 600 }}>{space}</span>
+                    <span style={{ color: '#6b7280' }}>{spaceTaskCounts[space] || 0} tasks</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {hasAttention && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>Needs Attention</div>
+              {[...blocked.map(t => ({ ...t, _label: 'Blocked' })), ...overdue.map(t => ({ ...t, _label: 'Overdue' }))].slice(0, 6).map((t: any, i) => (
+                <div key={i} style={{ padding: '6px 10px', background: '#fef2f2', borderRadius: 6, marginBottom: 4, fontSize: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ fontWeight: 600 }}>{t.name}</span>
+                    <span style={{ color: '#ef4444', fontSize: 11 }}>{t._label}</span>
+                  </div>
+                  <div style={{ color: '#6b7280', fontSize: 11 }}>{[t.space, t.list].filter(Boolean).join(' › ')}{t.assignees?.length ? ` · ${t.assignees.join(', ')}` : ''}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {inProgress.length > 0 && (
+            <div>
+              <div style={{ fontSize: 11, fontWeight: 700, color: '#3b82f6', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 6 }}>In Progress</div>
+              {inProgress.slice(0, 5).map((t: any, i) => (
+                <div key={i} style={{ padding: '6px 10px', background: '#eff6ff', borderRadius: 6, marginBottom: 4, fontSize: 12 }}>
+                  <span style={{ fontWeight: 600 }}>{t.name}</span>
+                  <div style={{ color: '#6b7280', fontSize: 11 }}>{[t.space, t.list].filter(Boolean).join(' › ')}{t.assignees?.length ? ` · ${t.assignees.join(', ')}` : ''}</div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     if (result.block?.type === 'image_asset' && result.block?.status === 'failed') {
       return (
         <div style={{ padding: '20px', textAlign: 'center', color: '#ef4444', fontSize: '13px' }}>

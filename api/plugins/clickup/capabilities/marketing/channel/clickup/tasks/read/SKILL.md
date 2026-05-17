@@ -13,6 +13,10 @@ requires_intent:
 triggers:
   - check clickup
   - clickup status
+  - clickup connection
+  - check clickup connection
+  - verify clickup
+  - test clickup
   - what's in clickup
   - show clickup tasks
   - campaign task status

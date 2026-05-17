@@ -45,6 +45,8 @@ def artifact_title(run: Any) -> str:
         return "Email Draft"
     if "plan" in module_id:
         return "Campaign Plan"
+    if "clickup" in module_id and "read" in module_id:
+        return "ClickUp Workspace Status"
     if any(token in module_id for token in ("report", "analytics", "inbox", "read")):
         return "Marketing Intelligence"
     if "google" in module_id:
@@ -80,6 +82,8 @@ def artifact_renderer(run: Any) -> str:
         return "twitter_feed_preview"
     if "pinterest" in channel:
         return "pinterest_preview"
+    if "clickup" in module_id and "read" in module_id:
+        return "clickup_workspace_status"
     if artifact_type(run) == "intelligence_artifact":
         return "performance_report"
     return "artifact_detail"
