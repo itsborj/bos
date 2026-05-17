@@ -83,6 +83,15 @@ When `body.brand_id` is present, `active_brand` is resolved and module execution
 - Add a row to the Decisions Log in `BACKLOG.md` with date, decision, and rationale.
 - Never make a silent architectural assumption. Label inline: `[ASSUMING: ...]`
 
+### After any BACKLOG.md change (non-negotiable)
+After every session where BACKLOG.md task statuses are changed or new tasks are added, run the ClickUp sync before finishing the response — no reminder needed:
+
+```bash
+CLICKUP_API_TOKEN=pk_30049374_PMWVZSKXNFW68CV2BVDP3WIM21OJ6ZVF CLICKUP_TEAM_ID=90161582949 python3 api/plugins/clickup/scripts/sync_backlog.py --list "Klaroha BOS"
+```
+
+This keeps the `Klaroha BOS` ClickUp list in sync automatically. The script is idempotent — safe to run even if nothing changed.
+
 ---
 
 ## Key Architectural Decisions
