@@ -23,6 +23,14 @@ function varLabel(varName: string): { label: string; sensitive: boolean; hint: s
     return { label: 'Client ID', sensitive: false, hint: '' };
   if (n.includes('REFRESH_TOKEN'))
     return { label: 'Refresh Token', sensitive: true, hint: '' };
+  if (n === 'IMAGE_GEN_API_KEY')
+    return { label: 'Image Gen API Key', sensitive: true, hint: 'Bearer token for your Cloudflare Workers AI endpoint' };
+  if (n === 'IMAGE_GEN_WORKER_URL')
+    return { label: 'Worker URL', sensitive: false, hint: 'Full URL of your Cloudflare Worker, e.g. https://image-gen.yourname.workers.dev' };
+  if (n.endsWith('_API_KEY'))
+    return { label: 'API Key', sensitive: true, hint: '' };
+  if (n.endsWith('_URL') || n.endsWith('_ENDPOINT'))
+    return { label: varName.replace(/^[A-Z_]+?_/, '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()), sensitive: false, hint: '' };
   return {
     label: varName.replace(/^[A-Z_]+?_/, '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()),
     sensitive: false,
