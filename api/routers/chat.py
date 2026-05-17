@@ -500,13 +500,14 @@ HARD RULES — no exceptions:
 6. Active brand isolation: when Known project context says `brand: X`, use only that brand's profile/products/audiences/docs as business facts. Ignore chat-history facts that refer to a different brand unless the scope-resolution note sets a different execution_brand for a new artifact.
 7. Hidden scope directive: every reply must start with a SCOPE block exactly like the scope-resolution skill describes. If you append any RUN line, `execution_brand` must be one existing Brand name, not none.
 8. When the scope-resolution note sets a clear execution_brand for a new/equivalent artifact, append the matching RUN line if the installed capability exists. Do not ask for Brand profile details; BOS hydrates the execution Brand for the module.
+9. RUN lines must use ONLY the exact module IDs listed under "Deployable capabilities" below. Never invent, guess, or extrapolate a module ID. If no listed capability matches the request, say so — do not fabricate a RUN line.
 {brand_ctx}{workspace_ctx}{operational_ctx}
 Be mobile-first by default: short lines, one idea per line, no dense paragraphs. When the user asks what the project/brand/system is about, answer using the known project and operational context above. Do not claim details are unspecified if products, audiences, a brand kit, or connector context are present.
 
 Activated BOS skill context:
 {skill_context or "No activated skill context."}
 
-Deployable capabilities — invoke any by appending its RUN: line after your reply text:
+Deployable capabilities — these are ALL installed capabilities. Use ONLY these exact module IDs in any RUN: line. Do not use any other ID:
 {modules_str}"""
 
 

@@ -494,7 +494,7 @@ textarea{{resize:vertical;min-height:80px}}
     <div class="label" id="label-date">Select a date</div>
     <div class="dates" id="date-list"></div>
     <div id="slot-section" style="display:none">
-      <div class="label">Select a time</div>
+      <div class="label">Select a time <span id="tz-note" style="text-transform:none;font-weight:400;letter-spacing:0;font-size:11px;color:var(--text-secondary)"></span></div>
       <div class="slots" id="slot-list"></div>
     </div>
     <div id="form-section" style="display:none">
@@ -523,6 +523,20 @@ textarea{{resize:vertical;min-height:80px}}
 (function(){{
   const API="{api_base}",SLUG="{slug}";
   let avail=null,selDate=null,selSlot=null,tz="UTC",dur=30;
+  const visitorTz=Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+  // Convert a slot (date string + hhmm in hostTz) to a proper UTC Date.
+  // Uses Intl to find the exact UTC offset at that moment, handles DST correctly.
+  function slotToUTC(isoDate,hhmm,hostTz){{
+    const [h,m]=hhmm.split(":").map(Number);
+    const [y,mo,d]=isoDate.split("-").map(Number);
+    let est=new Date(Date.UTC(y,mo-1,d,h,m));
+    const parts=new Intl.DateTimeFormat("en-US",{{timeZone:hostTz,hour:"2-digit",minute:"2-digit",hour12:false}}).formatToParts(est);
+    const gotH=parseInt(parts.find(p=>p.type==="hour").value)%24;
+    const gotM=parseInt(parts.find(p=>p.type==="minute").value);
+    const diffMin=(h*60+m)-(gotH*60+gotM);
+    return new Date(est.getTime()-diffMin*60000);
+  }}
 
   async function load(){{
     try{{
@@ -542,14 +556,13 @@ textarea{{resize:vertical;min-height:80px}}
   }}
 
   function fmtDate(iso){{
-    const d=new Date(iso+"T00:00:00");
-    return d.toLocaleDateString("en-US",{{weekday:"short",month:"short",day:"numeric"}});
+    // Use noon to avoid date shifting for visitors in UTC± edge zones
+    return new Date(iso+"T12:00:00").toLocaleDateString("en-US",{{weekday:"short",month:"short",day:"numeric"}});
   }}
 
-  function fmtSlot(hhmm,tzName){{
-    const [h,m]=hhmm.split(":").map(Number);
-    const base=new Date();base.setHours(h,m,0,0);
-    return base.toLocaleTimeString("en-US",{{hour:"numeric",minute:"2-digit",hour12:true}});
+  function fmtSlot(isoDate,hhmm,hostTz){{
+    // Convert from host timezone to visitor's local timezone for display
+    return slotToUTC(isoDate,hhmm,hostTz).toLocaleTimeString("en-US",{{hour:"numeric",minute:"2-digit",hour12:true}});
   }}
 
   function renderDates(){{
@@ -570,12 +583,15 @@ textarea{{resize:vertical;min-height:80px}}
     document.querySelectorAll(".date-btn").forEach(b=>b.classList.toggle("active",b.dataset.date===day.date));
     document.getElementById("slot-section").style.display="block";
     document.getElementById("form-section").style.display="none";
+    // Show timezone note when slot grid appears
+    const note=document.getElementById("tz-note");
+    if(note)note.textContent=visitorTz===tz?"("+tz+")":"· your time ("+visitorTz+")";
     const el=document.getElementById("slot-list");
     el.innerHTML="";
     day.slots.forEach(s=>{{
       const btn=document.createElement("button");
       btn.className="slot-btn";
-      btn.textContent=fmtSlot(s,tz);
+      btn.textContent=fmtSlot(day.date,s,tz);
       btn.dataset.slot=s;
       btn.addEventListener("click",()=>selectSlot(day.date,s,btn));
       el.appendChild(btn);
@@ -600,9 +616,8 @@ textarea{{resize:vertical;min-height:80px}}
     const btn=document.getElementById("submit-btn");
     btn.disabled=true;btn.textContent="Booking…";
 
-    const [h,m]=selSlot.time.split(":").map(Number);
-    const startDt=new Date(selSlot.date+"T"+selSlot.time+":00");
-    const endDt=new Date(startDt.getTime()+dur*60000);
+    // Correctly convert slot from host timezone to UTC before sending
+    const startDt=slotToUTC(selSlot.date,selSlot.time,tz);
 
     try{{
       const r=await fetch(API+"/calendar/book/"+SLUG,{{
@@ -618,8 +633,13 @@ textarea{{resize:vertical;min-height:80px}}
         return;
       }}
       document.getElementById("c-title").textContent=avail.title;
-      const opts={{weekday:"long",year:"numeric",month:"long",day:"numeric",hour:"numeric",minute:"2-digit",hour12:true,timeZone:tz}};
-      document.getElementById("c-when").textContent=new Date(data.start_at).toLocaleString("en-US",opts)+" ("+tz+")";
+      const start=new Date(data.start_at);
+      const localStr=start.toLocaleString("en-US",{{weekday:"long",year:"numeric",month:"long",day:"numeric",hour:"numeric",minute:"2-digit",hour12:true}});
+      const hostStr=start.toLocaleTimeString("en-US",{{hour:"numeric",minute:"2-digit",hour12:true,timeZone:tz}});
+      const whenText=visitorTz===tz
+        ?localStr+" ("+tz+")"
+        :localStr+" your time · "+hostStr+" "+tz;
+      document.getElementById("c-when").textContent=whenText;
       document.getElementById("calendar").style.display="none";
       document.getElementById("confirmed").style.display="block";
     }}catch(ex){{

@@ -267,6 +267,34 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, re
       return <PinterestPreview title={result.headline || 'Title Missing'} description={result.content || 'Description missing'} />;
     }
 
+    if (result.block?.type === 'image_asset' && result.block?.image_data_b64) {
+      const { image_data_b64, mime_type, prompt, width, height } = result.block;
+      const src = `data:${mime_type || 'image/png'};base64,${image_data_b64}`;
+      return (
+        <div style={{ textAlign: 'center', padding: '12px 0' }}>
+          <img
+            src={src}
+            alt={prompt || 'Generated image'}
+            style={{ maxWidth: '100%', borderRadius: 10, display: 'block', margin: '0 auto' }}
+          />
+          {prompt && (
+            <div style={{ color: '#888', fontSize: 11, marginTop: 8, fontStyle: 'italic' }}>
+              {width && height ? `${width}×${height} · ` : ''}{prompt}
+            </div>
+          )}
+        </div>
+      );
+    }
+
+    if (result.block?.type === 'image_asset' && result.block?.status === 'failed') {
+      return (
+        <div style={{ padding: '20px', textAlign: 'center', color: '#ef4444', fontSize: '13px' }}>
+          <div style={{ fontSize: 24, marginBottom: 8 }}>⚠</div>
+          <div>{result.block.message || result.content}</div>
+        </div>
+      );
+    }
+
     return (
       <div style={{ padding: '20px', textAlign: 'left', color: '#333', fontSize: '12px', border: '1px dashed #ccc', maxWidth: 520 }}>
         <div style={{ color: '#666', marginBottom: 10 }}>Preview is not available for this artifact type yet.</div>

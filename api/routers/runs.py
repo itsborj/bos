@@ -90,6 +90,40 @@ async def _resolve_brief(db: AsyncSession, ws: Workspace, brief: dict) -> dict:
     return resolved
 
 
+# ── Image pre-generation (injected into brief before channel module dispatch) ──
+
+async def _inject_generated_image(
+    brief: dict,
+    brand_id,
+    db: AsyncSession,
+    settings,
+) -> dict:
+    """
+    If the brief contains image_prompt, call media.image.generate before the
+    channel module runs and inject _image_data_b64 / _image_mime into the brief.
+    Channel modules read these fields from brief — no cross-plugin imports needed.
+    """
+    try:
+        from registry import get_module as _get_module
+        img_cls = _get_module("media.image.generate")
+        if not img_cls:
+            return brief
+        img_brief = await inject_channel_credentials("media.image.generate", brief, brand_id, db, settings)
+        _, result = img_cls().execute_tool_result(img_brief)
+        block = result.get("block", {})
+        if block.get("status") == "succeeded" and block.get("image_data_b64"):
+            return {
+                **brief,
+                "_image_data_b64": block["image_data_b64"],
+                "_image_mime": block.get("mime_type", "image/png"),
+                "_image_width": block.get("width", 1024),
+                "_image_height": block.get("height", 1024),
+            }
+    except Exception:
+        logger.exception("Image pre-generation failed — continuing without image")
+    return brief
+
+
 # ── Core execution (shared by /runs and /chat) ─────────────────────────────────
 
 async def _execute_module(
@@ -111,6 +145,9 @@ async def _execute_module(
     eff_policy = policy or module.policy_default
 
     brief = await inject_channel_credentials(module_id, brief, brand_id, db, settings)
+
+    if module_id != "media.image.generate" and brief.get("image_prompt"):
+        brief = await _inject_generated_image(brief, brand_id, db, settings)
 
     tool_executor = getattr(module, "execute_tool_result", None)
     if callable(tool_executor):

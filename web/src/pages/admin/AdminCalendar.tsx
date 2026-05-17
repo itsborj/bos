@@ -3,10 +3,47 @@ import { api } from '../../api/client';
 import type { BookingResponse, CalendarPageResponse, SocialConnectionResponse } from '../../api/types';
 
 const TIMEZONES = [
-  'UTC', 'America/New_York', 'America/Chicago', 'America/Denver',
-  'America/Los_Angeles', 'Europe/London', 'Europe/Paris', 'Asia/Tokyo',
-  'Australia/Sydney',
+  // Africa
+  'Africa/Abidjan','Africa/Accra','Africa/Addis_Ababa','Africa/Algiers','Africa/Cairo',
+  'Africa/Casablanca','Africa/Johannesburg','Africa/Lagos','Africa/Nairobi','Africa/Tunis',
+  // Americas
+  'America/Anchorage','America/Argentina/Buenos_Aires','America/Bogota','America/Chicago',
+  'America/Denver','America/Halifax','America/Lima','America/Los_Angeles','America/Mexico_City',
+  'America/New_York','America/Phoenix','America/Santiago','America/Sao_Paulo','America/Toronto',
+  'America/Vancouver',
+  // Asia
+  'Asia/Almaty','Asia/Baghdad','Asia/Baku','Asia/Bangkok','Asia/Colombo','Asia/Dhaka',
+  'Asia/Dubai','Asia/Ho_Chi_Minh','Asia/Hong_Kong','Asia/Jakarta','Asia/Karachi',
+  'Asia/Kathmandu','Asia/Kolkata','Asia/Kuala_Lumpur','Asia/Kuwait','Asia/Manila',
+  'Asia/Muscat','Asia/Riyadh','Asia/Seoul','Asia/Shanghai','Asia/Singapore',
+  'Asia/Taipei','Asia/Tashkent','Asia/Tehran','Asia/Tokyo','Asia/Yangon',
+  // Atlantic / Pacific
+  'Atlantic/Azores','Atlantic/Cape_Verde','Atlantic/Reykjavik',
+  // Australia / Pacific
+  'Australia/Adelaide','Australia/Brisbane','Australia/Melbourne','Australia/Perth','Australia/Sydney',
+  'Pacific/Auckland','Pacific/Fiji','Pacific/Guam','Pacific/Honolulu','Pacific/Midway',
+  // Europe
+  'Europe/Amsterdam','Europe/Athens','Europe/Berlin','Europe/Brussels','Europe/Bucharest',
+  'Europe/Budapest','Europe/Copenhagen','Europe/Dublin','Europe/Helsinki','Europe/Istanbul',
+  'Europe/Kiev','Europe/Lisbon','Europe/London','Europe/Madrid','Europe/Moscow',
+  'Europe/Oslo','Europe/Paris','Europe/Prague','Europe/Rome','Europe/Stockholm',
+  'Europe/Vienna','Europe/Warsaw','Europe/Zurich',
+  // UTC
+  'UTC',
 ];
+
+function browserTz(): string {
+  try { return Intl.DateTimeFormat().resolvedOptions().timeZone; } catch { return 'UTC'; }
+}
+
+function tzLabel(tz: string): string {
+  try {
+    const now = new Date();
+    const offset = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'shortOffset' })
+      .formatToParts(now).find(p => p.type === 'timeZoneName')?.value ?? '';
+    return `${tz.replace(/_/g, ' ')} (${offset})`;
+  } catch { return tz; }
+}
 
 function fmt(iso: string) {
   return new Date(iso).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
@@ -39,7 +76,7 @@ export function AdminCalendar() {
     slug: '',
     description: '',
     duration_minutes: 30,
-    timezone: 'America/New_York',
+    timezone: browserTz(),
   });
 
   async function load() {
@@ -206,7 +243,8 @@ export function AdminCalendar() {
                   onChange={e => handleFormChange('timezone', e.target.value)}
                   style={{ width: '100%' }}
                 >
-                  {TIMEZONES.map(tz => <option key={tz} value={tz}>{tz}</option>)}
+                  {[browserTz(), ...TIMEZONES.filter(t => t !== browserTz())]
+                    .map(tz => <option key={tz} value={tz}>{tzLabel(tz)}</option>)}
                 </select>
               </div>
             </div>
