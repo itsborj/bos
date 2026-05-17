@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { PluginInfo } from '../../api/types';
+import type { PluginInfo, SocialConnectionResponse } from '../../api/types';
 
 function varLabel(varName: string): { label: string; sensitive: boolean; hint: string } {
   const n = varName.toUpperCase();
@@ -22,6 +23,14 @@ function varLabel(varName: string): { label: string; sensitive: boolean; hint: s
     return { label: 'Client ID', sensitive: false, hint: '' };
   if (n.includes('REFRESH_TOKEN'))
     return { label: 'Refresh Token', sensitive: true, hint: '' };
+  if (n === 'IMAGE_GEN_API_KEY')
+    return { label: 'Image Gen API Key', sensitive: true, hint: 'Bearer token for your Cloudflare Workers AI endpoint' };
+  if (n === 'IMAGE_GEN_WORKER_URL')
+    return { label: 'Worker URL', sensitive: false, hint: 'Full URL of your Cloudflare Worker, e.g. https://image-gen.yourname.workers.dev' };
+  if (n.endsWith('_API_KEY'))
+    return { label: 'API Key', sensitive: true, hint: '' };
+  if (n.endsWith('_URL') || n.endsWith('_ENDPOINT'))
+    return { label: varName.replace(/^[A-Z_]+?_/, '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()), sensitive: false, hint: '' };
   return {
     label: varName.replace(/^[A-Z_]+?_/, '').replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()),
     sensitive: false,
@@ -54,21 +63,63 @@ type ConfigModal = {
   fields: Record<string, string>;
 };
 
+type ClickUpStep = 'token' | 'workspace';
+type ClickUpWorkspace = { id: string; name: string };
+
+const OAUTH_PLATFORMS: Record<string, { label: string; icon: string }> = {
+  gmail:           { label: 'Gmail',           icon: '✉️' },
+  google_calendar: { label: 'Google Calendar', icon: '📅' },
+};
+
 export function AdminConnectors() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
+  const [socialConns, setSocialConns] = useState<SocialConnectionResponse[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [modal, setModal] = useState<ConfigModal | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [saved, setSaved] = useState<string | null>(null);
+  const [cuStep, setCuStep] = useState<ClickUpStep>('token');
+  const [cuToken, setCuToken] = useState('');
+  const [cuWorkspaces, setCuWorkspaces] = useState<ClickUpWorkspace[]>([]);
+  const [cuSelected, setCuSelected] = useState('');
+  const [cuResolving, setCuResolving] = useState(false);
+  const [cuError, setCuError] = useState('');
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const navigate = useNavigate();
+
+  function showToast(msg: string) {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 4000);
+  }
+
+  useEffect(() => {
+    const gm = searchParams.get('gmail');
+    const gc = searchParams.get('google_calendar');
+    const reason = searchParams.get('reason') || '';
+    if (gm || gc) {
+      setSearchParams({});
+      if (gm === 'connected') showToast('✅ Gmail connected');
+      else if (gm) showToast(`⚠️ Gmail failed — ${reason.replace(/_/g, ' ')}`);
+      if (gc === 'connected') showToast('✅ Google Calendar connected');
+      else if (gc) showToast(`⚠️ Google Calendar failed — ${reason.replace(/_/g, ' ')}`);
+    }
+  }, []);
 
   async function load() {
     setLoading(true);
     setError('');
     try {
-      const { plugins: p } = await api.listPlugins();
+      const [{ plugins: p }, conns] = await Promise.all([
+        api.listPlugins(),
+        api.listSocialConnections(),
+      ]);
       setPlugins(p.filter(p => p.requires_platform_vars.length > 0));
+      setSocialConns(conns);
     } catch {
       setError('Could not load connectors. Make sure the API is running.');
     } finally {
@@ -83,7 +134,31 @@ export function AdminConnectors() {
     plugin.requires_platform_vars.forEach(v => { fields[v] = ''; });
     setSaveError('');
     setSaved(null);
+    if (plugin.plugin_id === 'channel.clickup') {
+      setCuStep('token');
+      setCuToken('');
+      setCuWorkspaces([]);
+      setCuSelected('');
+      setCuError('');
+    }
     setModal({ plugin, fields });
+  }
+
+  async function handleClickUpResolve() {
+    if (!cuToken.trim()) return;
+    setCuResolving(true);
+    setCuError('');
+    try {
+      const { workspaces } = await api.resolvePluginWorkspaces('channel.clickup', cuToken.trim());
+      if (!workspaces.length) { setCuError('No workspaces found for this token.'); return; }
+      setCuWorkspaces(workspaces);
+      setCuSelected(workspaces[0].id);
+      setCuStep('workspace');
+    } catch (e: unknown) {
+      setCuError(e instanceof Error ? e.message : 'Could not reach ClickUp — check your token.');
+    } finally {
+      setCuResolving(false);
+    }
   }
 
   async function handleSave() {
@@ -91,7 +166,10 @@ export function AdminConnectors() {
     setSaving(true);
     setSaveError('');
     try {
-      await api.savePluginCredentials(modal.plugin.plugin_id, modal.fields);
+      const vars = modal.plugin.plugin_id === 'channel.clickup'
+        ? { CLICKUP_API_TOKEN: cuToken.trim(), CLICKUP_TEAM_ID: cuSelected }
+        : modal.fields;
+      await api.savePluginCredentials(modal.plugin.plugin_id, vars);
       setSaved(modal.plugin.plugin_id);
       setModal(null);
       await load();
@@ -113,6 +191,12 @@ export function AdminConnectors() {
 
   return (
     <div className="admin-page">
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--fg)', color: 'var(--bg)', padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 9999, boxShadow: '0 4px 20px rgba(0,0,0,.2)' }}>
+          {toast}
+        </div>
+      )}
+
       <div className="admin-page-header">
         <div>
           <div className="admin-page-title">Connectors</div>
@@ -126,6 +210,36 @@ export function AdminConnectors() {
         <div className="admin-card" style={{ borderColor: 'var(--error)', color: 'var(--error)', fontSize: 13 }}>{error}</div>
       )}
 
+      {/* OAuth connections — read-only summary, managed per brand */}
+      {socialConns.length > 0 && (
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div className="label">Google Account Connections</div>
+            <button className="btn btn-ghost btn-sm" style={{ fontSize: 12 }} onClick={() => navigate('/admin/brands')}>Manage in Brands →</button>
+          </div>
+          <div style={{ display: 'grid', gap: 8 }}>
+            {socialConns.map(c => {
+              const meta = OAUTH_PLATFORMS[c.platform] || { label: c.platform, icon: '⚙️' };
+              return (
+                <div key={c.id} className="admin-card" style={{ margin: 0, padding: '12px 16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                    <span style={{ fontSize: 15 }}>{meta.icon}</span>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 700 }}>{c.page_name || c.page_id}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)' }}>{meta.label}</div>
+                    </div>
+                    <span className="badge badge-success" style={{ fontSize: 10 }}>Connected</span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Plugin connectors — API key based */}
+      <div className="label" style={{ marginBottom: 10 }}>Plugin Connectors</div>
+
       {modal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
           <div className="admin-card" style={{ width: '100%', maxWidth: 480, margin: 0 }}>
@@ -135,38 +249,84 @@ export function AdminConnectors() {
             <div style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 20 }}>
               Credentials are encrypted at rest and never returned via API.
             </div>
-            <div style={{ display: 'grid', gap: 16 }}>
-              {modal.plugin.requires_platform_vars.map(varName => {
-                const { label, sensitive, hint } = varLabel(varName);
-                return (
-                  <div key={varName}>
-                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>
-                      {label}
-                    </label>
-                    {hint && (
-                      <div style={{ color: 'var(--text2)', fontSize: 11, marginBottom: 6 }}>{hint}</div>
-                    )}
+            {modal.plugin.plugin_id === 'channel.clickup' ? (
+              <div style={{ display: 'grid', gap: 16 }}>
+                {cuStep === 'token' && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>API Token</label>
+                    <div style={{ color: 'var(--text2)', fontSize: 11, marginBottom: 6 }}>Get from ClickUp → Settings → Apps → API Token</div>
                     <input
-                      type={sensitive ? 'password' : 'text'}
+                      type="password"
                       className="input"
-                      placeholder={varName}
-                      value={modal.fields[varName] ?? ''}
-                      onChange={e => setModal(m => m ? { ...m, fields: { ...m.fields, [varName]: e.target.value } } : m)}
-                      style={{ width: '100%', fontFamily: sensitive ? 'monospace' : undefined }}
+                      placeholder="pk_..."
+                      value={cuToken}
+                      onChange={e => { setCuToken(e.target.value); setCuError(''); }}
+                      style={{ width: '100%', fontFamily: 'monospace' }}
                       autoComplete="off"
                     />
+                    {cuError && <div style={{ color: 'var(--error)', fontSize: 12, marginTop: 6 }}>{cuError}</div>}
                   </div>
-                );
-              })}
-            </div>
+                )}
+                {cuStep === 'workspace' && (
+                  <div>
+                    <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Select Workspace</label>
+                    <div style={{ color: 'var(--text2)', fontSize: 11, marginBottom: 6 }}>Choose the ClickUp workspace to connect.</div>
+                    <select
+                      className="input"
+                      value={cuSelected}
+                      onChange={e => setCuSelected(e.target.value)}
+                      style={{ width: '100%' }}
+                    >
+                      {cuWorkspaces.map(w => (
+                        <option key={w.id} value={w.id}>{w.name} ({w.id})</option>
+                      ))}
+                    </select>
+                    <button
+                      className="btn btn-ghost"
+                      style={{ marginTop: 8, fontSize: 12 }}
+                      onClick={() => { setCuStep('token'); setCuWorkspaces([]); }}
+                    >
+                      ← Use a different token
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <div style={{ display: 'grid', gap: 16 }}>
+                {modal.plugin.requires_platform_vars.map(varName => {
+                  const { label, sensitive, hint } = varLabel(varName);
+                  return (
+                    <div key={varName}>
+                      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{label}</label>
+                      {hint && <div style={{ color: 'var(--text2)', fontSize: 11, marginBottom: 6 }}>{hint}</div>}
+                      <input
+                        type={sensitive ? 'password' : 'text'}
+                        className="input"
+                        placeholder={varName}
+                        value={modal.fields[varName] ?? ''}
+                        onChange={e => setModal(m => m ? { ...m, fields: { ...m.fields, [varName]: e.target.value } } : m)}
+                        style={{ width: '100%', fontFamily: sensitive ? 'monospace' : undefined }}
+                        autoComplete="off"
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
             {saveError && (
               <div style={{ color: 'var(--error)', fontSize: 13, marginTop: 12 }}>{saveError}</div>
             )}
             <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
               <button className="btn btn-ghost" onClick={() => setModal(null)}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? 'Saving…' : 'Save credentials'}
-              </button>
+              {modal.plugin.plugin_id === 'channel.clickup' && cuStep === 'token' ? (
+                <button className="btn btn-primary" onClick={handleClickUpResolve} disabled={cuResolving || !cuToken.trim()}>
+                  {cuResolving ? 'Fetching…' : 'Fetch Workspaces'}
+                </button>
+              ) : (
+                <button className="btn btn-primary" onClick={handleSave} disabled={saving || (modal.plugin.plugin_id === 'channel.clickup' && !cuSelected)}>
+                  {saving ? 'Saving…' : 'Save credentials'}
+                </button>
+              )}
             </div>
           </div>
         </div>

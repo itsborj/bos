@@ -55,6 +55,20 @@ export function AdminBrands() {
 
   // Handle OAuth callback params from installed connector redirects.
   useEffect(() => {
+    const gc = searchParams.get('google_calendar');
+    if (gc) {
+      const reason = searchParams.get('reason') || '';
+      const account = searchParams.get('account') || '';
+      setSearchParams({});
+      if (gc === 'connected') {
+        showToast(`✅ Google Calendar "${account}" connected`);
+        api.listSocialConnections().then(conns => setConnections(conns)).catch(() => {});
+      } else if (gc === 'denied') {
+        showToast('Google Calendar connection cancelled');
+      } else {
+        showToast(`⚠️ Google Calendar connection failed — ${reason.replace(/_/g, ' ')}`);
+      }
+    }
     const gm = searchParams.get('gmail');
     const brandId = searchParams.get('brand_id');
 
@@ -140,6 +154,31 @@ export function AdminBrands() {
     }
   }
 
+  async function handleConnectCalendar(brandId: string) {
+    setConnectingId(brandId + '_calendar');
+    try {
+      const res = await api.startSocialConnect(brandId, 'google_calendar');
+      window.location.href = res.authorize_url;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'check GOOGLE_CLIENT_ID in settings';
+      showToast(`⚠️ Could not start Calendar connect — ${msg}`);
+    } finally {
+      setConnectingId(null);
+    }
+  }
+
+  async function handleDisconnectCalendar(brandId: string) {
+    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'google_calendar');
+    if (!conn) return;
+    if (!window.confirm(`Disconnect Google Calendar account "${conn.page_name}"?`)) return;
+    try {
+      await api.disconnectSocial(conn.id);
+      setConnections(prev => prev.filter(c => c.id !== conn.id));
+      showToast('Google Calendar disconnected');
+    } catch {
+      showToast('⚠️ Could not disconnect — try again');
+    }
+  }
 
   async function handleDelete(id: string) {
     if (!window.confirm('Delete this brand? All associated data will be unlinked.')) return;
@@ -286,33 +325,62 @@ export function AdminBrands() {
 
                 {(() => {
                   const gmConn = connections.find(c => c.brand_id === brand.id && c.platform === 'gmail');
+                  const gcConn = connections.find(c => c.brand_id === brand.id && c.platform === 'google_calendar');
                   return (
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-                      <span style={{ fontSize: 13 }}>✉️</span>
-                      {gmConn ? (
-                        <>
-                          <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>
-                            {gmConn.page_name || gmConn.page_id}
-                          </span>
-                          <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
-                          <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectGmail(brand.id)}>
-                            Disconnect
-                          </button>
-                        </>
-                      ) : (
-                        <>
-                          <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>Gmail</span>
-                          <button
-                            className="btn btn-secondary btn-sm"
-                            style={{ fontSize: 11, padding: '3px 10px' }}
-                            onClick={() => handleConnectGmail(brand.id)}
-                            disabled={connectingId === brand.id + '_gmail'}
-                          >
-                            {connectingId === brand.id + '_gmail' ? 'Redirecting…' : 'Connect'}
-                          </button>
-                        </>
-                      )}
-                    </div>
+                    <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <span style={{ fontSize: 13 }}>✉️</span>
+                        {gmConn ? (
+                          <>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>
+                              {gmConn.page_name || gmConn.page_id}
+                            </span>
+                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectGmail(brand.id)}>
+                              Disconnect
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>Gmail</span>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: 11, padding: '3px 10px' }}
+                              onClick={() => handleConnectGmail(brand.id)}
+                              disabled={connectingId === brand.id + '_gmail'}
+                            >
+                              {connectingId === brand.id + '_gmail' ? 'Redirecting…' : 'Connect'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)' }}>
+                        <span style={{ fontSize: 13 }}>📅</span>
+                        {gcConn ? (
+                          <>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>
+                              {gcConn.page_name || gcConn.page_id}
+                            </span>
+                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectCalendar(brand.id)}>
+                              Disconnect
+                            </button>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>Google Calendar</span>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: 11, padding: '3px 10px' }}
+                              onClick={() => handleConnectCalendar(brand.id)}
+                              disabled={connectingId === brand.id + '_calendar'}
+                            >
+                              {connectingId === brand.id + '_calendar' ? 'Redirecting…' : 'Connect'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    </>
                   );
                 })()}
 

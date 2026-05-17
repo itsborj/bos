@@ -150,11 +150,44 @@ ENCRYPTION_KEY=          # for BYOK key encryption at rest
 
 ---
 
+## OAuth / Social Connections Architecture
+
+Per-brand OAuth connections are stored in the `social_connections` table. Each brand can have independent accounts per platform (Gmail, Google Calendar, etc.).
+
+**Flow:** `POST /social/connect/start` → Google consent → callback → `social_connections` row.
+
+**Key files:**
+- `api/provider_auth.py` — `GmailOAuthHandler`, `GoogleCalendarOAuthHandler` (PKCE, scopes, token refresh)
+- `api/routers/social.py` — OAuth callbacks, `get_page_token()` helper for token resolution + auto-refresh
+- `api/models/social.py` — `SocialConnection` model
+- `api/models/provider.py` — `ProviderLoginSession` (ephemeral, deleted after callback)
+
+**Scopes — critical constraint:** Each handler must request only scopes that match its redirect URI. Gmail scopes through a Calendar redirect URI causes Google to silently reject the authorization (returns no `code`, no `error`). Keep scopes minimal and platform-matched.
+
+**Nginx routing:** `/social/` and `/calendar/` are proxied directly to `bos_api` (no prefix strip). OAuth callbacks must use the nginx URL (`http://localhost/social/...`) not the direct API URL (`http://localhost:8000/...`) so Google redirects land at the right host.
+
+**Redirect URIs to register in Google Cloud Console** (add all that apply):
+```
+http://localhost/social/gmail/callback
+http://localhost/social/google-calendar/callback
+https://hq.klaroha.com/social/gmail/callback
+https://hq.klaroha.com/social/google-calendar/callback
+```
+
+**After OAuth changes:** `api/` hot-reloads via Watchfiles. `web/` is a static build — run `docker compose build web && docker compose up -d web` after any frontend change.
+
+**Connectors page** (`/admin/connectors`) — read-only overview of all connections. **Brands page** (`/admin/brands`) — per-brand connect/disconnect. Never put per-brand connect buttons on Connectors.
+
+---
+
 ## Running the Stack
 
 ```bash
 docker compose up          # start all services
 docker compose up api      # api only (requires db running)
+
+# Rebuild frontend after any web/ changes
+docker compose build web && docker compose up -d web
 
 # Migrations
 cd api && alembic upgrade head

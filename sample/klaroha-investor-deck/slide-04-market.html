@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Klaroha — Market Opportunity</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --obsidian:   #080B0D;
+  --carbon:     #101417;
+  --gunmetal:   #171D20;
+  --smoked:     #1F272B;
+  --border:     #2E383D;
+  --teal:       #055C71;
+  --deep-teal:  #105268;
+  --petrol:     #073A47;
+  --ivory:      #F5F1E8;
+  --soft-ivory: #E6DED0;
+  --stone:      #AFA89C;
+  --bronze:     #B08A57;
+  --brass:      #8C6A3E;
+  --green:      #1F7A4D;
+}
+
+html, body {
+  width: 100%; height: 100%;
+  background: #050708;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden;
+}
+
+.wrapper {
+  width: 1920px; height: 1080px;
+  transform-origin: center center;
+  flex-shrink: 0;
+}
+
+.slide {
+  width: 1920px; height: 1080px;
+  background: var(--obsidian);
+  position: relative; overflow: hidden;
+  display: grid;
+  grid-template-columns: 520px 1fr;
+}
+
+.line-top    { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--teal); }
+.line-bottom { position: absolute; bottom: 88px; left: 88px; right: 88px; height: 1px; background: var(--border); }
+
+.bg-grid {
+  position: absolute; inset: 0;
+  background-image:
+    linear-gradient(rgba(46,56,61,0.5) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(46,56,61,0.5) 1px, transparent 1px);
+  background-size: 96px 96px;
+  opacity: 0.05;
+}
+
+/* Left panel — hero number */
+.left-panel {
+  background: var(--gunmetal);
+  border-right: 1px solid var(--border);
+  display: flex; flex-direction: column;
+  justify-content: center;
+  padding: 80px 64px;
+  position: relative;
+  z-index: 1;
+}
+
+.slide-number {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--teal); margin-bottom: 64px;
+}
+
+.hero-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--stone); opacity: 0.7;
+  margin-bottom: 16px;
+}
+
+.hero-number {
+  font-family: 'DM Serif Display', serif;
+  font-size: 100px; font-weight: 400;
+  color: var(--bronze);
+  letter-spacing: -0.04em; line-height: 0.9;
+  margin-bottom: 8px;
+}
+
+.hero-unit {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 20px; font-weight: 300;
+  color: var(--soft-ivory);
+  letter-spacing: 0.01em;
+  margin-bottom: 48px;
+}
+
+.hero-rule { width: 40px; height: 2px; background: var(--teal); margin-bottom: 32px; }
+
+.hero-sub {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 16px; font-weight: 300;
+  color: var(--stone);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.target-note {
+  margin-top: 48px;
+  padding: 20px 24px;
+  border: 1px solid var(--petrol);
+  background: rgba(5,92,113,0.06);
+  border-radius: 2px;
+}
+
+.target-note-label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--teal); margin-bottom: 8px;
+}
+
+.target-note-value {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px; font-weight: 400;
+  color: var(--soft-ivory); line-height: 1.5;
+}
+
+/* Right panel — table */
+.right-panel {
+  padding: 80px 88px 80px 80px;
+  display: flex; flex-direction: column;
+  position: relative; z-index: 1;
+}
+
+.section-header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  margin-bottom: 48px;
+}
+
+.section-title {
+  font-family: 'DM Serif Display', serif;
+  font-size: 48px; color: var(--ivory);
+  letter-spacing: -0.01em; line-height: 1;
+}
+
+.section-subtitle {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px; font-weight: 300;
+  color: var(--stone);
+  letter-spacing: 0.02em;
+}
+
+/* Segment table */
+.seg-table { width: 100%; flex: 1; }
+
+.seg-header-row {
+  display: grid;
+  grid-template-columns: 1fr 180px 160px 160px;
+  padding: 0 0 12px 0;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0;
+}
+
+.seg-header-cell {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase;
+  color: var(--stone); opacity: 0.6;
+}
+.seg-header-cell:not(:first-child) { text-align: right; }
+
+.seg-row {
+  display: grid;
+  grid-template-columns: 1fr 180px 160px 160px;
+  padding: 20px 0;
+  border-bottom: 1px solid rgba(46,56,61,0.5);
+  align-items: center;
+  transition: background 0.15s;
+}
+
+.seg-row.highlight {
+  background: rgba(5,92,113,0.04);
+  margin: 0 -12px;
+  padding: 20px 12px;
+  border-bottom: 1px solid rgba(5,92,113,0.15);
+}
+
+.seg-name {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 16px; font-weight: 400;
+  color: var(--ivory); line-height: 1.3;
+}
+
+.seg-detail {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 13px; font-weight: 300;
+  color: var(--stone);
+  margin-top: 3px;
+}
+
+.seg-buyers {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px; font-weight: 400;
+  color: var(--soft-ivory); text-align: right;
+}
+
+.seg-acv {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 14px;
+  color: var(--teal); text-align: right;
+}
+
+.seg-sam {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 15px; font-weight: 500;
+  color: var(--bronze); text-align: right;
+}
+
+/* Total row */
+.total-row {
+  display: grid;
+  grid-template-columns: 1fr 180px 160px 160px;
+  padding: 24px 0 0 0;
+  align-items: baseline;
+}
+
+.total-label {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px; font-weight: 400;
+  color: var(--stone);
+  letter-spacing: 0.05em; text-transform: uppercase;
+}
+
+.total-sam {
+  font-family: 'DM Serif Display', serif;
+  font-size: 32px; color: var(--ivory);
+  text-align: right; letter-spacing: -0.02em;
+}
+
+.total-sam span {
+  color: var(--bronze);
+}
+
+/* Bottom metadata */
+.bottom-meta {
+  position: absolute;
+  bottom: 48px; left: 88px; right: 88px;
+  display: flex; justify-content: space-between; align-items: center;
+}
+
+.page-id {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--stone); opacity: 0.4;
+}
+</style>
+</head>
+<body>
+<div class="wrapper" id="wrapper">
+  <div class="slide">
+    <div class="bg-grid"></div>
+    <div class="line-top"></div>
+    <div class="line-bottom"></div>
+
+    <!-- Left: hero number -->
+    <div class="left-panel">
+      <div class="slide-number">04 / Market Opportunity</div>
+
+      <div class="hero-label">Combined SAM</div>
+      <div class="hero-number">$17.8B</div>
+      <div class="hero-unit">annually across AU, UK, US, PH</div>
+      <div class="hero-rule"></div>
+      <div class="hero-sub">Five segments. One structural problem. The same operating layer missing across all of them.</div>
+
+      <div class="target-note">
+        <div class="target-note-label">24-Month Target</div>
+        <div class="target-note-value">150 paying orgs · $1.98M ARR<br>via cooperative distribution + practitioner beachhead</div>
+      </div>
+    </div>
+
+    <!-- Right: segment table -->
+    <div class="right-panel">
+      <div class="section-header">
+        <div class="section-title">Serviceable<br>Addressable Market</div>
+        <div class="section-subtitle">AU · UK · US · PH</div>
+      </div>
+
+      <div class="seg-table">
+        <div class="seg-header-row">
+          <div class="seg-header-cell">Segment</div>
+          <div class="seg-header-cell">Est. Buyers</div>
+          <div class="seg-header-cell">Avg. ACV/mo</div>
+          <div class="seg-header-cell">Segment SAM</div>
+        </div>
+
+        <div class="seg-row highlight">
+          <div>
+            <div class="seg-name">Freelancers &amp; Marketing Agencies</div>
+            <div class="seg-detail">Fastest path · PH cooperative distribution</div>
+          </div>
+          <div class="seg-buyers">1,000,000+</div>
+          <div class="seg-acv">$380</div>
+          <div class="seg-sam">$4.6B/yr</div>
+        </div>
+
+        <div class="seg-row highlight">
+          <div>
+            <div class="seg-name">Small Business Owners</div>
+            <div class="seg-detail">Replacing agency or in-house team</div>
+          </div>
+          <div class="seg-buyers">2,000,000+</div>
+          <div class="seg-acv">$320</div>
+          <div class="seg-sam">$7.7B/yr</div>
+        </div>
+
+        <div class="seg-row">
+          <div>
+            <div class="seg-name">Fragmented High-Value Sellers</div>
+            <div class="seg-detail">Real estate, mortgage, insurance, vehicles</div>
+          </div>
+          <div class="seg-buyers">500,000+</div>
+          <div class="seg-acv">$570</div>
+          <div class="seg-sam">$3.4B/yr</div>
+        </div>
+
+        <div class="seg-row">
+          <div>
+            <div class="seg-name">Distributed Sales Organizations</div>
+            <div class="seg-detail">Brokerages, franchise networks, dealer groups</div>
+          </div>
+          <div class="seg-buyers">80,000+</div>
+          <div class="seg-acv">$1,100</div>
+          <div class="seg-sam">$1.1B/yr</div>
+        </div>
+
+        <div class="seg-row">
+          <div>
+            <div class="seg-name">B2B Professional Service Providers</div>
+            <div class="seg-detail">MSPs, cybersecurity, HubSpot/RevOps, ERP</div>
+          </div>
+          <div class="seg-buyers">120,000+</div>
+          <div class="seg-acv">$700</div>
+          <div class="seg-sam">$1.0B/yr</div>
+        </div>
+
+        <div class="total-row">
+          <div class="total-label">Combined SAM · 3.7M+ qualifying buyers</div>
+          <div></div>
+          <div></div>
+          <div class="total-sam">~<span>$17.8B</span>/yr</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-meta">
+      <div class="page-id">Klaroha · Pre-Seed 2026 · Confidential</div>
+      <div class="page-id">04</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function scale() {
+  const w = document.getElementById('wrapper');
+  const s = Math.min(window.innerWidth / 1920, window.innerHeight / 1080);
+  w.style.transform = `scale(${s})`;
+}
+scale();
+window.addEventListener('resize', scale);
+</script>
+</body>
+</html>

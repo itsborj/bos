@@ -12,6 +12,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -44,6 +46,10 @@ class PluginInfo(BaseModel):
 
 class SaveCredentialsRequest(BaseModel):
     vars: dict[str, str]
+
+
+class ResolveWorkspacesRequest(BaseModel):
+    api_token: str
 
 
 async def _db_vars(db: AsyncSession, workspace_id, plugin_id: str, settings) -> dict:
@@ -114,6 +120,32 @@ async def list_plugins(
         ).model_dump())
 
     return {"plugins": result}
+
+
+_WORKSPACE_RESOLVERS: dict[str, str] = {
+    "channel.clickup": "https://api.clickup.com/api/v2/team",
+}
+
+
+@router.post("/{plugin_id}/resolve-workspaces")
+async def resolve_workspaces(
+    plugin_id: str,
+    body: ResolveWorkspacesRequest,
+    _=Depends(require_api_key),
+):
+    url = _WORKSPACE_RESOLVERS.get(plugin_id)
+    if not url:
+        raise HTTPException(status_code=404, detail=f"Workspace discovery not supported for plugin '{plugin_id}'")
+    try:
+        req = Request(url, headers={"Authorization": body.api_token.strip(), "Content-Type": "application/json"})
+        with urlopen(req, timeout=10) as resp:
+            data = json.loads(resp.read().decode())
+    except HTTPError as exc:
+        raise HTTPException(status_code=400, detail=f"ClickUp returned HTTP {exc.code} — check your API token")
+    except URLError:
+        raise HTTPException(status_code=502, detail="Could not reach ClickUp API")
+    teams = [{"id": t["id"], "name": t["name"]} for t in data.get("teams", [])]
+    return {"workspaces": teams}
 
 
 @router.post("/{plugin_id}/credentials")

@@ -51,6 +51,7 @@ function groupKey(mod: ModuleInfo): string {
   if (id.includes('search_console') || id.includes('seo')) return 'seo';
   if (id.includes('analytics') || id.includes('tracking')) return 'analytics';
   if (id.includes('clickup')) return 'project-management';
+  if (mod.vertical === 'media' || id.startsWith('media.')) return 'media';
   return mod.vertical || 'specialist';
 }
 
@@ -64,6 +65,10 @@ function varLabel(varName: string): { label: string; sensitive: boolean; hint: s
     return { label: 'Default List ID', sensitive: false, hint: 'Navigate to the list in ClickUp — the ID is in the URL' };
   if (n.includes('SITE_URL'))
     return { label: 'Site URL', sensitive: false, hint: 'e.g. sc-domain:example.com or https://www.example.com/' };
+  if (n === 'IMAGE_GEN_WORKER_URL')
+    return { label: 'Worker URL', sensitive: false, hint: 'The full HTTPS URL of your image generation worker endpoint' };
+  if (n === 'IMAGE_GEN_API_KEY')
+    return { label: 'API Key', sensitive: true, hint: 'Bearer token used to authenticate requests to the worker' };
   return { label: varName.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase()), sensitive: false, hint: '' };
 }
 
@@ -147,6 +152,24 @@ function summarizeGroup(key: string, modules: ModuleInfo[], connections: SocialC
       risk: 'Read by default; task creation requires explicit approval',
       moduleCount: modules.length,
       nextStep: configured ? 'Ask the CMO to check clickup or create tasks.' : undefined,
+      pluginId: plugin?.plugin_id,
+    };
+  }
+
+  if (key === 'media') {
+    const plugin = plugins.find(p => p.plugin_id === 'media.image');
+    const configured = plugin?.credentials_configured ?? false;
+    return {
+      key,
+      name: 'Image Generation',
+      description: 'Generates image creatives from text prompts — Google Ads display ads, social images, hero images, and banners. Provider-agnostic: swap the worker URL to change providers without rewiring callers.',
+      jobs: ['media.generate'],
+      specialties: ['image generation', 'visual creative', 'ad creative'],
+      readiness: configured ? 'ready' : 'needs_setup',
+      readinessText: configured ? 'Image generation connected' : 'Add worker URL and API key to enable image generation',
+      risk: 'Generate only — no external publishing',
+      moduleCount: modules.length,
+      nextStep: configured ? 'Ask the CMO to generate an image or ad creative.' : undefined,
       pluginId: plugin?.plugin_id,
     };
   }

@@ -1,0 +1,20 @@
+{
+  "plugin_id": "channel.google_calendar",
+  "name": "Google Calendar Booking",
+  "version": "1.0.0",
+  "klaroha_min_version": "3.5",
+  "capabilities_root": "capabilities/",
+  "implements": ["scheduling.booking"],
+  "specialty": ["calendar_booking", "meeting_scheduling", "availability_management"],
+  "platforms": ["google_calendar"],
+  "connector_protocol": "oauth2_google_calendar_api",
+  "risk_policy": "send_requires_explicit_approval",
+  "output_contracts": ["calendar_event", "booking_confirmation"],
+  "requires_social_connection": ["google_calendar"],
+  "requires_platform_vars": [],
+  "capability_ids": [
+    "scheduling.channel.google_calendar.availability.read",
+    "scheduling.channel.google_calendar.booking.create",
+    "scheduling.channel.google_calendar.booking.cancel"
+  ]
+}

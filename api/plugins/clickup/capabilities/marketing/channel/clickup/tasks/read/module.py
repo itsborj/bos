@@ -81,6 +81,22 @@ class ClickUpTasksReadModule(ChannelModule):
         except Exception:
             return []
 
+    def _fetch_brand_list(self, token: str, list_id: str) -> tuple[list, list]:
+        """Scoped fetch: reads a single list. Returns (tasks, list_index)."""
+        try:
+            meta = self._get_json(f"https://api.clickup.com/api/v2/list/{list_id}", token)
+        except Exception:
+            meta = {}
+        space_name = (meta.get("space") or {}).get("name") or "Workspace"
+        list_name = meta.get("name") or list_id
+        tasks = self._get_list_tasks(token, list_id)
+        for t in tasks:
+            t["_space"] = space_name
+            t["_list"] = list_name
+            t["_list_id"] = list_id
+        list_index = [{"space": space_name, "list": list_name, "id": list_id, "count": len(tasks)}]
+        return tasks, list_index
+
     def _fetch_workspace(self, token: str, team_id: str) -> tuple[list, list]:
         """Returns (all_tasks_with_context, list_index).
         Each task gets _space and _list injected for grouping.
@@ -224,21 +240,27 @@ class ClickUpTasksReadModule(ChannelModule):
             creds = self._creds(brief)
             token = self._cred(creds, "clickup_api_token")
             team_id = self._cred(creds, "clickup_team_id")
+            pm_list_id = self._cred(creds, "pm_list_id")
 
-            missing = []
             if not token:
-                missing.append("CLICKUP_API_TOKEN")
-            if not team_id:
-                missing.append("CLICKUP_TEAM_ID")
-            if missing:
                 return self._failure(
                     start,
                     "missing_credentials",
-                    "missing required plugin environment variables: " + ", ".join(missing),
-                    {"missing": missing},
+                    "missing required plugin environment variables: CLICKUP_API_TOKEN",
+                    {"missing": ["CLICKUP_API_TOKEN"]},
+                )
+            if not team_id and not pm_list_id:
+                return self._failure(
+                    start,
+                    "missing_credentials",
+                    "missing required plugin environment variables: CLICKUP_TEAM_ID",
+                    {"missing": ["CLICKUP_TEAM_ID"]},
                 )
 
-            all_tasks, list_index = self._fetch_workspace(token, team_id)
+            if pm_list_id:
+                all_tasks, list_index = self._fetch_brand_list(token, pm_list_id)
+            else:
+                all_tasks, list_index = self._fetch_workspace(token, team_id)
             buckets = self._classify_tasks(all_tasks)
             content = self._build_content(list_index, buckets, len(all_tasks))
 

@@ -380,11 +380,29 @@
 - [x] CLICKUP PLUGIN: Full workspace coverage — removed `CLICKUP_DEFAULT_LIST_ID` from required credentials; `tasks.read` traverses all spaces/folders/lists and returns workspace-wide status grouped by space; `tasks.create` resolves target list from `brief["list_id"]` or `brief["list_name"]`, returns available lists if neither provided. v0.1.1.
 - [x] CLICKUP PLUGIN: Exported full BOS backlog (642 tasks) to ClickUp Development list with phase/section context and status mapping ([x]→shipped, [ ]→backlog, [~]→in development, [!]→blocked, [-]→cancelled).
 
+### Multi-Dev Pipeline (2026-05-16)
+- [x] INFRA: Host nginx deployed as edge router — routes hq.klaroha.com → prod Docker nginx (8090), staging.klaroha.com → staging Docker nginx (8080), unknown hosts rejected (444)
+- [x] INFRA: Production Docker nginx moved from port 80 to 8090; both domains live and isolated with separate DBs
+- [x] INFRA: `docker-compose.staging.yml` deployed to server; staging stack live at staging.klaroha.com with isolated `bos_staging` DB
+- [x] INFRA: GitHub Actions CI end-to-end verified — `Test & lint` (33/33) passes, `Deploy → staging` auto-deploys on push to staging branch
+- [x] BUG: 8 stale test files importing from deleted `capabilities.marketing.channel` path removed from `api/tests/`
+- [x] BUG: `test_brand_guidelines.py` had stale template path assertion (`brand_guidelines.j2` → `brand_guidelines/template.j2`) and section name mismatch (`Platform Rules` → `Multi-Platform Rules`)
+- [x] INFRA: Dev 2 (@kibanu) added as plugin specialist — GitHub collaborator with Write access, CODEOWNERS scoped to `api/plugins/`
+- [x] BUG: Production Docker nginx cached stale API container IP after rebuild; fixed by `docker compose restart nginx`
+- [x] BUG: Production and staging API keys lost after stack restarts; bootstrapped fresh keys for both environments
+
 ### Testing
 - [x] BUG: `api/tests/test_google_ads_skill_routing.py` imports removed chat intent helper `_has_diagnostic_intent`; updated stale test to SKILL.md/manifest-driven routing contract
 - [x] FEATURE: Create launch-sequencing skill (PLF-style launch orchestration, v1.0.0)
 - [x] BUG: Google Ads RSA headlines truncated/repetitive (e.g., "turn search demand into qualified leads with clearer Googl"); added template constraints + module self_check for truncation, trailing spaces, repetitive patterns, and boring "Brand | X" structures
 Deferred to Phase 4.
+- [x] BUG: Import Brand Brief overlapped org/brand data — importing via Getting Started with no brand_id in nav state silently wrote to workspace-level (`brand_id=NULL`), overwriting existing workspace profile and polluting org context in multi-brand workspaces
+- [x] FEATURE: Import Brief scope gate — on first import (no brands): "Is this your Organization or a Brand?" step; when brands exist: brand selector listing existing brands + "New Brand" option; update mode (brand_id in nav state) is locked to that brand with a scope badge and cannot write to any other scope
+- [x] FEATURE: New brand imports always create a Brand row first (via `POST /brands`) then pass the new `brand_id` to ingest — workspace-level slot (`brand_id=NULL`) is never touched in new-brand or update-brand flows
+- [x] FEATURE: Getting Started checklist banner on all admin pages — fetches onboarding status on mount; shows dismissible amber strip until `workspace_configured && campaign_brand_kit_approved`; dismissal persisted in localStorage (`bos_gs_dismissed`)
+- [x] FEATURE: Getting Started quick actions reordered — Import Brief (primary), Review Brand Memory, Manage AI Providers, Go to CMO (last); setup checklist labels updated to reflect multi-brand flow
+- [x] BUG: Getting Started banner showed "Setup incomplete" when all 5 checklist steps were done — `all_ready` from onboarding status includes module routing checks that fail even with a complete setup; banner now uses `workspace_configured && campaign_brand_kit_approved` instead
+- [x] BUG: `brand_profile_configured` in `GET /onboarding/status` only checked `ws.brand_json` — false in multi-brand workspaces where brand data lives in Brand rows; now also checks if any Brand row has `brand_json` set
 ## Admin Web Dashboard ✓
 - [x] Route `/admin` — standalone dashboard shell
 - [x] Overview: workspace name, billing summary, provider health
@@ -530,7 +548,7 @@ Deferred to Phase 4.
 ### Pending (carry forward)
 - [x] Run migrations: docker compose exec api alembic upgrade head
 - [x] Admin brand management UI — brand list, add brand, brand detail (products/audiences/docs per brand)
-- [ ] Onboarding flow: import brand brief into a named brand (brand_id on products/audiences/docs)
+- [x] Onboarding flow: import brand brief into a named brand (brand_id on products/audiences/docs)
 - [x] @klar plan confirmation flow — save IntentContract + Campaign to DB after user approves plan draft; tags runs with campaign_id
   - [x] @klar confirm handler: creates Campaign + IntentContract + CampaignIntent in DB
   - [x] @klar run handler: resolves campaign by ID or name, falls through to LLM module dispatch
@@ -634,6 +652,43 @@ Deferred to Phase 4.
 - [x] BUG: gmail send dispatched from chat with empty brief (no to/subject/body) — module would fail; added `_extract_email_fields()` to parse recipient from USER messages and email body from most recent AI message in conversation context before dispatching
 - [x] BUG: `inject_channel_credentials` skipped credential lookup when brand_id=None (no @klar brand active in chat) — plugin modules always failed with "missing OAuth access token"; fixed by auto-resolving: query social_connections for the first connected brand for the required platform; also added `access_token` as an explicit credential alias alongside `page_token`
 
+### Google Calendar OAuth + Admin Scheduling UI (2026-05-16)
+**Architecture:** Brand-scoped Google Calendar OAuth. Each brand connects its own Google account via PKCE OAuth2. Tokens stored encrypted with refresh in token_meta_json. Booking pages and bookings managed via `/calendar/` router.
+- [x] `provider_auth.py`: GoogleCalendarOAuthHandler — PKCE OAuth2, calendar-only scopes (`calendar openid email`), token exchange, userinfo fetch, refresh_auth
+- [x] `provider_auth.py`: GOOGLE_CALENDAR_REDIRECT_URI auto-derived from GOOGLE_REDIRECT_URI when not set
+- [x] `routers/social.py`: GET /social/google-calendar/callback — validates session, completes login, stores SocialConnection(platform="google_calendar")
+- [x] `routers/social.py`: renamed `_admin_brands_redirect` → `_admin_connectors_redirect` — all OAuth callbacks now land at `/admin/connectors`
+- [x] `nginx.conf`: added `/social/` and `/calendar/` proxy blocks — OAuth callbacks must hit nginx, not direct API port
+- [x] `.env.example`: added GOOGLE_CALENDAR_REDIRECT_URI
+- [x] `web/src/api/types.ts`: CalendarPageResponse, BookingResponse interfaces
+- [x] `web/src/api/client.ts`: listCalendarPages, createCalendarPage, updateCalendarPage, deleteCalendarPage, listBookings, cancelBooking
+- [x] `web/AdminBrands.tsx`: Google Calendar connect/disconnect row per brand card; google_calendar URL param handling + toasts
+- [x] `web/AdminCalendar.tsx` (new): full scheduling page — booking page CRUD, duration/timezone/slug config, booking list with cancel
+- [x] `web/AdminLayout.tsx`: Scheduling nav item added (Business section)
+- [x] `web/App.tsx`: /admin/calendar route added
+- [x] `web/AdminConnectors.tsx`: major rewrite — read-only OAuth connection summary with "Manage in Brands →" link; plugin connectors unchanged below
+- [x] BUG FIX: `_GOOGLE_CALENDAR_SCOPES` included `gmail.send` — Google silently rejects Calendar redirect URI when Gmail scopes are included; fixed by removing `gmail.send`, leaving only `calendar openid email`
+- [x] BUG FIX: `AdminCalendar.tsx` unused `pageBookings` variable causing tsc build failure
+- [x] BUG FIX: web static build not hot-reloading — documented `docker compose build web && docker compose up -d web` rebuild requirement in CLAUDE.md
+- [ ] SETUP REQUIRED: Add `https://hq.klaroha.com/social/google-calendar/callback` to Google Cloud Console authorized redirect URIs before production use
+- [ ] FUTURE: `calendar.py` `_send_confirm()` uses Gmail API to send booking confirmations — Calendar token lacks `gmail.send` scope; wire through brand's Gmail SocialConnection token instead
+
+### Native Booking Widget + Timezone Fixes (2026-05-17)
+**Architecture:** BOS-native public booking UI served from API. No third-party (Calendly etc.). Google Calendar FreeBusy API for availability, Calendar Events API to create confirmed bookings. Universal embed via `widget.js` + `data-klaroha-booking` attribute.
+- [x] `api/routers/calendar.py`: restored full booking system from git history — `GET /calendar/availability/{slug}` (public slots), `POST /calendar/book/{slug}` (public booking), `GET /calendar/book/{slug}` (standalone widget HTML)
+- [x] `api/routers/calendar.py`: `GET /calendar/book/{slug}` returns `Content-Security-Policy: frame-ancestors *` so any external site can iframe the booking page
+- [x] `api/routers/calendar.py`: `GET /calendar/widget.js` — vanilla JS injector; finds `[data-klaroha-booking="slug"]` containers and appends iframe to BOS booking page; replaces `__API_BASE__` at serve time with correct hostname
+- [x] `api/main.py`: added `CORSMiddleware` (`allow_origins=["*"]`, GET/POST/OPTIONS) so widget requests work from external domains
+- [x] `public/index.html`: CTA section replaced with `<div data-klaroha-booking="intro"></div>` embed + `<script src="/api/calendar/widget.js" async></script>`
+- [x] BUG FIX: `_widget_html` JS — `fmtSlot` was ignoring the host timezone; slots now convert from host tz → visitor local tz using `Intl.DateTimeFormat`
+- [x] BUG FIX: booking submission was sending browser local time instead of UTC; added `slotToUTC(isoDate, hhmm, hostTz)` helper that uses `Intl` API for DST-safe conversion
+- [x] BUG FIX: `fmtDate` used `T00:00:00` (midnight, wrong day in negative-offset zones); changed to `T12:00:00`
+- [x] BUG FIX: confirmation showed only host timezone, not visitor's local time; now shows both when they differ
+- [x] `web/AdminCalendar.tsx`: timezone dropdown expanded from 9 hardcoded zones to ~80 IANA zones covering all regions including `Asia/Manila`
+- [x] `web/AdminCalendar.tsx`: `browserTz()` auto-detects browser timezone; form defaults to detected tz instead of hardcoded `America/New_York`
+- [x] `web/AdminCalendar.tsx`: `tzLabel(tz)` renders human-readable labels with UTC offset — `Asia/Manila (GMT+8)`
+- [x] `web/AdminCalendar.tsx`: timezone select pins detected browser timezone first; remaining zones follow in alphabetical regional order
+
 ### Channel Cleanup + CMO Architecture (2026-05-12)
 - [x] ARCH: Removed all Facebook capabilities — capabilities/, plugins/facebook/, providers/facebook.py, FacebookPageOAuthHandler, config fields, social router endpoints (/facebook/callback, /facebook/publish, select-page), connector registry entry, 7 test files
 - [x] ARCH: Removed all Twitter capabilities — capabilities/marketing/channel/twitter/, related test files
@@ -655,12 +710,16 @@ Deferred to Phase 4.
 
 ### 6.1 — Visual Production (image gen)
 > Force multiplier. Feeds every channel. Build before social.
-- [ ] `api/plugins/image-gen/` — brand-scoped image generation plugin (`marketing.execute`)
-- [ ] Reads Campaign Brand Kit for style constraints (colors, tone, visual identity) before generating
-- [ ] Supports multiple backends: OpenAI image-1, Flux, Stable Diffusion (provider-routed)
-- [ ] Output: reviewable `image_artifact` in Workspace — approve, revise, or dismiss before use
-- [ ] Paired output: copy + image as a single `creative_bundle` artifact for ads and social
+- [x] `api/plugins/media-image/` — provider-agnostic image generation plugin (`media.image.generate`); currently backed by Cloudflare Workers AI (Stable Diffusion XL). Plugin ID `media.image`, module ID stable regardless of backend provider.
+- [x] Credentials stored via `POST /plugins/media.image/credentials` (URL + API key encrypted in DB); swapping providers = updating credentials only, zero code changes
+- [x] Auto-builds image prompt from brand brief (brand name, product, audience, tone) when no explicit `image_prompt` is provided
+- [x] Executor pre-generation hook in `runs.py` — any module that sets `image_prompt` in its brief gets `_image_data_b64` / `_image_mime` injected before dispatch; no cross-plugin imports needed
+- [x] Frontend renders `image_asset` block inline in artifact card (base64 PNG with prompt caption)
+- [x] CMO dispatches via `RUN: media.image.generate`; skill manifest includes Google Ads image ads, display ads, social creatives, hero images as triggers
+- [x] Image Generation card on Specialists page with Configure button
+- [ ] Reads Campaign Brand Kit for style constraints (colors, tone, visual identity) before generating — brief-driven today, brand kit injection planned
 - [ ] Quality gate: brand compliance check (color palette, no banned elements) before surfacing
+- [ ] Paired output: copy + image as a single `creative_bundle` artifact for ads and social
 
 ### 6.2 — Email Campaign Infrastructure
 > Moves email from placeholder to full marketing.execute + marketing.optimize channel.
@@ -772,6 +831,12 @@ Deferred to Phase 4.
 | 2026-05-14 | Staging lives at staging.klaroha.com on the same VDS as production | Separate Docker stack on different ports, separate database; plugin dev PRs target staging branch first, reviewed by main dev before merging to main/production; keeps costs low while maintaining isolation |
 | 2026-05-14 | Plugin dev (Dev 2) has GitHub repo access only — no server SSH | Internal junior dev scoped to api/plugins/ via branch protection; pushes to plugin/* branches, PRs to staging; main dev reviews before any code reaches production; server deploy is webhook-triggered on merge, not manual |
 | 2026-05-14 | Database is not in the git repo — each server deployment is a clean install | postgres_data Docker volume stays on the server across restarts; only docker compose down -v wipes it; this makes each new client/server deployment a clean isolated instance by default |
+| 2026-05-17 | Import Brief scope is determined by UI step 0, not inferred from nav state alone | Before: arriving at `/admin/onboarding` without `brand_id` in nav state silently wrote to workspace-level. Now: no-brand-id path always shows a scope selector first — org vs brand (first import) or brand picker (brands exist). Update mode (brand_id in nav state) is locked and shows a scope badge. Prevents workspace-level data from being overwritten by a misrouted import. |
+| 2026-05-17 | New brand imports create the Brand row before calling ingest | Frontend calls `POST /brands` first, then passes the new `brand_id` to `POST /onboarding/ingest`. Workspace-level slot (`brand_id=NULL`) is never written in new-brand or update-brand flows. Ensures every brand import is always scoped and traceable to a Brand row. |
+| 2026-05-17 | Getting Started banner uses `campaign_brand_kit_approved`, not `all_ready` | `all_ready` from `GET /onboarding/status` requires every registered module to have a routable provider — it can be false even when all 5 UI checklist steps pass. Banner condition is `workspace_configured && campaign_brand_kit_approved`; if the kit is approved the core onboarding is done regardless of module routing state. |
+| 2026-05-17 | Public booking widget is BOS-native, not a third-party embed | Google Calendar appointment scheduler requires a paid Workspace subscription and blocks iframes. Calendly is an external dependency. BOS serves its own booking page HTML (`/calendar/book/{slug}`), checks availability via Google Calendar FreeBusy API, and creates events via Calendar Events API. Universal embed is a 2-line snippet (`widget.js` + `data-klaroha-booking` attribute) that works on WordPress, Webflow, plain HTML with no build step. |
+| 2026-05-17 | `widget.js` uses iframe, not inline injection, so embed works on CORS-restricted hosts | Inline DOM injection from an external script requires CORS-permissive hosts and can conflict with host CSP. An iframe to our own domain sidesteps both constraints. `Content-Security-Policy: frame-ancestors *` on the booking widget endpoint allows any external site to embed it. |
+| 2026-05-17 | `brand_profile_configured` in onboarding status checks Brand row `brand_json`, not only `ws.brand_json` | In multi-brand workspaces the workspace-level `brand_json` may be empty while Brand rows are fully populated. Updated check: if `ws.brand_json` is falsy, query Brand rows and accept any row with `brand_json` set. Products and audiences are already workspace-wide counts so no change there. |
 | 2026-05-12 | Capability questions may produce capability artifacts, but not execution artifacts | Fixes the email CMO failure without banning artifacts. `what can you do with email` should produce an Email Specialist capability card; it must not read Gmail, send Gmail, plan a campaign, or draft email unless the user asks for that work |
 | 2026-05-12 | Email Specialist MVP is the next optimization focus | Email should implement `marketing.plan`, `marketing.execute`, and `marketing.optimize` as one owner-facing specialist: setup/readiness, plan artifacts, draft artifacts, approval-gated send/test, inbox reply intelligence, and optimization learnings. Gmail/module IDs remain internal tool details |
 | 2026-05-12 | Lean hierarchy is `Org → Brand/Client → Market Unit → Campaign`; no Portfolio layer | Keeps architecture lean while supporting agencies, ecommerce multi-brand, multi-location services, and broker/agent networks. The Org acts as portfolio/control plane; Market Unit handles location/agent/territory/marketplace/SKU/service-line scope only when needed |
@@ -912,6 +977,12 @@ Deferred to Phase 4.
 | 2026-05-12 | api/capability_manifest.py is the single source of truth for CMO-dispatchable capabilities | Centralizes manifest generation; decouples system prompt building from the module registry internals; enables GET /capabilities/manifest endpoint in future without changing CMO chat logic |
 | 2026-05-12 | _build_system_prompt() takes no modules parameter — manifest is self-contained | capability_manifest.py generates the list; chat.py only needs the security boundary set (allowed_module_ids) which comes from list_skill_manifests() directly |
 | 2026-05-12 | CMO operating instructions live in capabilities/workspace/cmo_context/SYSTEM_PROMPT.md, not chat.py | Hardcoding instructions in chat.py creates a path for capability-specific behavioral drift into core; externalizing to a governed file keeps chat.py logic-only and lets instructions be updated without any core edit |
+| 2026-05-17 | Image gen plugin is `media.image` (generic), not `cloudflare-image` | Provider is an implementation detail; callers reference `media.image.generate` forever; swapping providers = updating stored credentials only, no module ID changes anywhere |
+| 2026-05-17 | Image gen credentials stored via plugin vars API (`POST /plugins/media.image/credentials`), not env vars | Allows UI-driven credential management without server access; same encrypted ProviderKey storage used by other plugins |
+| 2026-05-17 | Executor pre-generates images before channel dispatch via `_inject_generated_image` in runs.py | Any brief with `image_prompt` gets `_image_data_b64` injected before the channel module runs; no cross-plugin imports; image gen module is independently replaceable |
+| 2026-05-17 | SKILL.md must include explicit `module_id:` field matching the module's `id` attribute | `capability_manifest.py` filters on `skill.module_id`; skills without it are discovered but never dispatched by CMO — silent routing failure |
+| 2026-05-17 | CMO system prompt hard rule 9: RUN lines must use ONLY exact module IDs from the manifest | Llama 3.3 70B hallucinated `marketing.channel.google_ads.image_ad.draft` repeatedly; explicit prohibition added to HARD RULES block in `_build_system_prompt` |
+| 2026-05-17 | Cloudflare Workers AI blocks Python-urllib user-agent from Docker (error 1010) | Add `User-Agent: Mozilla/5.0 (compatible; BOS/1.0)` header to all requests from the media-image module; curl from host works but Docker outbound IP triggers CF bot detection |
 
 ## BITE Methodology (Phase 3)
 
@@ -968,7 +1039,8 @@ Deferred to Phase 4.
 - [x] INFRA: Workspace initialized, bootstrap API key created
 - [~] INFRA: Move live to hq.klaroha.com — vite.config.ts updated; pending: add `hq` A record on Cloudflare, update server .env FRONTEND_URL=https://hq.klaroha.com, git pull + docker compose up --build on server
 - [ ] INFRA: Create non-root user + lock down SSH (root login still enabled)
-- [ ] INFRA: staging.klaroha.com — docker-compose.staging.yml created (ports 8080/8001/5174, separate DB bos_staging); pending: copy .env → .env.staging on server, add Cloudflare staging.klaroha.com A record → port 8080, run first deploy
+- [x] INFRA: staging.klaroha.com — docker-compose.staging.yml created (ports 8080/8001/5174, separate DB bos_staging); .env.staging live on server; first deploy confirmed working
+- [x] BUG FIX: staging ENCRYPTION_KEY not picked up — staging uses `env_file: .env.staging` (not `.env`); `docker compose restart` does not re-read env_file, must use `--force-recreate`; fixed by writing clean .env.staging and running `docker compose -p staging -f docker-compose.staging.yml up -d --force-recreate api`
 - [x] INFRA: GitHub Actions CI — .github/workflows/ci.yml created; runs pytest + banned-pattern guardrails on PR; deploys to staging on staging branch push, production on main branch push
 - [x] INFRA: CODEOWNERS — created; api/plugins/ owned by @itsborj + @dev2-handle; core paths owned by @itsborj only
 - [ ] INFRA: GitHub secrets — add VDS_HOST, VDS_USER, VDS_DEPLOY_KEY, STAGING_PATH, PROD_PATH to repo secrets before CI deploy steps work; generate a deploy SSH key pair (ssh-keygen -t ed25519), add public key to server authorized_keys, private key to GitHub secret VDS_DEPLOY_KEY

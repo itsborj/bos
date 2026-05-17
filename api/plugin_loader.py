@@ -162,6 +162,11 @@ async def _load_db_plugin_vars(db, plugin_id: str, settings) -> dict:
         return {}
 
 
+async def get_plugin_vars(plugin_id: str, db, settings) -> dict:
+    """Public: load DB-stored vars for a plugin. Returns {} on any error."""
+    return await _load_db_plugin_vars(db, plugin_id, settings)
+
+
 async def inject_channel_credentials(
     module_id: str,
     brief: dict,
@@ -221,12 +226,33 @@ async def inject_channel_credentials(
                         credentials["access_token"] = token
                         first = False
 
-    if manifest.requires_platform_vars:
+    if manifest.requires_platform_vars or True:
         db_vars = await _load_db_plugin_vars(db, manifest.plugin_id, settings)
-        for var in manifest.requires_platform_vars:
-            val = os.getenv(var) or db_vars.get(var) or db_vars.get(var.lower())
+        # Inject all stored DB vars (required + extras like CLICKUP_TEAM_ID saved alongside token)
+        for var, val in db_vars.items():
             if val:
                 credentials[var.lower()] = val
+        # Env var overrides take precedence for declared required vars
+        for var in manifest.requires_platform_vars:
+            env_val = os.getenv(var)
+            if env_val:
+                credentials[var.lower()] = env_val
+
+    # Inject per-brand pm_config (team_id, list_id) so plugin modules can scope reads/writes
+    if brand_id and credentials:
+        try:
+            from models.workspace import Brand as _Brand
+            from sqlalchemy import select as _sel
+            _brand = (await db.execute(_sel(_Brand).where(_Brand.id == brand_id))).scalar_one_or_none()
+            if _brand:
+                _pm = (_brand.brand_json or {}).get("pm_config") or {}
+                if _pm.get("team_id"):
+                    credentials["pm_team_id"] = _pm["team_id"]
+                    credentials["clickup_team_id"] = _pm["team_id"]  # override workspace-level default
+                if _pm.get("list_id"):
+                    credentials["pm_list_id"] = _pm["list_id"]
+        except Exception as exc:
+            log.warning("inject_channel_credentials pm_config injection failed: %s", exc)
 
     if credentials:
         return {**brief, "_channel_credentials": credentials}

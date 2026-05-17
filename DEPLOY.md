@@ -82,9 +82,17 @@ ENCRYPTION_KEY=
 GOOGLE_CLIENT_ID=
 GOOGLE_CLIENT_SECRET=
 GOOGLE_REDIRECT_URI=https://YOUR_DOMAIN/api/social/gmail/callback
+# GOOGLE_CALENDAR_REDIRECT_URI is not required — auto-derived from GOOGLE_REDIRECT_URI
+# (replaces /social/gmail/callback → /social/google-calendar/callback)
+# Set explicitly only if your domain routing differs from the Gmail callback pattern.
 FRONTEND_URL=https://YOUR_DOMAIN
 PLATFORM_OPENROUTER_KEY=    # optional
 ```
+
+> **Local dev note:** Set `FRONTEND_URL=http://localhost:8090` (the Docker nginx HQ port).  
+> `http://localhost` (port 80) has no listener by default — the host nginx config rejects  
+> unmatched hosts with 444 and has no `localhost` server block. Using port 80 locally  
+> causes OAuth callbacks and calendar widget links to silently fail.
 
 ### `setup.sh`
 One-time VPS setup: generates secrets, creates `.env` from template, runs initial migrations.
@@ -151,6 +159,30 @@ deployments/
 5. Test full stack on one real VPS end-to-end
 6. `.github/workflows/release.yml` — image build + push to GHCR
 7. Per-org setup README or Notion page
+
+---
+
+## Google OAuth Setup (per deployment)
+
+BOS uses a single Google OAuth 2.0 app for all Google integrations (Gmail, Google Ads, Google Calendar). Each deploying org creates their own OAuth app in Google Cloud Console and sets the client ID/secret in `.env`.
+
+**Required Authorized Redirect URIs in Google Cloud Console:**
+
+| Integration | Redirect URI |
+|---|---|
+| Gmail | `https://YOUR_DOMAIN/api/social/gmail/callback` |
+| Google Calendar Booking | `https://YOUR_DOMAIN/api/social/google-calendar/callback` |
+
+`GOOGLE_CALENDAR_REDIRECT_URI` does not need to be set in `.env` — it is auto-derived from `GOOGLE_REDIRECT_URI` by replacing the path suffix. The two URIs must both be registered in Google Cloud Console under the same OAuth client.
+
+**Required OAuth Scopes (request in Google Cloud Console):**
+
+| Scope | Used by |
+|---|---|
+| `https://www.googleapis.com/auth/gmail.send` | Gmail send, Calendar booking confirmations |
+| `https://www.googleapis.com/auth/gmail.readonly` | Gmail inbox |
+| `https://www.googleapis.com/auth/calendar` | Calendar booking (read/write events + FreeBusy) |
+| `openid email` | All Google OAuth flows (user identity) |
 
 ---
 

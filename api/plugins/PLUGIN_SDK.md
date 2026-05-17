@@ -292,6 +292,49 @@ def execute_tool_result(self, brief: dict) -> tuple[dict, dict]:
 
 `self_check` still runs after `execute_tool_result`. It receives `result_data["content"]` as the `content` argument.
 
+### Execution pattern C — image pre-generation (consume a generated image)
+
+Use this when your module needs an image asset as part of its output (ad creative, social post with image, email header, etc.).
+
+**How it works:** The executor detects `image_prompt` in the brief and calls `media.image.generate` before dispatching your module. The result is injected into the brief as `_image_data_b64` and `_image_mime`. Your module reads these fields — no imports, no cross-plugin calls.
+
+**Step 1 — set `image_prompt` in your brief** (in `build_prompt` or `execute_tool_result`):
+
+```python
+def execute_tool_result(self, brief: dict) -> tuple[dict, dict]:
+    # The executor pre-generates the image if image_prompt is set.
+    # Set it here if not already in the brief from the CMO.
+    if not brief.get("image_prompt"):
+        brand = brief.get("brand_name", "the brand")
+        product = brief.get("product_name", "")
+        brief = {**brief, "image_prompt": f"A display ad creative for {product or brand}"}
+    
+    image_b64 = brief.get("_image_data_b64")  # populated by executor pre-generation
+    image_mime = brief.get("_image_mime", "image/png")
+    # use image_b64 in your result block
+```
+
+**Step 2 — include the image in your result block:**
+
+```python
+result_data = {
+    "content": "Ad creative generated with image asset.",
+    "sell_price": None,
+    "block": {
+        "type": "your_artifact_type",
+        "image_data_b64": image_b64,
+        "image_mime": image_mime,
+        # ... your other fields
+    }
+}
+```
+
+**Rules:**
+- Never import `media.image.generate` or call it directly from your module.
+- If `_image_data_b64` is absent (image gen failed or not configured), handle gracefully — return a text-only artifact rather than failing.
+- The executor skips pre-generation for `media.image.generate` itself (no recursion).
+- Image gen credentials are separate from your plugin's credentials — no need to declare `IMAGE_GEN_API_KEY` in your `channel.json`.
+
 ### self_check rules
 
 - Never raise an exception. Catch everything and append to failures.

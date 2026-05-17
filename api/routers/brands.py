@@ -20,6 +20,16 @@ from schemas.brands import BrandCreate, BrandResponse, BrandUpdate
 router = APIRouter(prefix="/brands", tags=["brands"])
 
 
+def _migrate_legacy_pm_config(bj: dict) -> dict | None:
+    """One-time read-path upgrade: clickup_config → pm_config with plugin field."""
+    legacy = bj.get("clickup_config")
+    if not legacy:
+        return None
+    migrated = dict(legacy)
+    migrated.setdefault("plugin", "channel.clickup")
+    return migrated
+
+
 def _to_response(brand: Brand) -> BrandResponse:
     bj = brand.brand_json or {}
     return BrandResponse(
@@ -32,6 +42,7 @@ def _to_response(brand: Brand) -> BrandResponse:
         domain=bj.get("domain", ""),
         website_url=bj.get("website_url", ""),
         social_handles=bj.get("social_handles", {}),
+        pm_config=bj.get("pm_config") or _migrate_legacy_pm_config(bj),
         created_at=brand.created_at.isoformat(),
         updated_at=brand.updated_at.isoformat(),
     )
@@ -139,6 +150,9 @@ async def update_brand(
         bj["website_url"] = body.website_url
     if body.social_handles is not None:
         bj["social_handles"] = body.social_handles
+    if body.pm_config is not None:
+        bj["pm_config"] = body.pm_config
+        bj.pop("clickup_config", None)  # remove legacy key on first write
     brand.brand_json = bj
 
     await db.commit()

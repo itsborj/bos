@@ -27,6 +27,7 @@ import { AdminOnboarding } from './pages/admin/AdminOnboarding';
 import { AdminReports } from './pages/admin/AdminReports';
 import { AdminBrands } from './pages/admin/AdminBrands';
 import { AdminBrandDetail } from './pages/admin/AdminBrandDetail';
+import { AdminCalendar } from './pages/admin/AdminCalendar';
 import { getApiKey } from './api/client';
 
 function RequireAuth({ children }: { children: React.ReactNode }) {
@@ -75,6 +76,7 @@ export default function App() {
             <Route path="billing"         element={<AdminBilling />} />
             <Route path="modules"         element={<AdminModules />} />
             <Route path="connectors"      element={<AdminConnectors />} />
+            <Route path="calendar"        element={<AdminCalendar />} />
           </Route>
           <Route path="*" element={<Navigate to="/cmo" replace />} />
         </Routes>

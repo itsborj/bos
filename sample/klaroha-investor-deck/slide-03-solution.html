@@ -1,0 +1,195 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Klaroha — The Solution</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+:root {
+  --obsidian: #080B0D; --carbon: #101417; --gunmetal: #171D20; --smoked: #1F272B;
+  --border: #2E383D; --teal: #055C71; --deep-teal: #105268; --petrol: #073A47;
+  --ivory: #F5F1E8; --soft-ivory: #E6DED0; --stone: #AFA89C;
+  --bronze: #B08A57; --green: #1F7A4D;
+}
+html, body { width: 100%; height: 100%; background: #050708; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.wrapper { width: 1920px; height: 1080px; transform-origin: center center; flex-shrink: 0; }
+.slide { width: 1920px; height: 1080px; background: var(--obsidian); position: relative; overflow: hidden; }
+.line-top { position: absolute; top: 0; left: 0; right: 0; height: 2px; background: var(--teal); }
+.line-bottom { position: absolute; bottom: 88px; left: 88px; right: 88px; height: 1px; background: var(--border); }
+.bg-grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(46,56,61,0.5) 1px, transparent 1px), linear-gradient(90deg, rgba(46,56,61,0.5) 1px, transparent 1px); background-size: 96px 96px; opacity: 0.05; }
+.teal-glow { position: absolute; right: -100px; bottom: -100px; width: 600px; height: 600px; background: radial-gradient(circle, rgba(5,92,113,0.1) 0%, transparent 65%); }
+
+.header { position: absolute; top: 64px; left: 120px; right: 120px; display: flex; justify-content: space-between; align-items: flex-end; }
+.slide-id { font-family: 'JetBrains Mono', monospace; font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--teal); }
+.header-right { text-align: right; }
+.header-tagline { font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 300; color: var(--stone); }
+
+.title-block { position: absolute; top: 120px; left: 120px; right: 120px; }
+.section-title { font-family: 'DM Serif Display', serif; font-size: 56px; color: var(--ivory); letter-spacing: -0.02em; line-height: 1.05; }
+.section-title span { color: var(--teal); }
+.section-sub { font-family: 'DM Sans', sans-serif; font-size: 18px; font-weight: 300; color: var(--stone); margin-top: 14px; letter-spacing: 0.01em; }
+
+/* 6-function grid */
+.functions-grid {
+  position: absolute;
+  top: 280px; left: 120px; right: 120px; bottom: 108px;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 2px;
+}
+
+.fn-card {
+  background: var(--gunmetal);
+  border: 1px solid var(--border);
+  padding: 40px 44px;
+  display: flex; flex-direction: column;
+  position: relative;
+  transition: border-color 0.2s;
+}
+
+.fn-card:nth-child(1) { border-top-color: var(--teal); }
+.fn-card:nth-child(2) { border-top-color: var(--teal); }
+.fn-card:nth-child(3) { border-top-color: var(--teal); }
+
+.fn-num {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px; letter-spacing: 0.2em; text-transform: uppercase;
+  color: var(--teal); margin-bottom: 20px;
+}
+
+.fn-title {
+  font-family: 'DM Serif Display', serif;
+  font-size: 26px; color: var(--ivory);
+  letter-spacing: -0.01em; line-height: 1.2;
+  margin-bottom: 12px;
+}
+
+.fn-desc {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 14px; font-weight: 300;
+  color: var(--stone); line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.fn-examples {
+  margin-top: auto;
+  padding-top: 16px;
+  display: flex; gap: 6px; flex-wrap: wrap;
+}
+
+.fn-tag {
+  font-family: 'DM Sans', sans-serif;
+  font-size: 11px; color: var(--stone); opacity: 0.6;
+  padding: 3px 8px;
+  border: 1px solid rgba(46,56,61,0.8);
+  border-radius: 2px;
+}
+
+.bottom-meta { position: absolute; bottom: 48px; left: 120px; right: 120px; display: flex; justify-content: space-between; }
+.page-id { font-family: 'JetBrains Mono', monospace; font-size: 10px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--stone); opacity: 0.4; }
+</style>
+</head>
+<body>
+<div class="wrapper" id="wrapper">
+  <div class="slide">
+    <div class="bg-grid"></div>
+    <div class="teal-glow"></div>
+    <div class="line-top"></div>
+    <div class="line-bottom"></div>
+
+    <div class="header">
+      <div class="slide-id">03 / The Solution</div>
+      <div class="header-right">
+        <div class="header-tagline">Demand-capture infrastructure for sales-led businesses</div>
+      </div>
+    </div>
+
+    <div class="title-block">
+      <div class="section-title">Six operating functions.<br><span>One operating system.</span></div>
+      <div class="section-sub">Klaroha is the layer between market attention and sales execution — installed knowing your category from day one.</div>
+    </div>
+
+    <div class="functions-grid">
+      <div class="fn-card">
+        <div class="fn-num">01</div>
+        <div class="fn-title">Intent Assets</div>
+        <div class="fn-desc">Pages, funnels, forms, and inquiry assets that capture demand from every channel into a single qualified pipeline.</div>
+        <div class="fn-examples">
+          <div class="fn-tag">Landing pages</div>
+          <div class="fn-tag">Assessment funnels</div>
+          <div class="fn-tag">Listing pages</div>
+          <div class="fn-tag">Lead magnets</div>
+        </div>
+      </div>
+      <div class="fn-card">
+        <div class="fn-num">02</div>
+        <div class="fn-title">Qualification Flows</div>
+        <div class="fn-desc">Category-specific mechanisms that determine buyer seriousness before sales time is spent.</div>
+        <div class="fn-examples">
+          <div class="fn-tag">Scoring</div>
+          <div class="fn-tag">Budget/timeline</div>
+          <div class="fn-tag">Fit assessment</div>
+          <div class="fn-tag">Document readiness</div>
+        </div>
+      </div>
+      <div class="fn-card">
+        <div class="fn-num">03</div>
+        <div class="fn-title">Conversation Routing</div>
+        <div class="fn-desc">The operational transition from qualified inquiry to the right agent, branch, or specialist. Response speed monitored.</div>
+        <div class="fn-examples">
+          <div class="fn-tag">Branch routing</div>
+          <div class="fn-tag">Calendar booking</div>
+          <div class="fn-tag">CRM assignment</div>
+          <div class="fn-tag">WhatsApp handoff</div>
+        </div>
+      </div>
+      <div class="fn-card">
+        <div class="fn-num">04</div>
+        <div class="fn-title">Follow-up Engine</div>
+        <div class="fn-desc">Automated and assisted follow-up that prevents interest from going cold — scripts, nurture sequences, and reactivation workflows.</div>
+        <div class="fn-examples">
+          <div class="fn-tag">Nurture sequences</div>
+          <div class="fn-tag">Reactivation</div>
+          <div class="fn-tag">Scripts</div>
+          <div class="fn-tag">Review requests</div>
+        </div>
+      </div>
+      <div class="fn-card">
+        <div class="fn-num">05</div>
+        <div class="fn-title">Performance Visibility</div>
+        <div class="fn-desc">Inquiry source, qualification rate, response time, routing outcome, agent and branch performance — one operating view.</div>
+        <div class="fn-examples">
+          <div class="fn-tag">Source performance</div>
+          <div class="fn-tag">Agent benchmarks</div>
+          <div class="fn-tag">Conversion rates</div>
+          <div class="fn-tag">HQ dashboard</div>
+        </div>
+      </div>
+      <div class="fn-card">
+        <div class="fn-num">06</div>
+        <div class="fn-title">Vertical Playbooks</div>
+        <div class="fn-desc">Category-specific templates, scripts, qualification frameworks, and benchmarks installed at setup. The system does not start blank.</div>
+        <div class="fn-examples">
+          <div class="fn-tag">Real estate</div>
+          <div class="fn-tag">Mortgage</div>
+          <div class="fn-tag">Franchise</div>
+          <div class="fn-tag">MSP / B2B</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="bottom-meta">
+      <div class="page-id">Klaroha · Pre-Seed 2026 · Confidential</div>
+      <div class="page-id">03</div>
+    </div>
+  </div>
+</div>
+<script>
+function scale() { const w = document.getElementById('wrapper'); const s = Math.min(window.innerWidth/1920, window.innerHeight/1080); w.style.transform=`scale(${s})`; }
+scale(); window.addEventListener('resize', scale);
+</script>
+</body>
+</html>
