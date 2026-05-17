@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { AudienceOut, BrandResponse, ProductOut, WorkspaceDocument, WorkspaceResponse } from '../../api/types';
+import type { AudienceOut, BrandResponse, PmConfig, ProductOut, WorkspaceDocument, WorkspaceResponse } from '../../api/types';
 
-type Tab = 'profile' | 'products' | 'audiences' | 'guidelines' | 'brand-kit';
+type Tab = 'profile' | 'products' | 'audiences' | 'guidelines' | 'brand-kit' | 'project-management';
 
 // ── Profile tab ───────────────────────────────────────────────────────────────
 
@@ -429,6 +429,127 @@ function BrandKitTab({ brandId }: { brandId: string }) {
   );
 }
 
+// ── Project Management tab ────────────────────────────────────────────────────
+
+const PM_PLUGINS: { id: string; label: string; list_id_hint: string; list_id_placeholder: string }[] = [
+  { id: 'channel.clickup', label: 'ClickUp', list_id_hint: 'from the list URL: app.clickup.com/…/list/901106xxxxx', list_id_placeholder: '901106xxxxx' },
+];
+
+const DEFAULT_STATUS_MAP = { pending: 'review', approved: 'complete', rejected: 'revise' };
+const DEFAULT_PM_CONFIG: PmConfig = { plugin: 'channel.clickup', sync_enabled: false, list_id: '', status_map: DEFAULT_STATUS_MAP };
+
+function ProjectManagementTab({ brand, onUpdate }: { brand: BrandResponse; onUpdate: (b: BrandResponse) => void }) {
+  const existing = brand.pm_config ?? DEFAULT_PM_CONFIG;
+
+  const [plugin, setPlugin]                 = useState(existing.plugin || 'channel.clickup');
+  const [syncEnabled, setSyncEnabled]       = useState(existing.sync_enabled);
+  const [listId, setListId]                 = useState(existing.list_id || '');
+  const [pendingStatus, setPendingStatus]   = useState(existing.status_map?.pending || 'review');
+  const [approvedStatus, setApprovedStatus] = useState(existing.status_map?.approved || 'complete');
+  const [rejectedStatus, setRejectedStatus] = useState(existing.status_map?.rejected || 'revise');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+  const [error, setError]   = useState<string | null>(null);
+
+  const activePlugin = PM_PLUGINS.find(p => p.id === plugin) ?? PM_PLUGINS[0];
+
+  async function handleSave(e: React.FormEvent) {
+    e.preventDefault();
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await api.updateBrand(brand.id, {
+        pm_config: {
+          plugin,
+          sync_enabled: syncEnabled,
+          list_id: listId.trim(),
+          status_map: { pending: pendingStatus, approved: approvedStatus, rejected: rejectedStatus },
+        },
+      });
+      onUpdate(updated);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Could not save project management config');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ maxWidth: 520 }}>
+      <form onSubmit={handleSave}>
+        <div className="form-group">
+          <label className="label" htmlFor="pm-plugin">
+            Project Management System
+          </label>
+          <select
+            id="pm-plugin"
+            className="input"
+            value={plugin}
+            onChange={e => setPlugin(e.target.value)}
+          >
+            {PM_PLUGINS.map(p => (
+              <option key={p.id} value={p.id}>{p.label}</option>
+            ))}
+          </select>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>
+            Each PM system requires its plugin to be configured in Admin → Specialists.
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label className="label" style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={syncEnabled}
+              onChange={e => setSyncEnabled(e.target.checked)}
+            />
+            Auto-sync completed runs to {activePlugin.label}
+          </label>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>
+            Each completed run creates a review task in the configured list.
+          </div>
+        </div>
+
+        <div className="form-group">
+          <label className="label" htmlFor="pm-list-id">
+            List ID <span className="label-hint">{activePlugin.list_id_hint}</span>
+          </label>
+          <input
+            id="pm-list-id"
+            className="input"
+            value={listId}
+            onChange={e => setListId(e.target.value)}
+            placeholder={activePlugin.list_id_placeholder}
+            disabled={!syncEnabled}
+          />
+        </div>
+
+        <div className="form-group">
+          <label className="label">
+            Status mapping <span className="label-hint">BOS status → {activePlugin.label} status name</span>
+          </label>
+          <div style={{ display: 'grid', gridTemplateColumns: '130px 1fr', gap: '6px 12px', alignItems: 'center', marginTop: 6 }}>
+            <span style={{ fontSize: 13, color: 'var(--text2)' }}>Pending review</span>
+            <input className="input" value={pendingStatus} onChange={e => setPendingStatus(e.target.value)} placeholder="review" disabled={!syncEnabled} />
+            <span style={{ fontSize: 13, color: 'var(--text2)' }}>Approved</span>
+            <input className="input" value={approvedStatus} onChange={e => setApprovedStatus(e.target.value)} placeholder="complete" disabled={!syncEnabled} />
+            <span style={{ fontSize: 13, color: 'var(--text2)' }}>Rejected</span>
+            <input className="input" value={rejectedStatus} onChange={e => setRejectedStatus(e.target.value)} placeholder="revise" disabled={!syncEnabled} />
+          </div>
+        </div>
+
+        {error && <div style={{ fontSize: 12, color: '#dc2626', marginBottom: 12 }}>{error}</div>}
+
+        <button type="submit" className="btn btn-dark" disabled={saving}>
+          {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save Config'}
+        </button>
+      </form>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function AdminBrandDetail() {
@@ -473,6 +594,7 @@ export function AdminBrandDetail() {
     { id: 'audiences', label: 'Audiences' },
     { id: 'guidelines', label: 'Guidelines' },
     { id: 'brand-kit', label: 'Brand Kit' },
+    { id: 'project-management', label: 'Project Mgmt' },
   ];
 
   return (
@@ -539,6 +661,9 @@ export function AdminBrandDetail() {
           )}
           {activeTab === 'brand-kit' && (
             <BrandKitTab brandId={brand.id} />
+          )}
+          {activeTab === 'project-management' && (
+            <ProjectManagementTab brand={brand} onUpdate={setBrand} />
           )}
         </div>
       </div>

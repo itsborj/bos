@@ -20,6 +20,7 @@ class BrandUpdate(BaseModel):
     domain: Optional[str] = None
     website_url: Optional[str] = None
     social_handles: Optional[dict] = None
+    pm_config: Optional[dict] = None
 
 
 class BrandResponse(BaseModel):
@@ -32,5 +33,6 @@ class BrandResponse(BaseModel):
     domain: str
     website_url: str
     social_handles: dict
+    pm_config: Optional[dict] = None
     created_at: str
     updated_at: str

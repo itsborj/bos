@@ -286,6 +286,13 @@ export interface BrandProfile {
   social_handles: Record<string, string>;
 }
 
+export interface PmConfig {
+  plugin: string;
+  sync_enabled: boolean;
+  list_id: string;
+  status_map: { pending: string; approved: string; rejected: string };
+}
+
 export interface BrandResponse {
   id: string;
   workspace_id: string;
@@ -296,6 +303,7 @@ export interface BrandResponse {
   domain: string;
   website_url: string;
   social_handles: Record<string, string>;
+  pm_config?: PmConfig | null;
   created_at: string;
   updated_at: string;
 }

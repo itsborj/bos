@@ -257,7 +257,7 @@ export const api = {
   getBrand: (brandId: string) =>
     request<BrandResponse>(`/brands/${brandId}`),
 
-  updateBrand: (brandId: string, body: Partial<{ name: string; voice: string; tone: string; values: string[]; domain: string; website_url: string; social_handles: Record<string, string> }>) =>
+  updateBrand: (brandId: string, body: Partial<{ name: string; voice: string; tone: string; values: string[]; domain: string; website_url: string; social_handles: Record<string, string>; pm_config: import('./types').PmConfig | null }>) =>
     request<BrandResponse>(`/brands/${brandId}`, { method: 'PUT', body: JSON.stringify(body) }),
 
   deleteBrand: (brandId: string) =>

@@ -19,7 +19,7 @@ from model_overrides import effective_strict, get_module_model_override, reorder
 from provider_auth import resolve_stored_provider_credential
 from routers.backend_settings import resolve_backend_override
 from models.run import Run, RunAttempt, RunResult, RunTrace
-from models.workspace import Audience, Campaign, Product, Workspace
+from models.workspace import Audience, Brand, Campaign, Product, Workspace
 from registry import get_module
 from routers.workspace import get_singleton
 from schemas.runs import (
@@ -124,6 +124,63 @@ async def _inject_generated_image(
     return brief
 
 
+# ── PM plugin run sync helpers ────────────────────────────────────────────────
+# These helpers are PM-system agnostic. The active plugin is read from
+# brand.brand_json["pm_config"]["plugin"] (e.g. "channel.clickup").
+# A different PM plugin just needs tasks.create / tasks.update capabilities
+# following the same module ID pattern: marketing.channel.{plugin}.tasks.*
+
+def _pm_cfg(brand: Brand) -> dict:
+    bj = brand.brand_json or {}
+    return bj.get("pm_config") or {}
+
+
+async def _sync_run_to_pm(run: Run, brand: Brand, db: AsyncSession, settings) -> str | None:
+    """Create a PM task for this run if brand has sync enabled. Returns task_id or None."""
+    cfg = _pm_cfg(brand)
+    if not cfg.get("sync_enabled") or not cfg.get("list_id") or not cfg.get("plugin"):
+        return None
+    plugin = cfg["plugin"]
+    create_id = f"marketing.channel.{plugin}.tasks.create"
+    try:
+        cls = get_module(create_id)
+        if not cls:
+            return None
+        pending_status = cfg.get("status_map", {}).get("pending", "review")
+        brief: dict = {
+            "list_id": cfg["list_id"],
+            "tasks": [{"name": f"[BOS] {run.module_id}", "description": f"Run ID: {run.id}", "status": pending_status}],
+        }
+        brief = await inject_channel_credentials(create_id, brief, run.brand_id, db, settings)
+        _, result = cls().execute_tool_result(brief)
+        created = result.get("block", {}).get("created", [])
+        return created[0].get("id") if created else None
+    except Exception:
+        logger.exception("PM run sync (create) failed for run %s plugin=%s", run.id, plugin)
+        return None
+
+
+async def _update_pm_task_status(run: Run, new_bos_status: str, brand: Brand, db: AsyncSession, settings) -> None:
+    """Update PM task status when run approval_status changes."""
+    if not run.pm_task_id:
+        return
+    cfg = _pm_cfg(brand)
+    if not cfg.get("plugin"):
+        return
+    plugin = cfg["plugin"]
+    new_pm_status = cfg.get("status_map", {}).get(new_bos_status, new_bos_status)
+    update_id = f"marketing.channel.{plugin}.tasks.update"
+    try:
+        cls = get_module(update_id)
+        if not cls:
+            return
+        brief: dict = {"task_id": run.pm_task_id, "new_status": new_pm_status}
+        brief = await inject_channel_credentials(update_id, brief, run.brand_id, db, settings)
+        cls().execute_tool_result(brief)
+    except Exception:
+        logger.exception("PM task status update failed for run %s plugin=%s", run.id, plugin)
+
+
 # ── Core execution (shared by /runs and /chat) ─────────────────────────────────
 
 async def _execute_module(
@@ -198,6 +255,15 @@ async def _execute_module(
 
         run.status = "success" if verdict == "pass" else "partial"
         await db.commit()
+
+        if brand_id:
+            _brand = (await db.execute(select(Brand).where(Brand.id == brand_id))).scalar_one_or_none()
+            if _brand:
+                task_id = await _sync_run_to_pm(run, _brand, db, settings)
+                if task_id:
+                    run.pm_task_id = task_id
+                    await db.commit()
+
         await db.refresh(run)
 
         return RunResponse(
@@ -365,6 +431,15 @@ async def _execute_module(
     run.status = "success" if verdict == "pass" else "partial"
 
     await db.commit()
+
+    if brand_id:
+        _brand = (await db.execute(select(Brand).where(Brand.id == brand_id))).scalar_one_or_none()
+        if _brand:
+            task_id = await _sync_run_to_pm(run, _brand, db, settings)
+            if task_id:
+                run.pm_task_id = task_id
+                await db.commit()
+
     await db.refresh(run)
 
     return RunResponse(
@@ -601,9 +676,14 @@ async def approve_run(
         raise HTTPException(status_code=404, detail="Run not found")
     
     run.approval_status = "approved"
-    run.feedback = None  # Clear any previous feedback
+    run.feedback = None
     await db.commit()
-    
+
+    if run.brand_id:
+        _brand = (await db.execute(select(Brand).where(Brand.id == run.brand_id))).scalar_one_or_none()
+        if _brand:
+            await _update_pm_task_status(run, "approved", _brand, db, get_settings())
+
     return {"run_id": run_id, "approval_status": "approved"}
 
 
@@ -629,7 +709,12 @@ async def reject_run(
     run.approval_status = "rejected"
     run.feedback = body.feedback
     await db.commit()
-    
+
+    if run.brand_id:
+        _brand = (await db.execute(select(Brand).where(Brand.id == run.brand_id))).scalar_one_or_none()
+        if _brand:
+            await _update_pm_task_status(run, "rejected", _brand, db, get_settings())
+
     return {"run_id": run_id, "approval_status": "rejected", "feedback": body.feedback}
 
 

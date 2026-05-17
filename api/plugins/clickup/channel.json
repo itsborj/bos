@@ -1,7 +1,7 @@
 {
   "plugin_id": "channel.clickup",
   "name": "ClickUp Channel",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "klaroha_min_version": "3.5",
   "capabilities_root": "capabilities/",
   "implements": ["marketing.execute", "marketing.optimize"],
@@ -13,10 +13,14 @@
   "requires_social_connection": [],
   "requires_platform_vars": [
     "CLICKUP_API_TOKEN",
-    "CLICKUP_TEAM_ID"
+    "CLICKUP_TEAM_ID",
+    "CLICKUP_WEBHOOK_SECRET"
   ],
+  "pm_capabilities": ["tasks.create", "tasks.update"],
   "capability_ids": [
     "marketing.channel.clickup.tasks.read",
-    "marketing.channel.clickup.tasks.create"
+    "marketing.channel.clickup.tasks.create",
+    "marketing.channel.clickup.tasks.update",
+    "marketing.channel.clickup.tasks.sync_backlog_item"
   ]
 }

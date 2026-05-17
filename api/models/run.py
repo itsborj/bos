@@ -28,6 +28,7 @@ class Run(Base):
     module_id: Mapped[str] = mapped_column(String(255), nullable=False)
     status: Mapped[str] = mapped_column(String(50), nullable=False, default="pending")
     approval_status: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, default="pending")
+    pm_task_id: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     feedback: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     parent_run_id: Mapped[Optional[uuid.UUID]] = mapped_column(
         UUID(as_uuid=True), ForeignKey("runs.id", ondelete="SET NULL"), nullable=True

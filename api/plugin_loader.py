@@ -162,6 +162,11 @@ async def _load_db_plugin_vars(db, plugin_id: str, settings) -> dict:
         return {}
 
 
+async def get_plugin_vars(plugin_id: str, db, settings) -> dict:
+    """Public: load DB-stored vars for a plugin. Returns {} on any error."""
+    return await _load_db_plugin_vars(db, plugin_id, settings)
+
+
 async def inject_channel_credentials(
     module_id: str,
     brief: dict,

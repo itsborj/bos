@@ -1039,7 +1039,8 @@ Deferred to Phase 4.
 - [x] INFRA: Workspace initialized, bootstrap API key created
 - [~] INFRA: Move live to hq.klaroha.com — vite.config.ts updated; pending: add `hq` A record on Cloudflare, update server .env FRONTEND_URL=https://hq.klaroha.com, git pull + docker compose up --build on server
 - [ ] INFRA: Create non-root user + lock down SSH (root login still enabled)
-- [ ] INFRA: staging.klaroha.com — docker-compose.staging.yml created (ports 8080/8001/5174, separate DB bos_staging); pending: copy .env → .env.staging on server, add Cloudflare staging.klaroha.com A record → port 8080, run first deploy
+- [x] INFRA: staging.klaroha.com — docker-compose.staging.yml created (ports 8080/8001/5174, separate DB bos_staging); .env.staging live on server; first deploy confirmed working
+- [x] BUG FIX: staging ENCRYPTION_KEY not picked up — staging uses `env_file: .env.staging` (not `.env`); `docker compose restart` does not re-read env_file, must use `--force-recreate`; fixed by writing clean .env.staging and running `docker compose -p staging -f docker-compose.staging.yml up -d --force-recreate api`
 - [x] INFRA: GitHub Actions CI — .github/workflows/ci.yml created; runs pytest + banned-pattern guardrails on PR; deploys to staging on staging branch push, production on main branch push
 - [x] INFRA: CODEOWNERS — created; api/plugins/ owned by @itsborj + @dev2-handle; core paths owned by @itsborj only
 - [ ] INFRA: GitHub secrets — add VDS_HOST, VDS_USER, VDS_DEPLOY_KEY, STAGING_PATH, PROD_PATH to repo secrets before CI deploy steps work; generate a deploy SSH key pair (ssh-keygen -t ed25519), add public key to server authorized_keys, private key to GitHub secret VDS_DEPLOY_KEY
