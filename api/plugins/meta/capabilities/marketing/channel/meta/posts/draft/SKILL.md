@@ -1,7 +1,7 @@
 ---
 id: marketing.channel.meta.posts.draft
 name: Facebook Post Draft
-description: Use when the user asks to draft, write, or create a Facebook post. Triggers on "draft a facebook post", "write a post for my page", "create a facebook post", "write a post about X". Generates post copy using the brand's voice, tone, and values. Returns a draft artifact — never publishes. For publishing, the user must explicitly approve the draft and ask to publish.
+description: Use when the user asks to draft, write, create, or post something on Facebook — including casual requests like "say hi", "post a message", "share something". Always creates a draft artifact first; never publishes directly. For publishing, the user must approve the draft.
 scope: module
 status: active
 version: 0.1.0
@@ -10,6 +10,7 @@ module_id: marketing.channel.meta.posts.draft
 requires_intent:
   - sample
   - discussion
+  - action
 triggers:
   - draft a facebook post
   - write a post for my page
@@ -21,10 +22,17 @@ triggers:
   - draft a post for facebook
   - write a post
   - post copy
+  - say hi on facebook
+  - say hi from
+  - post a message
+  - post something on facebook
+  - share something on facebook
+  - post on facebook
+  - write something for facebook
 excluded_triggers:
   - publish to facebook
-  - post on facebook now
   - publish this post
+  - go live on facebook
   - what did I post
   - show my posts
   - show facebook posts
