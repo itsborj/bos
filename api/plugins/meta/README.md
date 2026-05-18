@@ -27,6 +27,71 @@ CMO-facing jobs: `marketing.optimize`, `marketing.execute`
 
 ---
 
+## Meta Developer App Setup
+
+Meta uses a **Use Cases** model (not the old Products model). The correct setup process:
+
+### 1. Create the app
+- Go to developers.facebook.com → **Create App**
+- App type: **Business** (or Other → Business)
+- Fill in name and contact email
+
+### 2. Add the Manage Pages use case
+- Dashboard → **Add use case** → **Manage Pages** → Customize
+- In the permissions list, click **Add** next to each of these (order matters — dependencies first):
+  1. `pages_show_list` — lists pages the user admins
+  2. `pages_read_engagement` — reads page content, follower data, metadata; **hard dependency of `pages_manage_posts`**
+  3. `pages_read_user_content` — reads user-generated content on the page; hard dependency of `pages_manage_engagement`
+  4. `pages_manage_posts` — create/edit/delete posts
+  5. `pages_manage_engagement` — create/edit/delete comments (Phase 2)
+- Each enabled permission shows **"0 / Ready for testing"** in the Status column
+- Do NOT enable permissions you don't need — unused permissions are flagged in App Review
+
+> **Critical:** permissions listed in a use case are NOT automatically enabled. Each one must be explicitly clicked **Add**. If a permission is listed but not added, Meta injects it as a dependency but the OAuth dialog rejects it as "Invalid Scope".
+
+### 3. Facebook Login settings
+- Left sidebar → **Facebook Login → Settings**
+- **Valid OAuth Redirect URIs** — add all that apply:
+  ```
+  https://staging.klaroha.com/social/facebook/callback
+  https://hq.klaroha.com/social/facebook/callback
+  ```
+- **Note:** `http://localhost` does not work when Enforce HTTPS is on. Use staging for OAuth testing.
+- Save Changes
+- Verify with the Redirect URI Validator — should show a green checkmark
+
+### 4. App Domains
+- **Settings → Basic**
+- **App Domains** — add domain only (no protocol, no path):
+  ```
+  staging.klaroha.com
+  hq.klaroha.com
+  ```
+- Save Changes
+
+### 5. Enter credentials in BOS
+- Credentials go in **Admin → Plugins → Meta Channel** (not `.env`)
+- `META_APP_ID` — from Settings → Basic
+- `META_APP_SECRET` — click Show next to the dots in Settings → Basic
+- `META_REDIRECT_URI` — match the URI registered in step 3
+
+### 6. Testing with Graph API Explorer
+- Go to developers.facebook.com/tools/explorer
+- Select **Klaroha** app in the Meta App dropdown
+- Click **Add a Permission** and add: `pages_show_list`, `pages_read_engagement`, `pages_manage_posts`
+- Click **Generate Access Token** → grant permissions in the Facebook dialog
+- Test `/me/accounts` → should return pages with access tokens
+- Switch **User or Page** to a specific page → test `/{page_id}?fields=id,name,category,fan_count,link`
+- Test `POST /{page_id}/feed` with `message` param to verify publish works
+
+### App Review (for production with non-admin accounts)
+- Standard Access = developer + test users only (development mode)
+- Advanced Access = any user; requires Business Verification + App Review approval per permission
+- For Klaroha's own brand pages, Standard Access is sufficient
+- For managing client pages, App Review is required for `pages_manage_posts`
+
+---
+
 ## OAuth architecture
 
 Meta OAuth is different from Google. The flow produces **Page Access Tokens**, not user tokens — and a Page Access Token is what grants access to both a Facebook Page and its linked Instagram Business Account.
@@ -47,10 +112,11 @@ Page Access Tokens do not expire as long as the user's connection to the Page re
 
 ```
 pages_show_list
-pages_read_engagement
+pages_read_engagement       ← hard dependency of pages_manage_posts
 pages_manage_posts
-pages_read_user_content
 ```
+
+`pages_read_user_content` and `pages_manage_engagement` must be enabled in the Meta app but are not requested in the Phase 1 OAuth scope — they are needed for Phase 2 (comment management).
 
 ### Scopes — Phase 3 (add for Instagram)
 
@@ -64,9 +130,11 @@ Do not request Instagram scopes in Phase 1. Scope creep in the OAuth consent scr
 
 ### Credential injection
 
-Declared in `channel.json` as `requires_social_connection: ["facebook"]`.
+Declared in `channel.json` as `requires_social_connection: ["facebook"]` and `requires_platform_vars: ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"]`.
 
-BOS injects into `brief["_channel_credentials"]`:
+Plugin vars (META_APP_ID, META_APP_SECRET, META_REDIRECT_URI) are stored in the DB via Admin → Plugins → Meta Channel and loaded at runtime via `get_plugin_vars("channel.meta", db, settings)`.
+
+BOS injects page credentials into `brief["_channel_credentials"]`:
 
 ```python
 creds = brief.get("_channel_credentials", {})
@@ -80,13 +148,12 @@ Phase 4 (Ads) requires a different credential path — ad account token — whic
 
 ### OAuth handler
 
-A `FacebookOAuthHandler` must be added to `api/provider_auth.py`. It follows the same interface as `GmailOAuthHandler` but:
+`FacebookOAuthHandler` lives in `api/provider_auth.py`, registered as `"facebook"` in `_OAUTH_HANDLERS`.
 - Auth endpoint: `https://www.facebook.com/dialog/oauth`
 - Token endpoint: `https://graph.facebook.com/oauth/access_token`
 - Long-lived token exchange: `GET /oauth/access_token?grant_type=fb_exchange_token&...`
-- Page selection step: after OAuth callback, call `/me/accounts` and present pages to the user (same pattern as `SelectPageRequest` already defined in `social.py`)
-
-The `social.py` router already has `SelectPageRequest` defined but unused. The Facebook callback must drive a page-selection UI step before storing the final connection.
+- Page selection step: after OAuth callback, call `/me/accounts`; auto-select if 1 page, show picker modal if multiple
+- Multi-page storage: encrypted pages JSON stored in `provider_login_sessions.verifier_encrypted` (Text column, migration 026)
 
 ---
 
@@ -222,7 +289,7 @@ All Phase 1 capabilities use execution pattern B (`execute_tool_result`) — the
 
 ## Graph API reference
 
-All calls use `https://graph.facebook.com/v21.0/`. Always pin the version. Do not let it float.
+All calls use `https://graph.facebook.com/v21.0/`. Always pin the version. Do not let it float. Current stable version is v21.0; Graph API Explorer defaults to v25.0 — both work for Phase 1 endpoints.
 
 Key endpoints for Phase 1:
 
@@ -289,23 +356,7 @@ Key fields for publish (`POST /{page_id}/feed`):
 
 ```
 requires_social_connection: ["facebook"]
+requires_platform_vars: ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"]
 ```
 
-No platform vars needed for Phase 1–3. Phase 4 (Ads) may require `META_APP_ID` and `META_APP_SECRET` as platform vars if the OAuth handler does not already hold them in the handler config.
-
----
-
-## Local backlog
-
-- [ ] Phase 1: `FacebookOAuthHandler` in `provider_auth.py` + page selection step in `social.py`
-- [ ] Phase 1: `channel.json` + `pages/read`, `posts/read`, `posts/draft`, `posts/publish` capabilities
-- [ ] Phase 1: Frontend — add Facebook to Brands connect flow (same pattern as Gmail OAuth)
-- [ ] Phase 2: `comments/read` with intent classification (buying intent, support risk, spam)
-- [ ] Phase 2: `comments/respond` (approval-gated)
-- [ ] Phase 2: `posts/draft` image support via `media.image.generate` pre-generation (pattern C)
-- [ ] Phase 2: Post scheduling (`published: false` + `scheduled_publish_time`)
-- [ ] Phase 2: `posts.read` pagination (cursor-based, beyond 25 posts)
-- [ ] Phase 3: Add Instagram scopes to OAuth handler
-- [ ] Phase 3: `instagram/posts/draft` + `instagram/posts/publish`
-- [ ] Phase 4: Meta Ads credential path (ad account token) — design TBD
-- [ ] Phase 4: `ads/campaigns/read`, `ads/performance/read`
+Platform vars are stored in DB via Admin → Plugins → Meta Channel. Never put them in `.env` for production — `.env` values are fallbacks for local dev only.
