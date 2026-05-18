@@ -1,7 +1,7 @@
 ---
 id: marketing.channel.meta.posts.publish
 name: Facebook Post Publish
-description: Use ONLY when the user has explicitly approved a Facebook post draft and is asking to publish it. Triggers on "publish this post", "post this to facebook", "go ahead and publish", "publish the approved post". Requires explicit user confirmation with the post text in the brief. Never dispatches on a vague "post it" without the approved message present. Approval-gated — only dispatch after the user has reviewed and confirmed the draft.
+description: Use ONLY when the user has explicitly approved a specific Facebook post draft and is now asking to publish that exact approved text. Never use for new post creation — even casual ones like "post hello world" or "say hi". Those always go to posts/draft first. Only triggers after a draft artifact exists and the user says to go ahead.
 scope: module
 status: active
 version: 0.1.0
@@ -25,6 +25,14 @@ excluded_triggers:
   - show my posts
   - what did I post
   - schedule a post
+  - post on facebook
+  - post in facebook
+  - post on
+  - just say
+  - say hi
+  - say hello
+  - post something
+  - write something
 memory_slots:
   - brand_profile
 related_modules:
