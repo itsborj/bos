@@ -37,6 +37,10 @@ function artifactTitle(run: RunResponse, platformLabel: string): string {
   if (moduleId.includes('email') || platformLabel.toLowerCase().includes('email')) return 'Email Draft';
   if (moduleId.includes('plan')) return 'Campaign Plan';
   if (moduleId.includes('report') || moduleId.includes('analytics')) return 'Marketing Report';
+  if (moduleId.includes('meta.pages.read')) return 'Facebook Pages';
+  if (moduleId.includes('meta.posts.draft')) return 'Facebook Post Draft';
+  if (moduleId.includes('meta.posts.publish')) return 'Facebook Post';
+  if (moduleId.includes('meta.posts.read')) return 'Facebook Posts';
   if (moduleId.includes('google')) return 'Google Ad Draft';
   if (moduleId.includes('facebook')) return 'Facebook Draft';
   if (moduleId.includes('instagram')) return 'Instagram Draft';
@@ -181,6 +185,73 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, re
         />
       );
     }
+    const blockType = result.block?.type as string | undefined;
+
+    if (blockType === 'fb_page_post_draft') {
+      const message = result.block.message || result.content || 'Post text missing';
+      const pageName = result.block.page_name || brandName;
+      return (
+        <div style={{ fontFamily: 'Segoe UI, Helvetica, Arial, sans-serif', maxWidth: 500, border: '1px solid #ddd', borderRadius: 8, overflow: 'hidden', backgroundColor: '#fff' }}>
+          <div style={{ display: 'flex', padding: '12px', alignItems: 'center', gap: 10 }}>
+            <div style={{ width: 40, height: 40, borderRadius: '50%', backgroundColor: '#eee', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 'bold', color: '#888' }}>
+              {pageName[0]}
+            </div>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 600, color: '#050505' }}>{pageName}</div>
+              <div style={{ fontSize: 12, color: '#65676b' }}>Draft · 🌐</div>
+            </div>
+          </div>
+          <div style={{ padding: '0 12px 16px', fontSize: 14, color: '#050505', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
+            {message}
+          </div>
+        </div>
+      );
+    }
+
+    if (blockType === 'meta_page_posts') {
+      const b = result.block as any;
+      if (b.status === 'failed') {
+        return (
+          <div style={{ padding: 24, textAlign: 'center', color: '#6b7280', fontSize: 13 }}>
+            <div style={{ fontSize: 28, marginBottom: 8 }}>⚠</div>
+            <div style={{ color: '#ef4444', fontWeight: 600, marginBottom: 6 }}>Facebook not connected</div>
+            <div>{b.message || result.content}</div>
+          </div>
+        );
+      }
+      const posts: any[] = b.posts || [];
+      return (
+        <div style={{ padding: '16px 20px', fontSize: 13, color: '#1f2937', maxWidth: 520 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Recent Posts · {b.page_name || brandName}</div>
+          {posts.length === 0 ? (
+            <div style={{ color: '#6b7280' }}>No posts found on this page.</div>
+          ) : posts.slice(0, 10).map((p: any, i: number) => (
+            <div key={p.post_id || i} style={{ padding: '10px 0', borderTop: i ? '1px solid #f3f4f6' : 'none' }}>
+              <div style={{ color: '#6b7280', fontSize: 11, marginBottom: 4 }}>{(p.created_time || '').slice(0, 10)}</div>
+              <div style={{ lineHeight: 1.45, marginBottom: 6 }}>{p.message ? (p.message.length > 160 ? p.message.slice(0, 160) + '…' : p.message) : '(no text)'}</div>
+              <div style={{ color: '#6b7280', fontSize: 11 }}>❤️ {p.likes ?? 0} · 💬 {p.comments ?? 0} · ↗ {p.shares ?? 0}</div>
+            </div>
+          ))}
+        </div>
+      );
+    }
+
+    if (blockType === 'meta_page_inventory') {
+      const pages: any[] = (result.block as any).pages || [];
+      return (
+        <div style={{ padding: '16px 20px', fontSize: 13, color: '#1f2937', maxWidth: 520 }}>
+          <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Facebook Pages</div>
+          {pages.length === 0 ? <div style={{ color: '#6b7280' }}>No pages found.</div> : pages.map((p: any, i: number) => (
+            <div key={p.page_id || i} style={{ padding: '10px 0', borderTop: i ? '1px solid #f3f4f6' : 'none' }}>
+              <div style={{ fontWeight: 600 }}>{p.name}</div>
+              <div style={{ color: '#6b7280', fontSize: 12 }}>{p.category}{p.followers != null ? ` · ${p.followers.toLocaleString()} followers` : ''}</div>
+              {p.ig_business_account_id && <div style={{ color: '#6b7280', fontSize: 11, marginTop: 2 }}>IG: {p.ig_business_account_id}</div>}
+            </div>
+          ))}
+        </div>
+      );
+    }
+
     if (channel.includes('facebook')) {
       return <FacebookFeedPreview pageName={brandName} adCopy={result.content || 'Copy missing'} ctaText={result.cta || 'Learn More'} />;
     }

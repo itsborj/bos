@@ -130,6 +130,8 @@ class MetaPostsReadModule(ChannelModule):
 
     def self_check(self, content: str, brief: dict) -> tuple[str, list[str]]:
         failures = []
-        if "facebook" not in content.lower() and "posts" not in content.lower() and "no posts" not in content.lower():
+        if "failed to" in content.lower():
+            failures.append("execution_failed")
+        elif "facebook" not in content.lower() and "posts" not in content.lower() and "no posts" not in content.lower():
             failures.append("missing_posts_content")
         return ("fail" if failures else "pass"), failures

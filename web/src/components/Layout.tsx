@@ -56,6 +56,32 @@ function readActiveBrand(): ActiveBrand | null {
   return null;
 }
 
+function stripLargeFields(block: unknown): unknown {
+  if (!block || typeof block !== 'object' || Array.isArray(block)) return block;
+  const { image_data_b64: _dropped, ...rest } = block as Record<string, unknown>;
+  return rest;
+}
+
+function sanitizeRunForStorage(run: RunResponse): RunResponse {
+  if (!run.result?.block) return run;
+  return { ...run, result: { ...run.result, block: stripLargeFields(run.result.block) } };
+}
+
+function writePendingRuns(items: Record<string, RunResponse>): void {
+  const sanitized = Object.fromEntries(
+    Object.entries(items)
+      .sort(([, a], [, b]) => +new Date(b.created_at) - +new Date(a.created_at))
+      .slice(0, 50)
+      .map(([k, v]) => [k, sanitizeRunForStorage(v)])
+  );
+  try {
+    localStorage.setItem(PENDING_RUNS_KEY, JSON.stringify(sanitized));
+  } catch {
+    // Still over quota after stripping — clear rather than crash
+    localStorage.removeItem(PENDING_RUNS_KEY);
+  }
+}
+
 function readPendingRuns(): Record<string, RunResponse> {
   try {
     const raw = localStorage.getItem(PENDING_RUNS_KEY);
@@ -110,7 +136,7 @@ export function Layout() {
   }, [refreshConversations]);
 
   useEffect(() => {
-    localStorage.setItem(PENDING_RUNS_KEY, JSON.stringify(pendingRunItems));
+    writePendingRuns(pendingRunItems);
   }, [pendingRunItems]);
 
   useEffect(() => {
