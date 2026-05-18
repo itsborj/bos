@@ -143,7 +143,15 @@
       "Bash(nginx -v)",
       "Bash(gh run *)",
       "Bash(conda run *)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "Bash(ssh *)",
+      "Read(//home/ubu/.ssh/**)",
+      "Bash(ssh-keyscan -4 -T 5 staging.klaroha.com)",
+      "Bash(dig +short staging.klaroha.com A)",
+      "Bash(ping -4 -c 2 -W 3 staging.klaroha.com)",
+      "Bash(CLICKUP_API_TOKEN=pk_30049374_PMWVZSKXNFW68CV2BVDP3WIM21OJ6ZVF CLICKUP_TEAM_ID=90161582949 python3 *)",
+      "WebFetch(domain:developers.facebook.com)",
+      "WebFetch(domain:www.facebook.com)"
     ]
   }
 }

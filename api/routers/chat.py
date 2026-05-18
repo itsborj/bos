@@ -41,7 +41,7 @@ logger = logging.getLogger("bos.chat")
 _RUN_RE = re.compile(r"RUN:\s*([a-zA-Z0-9_.-]+)")
 # Matches key: value lines immediately following a RUN: directive (until blank line or next RUN:)
 _RUN_PARAMS_RE = re.compile(
-    r"RUN:\s*([a-zA-Z0-9_.-]+)((?:\n[ \t]*[a-zA-Z_][a-zA-Z0-9_]*\s*:[^\n]*)*)",
+    r"RUN:\s*([a-zA-Z0-9_.-]+)((?:\n(?![ \t]*RUN\s*:)[ \t]*[a-zA-Z_][a-zA-Z0-9_]*\s*:[^\n]*)*)",
     re.MULTILINE,
 )
 
