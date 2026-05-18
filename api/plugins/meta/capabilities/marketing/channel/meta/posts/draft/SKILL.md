@@ -8,9 +8,8 @@ version: 0.1.0
 allowed_from_chat: true
 module_id: marketing.channel.meta.posts.draft
 requires_intent:
-  - sample
   - discussion
-  - action
+  - generation
 triggers:
   - draft a facebook post
   - write a post for my page
@@ -28,6 +27,7 @@ triggers:
   - post something on facebook
   - share something on facebook
   - post on facebook
+  - post in facebook
   - write something for facebook
 excluded_triggers:
   - publish to facebook

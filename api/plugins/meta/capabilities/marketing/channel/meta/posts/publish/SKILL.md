@@ -8,7 +8,8 @@ version: 0.1.0
 allowed_from_chat: true
 module_id: marketing.channel.meta.posts.publish
 requires_intent:
-  - action
+  - discussion
+  - generation
 triggers:
   - publish this post
   - post this to facebook
