@@ -31,6 +31,7 @@ function titleCase(value: string): string {
 }
 
 function artifactTitle(run: RunResponse, platformLabel: string): string {
+  if (!run?.module_id) return 'Artifact';
   const moduleId = run.module_id.toLowerCase();
   if (moduleId.includes('marketing.plan')) return 'Marketing Plan';
   if (moduleId.includes('email') && moduleId.includes('plan')) return 'Email Campaign Plan';

@@ -25,6 +25,7 @@ function titleCase(value: string): string {
 }
 
 function artifactTitle(run: RunResponse): string {
+  if (!run?.module_id) return 'Artifact';
   const id = run.module_id.toLowerCase();
   const platform = titleCase(run.result?.platform || run.module_id.split('.').pop() || 'asset');
   if (id.includes('email') && id.includes('plan')) return 'Email Campaign Plan';

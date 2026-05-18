@@ -87,7 +87,15 @@ function readPendingRuns(): Record<string, RunResponse> {
     const raw = localStorage.getItem(PENDING_RUNS_KEY);
     if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, RunResponse>;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const valid: Record<string, RunResponse> = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          if (v && typeof (v as any).module_id === 'string' && typeof (v as any).run_id === 'string') {
+            valid[k] = v as RunResponse;
+          }
+        }
+        return valid;
+      }
       return {};
     }
   } catch {

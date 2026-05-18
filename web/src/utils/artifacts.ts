@@ -21,6 +21,7 @@ export function titleCase(value: string): string {
 }
 
 export function artifactTitle(run: RunResponse): string {
+  if (!run?.module_id) return 'Artifact';
   const id = run.module_id.toLowerCase();
   const platform = titleCase(run.result?.platform || run.module_id.split('.').pop() || 'asset');
   const platformKey = platform.toLowerCase();
@@ -37,6 +38,7 @@ export function artifactTitle(run: RunResponse): string {
 }
 
 export function artifactType(run: RunResponse): ArtifactRef['type'] {
+  if (!run?.module_id) return 'draft_artifact';
   const id = run.module_id.toLowerCase();
   if (id.includes('plan')) return 'plan_artifact';
   if (id.includes('report') || id.includes('analytics') || id.includes('inbox') || id.includes('read')) return 'intelligence_artifact';
@@ -54,6 +56,7 @@ export function artifactStatus(run: RunResponse): ArtifactStatus {
 }
 
 export function artifactRenderer(run: RunResponse): string {
+  if (!run?.module_id) return 'artifact_detail';
   const id = run.module_id.toLowerCase();
   const channel = `${id} ${(run.result?.platform || '').toLowerCase()}`;
   if (channel.includes('email')) return 'email_preview';
