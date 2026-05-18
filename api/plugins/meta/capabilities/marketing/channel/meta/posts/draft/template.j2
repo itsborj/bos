@@ -5,6 +5,11 @@ Brand tone: {{ tone | default("confident") }}
 {% if values %}Brand values: {{ values | join(", ") }}{% endif %}
 {% if products %}Key products/services: {% for p in products[:3] %}{{ p.name }}{% if not loop.last %}, {% endif %}{% endfor %}{% endif %}
 
+{% if conversation_context %}
+Recent conversation (use to infer intent and topic):
+{{ conversation_context }}
+{% endif %}
+
 Write a Facebook post for this request: {{ task_name | default(topic | default("a brand update")) }}
 
 {% if brief_notes %}Additional context: {{ brief_notes }}{% endif %}

@@ -39,6 +39,11 @@ router = APIRouter(tags=["chat"])
 logger = logging.getLogger("bos.chat")
 
 _RUN_RE = re.compile(r"RUN:\s*([a-zA-Z0-9_.-]+)")
+# Matches key: value lines immediately following a RUN: directive (until blank line or next RUN:)
+_RUN_PARAMS_RE = re.compile(
+    r"RUN:\s*([a-zA-Z0-9_.-]+)((?:\n[ \t]*[a-zA-Z_][a-zA-Z0-9_]*\s*:[^\n]*)*)",
+    re.MULTILINE,
+)
 
 # ── @klar command routing ─────────────────────────────────────────────────────
 _KLAR_RE = re.compile(r"^\s*@klar\b", re.IGNORECASE)
@@ -100,6 +105,34 @@ def _parse_klar_command(message: str) -> dict:
 
     # generic @klar directive — needs brand context
     return {"action": "directive", "text": body}
+
+
+def _parse_run_inline_params(text: str) -> dict[str, dict[str, str]]:
+    """Extract per-module key-value params from lines following each RUN: directive.
+
+    CMO output format:
+        RUN: some.module.id
+        key1: value one
+        key2: value two
+    Returns {module_id: {key1: value1, key2: value2}}.
+    """
+    result: dict[str, dict[str, str]] = {}
+    for match in _RUN_PARAMS_RE.finditer(text):
+        module_id = match.group(1)
+        param_block = match.group(2)
+        params: dict[str, str] = {}
+        for line in param_block.splitlines():
+            line = line.strip()
+            if not line or ":" not in line:
+                continue
+            key, _, value = line.partition(":")
+            key = key.strip()
+            value = value.strip()
+            if key and value:
+                params[key] = value
+        if params:
+            result[module_id] = params
+    return result
 
 
 def _parse_scope_pairs(fragment: str) -> dict[str, str]:
@@ -1014,9 +1047,11 @@ async def chat(
                     pass
             active_brand_uuid: UUID | None = (execution_brand or active_brand).id if (execution_brand or active_brand) else None
 
+            run_inline_params = _parse_run_inline_params(reply_without_scope)
             for module_id in triggered_modules:
                 try:
                     module_brief = dict(brief)
+                    module_brief.update(run_inline_params.get(module_id, {}))
                     result = await _execute_module(
                         db, ws, module_id, module_brief, settings,
                         campaign_id=active_campaign_uuid,

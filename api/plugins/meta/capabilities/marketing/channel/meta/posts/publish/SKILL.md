@@ -60,13 +60,17 @@ Publish an approved Facebook post draft to the connected Page via the Graph API.
 
 ## CMO response behavior
 
-Only dispatch after the user has confirmed they want to publish the specific post:
+Only dispatch after the user has confirmed they want to publish the specific post.
+Output the `message:` param on the line immediately after `RUN:` — this is required:
 
 ```text
 Publishing your approved post to Facebook.
 RUN: marketing.channel.meta.posts.publish
-message: <exact approved post text>
+message: <paste the exact approved post text here — no quotes, no truncation>
 ```
+
+If the approved post text is not available in context, ask the user to confirm the
+post text before dispatching. Never dispatch with a blank or placeholder message.
 
 ## Outcome contract
 

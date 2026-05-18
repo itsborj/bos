@@ -77,12 +77,12 @@ Never:
 
 ## CMO response behavior
 
-Show a brief acknowledgment, then dispatch:
+Show a brief acknowledgment, then dispatch with `task_name:` on the next line:
 
 ```text
 Drafting a Facebook post for you.
 RUN: marketing.channel.meta.posts.draft
-task_name: <what the post is about>
+task_name: <specific topic or instruction from the user — be precise>
 ```
 
 Do NOT paste the post copy in chat. The draft goes to Workspace for review. After the user approves, they can publish via `posts.publish`.
