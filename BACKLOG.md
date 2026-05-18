@@ -719,8 +719,9 @@ Deferred to Phase 4.
 - [x] `.env.example`: Meta OAuth vars documented with setup instructions and redirect URI examples
 - [x] `web/src/pages/admin/AdminBrands.tsx`: Facebook connect/disconnect row per brand card; multi-page picker modal; callback param handling (`facebook=connected/denied/error/select_page`)
 - [x] `web/src/api/client.ts`: `facebookPendingPages()`, `facebookSelectPage()` methods
-- [ ] SETUP REQUIRED: Create Meta Developer App at developers.facebook.com → add Facebook Login → register redirect URI → add META_APP_ID + META_APP_SECRET to .env; go through App Review for production publish scope (`pages_manage_posts`)
-- [ ] Migration 026 must be run on staging + production: `cd api && alembic upgrade head`
+- [x] SETUP REQUIRED: Create Meta Developer App at developers.facebook.com → add Facebook Login → register redirect URI → add META_APP_ID + META_APP_SECRET to .env; go through App Review for production publish scope (`pages_manage_posts`)
+- [x] Migration 026 run on staging: `cd api && alembic upgrade head`
+- [x] BUG RESOLVED: "Invalid Scopes: pages_read_engagement" — root cause was permission not enabled in Meta Developer App use case (not deprecated). Fix: enable `pages_read_engagement` + `pages_read_user_content` in Manage Pages use case. Correct scope: `pages_show_list,pages_read_engagement,pages_manage_posts`. All 3 Graph API endpoints verified in Graph API Explorer: /me/accounts ✅, /{page_id}?fields=... ✅, POST /{page_id}/feed ✅
 - [ ] TEST: connect a brand's Facebook page end-to-end — OAuth → page selection → SocialConnection row stored
 - [ ] TEST: CMO chat → "show my facebook page" → `meta_page_inventory` artifact
 - [ ] TEST: CMO chat → "draft a facebook post about X" → `fb_page_post_draft` artifact in Workspace
@@ -728,6 +729,58 @@ Deferred to Phase 4.
 
 ## Phase 6 — Full-Stack Marketing Automation
 > Goal: replace every role in a marketing department. CMO orchestrates. Plugins are the specialists. Owner approves decisions. BOS remembers what worked.
+
+### Two-Cycle System Architecture
+
+BOS operates in two cycles that form a flywheel. Every client starts at Cycle 1. Once metrics exist, Cycle 2 begins and feeds back into Cycle 1 indefinitely.
+
+```
+CYCLE 1 — Setup to Market
+  Brand Brief
+    → GTM Plan generated (marketing angles, channels, omni-channel stack)
+    → BL selects which channels to invest in
+    → Per-plugin onboarding checklists generated and dumped to PM
+    → Agentic loop handles automatable setup; manual tasks go to human via ClickUp
+    → Once onboarding complete: each channel generates first artifacts
+    → Artifacts surface on Stream for BL review and approval
+    → Approved artifacts deployed; plugins update their own PM tasks
+
+CYCLE 2 — Intelligence to Optimization
+  Channel metrics flood in on cadence (EOD / EOW / EOM)
+    → Each channel plugin runs its own analyst capability
+    → Channel reports submitted to CMO
+    → CMO synthesizes marketing snapshot and reports to BL
+    → BL approves optimization plan
+    → New campaign brief issued across all active channels
+    → Cycle 1 execution restarts for new campaign
+```
+
+**Business Leader's day:**
+- Morning: checks Stream on phone — pending reviews, needs attention, newly published
+- Issues campaign brief or approves pending artifacts from Stream
+- Midday: published asset status visible in Stream
+- On cadence: CMO surfaces marketing snapshot → BL approves optimization plan
+- CMO dispatches approved plan to all specialists → drafts surface → BL approves → deployed
+
+**Key architectural pieces needed (sections 6.10–6.15 below):**
+- GTM Plan capability — strategic output from brand brief, BL selects channels
+- Plugin onboarding manifest — `channel.json` declares onboarding checklist per plugin
+- Onboarding orchestrator — aggregates manifests, creates PM tasks, auto-completes what it can
+- Campaign brief cascade — approved plan dispatches to all active channels simultaneously
+- Per-channel analyst capabilities — each plugin's `*.analyze` module, runs on cadence
+- CMO snapshot aggregator — synthesizes channel reports into one executive summary
+- Stream panel upgrade — BL decision surface: priority-sorted, approve-in-place, digest mode
+- Digest notification — loop sends summary to BL after each run (email or Slack)
+
+---
+
+### 6.0 — CMO Agent Harness (pi model)
+> Direct execution surface for agents — read, execute, write. No LLM routing. Agents call capabilities directly; result always lands at pending_review for human approval.
+- [x] `api/routers/agent.py` — 5-endpoint harness: GET /agent/state, GET /agent/context/{brand_id}, GET /agent/capabilities, POST /agent/execute, PATCH /agent/review/{run_id}
+- [x] POST /agent/execute calls existing `_execute_module()` in runs.py — same code path as CMO chat, no duplicate execution logic
+- [x] PATCH /agent/review triggers PM (ClickUp) sync on approve/reject
+- [ ] Frontend: Agent Activity panel in Admin — live view of agent-initiated runs and their review queue
+- [x] Agent loop script: `api/agents/cmo_loop.py` — monitor → prioritize → delegate → surface (runs on cron or webhook trigger)
 
 ### 6.1 — Visual Production (image gen)
 > Force multiplier. Feeds every channel. Build before social.
@@ -797,6 +850,77 @@ Deferred to Phase 4.
 - [ ] Dismissed variants and rejected artifacts stored as negative memory — CMO doesn't repeat mistakes
 - [ ] `Outcomes` section in Admin surfaces approved learnings, measured results, and trend signals per brand
 - [ ] Next campaign `marketing.plan` call loads prior outcomes as a memory slot automatically
+
+---
+
+### 6.10 — GTM Plan Capability (Cycle 1 entry point)
+> First thing generated after brand brief is submitted. BL uses this to decide which channels to activate. All downstream work — onboarding, artifacts, deployment — flows from the channels the BL selects here.
+- [ ] `api/capabilities/marketing/planning/gtm_plan/` — `marketing.planning.gtm_plan` capability
+- [ ] Reads brand brief (voice, tone, values, products, audiences, domain) and generates full omni-channel GTM plan: recommended channels, marketing angles per channel, messaging priorities, suggested budget allocation ranges, rationale per channel
+- [ ] Output is a structured `gtm_plan` artifact: channel list with BL toggle (invest / skip / defer) + narrative summary
+- [ ] BL approves plan from Stream; selected channels become the active channel set for this brand
+- [ ] Approved channel selection stored in `brand_json["active_channels"]` — all downstream orchestration reads from this
+- [ ] CMO can regenerate plan when brand brief is updated (new product, new market, new budget)
+- [ ] Rejected channel stays in plan as `deferred` — BL can activate later without regenerating
+
+### 6.11 — Plugin Onboarding Manifest + Orchestrator
+> Each plugin declares what it needs to go live. The system aggregates all requirements, automates what it can, and sends the rest to the PM for human coordination. Onboarding is complete when all tasks are marked done.
+- [ ] Add `onboarding` block to `channel.json` manifest schema — each plugin declares its checklist: `{task, description, auto: true|false, requires_credential: bool}`
+- [ ] Example: Google Ads plugin declares `[{task: "Link MCC account", auto: false}, {task: "Create conversion action", auto: true, module: "google_ads.setup.conversion"}]`
+- [ ] `api/capabilities/onboarding/channel_onboarding/` — `onboarding.channel_onboarding` capability: reads all active channel manifests for a brand, generates unified onboarding task list
+- [ ] Automated tasks dispatched immediately via agent harness; manual tasks created in ClickUp under a dedicated onboarding list per brand
+- [ ] Onboarding status tracked per channel: `not_started / in_progress / complete / blocked`
+- [ ] Admin UI: onboarding progress view per brand — channel rows with completion status
+- [ ] Agent loop checks onboarding status on each run; once all channels complete, triggers first-artifact generation automatically
+
+### 6.12 — Campaign Brief Cascade
+> When BL approves a campaign plan, the loop dispatches briefs to all active channels simultaneously. No manual trigger per channel. The CMO calls its army of specialists in one action.
+- [ ] `api/capabilities/marketing/planning/campaign_brief/` — `marketing.planning.campaign_brief` capability: generates a structured brief per channel from the campaign objective + GTM plan + brand context
+- [ ] Brief cascade: when BL approves a campaign plan artifact, agent loop reads `brand_json["active_channels"]` and dispatches `campaign_brief.generate` for each active channel in parallel
+- [ ] Each channel brief becomes a `pending_review` artifact in Stream — BL or brand manager reviews per-channel brief before execution begins
+- [ ] Approved channel brief triggers the channel's draft capability automatically (e.g., approved Google Ads brief → dispatches `google_ads.draft`)
+- [ ] ClickUp task created per channel at cascade time: tracks brief → draft → approved → deployed lifecycle
+- [ ] Cascade summary artifact shows BL which channels were briefed, which are awaiting brief approval, which are blocked
+
+### 6.13 — Per-Channel Intelligence (Analyst Capabilities)
+> Each channel plugin owns its own analyst. Reports are submitted to the CMO, not to the BL directly. BL sees the synthesized snapshot, not raw channel data.
+- [ ] Analyst module pattern: each plugin adds a `*.analyze` capability alongside its `*.execute` and `*.optimize` modules
+- [ ] `google_ads.analyze` — pulls campaign metrics (impressions, clicks, CTR, CPA, ROAS), produces structured `performance_report` artifact
+- [ ] `meta.analyze` — Facebook/Instagram reach, engagement, cost-per-result
+- [ ] `email.analyze` (Listmonk) — open rate, click rate, unsubscribe rate, revenue per send
+- [ ] `ga4.analyze` — sessions, conversions, channel attribution, goal completions
+- [ ] Each analyst capability runs on cadence: EOD for active campaigns, EOW for always-on channels, EOM for full-funnel review
+- [ ] Cadence stored per brand per channel in `brand_json["channel_cadence"]`
+- [ ] Agent loop checks cadence on each run and dispatches the right analyst capabilities
+
+### 6.14 — CMO Snapshot + Optimization Plan
+> The CMO's report to the BL. Not raw data — synthesized signal. One artifact per cadence period that tells the BL what happened, what's working, and what to do next.
+- [ ] `api/capabilities/marketing/planning/cmo_snapshot/` — `marketing.planning.cmo_snapshot` capability
+- [ ] Reads all channel `performance_report` artifacts for a brand within the cadence window
+- [ ] Produces: executive summary (3-5 bullets), channel performance comparison, top-performing creative, underperforming channels flagged, recommended optimization actions with rationale
+- [ ] BL reviews snapshot artifact from Stream — not individual channel reports
+- [ ] BL can approve, reject, or annotate optimization recommendations inline
+- [ ] Approved optimization plan triggers brief cascade for affected channels (Cycle 2 → Cycle 1)
+- [ ] CMO snapshot stored as workspace document — feeds Optimization Memory Loop (6.9)
+
+### 6.15 — Stream Panel: BL Decision Surface
+> Stream is the only interface the BL needs. Everything else is for the CMO and team. Stream must work on mobile and surface the right things at the right time.
+- [ ] Priority sort: needs-attention items first (overdue, flagged, blocked), then pending review, then published
+- [ ] Digest mode: artifacts grouped by brand and campaign — not one card per artifact
+- [ ] Approve / reject / flag in-place from Stream card — no navigation to workspace required
+- [ ] Campaign thread view: all artifacts for a campaign in one expandable thread
+- [ ] Status indicators: onboarding progress, active campaigns, pending approvals count per brand
+- [ ] Mobile-first layout: thumb-reachable approve/reject actions, single-column card stack
+- [ ] Digest notification: loop sends summary to BL after each run — email or Slack with direct approve links (see 6.16)
+
+### 6.16 — Digest Notification
+> BL should not have to open BOS to know something needs their attention. The loop pushes to them; they pull only when they want detail.
+- [ ] `api/plugins/notify/` — lightweight notification plugin: email (SMTP) and/or Slack (webhook)
+- [ ] `notify.digest` capability: formats pending review items as a digest and sends to configured recipient
+- [ ] cmo_loop.py calls `notify.digest` at end of each run if any items are pending review
+- [ ] Email digest: brand-grouped list of pending artifacts with direct approve/reject links (token-authenticated, no login required for single-action approvals)
+- [ ] Slack digest: one message per brand with artifact count and link to Stream
+- [ ] Notification preferences stored per workspace: channel (email/Slack), cadence (immediate/batched), recipient list
 
 ## Phase 5 — Hardening + Second Vertical
 ### Hardening
@@ -1004,6 +1128,8 @@ Deferred to Phase 4.
 | 2026-05-17 | SKILL.md must include explicit `module_id:` field matching the module's `id` attribute | `capability_manifest.py` filters on `skill.module_id`; skills without it are discovered but never dispatched by CMO — silent routing failure |
 | 2026-05-17 | CMO system prompt hard rule 9: RUN lines must use ONLY exact module IDs from the manifest | Llama 3.3 70B hallucinated `marketing.channel.google_ads.image_ad.draft` repeatedly; explicit prohibition added to HARD RULES block in `_build_system_prompt` |
 | 2026-05-17 | Cloudflare Workers AI blocks Python-urllib user-agent from Docker (error 1010) | Add `User-Agent: Mozilla/5.0 (compatible; BOS/1.0)` header to all requests from the media-image module; curl from host works but Docker outbound IP triggers CF bot detection |
+| 2026-05-18 | CMO agent harness uses pi model: read/execute/write primitives only; everything else is plugins | Claude Code and multi-agent frameworks are over-engineered for bounded CMO tasks; agents that know what to run don't need LLM routing. `GET /agent/state`, `GET /agent/context`, `GET /agent/capabilities`, `POST /agent/execute`, `PATCH /agent/review` |
+| 2026-05-18 | BOS operates in two cycles: Setup-to-Market (Cycle 1) and Intelligence-to-Optimization (Cycle 2) | Cycle 1 runs once per client onboarding; Cycle 2 runs on cadence after metrics exist. Both cycles use the same agent harness. The flywheel: deploy → measure → optimize → redeploy. BL is the only human approver; CMO coordinates; plugins are the specialists. Stream is the BL's only interface. |
 
 ## BITE Methodology (Phase 3)
 
