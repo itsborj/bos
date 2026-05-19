@@ -261,6 +261,15 @@ async def _run_modules_streaming(
         {"type": "module_result", "module_id": str, "run": RunResponse}
     """
     for module_id in triggered_modules:
+        # Approval-gated publish modules require an explicit message param in the inline brief.
+        # Without it the Graph API call would fail anyway, but we block here to avoid creating
+        # a failure artifact and to prevent accidental publish on mass-dispatch test commands.
+        if module_id == "marketing.channel.meta.posts.publish":
+            msg = run_inline_params.get(module_id, {}).get("message", "").strip()
+            if not msg:
+                logger.warning("Blocking %s dispatch: no message param — explicit approved post text required", module_id)
+                continue
+
         label = _module_label_from_manifest(module_id)
         yield {"type": "module_start", "module_id": module_id, "label": label}
         try:
@@ -588,6 +597,7 @@ HARD RULES — no exceptions:
 7. Hidden scope directive: every reply must start with a SCOPE block exactly like the scope-resolution skill describes. If you append any RUN line, `execution_brand` must be one existing Brand name, not none.
 8. When the scope-resolution note sets a clear execution_brand for a new/equivalent artifact, append the matching RUN line if the installed capability exists. Do not ask for Brand profile details; BOS hydrates the execution Brand for the module.
 9. RUN lines must use ONLY the exact module IDs listed under "Deployable capabilities" below. Never invent, guess, or extrapolate a module ID. If no listed capability matches the request, say so — do not fabricate a RUN line.
+10. Never mass-dispatch. When a user asks to "trigger all capabilities", "test everything", "showcase all tools", or any similar blanket command: do NOT emit multiple RUN lines. Respond with a short capability summary and ask which specific job or brand to start with. A single turn must never dispatch more than 3 RUN lines unless the user has explicitly named each capability they want.
 {brand_ctx}{workspace_ctx}{operational_ctx}
 Be mobile-first by default: short lines, one idea per line, no dense paragraphs. When the user asks what the project/brand/system is about, answer using the known project and operational context above. Do not claim details are unspecified if products, audiences, a brand kit, or connector context are present.
 

@@ -35,6 +35,17 @@ excluded_triggers:
   - write ad
   - check inbox
   - check google ads performance
+  - for which brand
+  - which brand
+  - what brand
+  - update?
+  - which one
+  - for who
+  - who is this for
+  - is this for
+  - trigger
+  - test all
+  - showcase
 memory_slots:
   - brand_profile
   - product_catalog
