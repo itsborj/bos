@@ -111,16 +111,29 @@ function summarizeGroup(key: string, modules: ModuleInfo[], connections: SocialC
   }
 
   if (key === 'seo') {
+    const plugin = plugins.find(p => p.plugin_id === 'channel.search_console');
+    const hasSearchConsole = moduleText.includes('search_console');
+    const configured = plugin?.credentials_configured ?? false;
     return {
       key,
-      name: 'SEO Specialist',
-      description: 'Audits search visibility, content opportunities, and organic growth constraints.',
-      jobs,
-      specialties: ['SEO', 'content opportunities', 'technical review'],
-      readiness: 'installed',
-      readinessText: 'Installed',
-      risk: 'Diagnostic / recommendation',
+      name: hasSearchConsole ? 'Google Search Console Specialist' : 'SEO Specialist',
+      description: hasSearchConsole
+        ? 'Reads Google Search Console properties, query/page performance, URL inspection, sitemap signals, and SEO opportunities.'
+        : 'Audits search visibility, content opportunities, and organic growth constraints.',
+      jobs: jobs.length ? jobs : ['marketing.optimize'],
+      specialties: hasSearchConsole
+        ? ['organic search', 'query/page performance', 'URL inspection', 'sitemaps', 'SEO opportunities']
+        : ['SEO', 'content opportunities', 'technical review'],
+      readiness: hasSearchConsole ? (configured ? 'ready' : 'needs_setup') : 'installed',
+      readinessText: hasSearchConsole
+        ? (configured ? 'Search Console connected' : 'Add Google Search Console credentials to enable live organic search reads')
+        : 'Installed',
+      risk: hasSearchConsole ? 'Read-only; no website edits, sitemap changes, or indexing requests' : 'Diagnostic / recommendation',
       moduleCount: modules.length,
+      nextStep: hasSearchConsole
+        ? (configured ? 'Ask the CMO to check Search Console performance or find SEO opportunities.' : 'Configure Search Console credentials, then run the property inventory check.')
+        : undefined,
+      pluginId: hasSearchConsole ? plugin?.plugin_id : undefined,
     };
   }
 

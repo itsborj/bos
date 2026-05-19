@@ -9,6 +9,7 @@ from skills.router import route_chat_skills
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 
+OVERVIEW = "marketing.channel.search_console.specialist.overview"
 PROPERTIES = "marketing.channel.search_console.properties.list"
 PERFORMANCE = "marketing.channel.search_console.performance.query"
 URL_INSPECT = "marketing.channel.search_console.url.inspect"
@@ -27,11 +28,28 @@ def _load(path: str, module_name: str, class_name: str):
 def test_search_console_capabilities_load_in_registry():
     modules = {item["id"] for item in list_all()}
 
+    assert OVERVIEW in modules
     assert PROPERTIES in modules
     assert PERFORMANCE in modules
     assert URL_INSPECT in modules
     assert SITEMAPS in modules
     assert OPPORTUNITIES in modules
+
+
+def test_search_console_specialist_overview_result_is_read_only():
+    module = _load(
+        "capabilities/marketing/channel/search_console/specialist/overview/module.py",
+        "search_console_specialist_overview_module",
+        "SearchConsoleSpecialistOverviewModule",
+    )
+    _attempt, result = module.execute_tool_result({})
+    verdict, failures = module.self_check(result["content"], {})
+
+    assert result["block"]["type"] == "search_console_capability_card"
+    assert result["block"]["read_only"] is True
+    assert "GOOGLE_SEARCH_CONSOLE_DEFAULT_SITE_URL" in result["content"]
+    assert verdict == "pass"
+    assert failures == []
 
 
 def test_search_console_property_request_routes_to_properties_only():

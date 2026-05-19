@@ -10,6 +10,7 @@
   "connector_protocol": "google_search_console_api_native",
   "risk_policy": "read_only_no_mutation",
   "output_contracts": [
+    "search_console_capability_card",
     "search_console_property_inventory",
     "search_console_performance_report",
     "search_console_url_inspection",
@@ -24,6 +25,7 @@
     "GOOGLE_SEARCH_CONSOLE_DEFAULT_SITE_URL"
   ],
   "capability_ids": [
+    "marketing.channel.search_console.specialist.overview",
     "marketing.channel.search_console.properties.list",
     "marketing.channel.search_console.performance.query",
     "marketing.channel.search_console.url.inspect",
