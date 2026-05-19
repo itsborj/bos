@@ -58,6 +58,7 @@ class HelloPipelineTestModule(ChannelModule):
                 "job": safe_brief["job"],
                 "brand_name": safe_brief.get("brand_name", "BOS"),
                 "message": "Plugin discovery, execution, artifact block creation, and approval flow are working.",
+                "marker": "staging-smoke-2026-05-19",
                 "read_only": True,
                 "changed_resources": [],
                 "allowed_actions": ["approve", "dismiss"],

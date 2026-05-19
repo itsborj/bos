@@ -4,7 +4,7 @@ name: hello-pipeline-test
 description: Use only when the operator explicitly asks to test, verify, or smoke-test the BOS plugin pipeline end-to-end. Produces a deterministic action_result artifact with no external connector, no publishing, and no spend.
 scope: module
 status: active
-version: 0.2.0
+version: 0.2.1
 allowed_from_chat: true
 module_id: marketing.channel.hello.pipeline_test
 requires_intent:
@@ -23,7 +23,7 @@ quality_gates:
   - structured_block_present
   - approval_flow_testable
 metadata:
-  version: 0.2.0
+  version: 0.2.1
   author: kibanu
   plugin_id: channel.hello
   implements: marketing.execute

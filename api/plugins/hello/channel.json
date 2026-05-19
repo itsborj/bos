@@ -1,7 +1,7 @@
 {
   "plugin_id": "channel.hello",
   "name": "Hello Pipeline Test",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "klaroha_min_version": "3.5",
   "capabilities_root": "capabilities/",
   "implements": ["marketing.execute"],

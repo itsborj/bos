@@ -14,6 +14,7 @@ Klaroha plugin pipeline test passed for Klaroha.
 Job: marketing.execute
 Artifact: pipeline_test_result
 Risk policy: test_only_no_external_action
+Marker: staging-smoke-2026-05-19
 Message: Marketing, engineered for clarity — the specialist plugin loaded, executed, produced an artifact block, and is ready for approval testing.
 ```
 
@@ -28,6 +29,7 @@ Expected block:
   "job": "marketing.execute",
   "brand_name": "Klaroha",
   "message": "Plugin discovery, execution, artifact block creation, and approval flow are working.",
+  "marker": "staging-smoke-2026-05-19",
   "read_only": true,
   "changed_resources": [],
   "allowed_actions": ["approve", "dismiss"],

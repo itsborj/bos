@@ -33,6 +33,7 @@ def test_hello_pipeline_plugin_returns_deterministic_artifact_block():
     assert trace["mode"] == "tool"
     assert trace["status"] == "succeeded"
     assert "Klaroha plugin pipeline test passed for Klaroha" in result["content"]
+    assert "Marker: staging-smoke-2026-05-19" in result["content"]
     assert result["block"] == {
         "type": "pipeline_test_result",
         "artifact_type": "action_result",
@@ -41,6 +42,7 @@ def test_hello_pipeline_plugin_returns_deterministic_artifact_block():
         "job": "marketing.execute",
         "brand_name": "Klaroha",
         "message": "Plugin discovery, execution, artifact block creation, and approval flow are working.",
+        "marker": "staging-smoke-2026-05-19",
         "read_only": True,
         "changed_resources": [],
         "allowed_actions": ["approve", "dismiss"],
