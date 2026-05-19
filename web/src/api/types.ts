@@ -268,6 +268,13 @@ export interface ArtifactRef {
   workspace_url: string;
 }
 
+export type ChatStreamEvent =
+  | { type: 'step'; label: string }
+  | { type: 'module_result'; artifact_ref: ArtifactRef }
+  | { type: 'reply'; text: string; klar_action: KlarAction | null }
+  | { type: 'done' }
+  | { type: 'error'; message: string };
+
 export interface ChatResponse {
   reply: string;
   runs?: RunResponse[];

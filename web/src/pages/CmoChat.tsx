@@ -16,6 +16,8 @@ interface Msg {
   id: string;
   role: MsgRole;
   text?: string;
+  steps?: string[];        // live step labels shown while streaming
+  stepsComplete?: boolean; // all steps done — show all as ✓, no active pulse
   artifactRef?: ArtifactRef;
   runResult?: RunResponse; // legacy persisted chat messages; rendered as artifact refs only
   time: Date;
@@ -67,7 +69,7 @@ function ArtifactReferenceCard({ refData, onOpen }: { refData: ArtifactRef; onOp
 }
 
 export function CmoChat() {
-  const { openWorkspace, openSettings, openRun, addPendingRun, activeBrand, setActiveBrand, activeCampaign, setActiveCampaign, pendingRunItems } = useUI();
+  const { openWorkspace, openSettings, openRun, activeBrand, setActiveBrand, activeCampaign, setActiveCampaign, pendingRunItems } = useUI();
   const [viewMode, setViewMode] = useState<ViewMode>('chat');
   const [pendingPlan, setPendingPlan] = useState<boolean>(false);
   const [msgs, setMsgs] = useState<Msg[]>(() => {
@@ -117,6 +119,24 @@ export function CmoChat() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
 
+  function handleKlarAction(action: import('../api/types').KlarAction | null | undefined) {
+    if (!action) return;
+    if (action.action === 'brand_switch') {
+      const d = action.data as { brand_id: string; brand_name: string };
+      setActiveBrand({ id: d.brand_id, name: d.brand_name });
+    } else if (action.action === 'brand_clear') {
+      setActiveBrand(null);
+    } else if (action.action === 'plan_draft') {
+      setPendingPlan(true);
+      const pd = action.data as { brand_id?: string; brand_name?: string };
+      if (pd?.brand_id && pd?.brand_name) setActiveBrand({ id: pd.brand_id, name: pd.brand_name });
+    } else if (action.action === 'plan_confirmed') {
+      const d = action.data as { campaign_id: string; campaign_name: string };
+      setActiveCampaign({ id: d.campaign_id, name: d.campaign_name });
+      setPendingPlan(false);
+    }
+  }
+
   async function send(text: string, { skipUserMessage = false } = {}) {
     if (busy) return;
     const trimmed = text.trim();
@@ -132,41 +152,48 @@ export function CmoChat() {
     setBusy(true);
 
     const typingId = uid();
-    setMsgs(m => [...m, { id: typingId, role: 'ai', text: '__typing__', time: new Date() }]);
+    setMsgs(m => [...m, { id: typingId, role: 'ai', text: '__typing__', steps: [], time: new Date() }]);
 
     try {
-      const resp = await api.chat(trimmed, history, activeBrand?.id ?? null, activeCampaign?.id ?? null);
-
-      // Handle @klar actions
-      if (resp.klar_action?.action === 'brand_switch') {
-        const d = resp.klar_action.data as { brand_id: string; brand_name: string };
-        setActiveBrand({ id: d.brand_id, name: d.brand_name });
-      } else if (resp.klar_action?.action === 'brand_clear') {
-        setActiveBrand(null);
-      } else if (resp.klar_action?.action === 'plan_draft') {
-        setPendingPlan(true);
-        const pd = resp.klar_action.data as { brand_id?: string; brand_name?: string };
-        if (pd?.brand_id && pd?.brand_name) {
-          setActiveBrand({ id: pd.brand_id, name: pd.brand_name });
+      for await (const event of api.chatStream(trimmed, history, activeBrand?.id ?? null, activeCampaign?.id ?? null)) {
+        if (event.type === 'step') {
+          setMsgs(m => m.map(msg =>
+            msg.id === typingId
+              ? { ...msg, steps: [...(msg.steps ?? []), event.label] }
+              : msg
+          ));
+        } else if (event.type === 'module_result') {
+          const refData = event.artifact_ref;
+          setMsgs(m => [...m, { id: uid(), role: 'ai', artifactRef: refData, time: new Date() }]);
+        } else if (event.type === 'reply') {
+          handleKlarAction(event.klar_action);
+          setMsgs(m => {
+            // Mark step log complete (keeps it visible as ✓ list), then append reply
+            const withComplete = m.map(msg =>
+              msg.id === typingId ? { ...msg, stepsComplete: true } : msg
+            );
+            // If no steps accumulated, remove the typing bubble entirely
+            const hasSteps = (m.find(x => x.id === typingId)?.steps ?? []).length > 0;
+            const base = hasSteps ? withComplete : m.filter(x => x.id !== typingId);
+            return event.text
+              ? base.concat([{ id: uid(), role: 'ai', text: event.text, time: new Date() }])
+              : base;
+          });
+        } else if (event.type === 'done') {
+          // Remove typing bubble only if it has no steps (step log stays if it has steps)
+          setMsgs(m => {
+            const typing = m.find(x => x.id === typingId);
+            if (!typing || (typing.steps ?? []).length > 0) return m;
+            return m.filter(x => x.id !== typingId);
+          });
+        } else if (event.type === 'error') {
+          setMsgs(m =>
+            m.filter(x => x.id !== typingId).concat({
+              id: uid(), role: 'ai', text: event.message, time: new Date(),
+            })
+          );
         }
-      } else if (resp.klar_action?.action === 'plan_confirmed') {
-        const d = resp.klar_action.data as { campaign_id: string; campaign_name: string };
-        setActiveCampaign({ id: d.campaign_id, name: d.campaign_name });
-        setPendingPlan(false);
       }
-
-      const newMsgs: Msg[] = [];
-      if (resp.reply) newMsgs.push({ id: uid(), role: 'ai', text: resp.reply, time: new Date() });
-      const runs = resp.runs?.length ? resp.runs : resp.run ? [resp.run] : [];
-      const refs = resp.artifact_refs?.length ? resp.artifact_refs : runs.map(buildArtifactRef);
-      for (const run of runs) {
-        if ((run.approval_status ?? 'pending') === 'pending') addPendingRun(run);
-      }
-      for (const refData of refs) {
-        newMsgs.push({ id: uid(), role: 'ai', artifactRef: refData, time: new Date() });
-      }
-
-      setMsgs(m => m.filter(x => x.id !== typingId).concat(newMsgs));
     } catch (e: unknown) {
       setMsgs(m =>
         m.filter(x => x.id !== typingId).concat({
@@ -236,15 +263,31 @@ export function CmoChat() {
           const showSender = idx === 0 || msgs[idx - 1].role !== msg.role;
 
           if (msg.text === '__typing__') {
+            const steps = msg.steps ?? [];
+            const complete = msg.stepsComplete ?? false;
             return (
               <div key={msg.id} className="bos-msg">
                 <div className="bos-msg-avatar">CMO</div>
                 <div className="bos-msg-body">
-                  <div className="bos-cmo-typing">
-                    <div className="bos-typing-dot" />
-                    <div className="bos-typing-dot" />
-                    <div className="bos-typing-dot" />
-                  </div>
+                  {steps.length > 0 ? (
+                    <div className={`bos-cmo-steps${complete ? ' bos-cmo-steps-done' : ''}`}>
+                      {steps.map((label, i) => {
+                        const done = complete || i < steps.length - 1;
+                        return (
+                          <div key={i} className={`bos-step ${done ? 'bos-step-done' : 'bos-step-active'}`}>
+                            <span className="bos-step-icon">{done ? '✓' : '●'}</span>
+                            <span className="bos-step-label">{label}</span>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="bos-cmo-typing">
+                      <div className="bos-typing-dot" />
+                      <div className="bos-typing-dot" />
+                      <div className="bos-typing-dot" />
+                    </div>
+                  )}
                 </div>
               </div>
             );

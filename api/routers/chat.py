@@ -1,20 +1,23 @@
 """POST /chat — CMO conversational endpoint."""
 from __future__ import annotations
 
+import json
 import logging
 import re
 
+from collections.abc import AsyncGenerator
 from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from artifacts import ArtifactRef, artifact_ref_from_run
 from auth import require_api_key
-from capability_manifest import format_manifest_for_prompt
+from capability_manifest import build_dispatchable_manifest, format_manifest_for_prompt
 from config import get_settings
 from db import get_db
 from executor import get_adapter, get_platform_key
@@ -226,6 +229,51 @@ def _marketing_plan_module_id() -> str | None:
         ):
             return skill.module_id
     return None
+
+
+def _module_label_from_manifest(module_id: str) -> str:
+    """Human-readable display label for a module_id, from the live capability manifest."""
+    for entry in build_dispatchable_manifest():
+        if entry.module_id == module_id:
+            return entry.label
+    return module_id.rsplit(".", 1)[-1].replace("_", " ").title()
+
+
+def _sse(event: dict) -> str:
+    """Format a dict as a Server-Sent Event data line."""
+    return f"data: {json.dumps(event)}\n\n"
+
+
+async def _run_modules_streaming(
+    db: AsyncSession,
+    ws,
+    triggered_modules: list[str],
+    brief: dict,
+    settings,
+    campaign_id,
+    brand_id,
+    run_inline_params: dict,
+) -> AsyncGenerator[dict, None]:
+    """Async generator — dispatches each module and yields typed events.
+
+    Yields:
+        {"type": "module_start", "module_id": str, "label": str}
+        {"type": "module_result", "module_id": str, "run": RunResponse}
+    """
+    for module_id in triggered_modules:
+        label = _module_label_from_manifest(module_id)
+        yield {"type": "module_start", "module_id": module_id, "label": label}
+        try:
+            module_brief = dict(brief)
+            module_brief.update(run_inline_params.get(module_id, {}))
+            result = await _execute_module(
+                db, ws, module_id, module_brief, settings,
+                campaign_id=campaign_id,
+                brand_id=brand_id,
+            )
+            yield {"type": "module_result", "module_id": module_id, "run": result}
+        except Exception as exc:
+            logger.error("Module dispatch failed for %s: %s", module_id, exc)
 
 
 async def _workspace_brands(db: AsyncSession, ws) -> list[Brand]:
@@ -662,6 +710,342 @@ async def _pending_summary(db: AsyncSession, ws) -> str:
     return f"{len(pending)} pending decision(s):\n" + "\n".join(lines)
 
 
+async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -> AsyncGenerator[str, None]:
+    """Async generator that runs the CMO chat pipeline and yields SSE-formatted strings.
+
+    Yields step events as the pipeline progresses, module_result events as each
+    module completes, and a final reply event. The existing POST /chat endpoint
+    is unchanged; this generator powers POST /chat/stream only.
+    """
+    ws = await get_singleton(db)
+    _resolved_brand_switch: KlarAction | None = None
+
+    # ── Brand-reply detection ─────────────────────────────────────────────────
+    if not body.brand_id and ws and body.history:
+        _last_ai = next((h.text for h in reversed(body.history) if h.role == "ai"), "")
+        _last_user = body.message.strip()
+        if ("Which brand" in _last_ai or "which brand" in _last_ai) and len(_last_user.split()) <= 4:
+            _matched = await find_brand_by_name(db, ws.id, _last_user)
+            if _matched:
+                _original_cmd: str | None = None
+                for _i in range(len(body.history) - 1, -1, -1):
+                    _h = body.history[_i]
+                    if _h.role == "ai" and ("Which brand" in _h.text or "which brand" in _h.text):
+                        if _i > 0 and body.history[_i - 1].role == "user":
+                            _original_cmd = body.history[_i - 1].text.strip()
+                        break
+                body = ChatRequest(
+                    message=_original_cmd if _original_cmd else body.message,
+                    history=body.history,
+                    brand_id=str(_matched.id),
+                    campaign_id=body.campaign_id,
+                )
+                _resolved_brand_switch = KlarAction(
+                    action="brand_switch",
+                    data={"brand_id": str(_matched.id), "brand_name": _matched.name},
+                )
+
+    # ── @klar commands ────────────────────────────────────────────────────────
+    if _is_klar_command(body.message):
+        yield _sse({"type": "step", "label": "Processing command..."})
+        cmd = _parse_klar_command(body.message)
+
+        if cmd["action"] == "brand_switch":
+            if not ws:
+                yield _sse({"type": "reply", "text": "No workspace configured.", "klar_action": None})
+            else:
+                brand = await find_brand_by_name(db, ws.id, cmd["brand_name"])
+                if not brand:
+                    yield _sse({"type": "reply", "text": f"I can't find {cmd['brand_name']}.", "klar_action": None})
+                else:
+                    bj = brand.brand_json or {}
+                    summary_parts = [p for p in [bj.get("voice"), bj.get("tone")] if p]
+                    summary = f" — {', '.join(summary_parts)}" if summary_parts else ""
+                    action = KlarAction(action="brand_switch", data={"brand_id": str(brand.id), "brand_name": brand.name})
+                    yield _sse({"type": "reply", "text": f"Switched to {brand.name}{summary}.\n\nWorkspace context loaded.", "klar_action": action.model_dump()})
+            yield _sse({"type": "done"})
+            return
+
+        if cmd["action"] == "list_brands":
+            if not ws:
+                yield _sse({"type": "reply", "text": "No workspace configured.", "klar_action": None})
+            else:
+                all_brands = (await db.execute(
+                    select(Brand).where(Brand.workspace_id == ws.id).order_by(Brand.name.asc())
+                )).scalars().all()
+                if not all_brands:
+                    yield _sse({"type": "reply", "text": "No brands yet.\n\nCreate one in Admin → Brands.", "klar_action": None})
+                else:
+                    lines = [f"- {b.name}" for b in all_brands]
+                    action = KlarAction(action="brand_list", data={"brands": [{"id": str(b.id), "name": b.name} for b in all_brands]})
+                    yield _sse({"type": "reply", "text": "Brands:\n" + "\n".join(lines), "klar_action": action.model_dump()})
+            yield _sse({"type": "done"})
+            return
+
+        if cmd["action"] == "pending":
+            summary = await _pending_summary(db, ws)
+            yield _sse({"type": "reply", "text": summary, "klar_action": KlarAction(action="pending_summary", data={}).model_dump()})
+            yield _sse({"type": "done"})
+            return
+
+        if cmd["action"] == "plan":
+            if not ws:
+                yield _sse({"type": "reply", "text": "No workspace configured.", "klar_action": None})
+                yield _sse({"type": "done"})
+                return
+            plan_desc = cmd.get("description") or "the current campaign priority"
+            resolved_brand_id = body.brand_id
+            resolved_brand: Brand | None = await resolve_brand(db, resolved_brand_id)
+            if not resolved_brand:
+                named_brand = await find_brand_by_name(db, ws.id, plan_desc) if plan_desc else None
+                if named_brand:
+                    resolved_brand = named_brand
+                    resolved_brand_id = str(named_brand.id)
+                else:
+                    all_brands_rows = (await db.execute(
+                        select(Brand).where(Brand.workspace_id == ws.id).order_by(Brand.name.asc())
+                    )).scalars().all()
+                    if len(all_brands_rows) == 1:
+                        resolved_brand = all_brands_rows[0]
+                        resolved_brand_id = str(resolved_brand.id)
+                    elif len(all_brands_rows) > 1:
+                        names = ", ".join(b.name for b in all_brands_rows)
+                        yield _sse({"type": "reply", "text": f"Which brand are we planning for?\n\nAvailable: {names}", "klar_action": None})
+                        yield _sse({"type": "done"})
+                        return
+                    else:
+                        yield _sse({"type": "reply", "text": "No brands set up yet.\n\nCreate one in Admin → Brands first.", "klar_action": None})
+                        yield _sse({"type": "done"})
+                        return
+            plan_module_id = _marketing_plan_module_id()
+            if not plan_module_id:
+                yield _sse({"type": "reply", "text": "The planning specialist isn't installed yet.\n\nI can still discuss the plan in chat.", "klar_action": None})
+                yield _sse({"type": "done"})
+                return
+            yield _sse({"type": "step", "label": "Building campaign plan..."})
+            try:
+                conversation_lines = [f"{h.role.upper()}: {h.text}" for h in body.history[-8:]] + [f"USER: {body.message}"]
+                brief = await _brand_scoped_brief(db, ws, resolved_brand, {
+                    "request": plan_desc, "objective": plan_desc,
+                    "conversation_context": "\n".join(conversation_lines),
+                    "constraints": "Create a draft plan artifact only. Do not execute, spend, send, publish, or mutate external systems.",
+                })
+                async for event in _run_modules_streaming(db, ws, [plan_module_id], brief, settings, None, UUID(resolved_brand_id) if resolved_brand_id else None, {}):
+                    if event["type"] == "module_start":
+                        yield _sse({"type": "step", "label": f"Running {event['label']}..."})
+                    elif event["type"] == "module_result":
+                        yield _sse({"type": "module_result", "artifact_ref": artifact_ref_from_run(event["run"]).model_dump()})
+                brand_action = KlarAction(action="brand_switch", data={"brand_id": resolved_brand_id, "brand_name": resolved_brand.name}) if resolved_brand else None
+                yield _sse({"type": "reply", "text": f"Plan draft ready for {resolved_brand.name}.\n\nReview it in Workspace.", "klar_action": brand_action.model_dump() if brand_action else None})
+            except Exception as exc:
+                logger.error("Native marketing plan failed: %s", exc)
+                yield _sse({"type": "reply", "text": "Couldn't create the plan artifact.\n\nCheck provider readiness, then try again.", "klar_action": None})
+            yield _sse({"type": "done"})
+            return
+
+        if cmd["action"] == "confirm":
+            if not body.brand_id and ws:
+                all_brands_rows = (await db.execute(select(Brand).where(Brand.workspace_id == ws.id))).scalars().all()
+                if len(all_brands_rows) == 1:
+                    body = ChatRequest(message=body.message, history=body.history, brand_id=str(all_brands_rows[0].id), campaign_id=body.campaign_id)
+                else:
+                    yield _sse({"type": "reply", "text": "Which brand are we working on?", "klar_action": None})
+                    yield _sse({"type": "done"})
+                    return
+            plan_text = next((h.text for h in reversed(body.history) if h.role == "ai" and len(h.text) > 80), None)
+            first_line = (plan_text or "").strip().splitlines()[0].lstrip("#- ").strip()
+            campaign_name = first_line[:120] if first_line else "Campaign"
+            brand_uuid = UUID(body.brand_id) if body.brand_id else None
+            new_campaign = Campaign(workspace_id=ws.id, brand_id=brand_uuid, name=campaign_name, status="active")
+            db.add(new_campaign)
+            await db.flush()
+            intent = IntentContract(contract_type="campaign", version="1.0.0", description=plan_text or campaign_name, criteria_json=[], scoring_json={})
+            db.add(intent)
+            await db.flush()
+            db.add(CampaignIntent(campaign_id=new_campaign.id, intent_contract_id=intent.id, active=True))
+            await db.commit()
+            action = KlarAction(action="plan_confirmed", data={"campaign_id": str(new_campaign.id), "campaign_name": campaign_name})
+            yield _sse({"type": "reply", "text": f"Plan confirmed.\n\n{campaign_name} is active.\n\nUse @klar run when you're ready.", "klar_action": action.model_dump()})
+            yield _sse({"type": "done"})
+            return
+
+        if cmd["action"] == "run":
+            if not body.brand_id and not body.campaign_id:
+                yield _sse({"type": "reply", "text": "Which brand or campaign are we running?\n\nUse @klar plan first, or send the campaign name.", "klar_action": None})
+                yield _sse({"type": "done"})
+                return
+            target = cmd.get("target", "").strip()
+            campaign_uuid: UUID | None = None
+            resolved_campaign_name = target or "this campaign"
+            if body.campaign_id:
+                try:
+                    campaign_uuid = UUID(body.campaign_id)
+                    c_row = (await db.execute(select(Campaign).where(Campaign.id == campaign_uuid))).scalar_one_or_none()
+                    if c_row:
+                        resolved_campaign_name = c_row.name
+                except (ValueError, TypeError):
+                    pass
+            elif target:
+                c_row = (await db.execute(select(Campaign).where(Campaign.name.ilike(f"%{target}%")).order_by(Campaign.created_at.desc()))).scalar_one_or_none()
+                if c_row:
+                    campaign_uuid = c_row.id
+                    resolved_campaign_name = c_row.name
+            body = ChatRequest(
+                message=f"[RUN MODE] Execute the planned modules for campaign: {resolved_campaign_name}. Dispatch all relevant marketing modules now.",
+                history=body.history, brand_id=body.brand_id,
+                campaign_id=str(campaign_uuid) if campaign_uuid else body.campaign_id,
+            )
+            # fall through to LLM path below
+
+        elif cmd["action"] == "evaluate":
+            target = cmd.get("target") or "the current campaign"
+            yield _sse({"type": "reply", "text": f"Evaluate mode is staged.\n\nPhase 5 will score {target}: pass, fail, or escalate.", "klar_action": KlarAction(action="evaluate_stub", data={"target": target}).model_dump()})
+            yield _sse({"type": "done"})
+            return
+
+        elif cmd["action"] == "org":
+            yield _sse({"type": "reply", "text": "Back to org level.\n\nNo brand is active.\nYou're talking cross-brand now.", "klar_action": KlarAction(action="brand_clear", data={}).model_dump()})
+            yield _sse({"type": "done"})
+            return
+
+        elif cmd["action"] == "brief":
+            yield _sse({"type": "reply", "text": "Your daily brief is in Stream.\n\nCheck signals, approvals, and campaign status there.", "klar_action": None})
+            yield _sse({"type": "done"})
+            return
+
+        elif cmd["action"] == "directive" and not body.brand_id:
+            yield _sse({"type": "reply", "text": "Which brand are we working on?", "klar_action": None})
+            yield _sse({"type": "done"})
+            return
+
+    # ── Main LLM path ─────────────────────────────────────────────────────────
+    yield _sse({"type": "step", "label": "Thinking..."})
+
+    active_brand, inferred_brand_action = await _resolve_active_brand_for_turn(db, ws, body)
+    if active_brand and body.brand_id != str(active_brand.id):
+        body = ChatRequest(message=body.message, history=body.history, brand_id=str(active_brand.id), campaign_id=body.campaign_id)
+        _resolved_brand_switch = _resolved_brand_switch or inferred_brand_action
+
+    routed = route_chat_skills(body.message)
+    if not routed.module_ids and len(body.message.strip().split()) <= 5 and body.history:
+        recent_user_context = "\n".join(h.text for h in body.history[-6:] if h.role == "user")
+        contextual_routed = route_chat_skills((recent_user_context + "\n" + body.message).strip())
+        if contextual_routed.module_ids:
+            routed = contextual_routed
+
+    modules = _chat_modules()
+    activated_skill_ids = [route.skill.id for route in routed.routes]
+    memory_slots = sorted({slot for route in routed.routes for slot in route.skill.memory_slots})
+
+    scope_skill_manifest = next((s for s in list_skill_manifests() if s.id == "workspace.scope_resolution"), None)
+    if scope_skill_manifest and ws and scope_skill_manifest.id not in activated_skill_ids and await _workspace_brands(db, ws):
+        activated_skill_ids = [scope_skill_manifest.id] + activated_skill_ids
+        memory_slots = sorted(set(memory_slots) | set(scope_skill_manifest.memory_slots))
+
+    hydrated_memory = await hydrate_memory_slots(db, ws, memory_slots, brand=active_brand)
+    loaded_skills = [get_skill(sid) for sid in activated_skill_ids]
+    skill_sections = [format_activated_skill(s) for s in loaded_skills if s is not None]
+    skill_context = "\n\n".join(skill_sections + ["## Hydrated Workspace Memory\n" + compile_memory_context(hydrated_memory)])
+
+    system = await _build_system_prompt(db, ws, skill_context, brand=active_brand)
+    messages: list[dict] = [{"role": "system", "content": system}]
+    for h in body.history[-8:]:
+        messages.append({"role": "user" if h.role == "user" else "assistant", "content": h.text})
+    messages.append({"role": "user", "content": body.message})
+
+    raw_reply = await _complete_cmo_messages(db, ws, settings, messages, plan_mode=False, brand_id=body.brand_id)
+
+    if raw_reply is None:
+        yield _sse({"type": "reply", "text": "I'm having trouble connecting right now.\n\nCheck provider settings, or try again in a moment.", "klar_action": None})
+        yield _sse({"type": "done"})
+        return
+
+    scope_decision, reply_without_scope = _extract_scope_directive(raw_reply)
+    triggered_modules = _RUN_RE.findall(reply_without_scope)
+    reply_text = _strip_control_directives(raw_reply)
+
+    scope_conversation_brand = await _resolve_scope_brand(db, ws, scope_decision.get("conversation_brand"))
+    scope_execution_brand = await _resolve_scope_brand(db, ws, scope_decision.get("execution_brand"))
+    execution_brand = scope_execution_brand
+
+    allowed_module_ids = set(m["id"] for m in modules)
+    invalid = [mid for mid in triggered_modules if mid not in allowed_module_ids]
+    if invalid:
+        logger.warning("LLM triggered modules outside allowed set — skipping: %s", invalid)
+    triggered_modules = [mid for mid in triggered_modules if mid in allowed_module_ids]
+
+    run_results: list[RunResponse] = []
+
+    if triggered_modules and ws:
+        if await _workspace_brands(db, ws) and not execution_brand:
+            yield _sse({"type": "reply", "text": reply_text or "Which brand is this artifact for?", "klar_action": KlarAction(action="pending_brand", data={"reason": "artifact_generation_requires_execution_brand"}).model_dump()})
+            yield _sse({"type": "done"})
+            return
+        try:
+            conversation_lines = [f"{h.role.upper()}: {h.text}" for h in body.history[-12:]] + [f"USER: {body.message}"]
+            brief = await _brand_scoped_brief(db, ws, execution_brand or active_brand, {"conversation_context": "\n".join(conversation_lines)})
+            active_campaign_uuid: UUID | None = None
+            if body.campaign_id:
+                try:
+                    active_campaign_uuid = UUID(body.campaign_id)
+                except (ValueError, TypeError):
+                    pass
+            active_brand_uuid: UUID | None = (execution_brand or active_brand).id if (execution_brand or active_brand) else None
+            run_inline_params = _parse_run_inline_params(reply_without_scope)
+
+            yield _sse({"type": "step", "label": "Routing to specialists..."})
+
+            async for event in _run_modules_streaming(db, ws, triggered_modules, brief, settings, active_campaign_uuid, active_brand_uuid, run_inline_params):
+                if event["type"] == "module_start":
+                    yield _sse({"type": "step", "label": f"Running {event['label']}..."})
+                elif event["type"] == "module_result":
+                    run_results.append(event["run"])
+                    yield _sse({"type": "module_result", "artifact_ref": artifact_ref_from_run(event["run"]).model_dump()})
+        except Exception as exc:
+            logger.error("Brief resolution failed: %s", exc)
+
+    scope_switch_brand = scope_execution_brand if triggered_modules else scope_conversation_brand
+    if scope_switch_brand and body.brand_id != str(scope_switch_brand.id):
+        _final_klar = KlarAction(action="brand_switch", data={"brand_id": str(scope_switch_brand.id), "brand_name": scope_switch_brand.name})
+    else:
+        _final_klar = _resolved_brand_switch
+
+    yield _sse({"type": "reply", "text": reply_text, "klar_action": _final_klar.model_dump() if _final_klar else None})
+    yield _sse({"type": "done"})
+
+
+@router.post("/chat/stream")
+async def chat_stream(
+    body: ChatRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Streaming version of POST /chat. Returns SSE events as the pipeline progresses.
+
+    Event types:
+      {"type": "step", "label": str}            — pipeline phase label (live)
+      {"type": "module_result", "artifact_ref"} — a module completed; artifact ready
+      {"type": "reply", "text", "klar_action"}  — final CMO reply text
+      {"type": "done"}                          — stream complete
+    """
+    settings = get_settings()
+
+    async def generate():
+        try:
+            async for chunk in _generate_chat_stream(body, db, settings):
+                yield chunk
+        except Exception as exc:
+            logger.error("chat_stream unhandled error: %s", exc)
+            yield _sse({"type": "error", "message": "Something went wrong. Try again."})
+            yield _sse({"type": "done"})
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat(
     body: ChatRequest,
@@ -1048,18 +1432,12 @@ async def chat(
             active_brand_uuid: UUID | None = (execution_brand or active_brand).id if (execution_brand or active_brand) else None
 
             run_inline_params = _parse_run_inline_params(reply_without_scope)
-            for module_id in triggered_modules:
-                try:
-                    module_brief = dict(brief)
-                    module_brief.update(run_inline_params.get(module_id, {}))
-                    result = await _execute_module(
-                        db, ws, module_id, module_brief, settings,
-                        campaign_id=active_campaign_uuid,
-                        brand_id=active_brand_uuid,
-                    )
-                    run_results.append(result)
-                except Exception as exc:
-                    logger.error("Module dispatch failed for %s: %s", module_id, exc)
+            async for event in _run_modules_streaming(
+                db, ws, triggered_modules, brief, settings,
+                active_campaign_uuid, active_brand_uuid, run_inline_params,
+            ):
+                if event["type"] == "module_result":
+                    run_results.append(event["run"])
         except Exception as exc:
             logger.error("Brief resolution failed: %s", exc)
 

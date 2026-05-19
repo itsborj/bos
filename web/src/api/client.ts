@@ -7,6 +7,7 @@ import type {
   CapabilityInfo,
   ChatHistoryItem,
   ChatResponse,
+  ChatStreamEvent,
   BrandKitResponse,
   IngestResponse,
   KeyListItem,
@@ -247,6 +248,44 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ message, history, brand_id: brandId ?? null, campaign_id: campaignId ?? null }),
     }),
+
+  async *chatStream(
+    message: string,
+    history: ChatHistoryItem[],
+    brandId?: string | null,
+    campaignId?: string | null,
+  ): AsyncGenerator<ChatStreamEvent> {
+    const key = getApiKey();
+    const resp = await fetch(`${BASE}/chat/stream`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(key ? { 'X-API-Key': key } : {}),
+      },
+      body: JSON.stringify({ message, history, brand_id: brandId ?? null, campaign_id: campaignId ?? null }),
+    });
+    if (!resp.ok) throw new Error(`Chat stream failed: ${resp.status}`);
+    const reader = resp.body!.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const parts = buffer.split('\n\n');
+      buffer = parts.pop() ?? '';
+      for (const part of parts) {
+        const line = part.trim();
+        if (line.startsWith('data: ')) {
+          try {
+            yield JSON.parse(line.slice(6)) as ChatStreamEvent;
+          } catch {
+            // malformed event — skip
+          }
+        }
+      }
+    }
+  },
 
   getBrands: () =>
     request<BrandListResponse>('/brands'),
