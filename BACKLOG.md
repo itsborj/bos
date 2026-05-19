@@ -791,6 +791,7 @@ CYCLE 2 — Intelligence to Optimization
 - [x] PATCH /agent/review triggers PM (ClickUp) sync on approve/reject
 - [ ] Frontend: Agent Activity panel in Admin — live view of agent-initiated runs and their review queue
 - [x] Agent loop script: `api/agents/cmo_loop.py` — monitor → prioritize → delegate → surface (runs on cron or webhook trigger)
+- [x] PIPELINE TEST: Add deterministic `api/plugins/hello/` smoke plugin + sample to validate multi-dev plugin discovery, manifest, execution, and artifact block without external credentials
 
 ### 6.1 — Visual Production (image gen)
 > Force multiplier. Feeds every channel. Build before social.
