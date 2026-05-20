@@ -1,0 +1,858 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOS — Gate 2 Stream</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f8f7f5;--surface:#fff;--border:#e5e3df;
+  --text:#1a1a1a;--text2:#6b7280;--text3:#9ca3af;
+  --green:#1a4731;--green-bg:#f0fdf4;--green-border:#bbf7d0;--green-mid:#166534;
+  --amber:#d97706;--amber-bg:#fef3c7;
+  --red:#dc2626;--red-bg:#fef2f2;
+  --blue-bg:#eff6ff;--blue:#1d4ed8;
+  --ok:#15803d;--ok-bg:#dcfce7;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px}
+
+/* ── Shell ── */
+.shell{display:flex;flex-direction:column;height:100vh;overflow:hidden;position:relative;max-width:1100px;width:100%;margin:0 auto}
+@media(min-width:1100px){.shell{border-left:1px solid var(--border);border-right:1px solid var(--border)}}
+.topbar{height:48px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;gap:10px;padding:0 16px;flex-shrink:0;z-index:10}
+.topbar-logo{font-size:13px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.06em}
+.topbar-brand{font-size:11px;padding:3px 10px;border-radius:20px;background:var(--green-bg);color:var(--green);font-weight:600;border:1px solid var(--green-border)}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.page-area{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.page-scroll{flex:1;overflow-y:auto;scrollbar-width:none}
+.page-scroll::-webkit-scrollbar{display:none}
+
+/* ── Tab bar ── */
+.bottom-tabs{height:68px;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0 16px 8px;z-index:10}
+.tab-group{display:inline-flex;align-items:stretch;gap:3px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:4px;box-shadow:0 4px 16px rgba(0,0,0,.10),0 1px 4px rgba(0,0,0,.06)}
+.tab-btn{display:flex;align-items:center;gap:8px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--text2);font-family:inherit;padding:9px 22px;border-radius:12px;transition:all .15s}
+.tab-btn:hover{color:var(--text);background:var(--bg)}
+.tab-btn.active{background:var(--green);color:#fff;box-shadow:0 2px 8px rgba(26,71,49,.25)}
+.tab-badge{background:var(--amber);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;min-width:16px;text-align:center}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;padding:6px 13px;border-radius:6px;font-size:12px;font-family:inherit;cursor:pointer;border:1px solid transparent;font-weight:500;transition:all .1s}
+.btn-primary{background:var(--green);color:#fff;border-color:var(--green)}
+.btn-primary:hover{background:var(--green-mid)}
+.btn-ghost{background:none;border-color:var(--border);color:var(--text2)}
+.btn-ghost:hover{background:var(--bg);color:var(--text)}
+.btn-accent{background:none;border-color:var(--green-border);color:var(--green)}
+.btn-accent:hover{background:var(--green-bg)}
+.btn-send{width:28px;height:28px;border-radius:50%;background:var(--green);color:#fff;border:none;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+
+/* ── Stream ── */
+.stream-wrap{padding:20px 16px;max-width:480px;margin:0 auto}
+.stream-kicker{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px}
+.stream-title{font-size:20px;font-weight:700;margin-bottom:4px}
+.stream-sub{font-size:13px;color:var(--text2);margin-bottom:14px}
+.obj-anchor{background:var(--surface);border:1px solid var(--green-border);border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px}
+.obj-dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0}
+.obj-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--green)}
+.obj-text{font-size:12px;color:var(--text);font-weight:500}
+.obj-meta{font-size:10px;color:var(--text2);margin-left:auto;white-space:nowrap}
+
+/* ── Cards ── */
+.g2card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px}
+.g2card.featured{border-color:var(--green);border-left:3px solid var(--green)}
+.g2top{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.g2type{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:5px}
+.g2type.decision_brief{background:var(--amber-bg);color:#92400e}
+.g2type.pending_artifact{background:var(--blue-bg);color:var(--blue)}
+.g2type.outcome{background:var(--ok-bg);color:var(--ok)}
+.g2type.setup_blocker{background:var(--red-bg);color:var(--red)}
+.g2conf{font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;margin-left:auto}
+.g2conf.amber{background:var(--amber-bg);color:#92400e}
+.g2conf.green{background:var(--ok-bg);color:var(--ok)}
+.g2obj{font-size:11px;color:var(--text2);font-weight:500;margin-bottom:2px}
+.g2brand{font-size:10px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.g2why{font-size:13px;line-height:1.5;margin-bottom:10px}
+.g2stats{display:flex;gap:14px;margin-bottom:10px;flex-wrap:wrap}
+.g2stat{font-size:13px;font-weight:700}
+.g2stat span{font-size:10px;font-weight:500;color:var(--text2);display:block}
+.g2ev{margin-bottom:10px}
+.g2ev-item{font-size:11px;color:var(--text2);padding:2px 0;line-height:1.4}
+.g2ev-item::before{content:'· ';color:var(--text3)}
+.g2mem{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px}
+.g2mem-tag{font-size:10px;font-family:'SF Mono','Fira Mono',monospace;background:var(--bg);color:var(--text2);border:1px solid var(--border);padding:2px 7px;border-radius:4px}
+.g2rec{background:var(--green-bg);border:1px solid var(--green-border);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--green-mid);line-height:1.45;margin-bottom:8px}
+.g2rec b{font-weight:700;margin-right:4px}
+.g2boundary{font-size:11px;color:var(--text3);margin-bottom:8px;font-style:italic}
+.g2src-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.g2src{font-size:10px;font-family:'SF Mono','Fira Mono',monospace;background:var(--bg);border:1px solid var(--border);padding:2px 7px;border-radius:4px;color:var(--text2)}
+.g2actions{display:flex;gap:6px;flex-wrap:wrap}
+
+/* ── CMO Split ── */
+.split-shell{display:flex;height:100%;overflow:hidden}
+.split-chat{flex:0 0 420px;display:flex;flex-direction:column;border-right:1px solid var(--border);overflow:hidden}
+.split-right{flex:1;overflow-y:auto;background:var(--surface);padding:20px;scrollbar-width:none}
+.split-right::-webkit-scrollbar{display:none}
+@media(max-width:768px){
+  .split-shell{flex-direction:column}
+  .split-chat{flex:none;height:100%}
+  .split-right{display:none}
+}
+
+/* ── CMO chat ── */
+.cmo-msgs{flex:1;overflow-y:auto;padding:16px;scrollbar-width:none}
+.cmo-msgs::-webkit-scrollbar{display:none}
+.cmo-msgs-body{display:flex;flex-direction:column;gap:14px}
+.cmo-ctx{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid var(--border);margin-bottom:4px}
+.msg-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.msg-ai{background:var(--surface);border:1px solid var(--border);border-radius:10px;border-top-left-radius:2px;padding:10px 13px;font-size:13px;line-height:1.55;max-width:92%}
+.msg-user{background:var(--green);color:#fff;border-radius:10px;border-top-right-radius:2px;padding:9px 13px;font-size:13px;line-height:1.5;align-self:flex-end;max-width:84%}
+.cmo-chips{display:flex;gap:7px;flex-wrap:wrap}
+.cmo-handoff-body{display:none;background:var(--bg);border-radius:6px;padding:10px 12px;margin-top:8px;font-size:12px;color:var(--text2);line-height:1.8;font-family:'SF Mono','Fira Mono',monospace}
+.cmo-handoff-body b{color:var(--text);font-family:inherit}
+.cmo-handoff-body.open{display:block}
+.cmo-input-wrap{flex-shrink:0;border-top:1px solid var(--border);padding:10px 16px}
+.cmo-composer{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:8px 12px}
+.cmo-ta{width:100%;border:none;background:none;font-family:inherit;font-size:13px;resize:none;outline:none;color:var(--text)}
+.cmo-composer-foot{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+.cmo-hint{font-size:10px;color:var(--text3)}
+
+/* ── Right panel card detail ── */
+.rp-header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.rp-title{font-size:15px;font-weight:700}
+.rp-meta{font-size:11px;color:var(--text2);margin-top:3px}
+.rp-section{margin-bottom:16px}
+.rp-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin-bottom:6px}
+.rp-body{font-size:13px;line-height:1.55;color:var(--text)}
+.rp-actions{display:flex;gap:7px;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--border)}
+
+/* ── Full window overlay (inside shell, tabs stay visible) ── */
+.fullwin{position:absolute;top:48px;left:0;right:0;bottom:68px;background:var(--bg);z-index:50;display:none;flex-direction:column}
+.fullwin.open{display:flex}
+.fullwin-topbar{height:48px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;gap:12px;padding:0 16px;flex-shrink:0}
+.fullwin-back{font-size:13px;color:var(--text2);cursor:pointer;background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;font-family:inherit;display:flex;align-items:center;gap:5px}
+.fullwin-back:hover{background:var(--bg);color:var(--text)}
+.fullwin-title{font-size:13px;font-weight:600;color:var(--text)}
+.fullwin-body{flex:1;overflow-y:auto;padding:24px;max-width:720px;margin:0 auto;width:100%;scrollbar-width:none}
+.fullwin-body::-webkit-scrollbar{display:none}
+
+/* ── Admin ── */
+.admin-wrap{padding:20px 16px;max-width:480px;margin:0 auto}
+/* ── Admin layout ── */
+.admin-layout{display:flex;height:100%;overflow:hidden}
+.admin-nav{width:196px;flex-shrink:0;border-right:1px solid var(--border);background:var(--surface);padding:20px 0;overflow-y:auto;scrollbar-width:none}
+.admin-nav::-webkit-scrollbar{display:none}
+.admin-nav-wordmark{font-size:12px;font-weight:700;color:var(--text);padding:0 16px 18px;letter-spacing:-.01em}
+.admin-nav-group{margin-bottom:6px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.admin-nav-group:last-child{border-bottom:none}
+.admin-nav-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);padding:8px 16px 4px}
+.admin-nav-item{display:block;width:100%;text-align:left;padding:7px 16px;font-size:13px;font-weight:500;color:var(--text2);background:none;border:none;border-left:2px solid transparent;cursor:pointer;font-family:inherit;transition:all .1s;line-height:1.3}
+.admin-nav-item:hover{color:var(--text);background:var(--bg)}
+.admin-nav-item.active{color:var(--green);background:var(--green-bg);border-left-color:var(--green);font-weight:600}
+.admin-content{flex:1;overflow-y:auto;scrollbar-width:none;padding:32px 36px}
+.admin-content::-webkit-scrollbar{display:none}
+.admin-section-title{font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px}
+.admin-section-sub{font-size:13px;color:var(--text2);margin-bottom:28px;line-height:1.5}
+.settings-group{margin-bottom:32px}
+.settings-group-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:0}
+.settings-row{display:flex;align-items:center;gap:20px;padding:14px 0;border-bottom:1px solid var(--border)}
+.settings-row:last-child{border-bottom:none}
+.settings-row-info{flex:1;min-width:0}
+.settings-row-name{font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px}
+.settings-row-desc{font-size:12px;color:var(--text2);line-height:1.4}
+.settings-row-status{display:flex;align-items:center;gap:5px;white-space:nowrap;flex-shrink:0}
+.s-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.s-dot.green{background:var(--ok)}
+.s-dot.amber{background:var(--amber)}
+.s-dot.grey{background:var(--text3)}
+.s-text{font-size:12px;color:var(--text2)}
+.s-text.amber{color:var(--amber)}
+.settings-row-action{flex-shrink:0}
+.action-link{font-size:12px;color:var(--green);font-weight:500;cursor:pointer;background:none;border:none;font-family:inherit;padding:0}
+.action-link:hover{text-decoration:underline}
+.hb-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.hb-row{padding:14px 18px;border-bottom:1px solid var(--border)}
+.hb-row:last-child{border-bottom:none}
+.hb-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:5px}
+.hb-body{font-size:13px;line-height:1.6;color:var(--text2)}
+@media(max-width:900px){.admin-nav{display:none}.admin-content{padding:20px 16px}}
+
+/* ── Flow ── */
+.flow-scroll{flex:1;overflow-y:auto;scrollbar-width:none}
+.flow-scroll::-webkit-scrollbar{display:none}
+.flow-col{max-width:520px;margin:0 auto;padding:24px 16px 32px}
+.flow-title{font-size:18px;font-weight:700;margin-bottom:4px}
+.flow-sub{font-size:13px;color:var(--text2);margin-bottom:20px}
+.flow-legend{display:flex;gap:16px;margin-bottom:24px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px}
+.legend-item{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text2)}
+.legend-dot{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0}
+.flow-node{display:flex;gap:0;margin-bottom:0}
+.flow-spine{display:flex;flex-direction:column;align-items:center;width:36px;flex-shrink:0}
+.flow-dot{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0;margin-top:2px}
+.flow-dot.operator{background:var(--green)}
+.flow-dot.system{background:var(--text3)}
+.flow-line{width:2px;background:var(--border);flex:1;min-height:16px;margin:4px 0}
+.flow-body{flex:1;padding:0 0 24px 12px}
+.flow-node-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:5px;margin-top:3px}
+.flow-node-sub{font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:8px}
+.flow-tags{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}
+.flow-tag{font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px}
+.flow-tag-op{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}
+.flow-tag-sys{background:var(--bg);color:var(--text2);border:1px solid var(--border)}
+.flow-tag-state{background:#f5f3ff;color:#5b21b6;border:1px solid #ddd6fe}
+.flow-io{font-size:11px;color:var(--text2);line-height:1.7;background:var(--bg);border-left:2px solid var(--border);padding:6px 10px;border-radius:0 4px 4px 0}
+.flow-io-key{color:var(--text3)}
+.flow-io-val{color:var(--text)}
+</style>
+</head>
+<body>
+
+<!-- Shell -->
+<div class="shell">
+  <div class="topbar">
+    <span class="topbar-logo">Klaroha</span>
+    <span class="topbar-brand">Klaroha ↓</span>
+    <div class="topbar-right">
+      <span style="font-size:11px;color:var(--text2)">May 20</span>
+    </div>
+  </div>
+
+  <div class="page-area">
+    <div id="page-area" style="height:100%;overflow:hidden;display:flex;flex-direction:column"></div>
+  </div>
+
+  <!-- Full window overlay — inside shell so tabs remain visible -->
+  <div class="fullwin" id="fullwin">
+    <div class="fullwin-topbar">
+      <button class="fullwin-back" id="fullwin-close">← Back</button>
+      <span class="fullwin-title" id="fullwin-title"></span>
+      <div style="margin-left:auto;display:flex;gap:7px" id="fullwin-actions"></div>
+    </div>
+    <div class="fullwin-body" id="fullwin-body"></div>
+  </div>
+
+  <div class="bottom-tabs">
+    <div class="tab-group">
+      <button class="tab-btn active" data-page="stream">
+        ▶ Stream <span class="tab-badge" id="tab-badge">3</span>
+      </button>
+      <button class="tab-btn" data-page="cmo">
+        ◎ CMO
+      </button>
+      <button class="tab-btn" data-page="admin">
+        ⚙ Admin
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── Data ── */
+const TYPE_LABELS = {
+  decision_brief:'Decision Brief',
+  pending_artifact:'Pending Artifact',
+  outcome:'Outcome · Memory Updated',
+  setup_blocker:'Setup Blocker',
+};
+
+const cards = [
+  {
+    id:'1', type:'decision_brief', featured:true, brand:'Klaroha',
+    obj:'Generate $40k pipeline from dormant prospects, Q2',
+    why:'April data backs this. Case study angle got 21% reply rate vs 8% for feature-benefit. Sequence v2 is ready. Thursday window is optimal — reply rates drop after mid-week.',
+    conf:{label:'Directional · 0.71',color:'amber'},
+    evidence:[
+      'April campaign: 21% reply (case study) vs 8% (feature-benefit)',
+      '47 dormant contacts — no reply in 90+ days, previously engaged',
+      'Gmail connector live · Memory: 2 outcome records on file',
+    ],
+    rec:'Review and approve sequence v2 before Thursday. 47 contacts queued. Optimal send window closes mid-week.',
+    boundary:'BOS can draft and queue. BOS cannot send without approval.',
+    actions:['approve','revise','ask CMO','view full'],
+    sources:['Gmail — live connector','Memory — 2 outcome records'],
+  },
+  {
+    id:'2', type:'pending_artifact', featured:false, brand:'Klaroha',
+    obj:'Generate $40k pipeline from dormant prospects, Q2',
+    why:'Sequence v2 built from April memory. Case study angle validated at 21% reply rate. Updated objection handling in email 3.',
+    conf:{label:'Known',color:'green'},
+    evidence:[
+      'Email 1 — "How [Client Name] cut their CAC by 34% in 6 weeks"',
+      'Email 2 (Day 4) — "Quick follow-up — still relevant for you?"',
+      'Email 3 (Day 9) — "One last thought before I move on"',
+      '3 emails · 9 days · 47 contacts · default send: Tuesday 9 AM',
+    ],
+    rec:'Approve to queue send. Review full sequence before approving.',
+    boundary:'BOS cannot send without approval. Once approved, BOS sends and monitors replies autonomously.',
+    actions:['approve','revise','dismiss','view full'],
+    sources:['Gmail — live connector'],
+  },
+  {
+    id:'3', type:'outcome', featured:false, brand:'Klaroha',
+    obj:'Generate $40k pipeline from dormant prospects, Q2',
+    why:'April reactivation campaign closed. Operator registered outcome May 18. Memory updated.',
+    conf:{label:'Known',color:'green'},
+    stats:[{v:'47',l:'Sent'},{v:'21%',l:'Reply rate'},{v:'4',l:'Calls'},{v:'$18k',l:'Pipeline'}],
+    evidence:[
+      'Average reply: Day 2 — Email 2 drove most responses',
+      '2 no-shows flagged for different sequence timing',
+    ],
+    memtags:['case_study_angle: 21% reply','email_2 high_response','no_show_pattern flagged','pipeline: $18k at proposal'],
+    rec:null, boundary:null,
+    actions:['dismiss','ask CMO'],
+    sources:['Manual — operator registered'],
+  },
+  {
+    id:'4', type:'setup_blocker', featured:false, brand:'Klaroha',
+    obj:'Generate $40k pipeline from dormant prospects, Q2',
+    why:'47 contacts were manually uploaded. No CRM or list source configured. BOS cannot refresh or expand the prospect list without a connected source.',
+    conf:{label:'Known',color:'green'},
+    evidence:[
+      'Prospect list: manual upload only (47 contacts)',
+      'CRM connection: not configured',
+      'List refresh: not possible without connector',
+    ],
+    rec:'Configure a list source (CRM, CSV sync) to enable automated prospect refresh.',
+    boundary:'BOS can generate a connector spec. BOS cannot access CRM without authorization.',
+    actions:['configure','ask CMO','dismiss'],
+    sources:['List source — requires setup'],
+  },
+];
+
+/* ── State ── */
+let activePage = 'stream';
+let selectedCard = cards[0];
+let adminSection = 'setup';
+
+/* ── Card HTML builder ── */
+function cardHTML(c) {
+  const stats = c.stats
+    ? `<div class="g2stats">${c.stats.map(s=>`<div class="g2stat">${s.v}<span>${s.l}</span></div>`).join('')}</div>`
+    : '';
+  const memtags = c.memtags
+    ? `<div class="g2mem">${c.memtags.map(t=>`<span class="g2mem-tag">${t}</span>`).join('')}</div>`
+    : '';
+  const ev = c.evidence.map(e=>`<div class="g2ev-item">${e}</div>`).join('');
+  const rec = c.rec ? `<div class="g2rec"><b>Next —</b>${c.rec}</div>` : '';
+  const boundary = c.boundary ? `<div class="g2boundary">${c.boundary}</div>` : '';
+  const srcs = c.sources.map(s=>`<span class="g2src">${s}</span>`).join('');
+  const confBadge = c.conf.label !== 'Known'
+    ? `<span class="g2conf ${c.conf.color}">${c.conf.label}</span>` : '';
+  const btns = c.actions.map(a => {
+    let cls = 'btn-ghost';
+    if (a==='approve') cls = 'btn-primary';
+    if (a==='configure') cls = 'btn-accent';
+    return `<button class="btn ${cls}" data-action="${a}" data-id="${c.id}">${a}</button>`;
+  }).join('');
+  return `<div class="g2card${c.featured?' featured':''}" id="card-${c.id}">
+    <div class="g2top">
+      <span class="g2type ${c.type}">${TYPE_LABELS[c.type]}</span>
+      ${confBadge}
+    </div>
+    <div class="g2obj">${c.obj}</div>
+    <div class="g2brand">${c.brand}</div>
+    <div class="g2why">${c.why}</div>
+    ${stats}${memtags}
+    <div class="g2ev">${ev}</div>
+    ${rec}${boundary}
+    <div class="g2src-row">${srcs}</div>
+    <div class="g2actions">${btns}</div>
+  </div>`;
+}
+
+/* ── Right panel detail (CMO split) ── */
+function rightPanelHTML(c) {
+  const stats = c.stats
+    ? `<div class="g2stats" style="margin-bottom:12px">${c.stats.map(s=>`<div class="g2stat">${s.v}<span>${s.l}</span></div>`).join('')}</div>`
+    : '';
+  const memtags = c.memtags
+    ? `<div class="g2mem" style="margin-bottom:12px">${c.memtags.map(t=>`<span class="g2mem-tag">${t}</span>`).join('')}</div>`
+    : '';
+  const ev = c.evidence.map(e=>`<div class="g2ev-item">${e}</div>`).join('');
+  const rec = c.rec ? `<div class="g2rec" style="margin-bottom:12px"><b>Next —</b>${c.rec}</div>` : '';
+  const boundary = c.boundary ? `<div class="g2boundary">${c.boundary}</div>` : '';
+  const srcs = c.sources.map(s=>`<span class="g2src">${s}</span>`).join('');
+  const confBadge = c.conf.label !== 'Known'
+    ? `<span class="g2conf ${c.conf.color}" style="margin-left:6px">${c.conf.label}</span>` : '';
+  const primaryBtns = c.actions.filter(a=>['approve','configure'].includes(a))
+    .map(a=>`<button class="btn ${a==='approve'?'btn-primary':'btn-accent'}" data-action="${a}" data-id="${c.id}">${a}</button>`).join('');
+  return `<div>
+    <div class="rp-header">
+      <div>
+        <div class="rp-title">${TYPE_LABELS[c.type]}${confBadge}</div>
+        <div class="rp-meta">${c.brand} · ${c.obj}</div>
+      </div>
+      <button class="btn btn-ghost" style="font-size:11px;white-space:nowrap" data-action="view full" data-id="${c.id}">Expand ↗</button>
+    </div>
+    <div class="rp-section">
+      <div class="rp-label">Why now</div>
+      <div class="rp-body">${c.why}</div>
+    </div>
+    ${stats}${memtags}
+    <div class="rp-section">
+      <div class="rp-label">Evidence</div>
+      <div class="g2ev">${ev}</div>
+    </div>
+    ${rec}${boundary}
+    <div class="g2src-row" style="margin-bottom:14px">${srcs}</div>
+    ${primaryBtns ? `<div class="rp-actions">${primaryBtns}</div>` : ''}
+  </div>`;
+}
+
+/* ── Full window content ── */
+function fullWinHTML(c) {
+  const stats = c.stats
+    ? `<div class="g2stats" style="margin-bottom:16px">${c.stats.map(s=>`<div class="g2stat">${s.v}<span>${s.l}</span></div>`).join('')}</div>`
+    : '';
+  const memtags = c.memtags
+    ? `<div class="g2mem" style="margin-bottom:16px">${c.memtags.map(t=>`<span class="g2mem-tag">${t}</span>`).join('')}</div>`
+    : '';
+  const ev = c.evidence.map(e=>`<div class="g2ev-item">${e}</div>`).join('');
+  const srcs = c.sources.map(s=>`<span class="g2src">${s}</span>`).join('');
+  const actionBtns = c.actions.filter(a=>a!=='view full')
+    .map(a=>{
+      let cls='btn-ghost';
+      if(a==='approve')cls='btn-primary';
+      if(a==='configure')cls='btn-accent';
+      return `<button class="btn ${cls}" data-action="${a}" data-id="${c.id}" data-ctx="full">${a}</button>`;
+    }).join('');
+  return `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+      <span class="g2type ${c.type}">${TYPE_LABELS[c.type]}</span>
+      ${c.conf.label !== 'Known' ? `<span class="g2conf ${c.conf.color}">${c.conf.label}</span>` : ''}
+      <div class="g2src-row" style="margin:0;margin-left:auto">${srcs}</div>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">${c.brand} · ${c.obj}</div>
+    <div style="margin-bottom:20px">
+      <div class="rp-label">Why now</div>
+      <div style="font-size:14px;line-height:1.6;margin-top:6px">${c.why}</div>
+    </div>
+    ${stats}${memtags}
+    <div style="margin-bottom:20px">
+      <div class="rp-label">Evidence</div>
+      <div style="margin-top:6px" class="g2ev">${ev}</div>
+    </div>
+    ${c.rec ? `<div style="margin-bottom:16px">
+      <div class="rp-label">Recommended next</div>
+      <div class="g2rec" style="margin-top:6px">${c.rec}</div>
+    </div>` : ''}
+    ${c.boundary ? `<div style="margin-bottom:20px">
+      <div class="rp-label">Approval boundary</div>
+      <div class="g2boundary" style="margin-top:4px">${c.boundary}</div>
+    </div>` : ''}
+    ${actionBtns ? `<div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:20px;border-top:1px solid var(--border)">${actionBtns}</div>` : ''}
+  `;
+}
+
+/* ── Pages ── */
+function renderStream() {
+  const active = cards.filter(c=>!c._done);
+  const needs = active.filter(c=>c.type!=='outcome').length;
+  const inner = active.length
+    ? active.map(c=>cardHTML(c)).join('')
+    : '<div style="text-align:center;color:var(--text2);padding:40px 0">All caught up.</div>';
+  return `<div class="page-scroll"><div class="stream-wrap">
+    <div class="stream-kicker">Tuesday, May 20 · Klaroha</div>
+    <div class="stream-title">${needs} item${needs!==1?'s':''} need your judgment</div>
+    <div class="stream-sub">Ranked by urgency. Act on what matters, dismiss what does not.</div>
+    <div class="obj-anchor">
+      <div class="obj-dot"></div>
+      <div>
+        <div class="obj-label">Active Objective</div>
+        <div class="obj-text">Generate $40k pipeline from dormant prospects</div>
+      </div>
+      <div class="obj-meta">Q2 · active</div>
+    </div>
+    ${inner}
+  </div></div>`;
+}
+
+function renderCMO() {
+  const isMobile = window.innerWidth <= 768;
+
+  const chatCol = `<div class="split-chat">
+    <div class="cmo-msgs">
+      <div class="cmo-msgs-body">
+        <div class="cmo-ctx">
+          <span class="g2src" style="font-size:11px">Klaroha</span>
+          <span class="g2src" style="font-size:11px">$40k pipeline · Q2</span>
+          <span class="g2src" style="font-size:11px">decision_brief</span>
+        </div>
+        <div>
+          <div class="msg-label">CMO · loaded from Stream</div>
+          <div class="msg-ai">April data backs this. Case study angle got 21% replies vs 8% for feature-benefit. Sequence v2 uses that angle across all 3 emails. The Thursday window matters — reply rates drop after mid-week sends. Approving now gives BOS time to queue and confirm delivery.</div>
+        </div>
+        <div class="cmo-chips">
+          <button class="btn btn-ghost" style="font-size:12px" data-chip="why">Why this angle?</button>
+          <button class="btn btn-ghost" style="font-size:12px" data-chip="after">What happens after I approve?</button>
+          <button class="btn btn-ghost" style="font-size:12px" data-chip="outcome">Record an outcome</button>
+        </div>
+        <div id="chip-reply"></div>
+        <div>
+          <div class="msg-label" style="margin-top:4px">CMO · waiting</div>
+          <div class="msg-ai" style="opacity:.65;font-style:italic">Ask about this card, request a revision, or record an outcome.</div>
+        </div>
+      </div>
+    </div>
+    <div class="cmo-input-wrap">
+      <div class="cmo-composer">
+        <textarea class="cmo-ta" rows="2" placeholder="Ask CMO about this card..."></textarea>
+        <div class="cmo-composer-foot">
+          <span class="cmo-hint">Enter to send</span>
+          <button class="btn-send">↑</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  const rightCol = `<div class="split-right">${rightPanelHTML(selectedCard)}</div>`;
+
+  return `<div class="split-shell">${chatCol}${isMobile?'':rightCol}</div>`;
+}
+
+function adminNav() {
+  const sections = [
+    { section:'setup',       label:'Loop Setup',      group:'Gate 2' },
+    { section:'connectors',  label:'Connectors',      group:'Gate 2' },
+    { section:'memory',      label:'Memory & Audit',  group:'Gate 2' },
+    { section:'flow',        label:'Loop Flow',       group:'Investigate' },
+    { section:'parked',      label:'Parked · Gate 3', group:'Investigate' },
+  ];
+  const byGroup = (g) => sections.filter(i=>i.group===g).map(i=>`
+    <button class="admin-nav-item${adminSection===i.section?' active':''}" data-admin-section="${i.section}">${i.label}</button>`).join('');
+  return `<div class="admin-nav">
+    <div class="admin-nav-wordmark">BOS Admin</div>
+    <div class="admin-nav-group">
+      <div class="admin-nav-label">Gate 2</div>
+      ${byGroup('Gate 2')}
+    </div>
+    <div class="admin-nav-group">
+      <div class="admin-nav-label">Investigate</div>
+      ${byGroup('Investigate')}
+    </div>
+  </div>`;
+}
+
+function adminContentHTML() {
+  if (adminSection === 'setup') {
+    const rows = [
+      { name:'Gmail', desc:'borj.villazorda@gmail.com · OAuth active · send and read enabled', dot:'green', status:'Connected', action:'Manage' },
+      { name:'Brand Context', desc:'Klaroha · voice doc, product brief, ICP defined', dot:'green', status:'Ready', action:'Edit' },
+      { name:'Prospect List', desc:'Manual upload only · 47 contacts · no CRM connected · list cannot auto-refresh', dot:'amber', status:'Action needed', action:'Configure', warn:true },
+      { name:'Active Objective', desc:'Generate $40k pipeline from dormant prospects · Q2', dot:'green', status:'Active', action:'View' },
+    ].map(r=>`
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-name">${r.name}</div>
+          <div class="settings-row-desc">${r.desc}</div>
+        </div>
+        <div class="settings-row-status">
+          <div class="s-dot ${r.dot}"></div>
+          <span class="s-text${r.warn?' amber':''}">${r.status}</span>
+        </div>
+        <div class="settings-row-action">
+          <button class="action-link">${r.action} →</button>
+        </div>
+      </div>`).join('');
+    return `
+      <div class="admin-section-title">Loop Setup</div>
+      <div class="admin-section-sub">Everything BOS needs to run the Gmail-only objective loop.</div>
+      <div class="settings-group">
+        <div class="settings-group-label">Connections &amp; context</div>
+        ${rows}
+      </div>`;
+  }
+
+  if (adminSection === 'connectors') {
+    const live = [
+      { name:'Gmail', desc:'borj.villazorda@gmail.com · OAuth · send and read · Gate 2 active connector', dot:'green', status:'Connected', action:'Manage' },
+    ];
+    const available = [
+      { name:'Google Ads', desc:'Search and Performance Max campaigns · read + write', dot:'grey', status:'Not connected', action:'Connect' },
+      { name:'Google Analytics', desc:'GA4 · event tracking and audience data', dot:'grey', status:'Not connected', action:'Connect' },
+      { name:'Google Calendar', desc:'Meeting scheduling · calendar read', dot:'grey', status:'Not connected', action:'Connect' },
+      { name:'Meta', desc:'Facebook and Instagram · campaigns and creative', dot:'grey', status:'Not connected', action:'Connect' },
+      { name:'Search Console', desc:'GSC · query performance and index coverage', dot:'grey', status:'Not connected', action:'Connect' },
+      { name:'Media Image', desc:'AI image generation · creative assets', dot:'grey', status:'Not connected', action:'Connect' },
+    ];
+    const makeRow = (r, dim) => `
+      <div class="settings-row"${dim?' style="opacity:.5"':''}>
+        <div class="settings-row-info">
+          <div class="settings-row-name">${r.name}</div>
+          <div class="settings-row-desc">${r.desc}</div>
+        </div>
+        <div class="settings-row-status">
+          <div class="s-dot ${r.dot}"></div>
+          <span class="s-text">${r.status}</span>
+        </div>
+        <div class="settings-row-action">
+          <button class="action-link">${r.action} →</button>
+        </div>
+      </div>`;
+    return `
+      <div class="admin-section-title">Connectors</div>
+      <div class="admin-section-sub">Channel plugins installed in this deployment. Only Gmail is active for Gate 2.</div>
+      <div class="settings-group">
+        <div class="settings-group-label">Active · Gate 2</div>
+        ${live.map(r=>makeRow(r,false)).join('')}
+      </div>
+      <div class="settings-group">
+        <div class="settings-group-label">Installed · not connected</div>
+        ${available.map(r=>makeRow(r,true)).join('')}
+      </div>`;
+  }
+
+  if (adminSection === 'memory') {
+    const log = [
+      { name:'Outcome · April reactivation', desc:'Recorded May 18 · 21% reply · 4 calls · $18k pipeline · operator-registered' },
+      { name:'Decision · case study angle approved', desc:'May 15 · rationale: 21% vs 8% reply rate in April data' },
+      { name:'Decision · feature-benefit angle not used', desc:'May 15 · rationale: 8% reply rate in April test' },
+    ].map(r=>`
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-name">${r.name}</div>
+          <div class="settings-row-desc">${r.desc}</div>
+        </div>
+        <div class="settings-row-action"><button class="action-link">View →</button></div>
+      </div>`).join('');
+    return `
+      <div class="admin-section-title">Memory &amp; Audit</div>
+      <div class="admin-section-sub">Outcome records, decision rationales, and the current handoff brief.</div>
+      <div class="settings-group">
+        <div class="settings-group-label">Recent records</div>
+        ${log}
+      </div>
+      <div class="settings-group">
+        <div class="settings-group-label">Handoff brief · May 20, 2026</div>
+        <div class="hb-card">
+          <div class="hb-row">
+            <div class="hb-label">Active objectives</div>
+            <div class="hb-body">One active objective: generate $40k pipeline from dormant prospects. Q2. In progress.</div>
+          </div>
+          <div class="hb-row">
+            <div class="hb-label">Recent performance</div>
+            <div class="hb-body">April reactivation campaign closed May 18. Case study angle: 21% reply rate vs 8% for feature-benefit. 4 calls booked. $18k at proposal stage.</div>
+          </div>
+          <div class="hb-row">
+            <div class="hb-label">Pending decisions</div>
+            <div class="hb-body">Sequence v2 approval pending. 47 contacts queued. Thursday send window — reply rates drop after mid-week.</div>
+          </div>
+          <div class="hb-row">
+            <div class="hb-label">Known risks</div>
+            <div class="hb-body">No CRM connected. Prospect list is manual upload only (47 contacts). Cannot auto-refresh without a connector.</div>
+          </div>
+          <div class="hb-row">
+            <div class="hb-label">Decided against</div>
+            <div class="hb-body">Feature-benefit email angle. April data: 8% reply rate vs 21% for case study framing.</div>
+          </div>
+          <div class="hb-row">
+            <div class="hb-label">Recommended first action</div>
+            <div class="hb-body" style="color:var(--green-mid);font-weight:500">Approve sequence v2 before Thursday. Then configure a list source to enable prospect refresh.</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  if (adminSection === 'flow') {
+    return `
+      <div class="admin-section-title">Loop Flow</div>
+      <div class="admin-section-sub">Eight steps from first signal to compounding memory. Use this to trace how a decision moved through the system.</div>
+      ${flowNodesHTML()}`;
+  }
+
+  if (adminSection === 'parked') {
+    const rows = [
+      { name:'CRM connector', desc:'HubSpot, Salesforce — prospect list sync and auto-refresh' },
+      { name:'Additional channels', desc:'LinkedIn, Slack outreach — multi-channel sequences' },
+      { name:'Watchpoints automation', desc:'Signal detection and automated escalation triggers' },
+      { name:'CMO Council', desc:'Multi-model deliberation layer — planned for Gate 3' },
+    ].map(r=>`
+      <div class="settings-row" style="opacity:.45">
+        <div class="settings-row-info">
+          <div class="settings-row-name">${r.name}</div>
+          <div class="settings-row-desc">${r.desc}</div>
+        </div>
+        <div class="settings-row-status">
+          <div class="s-dot grey"></div>
+          <span class="s-text">Gate 3</span>
+        </div>
+      </div>`).join('');
+    return `
+      <div class="admin-section-title">Parked · Gate 3</div>
+      <div class="admin-section-sub">Not in scope for Gate 2. Enabled after the Gmail-only loop proves economic movement.</div>
+      <div class="settings-group">
+        <div class="settings-group-label">Planned capabilities</div>
+        ${rows}
+      </div>`;
+  }
+  return '';
+}
+
+function renderAdmin() {
+  return `<div class="admin-layout">
+    ${adminNav()}
+    <div class="admin-content" id="admin-content">${adminContentHTML()}</div>
+  </div>`;
+}
+
+function flowNodesHTML() {
+  const steps = [
+    { role:'system', title:'Stream: decision_brief appears',
+      sub:'BOS reads Gmail, matches April memory, ranks card as highest urgency. Confidence: directional (0.71). Card surfaces with evidence, recommended action, and approval boundary.',
+      tags:['system','state: pending operator review'],
+      io:[['inputs','Gmail replies · April memory · 47 contacts identified'],['output','decision_brief card ranked #1 in Stream']] },
+    { role:'operator', title:'Operator taps "Ask CMO"',
+      sub:'From the decision_brief card. CMO opens with context pre-loaded: brand, objective, card type. Not a blank chatbot — the brief is already there.',
+      tags:['operator','state: CMO surface open'],
+      io:[['context loaded','Klaroha · $40k pipeline · decision_brief'],['CMO opens with','judgment summary, not blank prompt']] },
+    { role:'operator', title:'Operator reviews brief, taps "Approve"',
+      sub:'Operator reviews the pending_artifact (sequence v2). Decision: approve. BOS receives the approval signal — this is the only gate before execution.',
+      tags:['operator','state: artifact approved'],
+      io:[['artifact','sequence v2 · status: approved'],['boundary','BOS cannot send without this step']] },
+    { role:'system', title:'BOS queues Gmail send',
+      sub:'Card moves from pending to queued. BOS schedules delivery for the Thursday window. No further operator action needed until replies arrive.',
+      tags:['system','state: queued for send'],
+      io:[['action','47 emails queued · Thursday window · Gmail connector'],['operator required','none until replies arrive']] },
+    { role:'system', title:'Gmail sends · replies come in',
+      sub:'BOS monitors the Gmail thread. Replies are read, reply rate is tracked, patterns are noted. Memory writing is deferred until operator confirms outcome.',
+      tags:['system','state: observing'],
+      io:[['monitoring','Gmail replies · reply timing patterns'],['memory writing','deferred until operator confirms']] },
+    { role:'operator', title:'Operator records outcome in CMO or Stream',
+      sub:'After calls conclude, the operator records what happened. BOS uses this to write memory — outcome records are the basis for every future recommendation.',
+      tags:['operator','state: outcome recording'],
+      io:[['operator inputs','calls booked · deal status · notes'],['BOS writes','outcome record to memory']] },
+    { role:'system', title:'Stream: outcome card appears · memory updated',
+      sub:'Campaign closes. Outcome card shows results and lists what was written to memory. Operator can dismiss or ask CMO for interpretation.',
+      tags:['system','state: memory written'],
+      io:[['written','case_study_angle · email_2_response · no_show_pattern'],['card type','outcome · dismissable']] },
+    { role:'system', title:'Next decision_brief is better', last:true,
+      sub:'The next recommendation references both April and May data. Confidence increases. Sequence v3 can be proposed with stronger evidence. The loop compounds.',
+      tags:['system','state: loop complete · memory compounds'],
+      io:[['evidence base','April + May outcome records'],['confidence','directional → known as data accumulates'],['loop','observe → interpret → remember → recommend → execute']] },
+  ];
+
+  const tagClass = t => t==='operator' ? 'flow-tag-op' : t.startsWith('state') ? 'flow-tag-state' : 'flow-tag-sys';
+
+  const nodes = steps.map(s=>`
+    <div class="flow-node">
+      <div class="flow-spine">
+        <div class="flow-dot ${s.role}">${s.role==='operator'?'O':'S'}</div>
+        ${s.last ? '' : '<div class="flow-line"></div>'}
+      </div>
+      <div class="flow-body">
+        <div class="flow-node-title">${s.title}</div>
+        <div class="flow-node-sub">${s.sub}</div>
+        <div class="flow-tags">${s.tags.map(t=>`<span class="flow-tag ${tagClass(t)}">${t}</span>`).join('')}</div>
+        <div class="flow-io">${s.io.map(([k,v])=>`<span class="flow-io-key">${k}: </span><span class="flow-io-val">${v}</span>`).join('<br>')}</div>
+      </div>
+    </div>`).join('');
+
+  return `
+    <div class="flow-legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--green)">O</div> Operator action</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--text3)">S</div> System action</div>
+    </div>
+    ${nodes}`;
+}
+
+/* ── Router ── */
+function setPage(p) {
+  activePage = p;
+  document.querySelectorAll('.tab-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.page===p);
+  });
+  const area = document.getElementById('page-area');
+  if (p==='stream') {
+    area.innerHTML = renderStream();
+  } else if (p==='cmo') {
+    area.innerHTML = renderCMO();
+    wireCMO();
+  } else if (p==='admin') {
+    area.innerHTML = renderAdmin();
+  }
+  updateBadge();
+}
+
+function updateBadge() {
+  const needs = cards.filter(c=>!c._done && c.type!=='outcome').length;
+  const b = document.getElementById('tab-badge');
+  if (b) { b.textContent=needs; b.style.display=needs?'':'none'; }
+}
+
+function wireCMO() {
+  document.querySelectorAll('[data-chip]').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const replies = {
+        why:'The case study angle works because it leads with a specific, credible outcome — 34% CAC reduction — rather than a feature list. In April, this framing made the email feel like a peer referral rather than a pitch. It outperformed the feature-benefit version 21% to 8%.',
+        after:'Once approved, BOS queues the sequence for Tuesday 9 AM send via Gmail. Replies are monitored automatically. High-intent replies surface back here as pending artifacts for follow-up drafts. No-shows get flagged for a different sequence timing.',
+        outcome:'Tell me what happened. I will record the outcome, update memory, and adjust the next recommendation. What was the reply rate, how many calls booked, and any deals at proposal stage?',
+      };
+      const r = document.getElementById('chip-reply');
+      if (r) r.innerHTML = `<div><div class="msg-label" style="margin-top:10px">CMO</div><div class="msg-ai">${replies[this.dataset.chip]}</div></div>`;
+    });
+  });
+}
+
+function openFullWin(c) {
+  document.getElementById('fullwin-title').textContent = TYPE_LABELS[c.type] + ' — ' + c.brand;
+  document.getElementById('fullwin-body').innerHTML = fullWinHTML(c);
+  document.getElementById('fullwin').classList.add('open');
+}
+
+function closeFullWin() {
+  document.getElementById('fullwin').classList.remove('open');
+}
+
+/* ── Events ── */
+document.getElementById('fullwin-close').addEventListener('click', closeFullWin);
+
+document.addEventListener('click', e => {
+  const tabBtn = e.target.closest('.tab-btn[data-page]');
+  if (tabBtn) {
+    closeFullWin();
+    setPage(tabBtn.dataset.page);
+    return;
+  }
+
+  const navItem = e.target.closest('[data-admin-section]');
+  if (navItem) {
+    adminSection = navItem.dataset.adminSection;
+    document.querySelectorAll('.admin-nav-item').forEach(i =>
+      i.classList.toggle('active', i.dataset.adminSection === adminSection));
+    const ac = document.getElementById('admin-content');
+    if (ac) ac.innerHTML = adminContentHTML();
+    return;
+  }
+
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  const id = btn.dataset.id;
+  const ctx = btn.dataset.ctx;
+  const card = cards.find(c=>c.id===id);
+
+  if (action==='view full' && card) { openFullWin(card); return; }
+  if (action==='ask CMO' && card) { selectedCard = card; closeFullWin(); setPage('cmo'); return; }
+  if (action==='revise' && card) { selectedCard = card; closeFullWin(); setPage('cmo'); return; }
+  if (action==='configure' && card) {
+    card._done = true;
+    if (ctx==='full') closeFullWin();
+    setPage('admin');
+    return;
+  }
+  if ((action==='approve' || action==='dismiss') && card) {
+    card._done = true;
+    if (ctx==='full') closeFullWin();
+    setPage(activePage==='cmo' ? 'cmo' : 'stream');
+    return;
+  }
+});
+
+window.addEventListener('resize', () => {
+  if (activePage==='cmo') setPage('cmo');
+});
+
+/* ── Init ── */
+setPage('stream');
+</script>
+</body>
+</html>
