@@ -149,6 +149,7 @@ _GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 _GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v1/userinfo"
 _GOOGLE_SCOPES = "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly openid email"
+_YOUTUBE_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl openid email"
 
 
 class GmailOAuthHandler:
@@ -341,6 +342,119 @@ class GoogleCalendarOAuthHandler:
         )
 
 
+class YouTubeOAuthHandler:
+    provider = "youtube"
+    display_name = "YouTube"
+
+    async def start_login(self, settings) -> LoginStart:
+        if not settings.google_client_id:
+            raise ValueError("GOOGLE_CLIENT_ID is not configured")
+        if not settings.google_client_secret:
+            raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
+        redirect_uri = settings.google_redirect_uri.replace("/social/gmail/callback", "/social/youtube/callback") if settings.google_redirect_uri else None
+        if not redirect_uri:
+             raise ValueError("GOOGLE_REDIRECT_URI is not configured")
+             
+        verifier, challenge = _generate_pkce()
+        state = secrets.token_hex(16)
+        params = {
+            "client_id": settings.google_client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": _YOUTUBE_SCOPES,
+            "access_type": "offline",
+            "prompt": "consent",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": state,
+        }
+        return LoginStart(
+            login_type="browser",
+            authorize_url=f"{_GOOGLE_AUTHORIZE_URL}?{urlencode(params)}",
+            state=state,
+            verifier=verifier,
+            redirect_uri=redirect_uri,
+        )
+
+    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                    "code_verifier": verifier,
+                },
+            )
+            r.raise_for_status()
+            token_data = r.json()
+
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise ValueError("YouTube token exchange failed — no access_token in response")
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                _GOOGLE_USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            r.raise_for_status()
+            userinfo = r.json()
+
+        channel_id = None
+        if provider == "youtube":
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get(
+                    "https://www.googleapis.com/youtube/v3/channels",
+                    params={"part": "id", "mine": "true"},
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                if r.status_code == 200:
+                    data = r.json()
+                    items = data.get("items", [])
+                    if items:
+                        channel_id = items[0].get("id")
+
+        expires_in = token_data.get("expires_in", 3600)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=token_data.get("refresh_token"),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+            metadata={
+                "email": userinfo.get("email"),
+                "name": userinfo.get("name"),
+                "channel_id": channel_id,
+            },
+        )
+
+    async def refresh_auth(self, refresh_token: str, settings) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "refresh_token": refresh_token,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+
+        access_token = data.get("access_token")
+        if not access_token:
+            raise ValueError("YouTube token refresh failed — no access_token in response")
+        expires_in = data.get("expires_in", 3600)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+        )
+
+
 _FACEBOOK_AUTHORIZE_URL = "https://www.facebook.com/dialog/oauth"
 _FACEBOOK_TOKEN_URL = "https://graph.facebook.com/oauth/access_token"
 _FACEBOOK_GRAPH_URL = "https://graph.facebook.com/v21.0"
@@ -467,6 +581,7 @@ _OAUTH_HANDLERS: dict[str, OAuthProviderHandler] = {
     "openai": OpenAICodexOAuthHandler(),
     "gmail": GmailOAuthHandler(),
     "google_calendar": GoogleCalendarOAuthHandler(),
+    "youtube": YouTubeOAuthHandler(),
     "facebook": FacebookOAuthHandler(),
 }
 

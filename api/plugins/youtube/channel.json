@@ -1,0 +1,30 @@
+{
+  "plugin_id": "youtube",
+  "name": "YouTube Specialist",
+  "version": "0.1.0",
+  "requires_social_connection": ["youtube"],
+  "requires_platform_vars": [],
+  "capabilities": [
+    {
+      "id": "youtube.publish_video",
+      "name": "Publish Video",
+      "implements": ["marketing.execute"],
+      "specialty": ["video_publishing", "shorts"],
+      "risk_policy": "read_and_draft_only"
+    },
+    {
+      "id": "youtube.update_channel",
+      "name": "Update Channel Page",
+      "implements": ["marketing.execute"],
+      "specialty": ["channel_management", "branding"],
+      "risk_policy": "read_and_draft_only"
+    },
+    {
+      "id": "youtube.analytics",
+      "name": "Video Intelligence",
+      "implements": ["marketing.optimize"],
+      "specialty": ["video_performance", "analytics"],
+      "risk_policy": "read_only"
+    }
+  ]
+}

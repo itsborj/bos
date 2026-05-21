@@ -6,6 +6,12 @@ Plugin root: `api/plugins/meta/`
 
 All capabilities live under `capabilities/marketing/channel/meta/`. The plugin expands incrementally by phase — adding a new capability directory and updating `capability_ids` in `channel.json` is all that is needed.
 
+## Plugin Documentation
+
+See `docs/` directory for plugin-specific documentation:
+- `docs/meta-publish-wiring.md` - Publish implementation details
+- `docs/api-endpoints.md` - Meta plugin API endpoints
+
 ---
 
 ## Phased capability roadmap
