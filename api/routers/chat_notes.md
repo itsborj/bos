@@ -5,6 +5,543 @@ Related: `api/skills/memory.py`, `api/routers/brands.py`, `api/routers/runs.py`
 
 ---
 
+## CMO Chat Coordination Hub
+
+Use this file as the shared discussion and handoff surface for CMO chat work across AI agents.
+
+**Status:** coordination notes only — not an approved spec. Follow BITE stages before behavior changes: Discuss → Sample → Agree → Reverse-spec → Build.
+
+**How agents should use this file**
+- Add dated notes under the relevant section before touching CMO chat behavior.
+- Record bad sample / fixed sample pairs for regressions.
+- Link approved samples in `sample/` before writing implementation specs.
+- Keep decisions traceable to `PROJECT_BRIEF.md`, `BITE.md`, and `BACKLOG.md`.
+- Never use this file to justify hardcoded routing in `chat.py` or `skills/router.py`.
+
+---
+
+## Marching Orders — CMO Agentic Loop (2026-05-22)
+
+> Produced after reading PROJECT_BRIEF.md, BACKLOG.md, chat.py (full), and pi agent docs. Agents: read this section before touching CMO chat. If you disagree with the ordering, add a dated counter-note below — do not silently deviate.
+
+### The situation in one paragraph
+
+Gate 2 is passed. The streaming pipeline is live (v3.28 — SSE, step events, module trace, artifact refs). The current CMO chat still behaves too much like single-pass dispatch: it calls the LLM, dispatches specialists, then returns reply text that was written before the CMO saw specialist results. Phase 6 must upgrade this into a shallow supervisory loop modeled from pi.dev mechanics but optimized for Klaroha's actual user: an overloaded business leader / marketing operator managing multi-brand, omni-channel direct-response and long-sales-cycle campaigns. The goal is not to expose more agent machinery; it is to shorten idea → execution → signal → optimization while preserving Stream approval boundaries and brand-scoped memory.
+
+### Current model — two loops, not one
+
+Klaroha needs two distinct agentic loops.
+
+#### 1. CMO execution loop
+
+Fast, operator-facing, artifact-producing.
+
+```text
+business intent
+→ CMO selects job: marketing.plan / marketing.execute / marketing.optimize
+→ specialists run
+→ Stream artifacts appear
+→ specialist results return to CMO as tool-result-style summaries
+→ CMO writes final concise synthesis after seeing results
+→ operator approves / revises / dismisses
+→ outcome and memory close the optimization loop
+```
+
+Use for:
+- campaign artifacts and creative bundles
+- revisions
+- simple planning
+- optimization recommendations
+- low/medium-risk execution prep
+- day-to-day operator steering
+
+#### 2. Council deliberation loop
+
+High-stakes, slower, multi-perspective judgment.
+
+```text
+@council strategic question
+→ 5 CMO-level strategist seats deliberate, each with its own model + ideology
+→ full debate transcript is captured as supporting artifact detail
+→ council_brief becomes the final product
+→ marching orders + parked decisions surface in Stream
+```
+
+Use for:
+- GTM strategy
+- brand redesign
+- quarterly budget/resource allocation
+- major positioning shifts
+- high-risk/high-reward campaign bets
+- persistent strategic disagreement or repeated dismissal
+
+CMO may recommend Council, but must not auto-run it:
+
+> "This is Council-grade: brand risk + resource tradeoff. Want me to convene the Council?"
+
+### Council + agency context (do not omit)
+
+**Council:** `@council` is not a mechanical shortcut like `@klar`; it is an explicit invocation of a separate deliberation engine. Current backend has Council seats, session persistence, and `@council` routing, but the product target is artifact-first: chat returns a short summary + artifact ref, while Stream/Workspace owns the `council_brief` and expandable transcript. Do not thread Council into normal CMO synthesis until an approved `council_brief` Stage 2 sample exists.
+
+**Agencies:** The agency model is a scope invariant for every Phase 6 build. Org = agency/operator control plane; Brand = client/business; Market Unit = optional location/agent/territory/service/SKU scope. All CMO loop work, connector readiness, OAuth credentials, artifacts, memory, and approvals must remain Brand-scoped. No feature should assume a single in-house brand, and no artifacts should be created with `brand_id=NULL` in multi-brand/agency workspaces.
+
+**Agency operating model:** The business process to compress is:
+
+```text
+client docs / website / offer
+→ brand memory + Campaign Brand Kit
+→ industry buying-model analysis
+→ competitor + value-proposition adjacency
+→ low-hanging-fruit opportunity analysis
+→ plan approval
+→ connector/readiness work by integrators
+→ coordinated creative/channel/web execution
+→ week-1 data feedback
+→ optimization recommendation
+→ next production loop
+```
+
+Pi supplies loop mechanics; the agency process supplies the business workflow.
+
+---
+
+## Code-Dev Marching Orders — Current Stack
+
+### Order 0 — Samples before code
+
+Two Stage 2 samples are needed before implementation specs/builds that change behavior.
+
+#### 0A. `creative_bundle` sample
+Purpose: prove the fast CMO execution loop.
+
+File target: `sample/creative_bundle_artifact_v1.md` (already started).
+
+Must show:
+- operator gives campaign idea in normal language
+- active Brand / agency scope is clear
+- copy + visual specialists run from one shared campaign brief
+- artifacts appear in Stream
+- CMO final reply happens after seeing specialist summaries
+- chat contains artifact refs only, no inline native copy or image prompt
+- approval boundary: bundle approval ≠ publish/spend/send approval
+
+Default for v1: **Path A — parallel + synthesis reply.**
+
+```text
+campaign brief
+→ copy specialist + image specialist in parallel
+→ CMO synthesis checks coherence after both complete
+→ final short reply points to Stream
+```
+
+Escalate to sequential only when needed:
+- brand redesign
+- high-ticket / long-sales-cycle asset
+- visual depends on exact headline/CTA
+- compliance or brand-risk concern
+- failed self-check
+- Council recommends tighter sequencing
+
+#### 0B. `council_brief` sample
+Purpose: prove the high-stakes deliberation loop.
+
+Must show:
+- user invokes `@council` for a Council-grade decision
+- 5 strategist seats deliberate
+- final `council_brief` artifact is created
+- transcript is stored as expandable supporting detail, not dumped as primary chat output
+- chat returns short settlement summary + artifact ref only
+- allowed/forbidden outcomes are explicit
+
+### Order 1 — Define loop boundaries
+
+Before code, keep the boundaries explicit:
+
+| Loop | Owns | Does not own |
+|---|---|---|
+| CMO execution loop | fast plan/execute/optimize steering, artifact production, result synthesis | high-stakes multi-perspective settlement, external actions without approval |
+| Council deliberation loop | strategic judgment, tradeoff debate, marching orders, parked decisions | routine creative production, channel execution, publishing/spend/actions |
+| Specialist/plugin loop | native artifacts, read/diagnostic outputs, approved channel actions | business strategy, brand scope switching, CMO reply text |
+
+### Order 2 — Fix CMO synthesis after specialist results
+
+This is the first code slice after the relevant Stage 2 sample is approved.
+
+Current flaw:
+
+```text
+CMO speaks before specialists finish.
+```
+
+Target:
+
+```text
+specialists finish
+→ CMO sees result summaries
+→ CMO gives final concise operator reply
+```
+
+Final reply should be business-oriented:
+
+> "Campaign bundle is ready in Stream. Review the lead angle first; visual fit passed brand check."
+
+Not:
+
+> "I ran module X and module Y."
+
+Implementation constraint: if this lands in `chat.py` first, keep it generic and isolated as a loop primitive. Do not add platform-specific branches, hardcoded module IDs, or phrase routing.
+
+### Order 3 — Specialist result summary contract
+
+CMO synthesis may see decision-useful metadata only:
+
+```json
+{
+  "run_id": "...",
+  "artifact_ref": "...",
+  "artifact_type": "draft_artifact | plan_artifact | intelligence_artifact | creative_bundle | council_brief",
+  "status": "pending_review | completed | failed",
+  "summary": "Lead magnet creative bundle created",
+  "self_check": "passed | warnings | failed",
+  "recommended_decision": "review | approve | revise | dismiss | connect_account",
+  "objective_ref": "...",
+  "brand_ref": "...",
+  "allowed_actions": ["approve", "revise", "dismiss", "ask_cmo"]
+}
+```
+
+Forbidden in synthesis context unless a future sample explicitly permits it:
+- full native email/ad/post body
+- image prompts
+- targeting/budget fields
+- provider/model/backend details
+- raw module IDs in visible reply
+
+### Order 4 — Council output artifact-first
+
+Long-term target:
+
+```text
+Chat:
+"Council settled on 4 marching orders and parked 2 decisions. Brief is in Stream."
+
+Stream artifact:
+- council_brief
+- final recommendation / settlement
+- marching orders
+- parked decisions
+- confidence / alignment
+- full round transcript as expandable detail
+```
+
+This aligns Council with the Workspace/Stream artifact plane. The transcript is allowed as detail, but the `council_brief` is the final product.
+
+### Order 5 — Creative production policy
+
+For the overloaded operator, optimize speed to decision.
+
+Default:
+
+```text
+shared campaign brief
+→ parallel copy + visual + channel prep where safe
+→ CMO synthesis after results
+→ one decision-ready Stream artifact/card
+```
+
+Sequential chaining is a capability, not the default product posture. Use it only when dependency, risk, or failed quality gates justify the extra latency.
+
+### Order 6 — Connector/readiness context
+
+Business operators hate failed execution. Before dispatch, the CMO should know which specialists are ready for the active Brand.
+
+Target prompt input is registry-generated, e.g.:
+
+```text
+Connector readiness:
+- Gmail: connected
+- Google Ads: not connected
+- Search Console: connected
+- Meta: missing permissions
+```
+
+This must come from connector registry / plugin manifests. No `if gmail`, `if google_ads`, platform phrase matching, or hardcoded chat routing.
+
+### Order 7 — Thin session correlation now; real session ledger later
+
+Add `session_id` only as correlation/run grouping once the synthesis path is approved.
+
+Do not confuse this with pi's session architecture. Park full session tree until after loop proof:
+- branchable entries
+- compaction summaries
+- steering queue
+- handoff reconstruction
+- deterministic replay from DB
+
+### Order 8 — Deferred refactor track
+
+Do not block Phase 6 loop proof on these:
+- full hook system
+- `chat.py` shrink to ~100 lines
+- branch/tree UI
+- compaction UX
+- server-side steering queue
+- deep multi-agent background loops
+
+Keep them as the target architecture once samples and loop proof are done.
+
+### One-line summary
+
+> CMO loop shortens idea → artifact. Council loop improves high-stakes judgment. Stream carries decisions. Memory closes optimization.
+
+---
+
+**Current focus (2026-05-22)**
+- Improve the CMO agentic loop by replicating the pi.dev agent experience in BOS terms.
+- Preserve CMO chat as a short control/narrative surface.
+- Push native previews, approval, revision, dismissal, and system details to Workspace/Stream artifacts.
+- Continue shrinking `chat.py` toward the fixed 7-step loop described below.
+- Treat capability activation as SKILL.md + manifest-owned, with chat code enforcing only safety/security boundaries.
+
+**Pi → Klaroha UX translation target**
+- Pi's session JSONL tree → BOS CMO session ledger with branchable turns, run/artifact links, compaction summaries, and handoff briefs.
+- Pi's tool calls/results → BOS specialist/capability executions with visible step events and human approval boundaries.
+- Pi's extension hooks → BOS lifecycle hooks (`bridge.before_transform`, `transform.after_execute`, `run.persisted`, `approval.resolved`).
+- Pi's skills/resources → BOS `SKILL.md` + live capability/readiness manifest.
+- Pi's steering/follow-up queue → BOS operator steering while specialists are running, plus after-run follow-up queue.
+- Pi's compact terminal UX → Klaroha mobile-first CMO + Stream split: chat narrates, Stream renders artifacts.
+
+### 2026-05-22 — CMO agentic loop objective
+- Goal: replicate the pi.dev agent loop UX for Klaroha BOS, not by embedding pi, but by copying its durable mechanics: fixed loop, streamed tool/specialist events, session tree, steering queue, hooks, progressive skills, compaction, and reloadable resources.
+- Files touched: `api/routers/chat_notes.md`, `BACKLOG.md`.
+- Sample used/needed: needs Stage 2 sample showing one owner request → streamed CMO/specialist loop → artifact in Stream → steering/follow-up → persisted session/handoff.
+- Invariants checked: no platform routing in chat; no inline native artifacts; SKILL.md/manifest owns activation; chat code remains safety boundary only.
+- Open questions / next agent handoff: define the Stage 2 sample first, then reverse-spec the smallest implementation slice.
+
+**Agent handoff template**
+```md
+### YYYY-MM-DD — <agent/task>
+- Goal:
+- Files touched:
+- Sample used/needed:
+- Invariants checked:
+- Open questions / next agent handoff:
+```
+
+### 2026-05-22 — Pi pattern discovery: agentic loop gaps and implementation targets
+
+**Goal:** Study pi agent source docs, map mechanics to BOS, identify what's missing, and define the smallest implementation slice to replicate the pi UX.
+
+**Files read:** `api/routers/chat.py` (full, 1,616 lines), `api/routers/chat_notes.md`, pi docs: extensions.md, skills.md, session-format.md, index.md.
+
+---
+
+#### What pi actually does (concrete mechanics)
+
+**The loop (from extensions.md + session-format.md):**
+```
+receive input
+→ build context from session JSONL tree (buildSessionContext() walks id/parentId chain)
+→ LLM turn (skills manifest in system prompt as XML descriptions only)
+→ execute tool calls (registered via pi.registerTool())
+→ tool results injected back as messages
+→ repeat from LLM turn until no more tool calls
+→ append typed JSONL entry to session file
+→ return final reply to user
+```
+
+**Three primitive tools:** `read`, `write`, `edit` (plus bash/grep/find/ls). Every capability is composed from these. The loop never changes to accommodate a new tool; tools register themselves via `pi.registerTool()`. The LLM decides when to call each.
+
+**Extension hooks (pi.on events):**
+- `session_start` — before first turn
+- `tool_call` — before a tool fires (can block/modify)
+- `tool_result` — after a tool returns
+- `agent_start`, `agent_stop` — loop boundaries
+- `model_change`, `compaction` — infra events
+Extensions subscribe; the main loop never references them by name. A broken extension can only break itself.
+
+**Session JSONL entry types:**
+| Type | Purpose |
+|---|---|
+| `session` | File header (no id/parentId) |
+| `message` | Conversation entries with typed content blocks (text, toolCall, toolResult, thinking) |
+| `compaction` | Context summary with `firstKeptEntryId` — loop walks to this boundary on replay |
+| `branch_summary` | Context from abandoned/forked paths via `fromId` |
+| `custom` | Extension state (not injected into LLM context) |
+| `custom_message` | Extension content that IS injected into LLM context |
+| `label` | User bookmark on an entry |
+| `model_change`, `thinking_level_change` | Infra state changes |
+
+All entries (except header) have `id` (8-char hex) and `parentId`. `buildSessionContext()` walks from current leaf to root, collecting entries. Hitting a `compaction` entry emits the summary then skips to `firstKeptEntryId` — conversation continuity survives compression.
+
+**Skills (progressive disclosure):**
+- Only `name` + `description` are always in the LLM context (as XML)
+- Full `SKILL.md` content loads on-demand when the agent calls `/skill:name`
+- This keeps the base system prompt small regardless of how many skills are installed
+
+---
+
+#### What BOS already has (correctly matching pi)
+
+| Pi concept | BOS current state |
+|---|---|
+| Skills as SKILL.md files | ✅ `api/capabilities/*/SKILL.md` with `description`, `triggers`, `module_id` |
+| Capability manifest → system prompt | ✅ `format_manifest_for_prompt()` in `_build_system_prompt()` |
+| SSE streaming with step events | ✅ `POST /chat/stream` — `step`, `module_result`, `reply`, `done` events |
+| Extension isolation principle | ✅ Architectural target in chat_notes.md (hook model section) |
+| Security boundary as the only gate | ✅ `allowed_module_ids` check after LLM output |
+
+---
+
+#### The core gap: BOS is single-pass; pi loops
+
+**This is the biggest UX difference.**
+
+Pi's loop repeats `LLM turn → tool results → LLM turn` until no more tool calls. The LLM sees every tool result and can dispatch more tools, synthesize, ask for clarification, then return a final reply. The user sees the whole trace live.
+
+BOS `_generate_chat_stream` today:
+1. Single LLM call → parses `RUN:` directives from reply text
+2. Dispatches modules → collects `run_results`
+3. Returns the **original reply text** as the final message
+
+The CMO LLM **never sees what the specialists produced**. It can't synthesize results, can't chain dispatches, can't confirm to the user what was actually created. The reply is written before execution. This is why it feels mechanical.
+
+---
+
+#### Three gaps, in priority order
+
+**Gap 1 — Multi-turn synthesis loop (highest UX impact)**
+
+After specialists complete, their results must feed back into a second CMO LLM turn. The CMO reads the run summaries/artifact refs and writes the final reply _after_ seeing what was produced. It can optionally fire more specialists in that second turn.
+
+Target SSE trace for a "create launch campaign" request:
+```
+step: Thinking...
+step: Running Planning Specialist...
+module_result: {artifact_ref: marketing.plan}
+step: Synthesizing results...          ← second LLM turn starts here
+step: Running Email Outreach...        ← CMO dispatched this in synthesis turn
+step: Running Social Copy...
+module_result: {artifact_ref: email.outreach}
+module_result: {artifact_ref: social.post}
+reply: "Launch package ready. Plan, email sequence, and social posts are in Stream."
+done
+```
+
+Implementation: after `_run_modules_streaming` completes, build a synthesis message containing run summaries and artifact refs, append to `messages`, call `_complete_cmo_messages` again, parse for more `RUN:` directives (with a depth limit of 3 to prevent runaway loops), yield final reply.
+
+Max loop depth: 3 turns. If depth exceeded, return whatever is in progress.
+
+**Gap 2 — Session ledger (enables handoff briefs, compaction, branch traces)**
+
+No equivalent of pi's JSONL session file. Each request is assembled fresh from `body.history` (frontend-provided strings). State reconstruction is not deterministic — it depends on what the frontend sent.
+
+Target schema (DB table `cmo_session_entries`):
+```
+id           UUID PK
+session_id   UUID FK → cmo_sessions.id
+parent_id    UUID FK self-ref (nullable for root)
+entry_type   VARCHAR  (turn_start | specialist_dispatch | specialist_result | synthesis_turn | turn_complete | compaction | branch_summary | custom)
+payload      JSONB
+created_at   TIMESTAMPTZ
+```
+
+`buildSessionContext()` equivalent: walk from leaf to root, stop at compaction entries and emit summary + `firstKeptEntryId` forward. Frontend sends `session_id` instead of full `history` array.
+
+This is Phase 4+ scope — must define schema before building.
+
+**Gap 3 — Steering queue (low-effort, high feel)**
+
+User sends a follow-up message while specialists are running. It gets queued server-side and injected at the start of the synthesis turn. Frontend sends a `POST /chat/stream/steer` with the session_id; backend holds it in a per-session `asyncio.Queue`. The synthesis turn drains the queue and prepends it to the next LLM message.
+
+Requires session ledger (Gap 2) to be meaningful — without a session ID there's no queue to target.
+
+---
+
+#### Recommended implementation sequence
+
+1. **Gap 1 first** — multi-turn synthesis loop in `_generate_chat_stream`. No schema changes. ~80 lines of new code inside the existing generator. Delivers the pi UX feel immediately.
+2. **Gap 2 second** — session ledger schema + migration. Migrate `body.history` to `session_id` in the request model. `buildSessionContext()` replaces the inline history assembly.
+3. **Gap 3 third** — steering queue as a thin `asyncio.Queue` per session_id after the ledger exists.
+
+Hook system and chat.py reduction (~100 lines target) can proceed in parallel with Gap 2/3 as a refactor track.
+
+---
+
+**Sample needed:** Stage 2 sample showing Gap 1 UX — one owner request → multi-turn CMO/specialist loop → artifact in Stream → synthesized reply. Must include allowed outcomes (specialist results read back, chained dispatch) and forbidden outcomes (infinite loop, inline artifact copy in reply). Pending user agreement before implementation begins.
+
+**Open questions / next agent handoff:**
+- Confirm max loop depth (currently proposing 3)
+- Should synthesis turn always happen even when there's only one module result? (Proposed: yes, for consistency — the CMO always writes the reply after seeing results)
+- Does the frontend need a new SSE event type for synthesis turns? (Proposed: reuse `step` with label "Synthesizing results...")
+- Session ledger: new DB table or extend existing `Run`/`RunResult` schema?
+
+---
+
+### 2026-05-22 — Pi pattern perspective: copy the interaction contract, not the implementation surface
+
+**Goal:** Add a second-agent perspective after reading pi `index.md` and related docs (`usage`, `sessions`, `session-format`, `extensions`, `skills`, `compaction`, `rpc/json`, `sdk`, `tui`, settings/keybindings/provider docs).
+
+**Agreement with prior note:** Gap 1 is the fastest way to make BOS feel less mechanical. The CMO should not speak final user-facing text until it has seen specialist/tool results.
+
+**Important refinement:** The thing to copy from pi is not “make another LLM call after modules.” The thing to copy is the **interaction contract**:
+
+```text
+user intent
+→ streamed agent thinking/step trace
+→ visible tool/specialist calls
+→ tool/specialist results become context
+→ agent may continue or stop
+→ final concise reply references persisted artifacts
+→ full turn is reconstructible later
+```
+
+If we implement Gap 1 as an ad hoc second completion inside `chat.py`, we improve feel but risk extending the monolith. The smallest safe slice should still look like a generic loop helper, not module-specific chat code.
+
+**Recommended framing for Gap 1:** introduce a generic internal loop primitive even if it initially lives near `chat.py`:
+
+```text
+run_cmo_turn(max_depth=3):
+  build prompt/context
+  call CMO LLM
+  extract hidden directives
+  security-check directives
+  execute specialists
+  convert specialist results into tool_result-style context blocks
+  repeat until no directives or depth limit
+  return final visible reply + artifact refs + trace events
+```
+
+The loop primitive should be platform-agnostic and should only know:
+- `directive` = requested transform/module id + params
+- `tool_result` = run id, artifact refs, status, self-check summary, failure summary
+- `visible_reply` = final CMO text after directives are stripped
+
+**Key design cautions:**
+1. **Do not let synthesis re-open hardcoded routing.** Second-turn dispatch must use the same manifest + allowed-module security boundary. No phrase matching, no channel filters.
+2. **Do not let synthesis paste artifact contents.** The synthesis context may include summaries and refs, not full native copy fields. Final chat reply still links/references Stream artifacts only.
+3. **Depth limit is mandatory.** Max 3 is reasonable for sample/build. If exceeded, stop dispatching, persist trace, and return a short safe message with existing artifact refs.
+4. **Failure is a first-class tool result.** If one specialist fails and another succeeds, the CMO should synthesize partial success and point to created artifacts; failed runs should not crash the loop.
+5. **A synthesis turn should run whenever directives executed.** Otherwise the final reply is still pre-execution text. For pure discussion/no directives, no extra call is needed.
+6. **Use new SSE event names only if the UI needs semantics.** `step` is enough for now, but the trace payload should internally distinguish `llm_turn`, `specialist_start`, `specialist_result`, `synthesis_start`, `loop_stop` so a future session ledger can persist it cleanly.
+
+**My priority order:**
+1. Stage 2 sample for the loop UX, including allowed + forbidden outcomes.
+2. Gap 1 as a generic loop helper with depth limit and tool-result context.
+3. Persist the loop trace into a real CMO session ledger.
+4. Add steering/follow-up queue once session identity is stable.
+5. Move loop-adjacent concerns into hooks after the ledger exists.
+
+**Deliberation points for the human + agents:**
+- Should CMO final replies be allowed to summarize artifact intent/outcome in one line, or only say “ready in Stream”? Proposed: one-line outcome summary is allowed; native fields are forbidden.
+- Is max depth 3 enough for owner-facing marketing loops? Proposed: yes for interactive chat; deeper work should become background objective-loop jobs.
+- Should the first implementation persist trace in existing run traces before adding `cmo_session_entries`? Proposed: acceptable for Gap 1 sample proof, but not a substitute for the session ledger.
+- Should steering exist before a DB session ledger? Proposed: no, except local frontend queue UI; server-side steering needs stable `session_id`.
+
+**Sample needed:** A Stage 2 sample should show the exact visible stream: CMO message, step trace, specialist cards/artifacts, synthesis step, final reply, plus forbidden examples (inline native copy, infinite loop, unscoped brand dispatch, rerouting by phrase matching).
+
+---
+
 ## Invariants (must always be true)
 
 1. **Active brand = brand-scoped everything.** When `body.brand_id` is set and resolves to a Brand row, every downstream call — brief, memory, system prompt, module dispatch — must be scoped to that brand only. No workspace fallback is allowed inside an active-brand turn.

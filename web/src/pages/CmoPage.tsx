@@ -54,6 +54,16 @@ function artifactStatus(run: RunResponse): ArtifactStatus {
   return run.result?.self_check === 'pass' ? 'pending' : 'complete';
 }
 
+function runTimestamp(run: Partial<RunResponse>): number {
+  const ts = Date.parse(String(run.created_at || ''));
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function updateBrandRef(update: StreamUpdateOut): string | null {
+  const ref = update.data_json?.brand_ref ?? update.data_json?.brand_id;
+  return typeof ref === 'string' && ref ? ref : null;
+}
+
 function statusText(status: ArtifactStatus): string {
   if (status === 'approved') return 'Approved';
   if (status === 'dismissed') return 'Dismissed';
@@ -398,42 +408,58 @@ export function CmoPage() {
 
   useEffect(() => {
     let cancelled = false;
+    const brandId = activeBrand?.id;
+    setLoading(true);
     Promise.all([
-      api.getRuns({ limit: 40 }).then(async r => {
-        const candidates = r.runs.filter(run => run.status !== 'failed' && run.approval_status !== 'rejected');
+      api.getRuns({ limit: 40, brand_id: brandId }).then(async r => {
+        const candidates = r.runs.filter(run =>
+          run.status !== 'failed' &&
+          run.approval_status !== 'rejected' &&
+          (!brandId || run.brand_id === brandId)
+        );
         const full = await Promise.all(
           candidates.map(async run => {
             const fullRun = await api.getRun(run.run_id).catch(() => null);
-            return fullRun ? ({ ...fullRun, approval_status: run.approval_status } as RunResponse) : null;
+            return fullRun ? ({ ...fullRun, approval_status: run.approval_status, brand_id: fullRun.brand_id || run.brand_id } as RunResponse) : null;
           })
         );
-        return full.filter((run): run is RunResponse => !!run);
+        return full.filter((run): run is RunResponse => !!run && (!brandId || run.brand_id === brandId));
       }),
       api.refreshStream().catch(() => null).then(() => api.getStream(false).catch(() => ({ updates: [], total: 0 }))),
-      api.getActiveObjective().catch(() => null),
+      api.getActiveObjective(brandId).catch(() => null),
     ])
       .then(([fullRuns, stream, objective]) => {
         if (!cancelled) {
           setArtifacts(fullRuns);
-          setStreamUpdates((stream.updates || []).filter(update => ['outcome', 'decision_brief', 'setup_blocker', 'pending_artifact'].includes(update.type)));
+          setStreamUpdates((stream.updates || []).filter(update =>
+            ['outcome', 'decision_brief', 'setup_blocker', 'pending_artifact'].includes(update.type) &&
+            (!brandId || updateBrandRef(update) === brandId)
+          ));
           setActiveObjective(objective);
         }
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [activeBrand?.id]);
 
   const streamArtifacts = useMemo(() => {
+    const brandId = activeBrand?.id;
     const apiIds = new Set(artifacts.map(r => r.run_id));
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
     // Only show localStorage items that (1) aren't in the API yet and (2) are recent enough
-    // to be legitimately new — older items are stale rejected/failed runs
+    // to be legitimately new — older items are stale rejected/failed runs. Guard every field
+    // because older browsers/staging may have partial cached run objects.
     const freshPending = pendingRunItems.filter(r =>
-      !apiIds.has(r.run_id) && new Date(r.created_at).getTime() > oneHourAgo
+      r?.run_id &&
+      !apiIds.has(r.run_id) &&
+      runTimestamp(r) > oneHourAgo &&
+      (!brandId || r.brand_id === brandId)
     );
-    return [...artifacts, ...freshPending].sort((a, b) => b.created_at.localeCompare(a.created_at));
-  }, [artifacts, pendingRunItems]);
+    return [...artifacts, ...freshPending]
+      .filter(r => !!r?.run_id && runTimestamp(r) > 0 && (!brandId || r.brand_id === brandId))
+      .sort((a, b) => runTimestamp(b) - runTimestamp(a));
+  }, [activeBrand?.id, artifacts, pendingRunItems]);
 
   function updateLocalStatus(run: RunResponse, status: 'approved' | 'rejected') {
     removePendingRun(run.run_id);
@@ -474,7 +500,7 @@ export function CmoPage() {
 
   const attentionCount = streamArtifacts.filter(run => artifactStatus(run) === 'pending').length + streamUpdates.length;
   const dateLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-  const brandLabel = activeBrand?.name || 'Klaroha';
+  const brandLabel = activeBrand?.name || 'All brands';
   const objectiveTitle = activeObjective?.summary || 'Active objective';
 
   const panelIsRun = panelItem && 'run_id' in panelItem;

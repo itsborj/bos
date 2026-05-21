@@ -104,6 +104,13 @@ export interface RunResponse {
   created_at: string;
 }
 
+export interface RunActionResponse {
+  source_run_id: string;
+  source_approval_status: string;
+  action: string;
+  action_run: RunResponse;
+}
+
 export interface RunListItem {
   run_id: string;
   module_id: string;

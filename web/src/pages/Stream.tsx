@@ -33,6 +33,10 @@ function artifactTitle(run: RunResponse): string {
   if (id.includes('email')) return 'Email Draft';
   if (id.includes('plan')) return 'Campaign Plan';
   if (id.includes('report') || id.includes('analytics')) return 'Marketing Report';
+  if (id.includes('meta.pages.read')) return 'Facebook Pages';
+  if (id.includes('meta.posts.draft')) return 'Facebook Post Draft';
+  if (id.includes('meta.posts.publish')) return 'Facebook Post';
+  if (id.includes('meta.posts.read')) return 'Facebook Posts';
   if (id.includes('google')) return 'Google Ad Draft';
   if (id.includes('facebook')) return 'Facebook Draft';
   if (id.includes('instagram')) return 'Instagram Draft';
@@ -53,11 +57,28 @@ function artifactStatus(run: RunResponse): ArtifactStatus {
   return run.result?.self_check === 'pass' ? 'pending' : 'complete';
 }
 
+function runTimestamp(run: Partial<RunResponse>): number {
+  const ts = Date.parse(String(run.created_at || ''));
+  return Number.isFinite(ts) ? ts : 0;
+}
+
+function updateBrandRef(update: StreamUpdateOut): string | null {
+  const ref = update.data_json?.brand_ref ?? update.data_json?.brand_id;
+  return typeof ref === 'string' && ref ? ref : null;
+}
+
 function statusText(status: ArtifactStatus): string {
   if (status === 'approved') return 'Approved';
   if (status === 'dismissed') return 'Dismissed';
   if (status === 'pending') return 'Needs review';
   return 'Saved';
+}
+
+function hasArtifactAction(run: RunResponse, action: string): boolean {
+  const block = run.result?.block;
+  return Array.isArray(block?.allowed_actions)
+    && block.allowed_actions.includes(action)
+    && typeof block?.action_modules?.[action] === 'string';
 }
 
 function renderNativePreview(run: RunResponse) {
@@ -87,6 +108,13 @@ function renderNativePreview(run: RunResponse) {
   }
   if (channel.includes('google') && channel.includes('display')) {
     return <GoogleDisplayPreview dimensions={result.dimensions || '300x250'} headline={result.headline || 'Headline Missing'} description={result.description || 'Description Missing'} ctaText={result.cta || 'Learn More'} />;
+  }
+  if (result.block?.type === 'fb_page_post_draft') {
+    return <FacebookFeedPreview pageName={result.block.page_name || brandName} adCopy={result.block.message || result.content || 'Post text missing'} ctaText="" />;
+  }
+  if (result.block?.type === 'fb_page_post_result') {
+    const b = result.block as any;
+    return <div className="stream-artifact-fallback">{b.status === 'succeeded' ? 'Published to Facebook' : 'Facebook publish failed'}{b.post_id ? ` · ${b.post_id}` : ''}</div>;
   }
   if (channel.includes('facebook')) {
     return <FacebookFeedPreview pageName={brandName} adCopy={result.content || 'Copy missing'} ctaText={result.cta || 'Learn More'} />;
@@ -225,22 +253,33 @@ function StreamDataCard({ update, brandName, objectiveTitle, onDismiss, onAskCMO
   );
 }
 
-function StreamArtifactCard({ run, brandName, objectiveTitle, onApprove, onDismiss }: {
+function StreamArtifactCard({ run, brandName, objectiveTitle, onApprove, onDismiss, onActionRun }: {
   run: RunResponse;
   brandName: string;
   objectiveTitle: string;
   onApprove: (run: RunResponse) => void;
   onDismiss: (run: RunResponse) => void;
+  onActionRun: (run: RunResponse) => void;
 }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const status = artifactStatus(run);
   const createdAt = new Date(run.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const source = artifactPlatform(run) + ' · ' + createdAt + ' · ' + timeAgo(run.created_at);
+  const canPublish = hasArtifactAction(run, 'publish');
 
   async function approve() {
     setBusy(true);
     try { await api.approveRun(run.run_id); onApprove(run); } finally { setBusy(false); }
+  }
+
+  async function approveAndPublish() {
+    setBusy(true);
+    try {
+      const resp = await api.executeRunAction(run.run_id, 'publish', { confirm: true });
+      onApprove(run);
+      onActionRun(resp.action_run);
+    } finally { setBusy(false); }
   }
 
   async function dismiss() {
@@ -262,7 +301,8 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, onApprove, onDismi
       <div className="g2actions">
         {status === 'pending' && (
           <>
-            <button className="btn btn-primary" onClick={approve} disabled={busy}>{busy ? '…' : 'Approve'}</button>
+            {canPublish && <button className="btn btn-primary" onClick={approveAndPublish} disabled={busy}>{busy ? '…' : 'Approve & Publish'}</button>}
+            <button className={canPublish ? 'btn btn-ghost' : 'btn btn-primary'} onClick={approve} disabled={busy}>{canPublish ? 'Approve only' : 'Approve'}</button>
             <button className="btn btn-ghost" onClick={() => navigate('/cmo')}>Ask CMO</button>
             <button className="btn btn-ghost" onClick={dismiss} disabled={busy}>Dismiss</button>
           </>
@@ -370,40 +410,55 @@ export function Stream() {
 
   useEffect(() => {
     let cancelled = false;
+    const brandId = activeBrand?.id;
+    setLoading(true);
     Promise.all([
-      api.getRuns({ limit: 40 }).then(async r => {
-        const candidates = r.runs.filter(run => run.status !== 'failed' && run.approval_status !== 'rejected');
+      api.getRuns({ limit: 40, brand_id: brandId }).then(async r => {
+        const candidates = r.runs.filter(run =>
+          run.status !== 'failed' &&
+          run.approval_status !== 'rejected' &&
+          (!brandId || run.brand_id === brandId)
+        );
         const full = await Promise.all(
           candidates.map(async run => {
             const fullRun = await api.getRun(run.run_id).catch(() => null);
-            return fullRun ? ({ ...fullRun, approval_status: run.approval_status } as RunResponse) : null;
+            return fullRun ? ({ ...fullRun, approval_status: run.approval_status, brand_id: fullRun.brand_id || run.brand_id } as RunResponse) : null;
           })
         );
-        return full.filter((run): run is RunResponse => !!run);
+        return full.filter((run): run is RunResponse => !!run && (!brandId || run.brand_id === brandId));
       }),
       api.refreshStream().catch(() => null).then(() => api.getStream(false).catch(() => ({ updates: [], total: 0 }))),
-      api.getActiveObjective().catch(() => null),
+      api.getActiveObjective(brandId).catch(() => null),
     ])
       .then(([fullRuns, stream, objective]) => {
         if (!cancelled) {
           setArtifacts(fullRuns);
-          setStreamUpdates((stream.updates || []).filter(update => ['outcome', 'decision_brief', 'setup_blocker', 'pending_artifact'].includes(update.type)));
+          setStreamUpdates((stream.updates || []).filter(update =>
+            ['outcome', 'decision_brief', 'setup_blocker', 'pending_artifact'].includes(update.type) &&
+            (!brandId || updateBrandRef(update) === brandId)
+          ));
           setActiveObjective(objective);
         }
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [activeBrand?.id]);
 
   const streamArtifacts = useMemo(() => {
+    const brandId = activeBrand?.id;
     const apiIds = new Set(artifacts.map(r => r.run_id));
     const oneHourAgo = Date.now() - 60 * 60 * 1000;
     const freshPending = pendingRunItems.filter(r =>
-      !apiIds.has(r.run_id) && new Date(r.created_at).getTime() > oneHourAgo
+      r?.run_id &&
+      !apiIds.has(r.run_id) &&
+      runTimestamp(r) > oneHourAgo &&
+      (!brandId || r.brand_id === brandId)
     );
-    return [...artifacts, ...freshPending].sort((a, b) => b.created_at.localeCompare(a.created_at));
-  }, [artifacts, pendingRunItems]);
+    return [...artifacts, ...freshPending]
+      .filter(r => !!r?.run_id && runTimestamp(r) > 0 && (!brandId || r.brand_id === brandId))
+      .sort((a, b) => runTimestamp(b) - runTimestamp(a));
+  }, [activeBrand?.id, artifacts, pendingRunItems]);
 
   function updateLocalStatus(run: RunResponse, status: 'approved' | 'rejected') {
     removePendingRun(run.run_id);
@@ -428,7 +483,7 @@ export function Stream() {
 
   const attentionCount = streamArtifacts.filter(run => artifactStatus(run) === 'pending').length + streamUpdates.length;
   const dateLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
-  const brandLabel = activeBrand?.name || 'Klaroha';
+  const brandLabel = activeBrand?.name || 'All brands';
   const objectiveTitle = activeObjective?.summary || 'Active objective';
   const panelIsRun = panelItem && 'run_id' in panelItem;
 
@@ -476,6 +531,7 @@ export function Stream() {
                   objectiveTitle={objectiveTitle}
                   onApprove={run => { updateLocalStatus(run, 'approved'); if (panelItem && 'run_id' in panelItem && panelItem.run_id === run.run_id) setPanelItem(null); }}
                   onDismiss={run => { updateLocalStatus(run, 'rejected'); if (panelItem && 'run_id' in panelItem && panelItem.run_id === run.run_id) setPanelItem(null); }}
+                  onActionRun={actionRun => setArtifacts(prev => [actionRun, ...prev])}
                 />
               ))}
             </div>

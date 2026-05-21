@@ -94,3 +94,4 @@ Block type: `fb_page_post_draft`
 Platform: `facebook`
 Risk policy: `draft_only_until_approved`
 `allowed_actions`: `["revise", "dismiss", "approve", "publish"]`
+`action_modules`: `{ "publish": "marketing.channel.meta.posts.publish" }`

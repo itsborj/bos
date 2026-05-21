@@ -189,6 +189,26 @@ capabilities/
 
 All Phase 1 capabilities use execution pattern B (`execute_tool_result`) — they call the Graph API directly and return structured artifact blocks. No LLM generation needed for read/publish actions. `posts/draft` uses pattern A (LLM generates the post copy via template).
 
+### Approved action handoff
+
+Draft artifacts declare their publish action in the block:
+
+```json
+{
+  "allowed_actions": ["revise", "dismiss", "approve", "publish"],
+  "action_modules": {"publish": "marketing.channel.meta.posts.publish"}
+}
+```
+
+Workspace/Stream executes this through the generic core endpoint:
+
+```text
+POST /runs/{draft_run_id}/actions/publish
+{ "confirm": true }
+```
+
+The endpoint approves the source draft, builds an action brief from the persisted block, executes the declared module, and stores the `fb_page_post_result` action artifact. CMO chat does not need platform-specific publish routing and does not need the draft body pasted inline.
+
 ---
 
 ## Routing contract
@@ -242,6 +262,7 @@ All Phase 1 capabilities use execution pattern B (`execute_tool_result`) — the
   "image_prompt": null,
   "status": "draft",
   "allowed_actions": ["revise", "dismiss", "approve", "publish"],
+  "action_modules": {"publish": "marketing.channel.meta.posts.publish"},
   "risk_policy": "draft_only_until_approved"
 }
 ```

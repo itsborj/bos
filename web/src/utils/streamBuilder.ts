@@ -100,7 +100,9 @@ export function buildCampaignStream(runs: RunListItem[]): StreamCampaign[] {
 
   return [...map.values()].sort((a, b) => {
     if (a.has_pending !== b.has_pending) return a.has_pending ? -1 : 1;
-    return b.latest_at.localeCompare(a.latest_at);
+    const bt = Date.parse(String(b.latest_at || '')) || 0;
+    const at = Date.parse(String(a.latest_at || '')) || 0;
+    return bt - at;
   });
 }
 

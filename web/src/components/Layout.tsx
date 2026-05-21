@@ -1,11 +1,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
+import { api } from '../api/client';
 import { UIContext } from '../context/UIContext';
 import { CmoChatProvider } from '../context/CmoChatContext';
 import { WorkspacePanel } from './WorkspacePanel';
 import { SettingsModal } from './SettingsModal';
 import type { ActiveBrand, ActiveCampaign, SettingsTab, WorkspaceTab } from '../context/UIContext';
-import type { RunResponse } from '../api/types';
+import type { BrandResponse, RunResponse } from '../api/types';
 
 const PROTOTYPE_NAV = [
   { to: '/stream', label: 'Stream', icon: '▶' },
@@ -91,7 +92,13 @@ function readPendingRuns(): Record<string, RunResponse> {
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
         const valid: Record<string, RunResponse> = {};
         for (const [k, v] of Object.entries(parsed)) {
-          if (v && typeof (v as any).module_id === 'string' && typeof (v as any).run_id === 'string') {
+          const createdAt = typeof (v as any)?.created_at === 'string' ? Date.parse((v as any).created_at) : NaN;
+          if (
+            v &&
+            typeof (v as any).module_id === 'string' &&
+            typeof (v as any).run_id === 'string' &&
+            Number.isFinite(createdAt)
+          ) {
             valid[k] = v as RunResponse;
           }
         }
@@ -124,6 +131,7 @@ export function Layout() {
   const [pendingRunItems, setPendingRunItems] = useState<Record<string, RunResponse>>(() => readPendingRuns());
   const [conversations, setConversations] = useState<SavedConversation[]>([]);
   const [activeBrand, setActiveBrand] = useState<ActiveBrand | null>(() => readActiveBrand());
+  const [brands, setBrands] = useState<BrandResponse[]>([]);
   const [activeCampaign, setActiveCampaign] = useState<ActiveCampaign | null>(null);
 
   const refreshConversations = useCallback(() => {
@@ -155,6 +163,14 @@ export function Layout() {
       localStorage.removeItem(ACTIVE_BRAND_KEY);
     }
   }, [activeBrand]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getBrands()
+      .then(res => { if (!cancelled) setBrands(res.brands || []); })
+      .catch(() => { if (!cancelled) setBrands([]); });
+    return () => { cancelled = true; };
+  }, []);
 
   const addPendingRun = useCallback((run: RunResponse) => {
     setPendingRunItems(prev => ({ ...prev, [run.run_id]: run }));
@@ -228,9 +244,20 @@ export function Layout() {
       <div className="bos-proto-shell">
         <div className="bos-proto-topbar">
           <NavLink to="/stream" className="bos-proto-logo">Klaroha</NavLink>
-          <div className="bos-proto-brand-chip">
-            {activeBrand ? activeBrand.name : 'Klaroha'} ↓
-          </div>
+          <label className="bos-proto-brand-chip bos-proto-brand-select" title="Filter CMO and Stream by brand">
+            <span>Brand</span>
+            <select
+              aria-label="Filter by brand"
+              value={activeBrand?.id ?? ''}
+              onChange={e => {
+                const selected = brands.find(brand => brand.id === e.target.value);
+                setActiveBrand(selected ? { id: selected.id, name: selected.name } : null);
+              }}
+            >
+              <option value="">All brands</option>
+              {brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+            </select>
+          </label>
           <div className="bos-proto-topbar-right">
             <span className="bos-proto-date">May 20</span>
           </div>

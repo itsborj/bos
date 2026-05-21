@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { buildArtifactRef } from '../utils/artifacts';
 import type { ArtifactRef } from '../utils/artifacts';
@@ -41,9 +41,24 @@ const STORAGE_KEY = 'bos_chat_messages';
 
 function uid() { return Math.random().toString(36).slice(2); }
 
+function chatStorageKey(brandId?: string | null): string {
+  return brandId ? `${STORAGE_KEY}:${brandId}` : STORAGE_KEY;
+}
+
 function normalizeStoredMessage(m: any): Msg {
   const artifactRef = m.artifactRef || (m.runResult ? buildArtifactRef(m.runResult as RunResponse) : undefined);
   return { ...m, artifactRef, runResult: undefined, time: new Date(m.time) };
+}
+
+function readStoredMessages(brandId?: string | null): Msg[] {
+  try {
+    const saved = localStorage.getItem(chatStorageKey(brandId));
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed.map(normalizeStoredMessage);
+    }
+  } catch {}
+  return [];
 }
 
 function buildHistory(msgs: Msg[]): ChatHistoryItem[] {
@@ -75,34 +90,37 @@ export function useCmoChat(): CmoChatContextValue {
 export function CmoChatProvider({ children }: { children: React.ReactNode }) {
   const { activeBrand, activeCampaign, setActiveBrand, setActiveCampaign } = useUI();
 
-  const [msgs, setMsgs] = useState<Msg[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) return parsed.map(normalizeStoredMessage);
-      }
-    } catch {}
-    return [];
-  });
+  const [msgs, setMsgs] = useState<Msg[]>(() => readStoredMessages(activeBrand?.id));
   const [busy, setBusy] = useState(false);
   const [pendingPlan, setPendingPlan] = useState(false);
   const [streamCardCtx, setStreamCardCtx] = useState<StreamCardCtx | null>(null);
   const [activeObjective, setActiveObjective] = useState<ObjectiveOut | null>(null);
+  const skipNextSaveRef = useRef(false);
 
   useEffect(() => {
+    skipNextSaveRef.current = true;
+    setMsgs(readStoredMessages(activeBrand?.id));
+    setStreamCardCtx(null);
+  }, [activeBrand?.id]);
+
+  useEffect(() => {
+    if (skipNextSaveRef.current) {
+      skipNextSaveRef.current = false;
+      return;
+    }
+    const key = chatStorageKey(activeBrand?.id);
     const toSave = msgs.filter(m => m.text !== '__typing__' && !m.outcomeForm);
     if (toSave.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+      localStorage.setItem(key, JSON.stringify(toSave));
     } else {
-      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(key);
     }
     window.dispatchEvent(new CustomEvent('bos:chat-updated'));
-  }, [msgs]);
+  }, [activeBrand?.id, msgs]);
 
   useEffect(() => {
-    api.getActiveObjective().catch(() => null).then(obj => setActiveObjective(obj));
-  }, []);
+    api.getActiveObjective(activeBrand?.id).catch(() => null).then(obj => setActiveObjective(obj));
+  }, [activeBrand?.id]);
 
   useEffect(() => {
     const handleNew = () => setMsgs([]);

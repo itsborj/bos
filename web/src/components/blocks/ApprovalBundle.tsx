@@ -65,6 +65,13 @@ function statusColor(status: ReviewStatus): string {
   return '#111827';
 }
 
+function hasArtifactAction(run: RunResponse, action: string): boolean {
+  const block = run.result?.block;
+  return Array.isArray(block?.allowed_actions)
+    && block.allowed_actions.includes(action)
+    && typeof block?.action_modules?.[action] === 'string';
+}
+
 export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, onDismissed, revisionHistory = [] }: ApprovalBundleProps) {
   const { removePendingRun, addPendingRun, activeCampaign } = useUI();
   const [reviewStatus, setReviewStatus] = useState<ReviewStatus>('pending');
@@ -72,6 +79,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [revisionBusy, setRevisionBusy] = useState(false);
+  const [publishing, setPublishing] = useState(false);
   const [revisionError, setRevisionError] = useState<string | null>(null);
   const [revision, setRevision] = useState<RunResponse | null>(null);
   const [revisionReply, setRevisionReply] = useState<string>('');
@@ -88,6 +96,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
   const brandName = result.block?.brand_name || result.brand_name || 'Klaroha';
   const socialHandle = result.block?.brand_handle || result.brand_handle || '@klarohahq';
   const selfCheckPassed = result.self_check === 'pass';
+  const canPublish = hasArtifactAction(run, 'publish');
 
   const handleApprove = async () => {
     setReviewStatus('approved');
@@ -98,6 +107,25 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     } catch (e) {
       setReviewStatus('pending');
       setRevisionError(e instanceof Error ? e.message : 'Could not approve this artifact.');
+    }
+  };
+
+  const handleApproveAndPublish = async () => {
+    setPublishing(true);
+    setRevisionError(null);
+    try {
+      const resp = await api.executeRunAction(run.run_id, 'publish', { confirm: true });
+      setReviewStatus('approved');
+      setModifying(false);
+      removePendingRun(run.run_id);
+      addPendingRun(resp.action_run);
+      onApproved?.(run);
+      window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: resp.action_run }));
+    } catch (e) {
+      setReviewStatus('pending');
+      setRevisionError(e instanceof Error ? e.message : 'Could not publish this artifact.');
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -209,6 +237,19 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
           <div style={{ padding: '0 12px 16px', fontSize: 14, color: '#050505', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
             {message}
           </div>
+        </div>
+      );
+    }
+
+    if (blockType === 'fb_page_post_result') {
+      const b = result.block as any;
+      const succeeded = b.status === 'succeeded';
+      return (
+        <div style={{ padding: '18px 20px', fontSize: 13, color: '#1f2937', maxWidth: 520, border: '1px solid #e5e7eb', borderRadius: 12, background: succeeded ? '#f0fdf4' : '#fef2f2' }}>
+          <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 8 }}>{succeeded ? 'Facebook post published' : 'Facebook publish failed'}</div>
+          <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.45, marginBottom: 10 }}>{b.message_preview || b.message || result.content}</div>
+          {b.post_id && <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 6 }}>Post ID: {b.post_id}</div>}
+          {b.permalink && <a href={b.permalink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 700 }}>View on Facebook →</a>}
         </div>
       );
     }
@@ -506,7 +547,8 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
                 <button className="artifact-btn ghost" onClick={handleDismiss}>Dismiss</button>
                 <button className="artifact-btn ghost" onClick={handleSaveDraft}>Save draft</button>
                 <button className="artifact-btn ghost" onClick={() => { setModifying(v => !v); addPendingRun(run); }}>Revise</button>
-                <button className="artifact-btn primary" onClick={handleApprove}>Approve</button>
+                {canPublish && <button className="artifact-btn primary" onClick={handleApproveAndPublish} disabled={publishing}>{publishing ? 'Publishing…' : 'Approve & Publish'}</button>}
+                <button className={canPublish ? 'artifact-btn ghost' : 'artifact-btn primary'} onClick={handleApprove} disabled={publishing}>{canPublish ? 'Approve only' : 'Approve'}</button>
               </>
             )}
             {reviewStatus === 'approved' && (

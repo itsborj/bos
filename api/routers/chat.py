@@ -274,15 +274,6 @@ async def _run_modules_streaming(
         {"type": "module_result", "module_id": str, "run": RunResponse}
     """
     for module_id in triggered_modules:
-        # Approval-gated publish modules require an explicit message param in the inline brief.
-        # Without it the Graph API call would fail anyway, but we block here to avoid creating
-        # a failure artifact and to prevent accidental publish on mass-dispatch test commands.
-        if module_id == "marketing.channel.meta.posts.publish":
-            msg = run_inline_params.get(module_id, {}).get("message", "").strip()
-            if not msg:
-                logger.warning("Blocking %s dispatch: no message param — explicit approved post text required", module_id)
-                continue
-
         label = _module_label_from_manifest(module_id)
         yield {"type": "module_start", "module_id": module_id, "label": label}
         try:

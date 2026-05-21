@@ -2347,6 +2347,24 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
   gap: 6px;
 }
 .bos-proto-context-chip { background: var(--ivory-mid); border-color: var(--border-light); color: var(--stone-deep); }
+.bos-proto-brand-select {
+  cursor: pointer;
+  padding-right: 6px;
+}
+.bos-proto-brand-select select {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 800;
+  outline: none;
+  cursor: pointer;
+  max-width: 190px;
+}
+.bos-proto-brand-select option {
+  color: var(--stone-deep);
+  background: #fff;
+}
 .bos-proto-brand-chip button,
 .bos-proto-context-chip button {
   border: 0;

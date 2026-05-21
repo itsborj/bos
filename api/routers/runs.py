@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
@@ -641,6 +641,7 @@ async def list_runs(
     module_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     approval_status: Optional[str] = Query(None),
+    brand_id: Optional[UUID] = Query(None),
     created_after: Optional[datetime] = Query(None),
     created_before: Optional[datetime] = Query(None),
     limit: int = Query(20, ge=1, le=100),
@@ -655,6 +656,8 @@ async def list_runs(
         filters.append(Run.status == status)
     if approval_status:
         filters.append(Run.approval_status == approval_status)
+    if brand_id:
+        filters.append(Run.brand_id == brand_id)
     if created_after:
         filters.append(Run.created_at >= created_after)
     if created_before:
@@ -784,6 +787,48 @@ class ApprovalRequest(BaseModel):
     feedback: Optional[str] = None
 
 
+class RunActionRequest(BaseModel):
+    confirm: bool = False
+    overrides: dict = Field(default_factory=dict)
+
+
+class RunActionResponse(BaseModel):
+    source_run_id: str
+    source_approval_status: str
+    action: str
+    action_run: RunResponse
+
+
+def _action_module_from_block(block: dict, action: str) -> str | None:
+    """Resolve an approved artifact action to a module using plugin-provided block metadata."""
+    allowed = block.get("allowed_actions") if isinstance(block, dict) else []
+    action_modules = block.get("action_modules") if isinstance(block, dict) else {}
+    if not isinstance(allowed, list) or action not in allowed:
+        return None
+    if not isinstance(action_modules, dict):
+        return None
+    module_id = action_modules.get(action)
+    return module_id if isinstance(module_id, str) and module_id else None
+
+
+def _brief_from_action_artifact(run: Run, result: RunResult, block: dict, overrides: dict | None = None) -> dict:
+    """Build a minimal action brief from a reviewed artifact block."""
+    brief = {
+        k: v for k, v in (block or {}).items()
+        if k not in {"allowed_actions", "action_modules"} and not k.startswith("_")
+    }
+    brief.update({
+        "source_run_id": str(run.id),
+        "source_module_id": run.module_id,
+        "approved_artifact_type": (block or {}).get("type"),
+    })
+    if not brief.get("message"):
+        brief["message"] = (block or {}).get("message") or result.content
+    if overrides:
+        brief.update(overrides)
+    return brief
+
+
 @router.patch("/runs/{run_id}/approve", status_code=200, summary="Approve a run")
 async def approve_run(
     run_id: str,
@@ -822,6 +867,111 @@ async def approve_run(
             await _update_pm_task_status(run, "approved", _brand, db, get_settings())
 
     return {"run_id": run_id, "approval_status": "approved"}
+
+
+@router.post("/runs/{run_id}/actions/{action}", response_model=RunActionResponse, summary="Execute an approved artifact action")
+async def execute_run_action(
+    run_id: str,
+    action: str,
+    body: RunActionRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Execute an action declared by a persisted artifact block.
+
+    The action target comes from plugin/capability output metadata, not router
+    phrase matching. This keeps approval-gated channel actions out of CMO chat
+    routing while still allowing Stream/Workspace to execute approved actions.
+    """
+    if not body.confirm:
+        raise HTTPException(status_code=400, detail={"error": {"code": "CONFIRM_REQUIRED", "message": "Set confirm=true to execute an external action", "details": {"action": action}}})
+
+    try:
+        run_uuid = UUID(run_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid run ID format")
+
+    row = (await db.execute(
+        select(Run, RunResult, RunTrace)
+        .join(RunResult, RunResult.run_id == Run.id, isouter=True)
+        .join(RunTrace, RunTrace.run_id == Run.id, isouter=True)
+        .where(Run.id == run_uuid)
+    )).one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    source_run, source_result, source_trace = row
+    if not source_result:
+        raise HTTPException(status_code=404, detail="Run result not found")
+
+    block = ((source_trace.lineage_json or {}).get("block") if source_trace else None) or {}
+    if not isinstance(block, dict):
+        block = {}
+
+    action_module_id = _action_module_from_block(block, action)
+    if not action_module_id:
+        raise HTTPException(status_code=400, detail={"error": {"code": "ACTION_NOT_AVAILABLE", "message": f"Artifact does not declare action '{action}'", "details": {"run_id": run_id}}})
+    if not get_module(action_module_id):
+        raise HTTPException(status_code=404, detail={"error": {"code": "ACTION_MODULE_NOT_FOUND", "message": f"Action module '{action_module_id}' is not installed", "details": None}})
+
+    ws = await get_singleton(db)
+    if not ws:
+        raise HTTPException(status_code=412, detail="Workspace not initialized")
+
+    brand_count = (await db.execute(select(func.count()).select_from(Brand).where(Brand.workspace_id == ws.id))).scalar_one()
+    if brand_count > 0 and not source_run.brand_id:
+        raise HTTPException(status_code=400, detail={"error": {"code": "BRAND_REQUIRED", "message": "Approved external actions require a brand-scoped artifact", "details": {"run_id": run_id}}})
+
+    if source_run.approval_status != "approved":
+        source_run.approval_status = "approved"
+        source_run.feedback = None
+        await write_memory_event(
+            db,
+            workspace_id=source_run.workspace_id,
+            brand_id=source_run.brand_id,
+            event_type="artifact_approved",
+            topic_tags=[],
+            summary=f"Artifact approved for {source_run.module_id}",
+            source_ref=f"run:{source_run.id}",
+            full_record={"run_id": str(source_run.id), "module_id": source_run.module_id, "approval_status": "approved", "action": action},
+        )
+        await db.commit()
+
+    if source_run.brand_id:
+        _brand = (await db.execute(select(Brand).where(Brand.id == source_run.brand_id))).scalar_one_or_none()
+        if _brand:
+            await _update_pm_task_status(source_run, "approved", _brand, db, get_settings())
+
+    settings = get_settings()
+    action_brief = _brief_from_action_artifact(source_run, source_result, block, body.overrides)
+    action_run = await _execute_module(
+        db,
+        ws,
+        action_module_id,
+        action_brief,
+        settings,
+        campaign_id=source_run.campaign_id,
+        brand_id=source_run.brand_id,
+    )
+
+    try:
+        action_uuid = UUID(action_run.run_id)
+        action_row = (await db.execute(select(Run).where(Run.id == action_uuid))).scalar_one_or_none()
+        action_block = action_run.result.block if action_run.result and isinstance(action_run.result.block, dict) else {}
+        action_succeeded = action_block.get("status") == "succeeded" or (action_run.status == "success" and action_block.get("status") != "failed")
+        if action_row and action_succeeded:
+            action_row.approval_status = "approved"
+            await db.commit()
+            action_run.approval_status = "approved"
+    except Exception:
+        logger.exception("Could not mark action run approved for source run %s", source_run.id)
+
+    return RunActionResponse(
+        source_run_id=run_id,
+        source_approval_status="approved",
+        action=action,
+        action_run=action_run,
+    )
 
 
 @router.patch("/runs/{run_id}/reject", status_code=200, summary="Reject a run with feedback")

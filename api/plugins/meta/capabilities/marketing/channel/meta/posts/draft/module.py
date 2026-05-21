@@ -28,6 +28,7 @@ class MetaPostsDraftModule(ChannelModule):
             "link": None,
             "status": "draft",
             "allowed_actions": ["revise", "dismiss", "approve", "publish"],
+            "action_modules": {"publish": "marketing.channel.meta.posts.publish"},
             "risk_policy": "draft_only_until_approved",
             "changed_resources": [],
         }

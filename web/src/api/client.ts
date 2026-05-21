@@ -24,6 +24,7 @@ import type {
   PendingDecisionListResponse,
   ProviderInfo,
   AgentStateResponse,
+  RunActionResponse,
   RunListResponse,
   RunResponse,
   StreamListResponse,
@@ -207,6 +208,7 @@ export const api = {
     module_id?: string;
     status?: string;
     approval_status?: string;
+    brand_id?: string;
     created_after?: string;
     created_before?: string;
     limit?: number;
@@ -332,6 +334,12 @@ export const api = {
 
   approveRun: (runId: string) =>
     request<{ run_id: string; approval_status: string }>(`/runs/${runId}/approve`, { method: 'PATCH' }),
+
+  executeRunAction: (runId: string, action: string, body: { confirm: boolean; overrides?: Record<string, unknown> }) =>
+    request<RunActionResponse>(`/runs/${runId}/actions/${action}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
 
   rejectRun: (runId: string, feedback: string) =>
     request<{ run_id: string; approval_status: string; feedback?: string }>(`/runs/${runId}/reject`, {

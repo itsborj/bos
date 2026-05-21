@@ -77,8 +77,7 @@ RUN: marketing.channel.meta.posts.publish
 message: <paste the exact approved post text here — no quotes, no truncation>
 ```
 
-If the approved post text is not available in context, ask the user to confirm the
-post text before dispatching. Never dispatch with a blank or placeholder message.
+If the approved post text is not available in context, tell the user to use the artifact's **Approve & Publish** action in Stream/Workspace or ask them to paste the exact approved post text. Never dispatch with a blank or placeholder message.
 
 ## Outcome contract
 

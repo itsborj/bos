@@ -54,6 +54,10 @@ These decisions are final. Any change requires explicit architectural review and
 
 ---
 
+## Archive — Completed Phases 0–5
+
+> Historical work record only. Do not pick tasks from this section for active development unless a human explicitly reopens one. Current work starts at **Phase 6 — Full-Stack Marketing Automation** below.
+
 ## Phase 0 — Foundation ✓
 ### Reference & Planning
 - [x] POC learnings extracted from cl_dm_os
@@ -763,7 +767,7 @@ Deferred to Phase 4.
 - [x] TEST: connect a brand's Facebook page end-to-end — OAuth → page selection → SocialConnection row stored
 - [x] TEST: CMO chat → "show my facebook page" → `meta_page_inventory` artifact ✅ Klarohahq page returned
 - [x] TEST: CMO chat → "say hi from mactan group" → pages/read + posts/read + posts/draft all dispatched correctly ✅
-- [ ] TEST: approve draft → "publish this" → `fb_page_post_result` artifact, post live on page
+- [~] TEST: approve draft → "publish this" → `fb_page_post_result` artifact, post live on page
 - [x] BUG RESOLVED: `posts/draft` and `posts/publish` SKILL.md used invalid `requires_intent` values (`"sample"`, `"action"`) not in `IntentType` Literal — Pydantic validation silently dropped both skills from the manifest; neither appeared in `allowed_module_ids` or the CMO capability list. Fix: changed to valid values `[discussion, generation]` for draft, `[discussion, generation]` for publish. Also added `post in facebook` trigger to cover "in" vs "on" preposition variation.
 - [x] BUG RESOLVED: `posts/read` and `posts/draft` rendered as ad creative (`FacebookFeedPreview`) because `channel.includes('facebook')` matched all Meta platform hints. Fix: added block-type-specific renderers for `fb_page_post_draft` (organic post preview, no "Creative Placeholder"), `meta_page_posts` (posts list or failure card), `meta_page_inventory` (pages list). Also fixed `self_check` in `posts/read` to return "fail" when execution failed ("failed to" in content).
 - [x] BUG RESOLVED: `artifactTitle` didn't recognise Meta module IDs — showed "Facebook Posts Read Draft" instead of "Facebook Posts". Fix: added explicit cases for `meta.pages.read`, `meta.posts.draft`, `meta.posts.publish`, `meta.posts.read`.
@@ -774,6 +778,9 @@ Deferred to Phase 4.
 - [x] BUG RESOLVED: `undefined.toLowerCase()` random crash — stale localStorage runs without `module_id` passed to `artifactTitle` and friends. Fix: `if (!run?.module_id) return 'Artifact'` guard added in `ApprovalBundle.tsx`, `artifacts.ts`, `WorkspacePanel.tsx`, `Stream.tsx`, and `Layout.tsx`.
 - [x] BUG RESOLVED: `capability_manifest.py` never included plugin SKILL.md files — `build_dispatchable_manifest()` called `list_skill_manifests()` before the registry scan ran, so `_extra_skill_roots` was empty and plugin capabilities were invisible to the CMO. Fix: `build_dispatchable_manifest()` now calls `_ensure_plugins_registered()` (wraps `registry._ensure()`) before reading skills, guaranteeing registry scan runs first. All 4 Meta skills + all other plugin skills now appear in the CMO system prompt.
 - [x] BUG RESOLVED: Inline RUN params not extracted — CMO outputs `task_name:` / `message:` on lines after `RUN: <module_id>` but the dispatch loop only parsed the `RUN:` directive and ignored those lines. Fix: added `_RUN_PARAMS_RE` regex + `_parse_run_inline_params()` in `chat.py`; dispatch loop now merges per-module params into each brief. Also fixed regex with negative lookahead `(?![ \t]*RUN\s*:)` to prevent the next `RUN:` directive from being absorbed as a param of the previous module.
+- [x] META PUBLISH WIRING: Added plugin-declared `action_modules.publish`, generic `POST /runs/{run_id}/actions/{action}` approved-action endpoint, and Stream/Workspace `Approve & Publish` controls so Meta publish does not depend on CMO chat seeing hidden artifact body text.
+
+## Active Work
 
 ## Phase 6 — Full-Stack Marketing Automation
 > Goal: replace every role in a marketing department. CMO orchestrates. Plugins are the specialists. Owner approves decisions. BOS remembers what worked.
@@ -842,6 +849,8 @@ CYCLE 2 — Intelligence to Optimization
 - [x] UX: Mobile full-screen panel mode — screens ≤900px show one panel at a time; CMO chat is default; Stream slides in from the right when an artifact is focused; `← Chat` back button returns to CMO; CSS uses `transform: translateX` slide transition (250ms ease)
 - [x] UX: Removed duplicate bottom nav — old Stream/Workspace mobile nav (`MOBILE_NAV`) removed from Layout.tsx; prototype Stream/Admin tab bar (`PROTOTYPE_NAV`) is the single bottom navigation on all screen sizes
 - [x] BUG FIX: Stream artifact count inflation and styling flip — `streamArtifacts` merged `artifacts` (API) with ALL `pendingRunItems` (localStorage), including stale rejected/failed runs never cleaned up; localStorage items were spread *after* API items in the Map, silently overwriting live `approval_status` and causing green→blue styling flip on refresh; fix: API data is authoritative; localStorage items are only included if absent from the API response AND created within the last hour
+- [x] BUG FIX: CMO/Stream render crash on stale run objects — fixed sample: no `Cannot read properties of undefined (reading 'localeCompare')`; stale localStorage/API run records without `created_at` are ignored or sorted safely.
+- [x] UX: Manual brand dropdown filter in CMO surface — fixed sample: topbar brand selector is clickable; choosing a Brand scopes CMO chat requests, active objective, run artifacts, and Stream discussion cards to that Brand; choosing All Brands restores cross-brand Stream view.
 
 ### 6.0 — CMO Agent Harness (pi model)
 > Direct execution surface for agents — read, execute, write. No LLM routing. Agents call capabilities directly; result always lands at pending_review for human approval.
@@ -853,6 +862,7 @@ CYCLE 2 — Intelligence to Optimization
 - [x] PIPELINE TEST: Add deterministic `api/plugins/hello/` smoke plugin + sample to validate multi-dev plugin discovery, manifest, execution, and artifact block without external credentials
 - [x] PIPELINE TEST: Bump hello smoke plugin marker for staging deployment verification
 - [x] INFRA: Multi-dev simultaneous workflow verified end-to-end — @kibanu pushed hello plugin v0.2.1, GitHub Actions CI #56 auto-deployed to staging.klaroha.com, both devs confirmed live via shared staging key `bos_a24e46...`; `marketing.channel` capability gap fixed via migration 027
+- [x] DOCS: Organize PROJECT_BRIEF.md/BACKLOG.md to prevent AI reversion — locked architecture tables added at top, historical changelog moved to Appendix A, completed Phases 0–5 labeled as archive while preserving all original phase items
 
 ### 6.1 — Visual Production (image gen)
 > Force multiplier. Feeds every channel. Build before social.
@@ -1011,6 +1021,43 @@ CYCLE 2 — Intelligence to Optimization
 - [ ] Slack digest: one message per brand with artifact count and link to Stream
 - [ ] Notification preferences stored per workspace: channel (email/Slack), cadence (immediate/batched), recipient list
 
+### 6.17 — Shortform Video Production + Publishing Infrastructure
+> High-volume GTM content engine for Klaroha/clients. Fast path is template-rendered vertical video assets, not cinematic text-to-video. BOS generates reviewable assets first; platform publishing stays approval-gated and plugin-owned.
+
+**Core generation pipeline**
+- [ ] BITE sample: `shortform_video_asset` Stream card + Workspace detail for one CMO Ascension short (script, voiceover, captions, MP4 preview, platform metadata, approval boundary, export/publish actions)
+- [ ] `api/plugins/media-shortform/` — non-channel specialist plugin implementing `media.shortform.generate` (`marketing.execute`) with output contract `shortform_video_asset`
+- [ ] Content atom schema: pillar, format, audience, core idea, hook, lesson, CTA, source references, risk notes, platform targets, variant count
+- [ ] Script generator path: content atom → structured shortform script JSON (`hook`, `voiceover`, `scene_breaks`, `on_screen_text`, `caption`, `hashtags`, `title`, `CTA`, `quality_gates`)
+- [ ] Brand template library: 8–12 vertical templates for CMO vocabulary, CMO vs Marketer, growth diagnosis, book lesson, ascension ladder, myth/reality, checklist, quote/mental-model, Klaroha workflow showcase
+- [ ] Renderer service: Remotion/FFmpeg/HTML template render path that takes script JSON + brand template + audio and outputs 9:16 MP4 without GPU dependency
+- [ ] Voiceover layer: local/free TTS option for volume, premium TTS credential slot for flagship pieces, optional real-voice upload path; no required paid dependency for baseline generation
+- [ ] Caption timing: generate captions from script/TTS timestamps where possible; avoid paid transcription when the script is already known
+- [ ] Asset storage: store MP4, thumbnail, audio, subtitle/caption files, and metadata in object storage (Cloudflare R2 preferred) or local storage fallback for localhost
+- [ ] Background queue/worker for batch generation and rendering jobs; batch status visible in Agent Activity/Stream
+- [ ] Brand compliance/self-check: Campaign Brand Kit constraints applied to colors, typography, tone, claims, banned phrases, CTA style, and visual motifs before artifact is reviewable
+- [ ] Stream/Workspace renderer for `shortform_video_asset`: MP4 preview, transcript, caption/hashtags, platform targets, self-check, approval/revision/export/publish actions
+- [ ] Batch generation mode: create 25/50/100 shortform artifacts from approved content atoms with per-item review state, not one giant unreviewable blob
+- [ ] Export pack: ZIP/CSV containing MP4 file URLs, captions, hashtags, titles, platform targets, suggested publish dates, and UTM/link fields for manual upload or scheduler import
+- [ ] Localhost proof harness: generate one shortform MP4 end-to-end from a hardcoded content atom with no external platform credentials
+
+**Publishing integrations**
+- [ ] `api/plugins/youtube/` — YouTube Shorts publisher plugin (`youtube.shorts.publish`) using Google OAuth/API; approved `shortform_video_asset` → upload vertical video with title/description/tags/privacy/schedule fields
+- [ ] YouTube quota guard: detect upload quota exhaustion, surface setup/blocker artifact, and preserve export fallback
+- [ ] Extend `api/plugins/meta/` with Instagram/Facebook Reels publishing modules (`meta.instagram.reels.publish`, `meta.facebook.reels.publish`) using hosted MP4 URL from asset storage; approval-gated action result with platform IDs/URLs
+- [ ] Meta/Instagram setup gate: linked IG Business account + required permissions + app review state surfaced as connector readiness; staging/prod OAuth only unless Cloudflare Tunnel local dev is configured
+- [ ] `api/plugins/tiktok/` planning/sample first — manual export remains default until TikTok Content Posting API access/review is approved; no build blocked on TikTok approval
+- [ ] Scheduler handoff integration: export compatible CSV fields for Buffer/Later/Metricool/manual uploader before native platform scheduling exists
+- [ ] Publish audit trail: every native publish writes `action_result` artifact with changed_resources, platform post ID, URL, timestamp, publishing account, and source video asset ID
+- [ ] Platform analytics follow-up backlog: YouTube/Meta/TikTok performance read modules should become `marketing.optimize` analyst capabilities after publish proof, not before
+
+### CMO Chat Coordination
+- [x] DOCS: Establish shared CMO chat coordination hub in existing `api/routers/chat_notes.md` for multi-agent discussion, samples, invariants, and handoffs.
+- [x] DOCS: Distill Phase 6 CMO/Council loop marching orders into `PROJECT_BRIEF.md` summary + detailed `api/routers/chat_notes.md` code-dev stack.
+- [~] BITE SAMPLE: Produce Stage 2 sample for pi.dev-style Klaroha CMO agentic loop UX — fixed loop, streamed specialist steps, steering/follow-up queue, branchable session ledger, artifact review in Stream, and handoff/compaction summary.
+- [ ] BITE SAMPLE: Produce Stage 2 `council_brief` artifact sample — `@council` invocation, 5 strategist seats, final brief, parked decisions, expandable transcript detail, Stream artifact boundary.
+- [ ] CODE PREP: After approved samples, implement CMO synthesis-after-results Path A as a generic loop primitive; no platform routing, no inline artifact content, no unscoped brand dispatch.
+
 ## Phase 5 — Hardening + Second Vertical
 ### Hardening
 - [ ] Retry with structured feedback (BITE failure-feedback loop)
@@ -1075,6 +1122,7 @@ CYCLE 2 — Intelligence to Optimization
 ## Decisions Log
 | Date | Decision | Rationale |
 |---|---|---|
+| 2026-05-21 | Shortform video scale uses template rendering first; native platform posting comes after asset generation/export proof | Hundreds/thousands of shortform videos are fastest and cheapest as structured script → TTS → branded motion template → MP4 artifacts. Cinematic text-to-video is too slow/costly/inconsistent for volume. BOS should first generate reviewable `shortform_video_asset` artifacts with export packs, then add approval-gated platform plugins in order: YouTube Shorts, Meta/Instagram Reels, TikTok after API access. |
 | 2026-05-15 | Self-contained HTML is the portable artifact format for landing pages and campaigns | Works on every host (S3, Cloudflare Pages, Netlify, bare VPS) with no build step. Injects into WordPress via a blank/no-theme page template without touching page builders. Drops into `public/` on an Astro site as a static file. BOS owns the edit workflow; clients do not edit the HTML directly — they revise in Klaroha, approve, and republish. |
 | 2026-05-15 | BOS generates content artifacts; CMS publish plugins deploy them — separation is non-negotiable | BOS must never become a CMS. The artifact record (content, approval state, publish audit) lives in BOS. The platform-specific deploy step lives in a plugin. Same plugin contract as channel plugins: `channel.json` + `ChannelModule` + `SKILL.md`. The approval gate sits between generation and publish; no artifact reaches a live site without an approved status. |
 | 2026-05-15 | WordPress is the first CMS publish plugin target | Most clients are on WordPress with custom themes and page builders (Elementor, Divi, Beaver). Safe path: create/update a page using a blank/no-theme template via WP REST API (`POST /wp-json/wp/v2/pages`), inject the self-contained HTML, tag managed pages with `_klaroha_managed: true` meta. Application Passwords (native WP 5.6+) make auth straightforward; no OAuth dance. Plugin must never touch the theme, other pages, or plugins. |
