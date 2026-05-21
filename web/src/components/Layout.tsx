@@ -1,15 +1,16 @@
 import { useEffect, useState, useCallback } from 'react';
 import { NavLink, Outlet } from 'react-router-dom';
 import { UIContext } from '../context/UIContext';
+import { CmoChatProvider } from '../context/CmoChatContext';
 import { WorkspacePanel } from './WorkspacePanel';
 import { SettingsModal } from './SettingsModal';
 import type { ActiveBrand, ActiveCampaign, SettingsTab, WorkspaceTab } from '../context/UIContext';
 import type { RunResponse } from '../api/types';
 
-const MOBILE_NAV = [
-  { to: '/stream',    label: 'Stream',    icon: '◈' },
-  { to: '/cmo',       label: 'CMO',       icon: '◎' },
-  { to: '/workspace', label: 'Workspace', icon: '⊞' },
+const PROTOTYPE_NAV = [
+  { to: '/stream', label: 'Stream', icon: '▶' },
+  { to: '/cmo', label: 'CMO', icon: '◎' },
+  { to: '/admin/objective-loop', label: 'Admin', icon: '⚙' },
 ];
 
 const CHAT_MESSAGES_KEY = 'bos_chat_messages';
@@ -210,17 +211,9 @@ export function Layout() {
     window.dispatchEvent(new CustomEvent('bos:load-chat', { detail: convo.messages }));
   };
 
-  const deleteConversation = (convo: SavedConversation) => {
-    if (convo.id === 'current') {
-      localStorage.removeItem(CHAT_MESSAGES_KEY);
-      window.dispatchEvent(new CustomEvent('bos:new-chat'));
-    } else {
-      const archived = (readJsonArray(CHAT_CONVERSATIONS_KEY) as SavedConversation[])
-        .filter(item => item.id !== convo.id);
-      localStorage.setItem(CHAT_CONVERSATIONS_KEY, JSON.stringify(archived));
-    }
-    refreshConversations();
-  };
+  void conversations;
+  void startNewChat;
+  void loadConversation;
 
   return (
     <UIContext.Provider value={{
@@ -231,67 +224,22 @@ export function Layout() {
       activeBrand, setActiveBrand,
       activeCampaign, setActiveCampaign,
     }}>
-      <div className="bos-shell">
-
-        {/* ── Sidebar (desktop) ── */}
-        <aside className="bos-sidebar">
-          <div className="bos-sidebar-top">
-            <NavLink to="/cmo" className="bos-logo-link"><span className="bos-logo">Klaroha</span></NavLink>
-            <button className="bos-new-btn" onClick={startNewChat}>New Chat</button>
+      <CmoChatProvider>
+      <div className="bos-proto-shell">
+        <div className="bos-proto-topbar">
+          <NavLink to="/stream" className="bos-proto-logo">Klaroha</NavLink>
+          <div className="bos-proto-brand-chip">
+            {activeBrand ? activeBrand.name : 'Klaroha'} ↓
           </div>
-
-          {activeBrand && (
-            <div className="bos-brand-indicator">
-              <span className="bos-brand-dot" />
-              <span className="bos-brand-name">{activeBrand.name}</span>
-              <button className="bos-brand-clear" onClick={() => setActiveBrand(null)} title="Clear brand context">✕</button>
-            </div>
-          )}
-          {activeCampaign && (
-            <div className="bos-brand-indicator" style={{ background: 'var(--ivory-mid)', border: '1px solid var(--border-light)' }}>
-              <span className="bos-brand-dot" style={{ background: 'var(--warm-gold)' }} />
-              <span className="bos-brand-name" style={{ fontSize: 11, color: 'var(--stone-deep)' }}>{activeCampaign.name}</span>
-              <button className="bos-brand-clear" onClick={() => setActiveCampaign(null)} title="Clear campaign context">✕</button>
-            </div>
-          )}
-
-
-          <div className="bos-sidebar-history">
-            <div className="bos-section-label">This Week</div>
-            {conversations.length === 0 ? (
-              <div className="bos-convo-empty">No saved chats yet.</div>
-            ) : conversations.map(convo => (
-              <div key={convo.id} className={`bos-convo-row ${convo.id === 'current' ? 'active' : ''}`}>
-                <button className="bos-convo-item" onClick={() => loadConversation(convo)} title={convo.label}>
-                  <span className="bos-convo-label">{convo.label}</span>
-                  <span className="bos-convo-date">{convo.date}</span>
-                </button>
-                <button
-                  className="bos-convo-delete"
-                  onClick={() => deleteConversation(convo)}
-                  title="Delete chat"
-                  aria-label={`Delete chat: ${convo.label}`}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
+          <div className="bos-proto-topbar-right">
+            <span className="bos-proto-date">May 20</span>
           </div>
+        </div>
 
-          <NavLink to="/cmo" className={({ isActive }) => `bos-sidebar-link bos-sidebar-chat-link ${isActive ? 'active' : ''}`}>💬 Chat</NavLink>
-
-          <div className="bos-sidebar-bottom">
-            <button className="bos-sidebar-link" onClick={() => openSettings()}>⚙ Settings</button>
-            <button className="bos-sidebar-link" onClick={() => openWorkspace()}>Workspace</button>
-          </div>
-        </aside>
-
-        {/* ── CMO Center ── */}
-        <div className={`bos-center ${workspaceOpen ? 'bos-center-ws-open' : ''}`}>
+        <div className={`bos-proto-page-area ${workspaceOpen ? 'bos-proto-page-area-ws-open' : ''}`}>
           <Outlet />
         </div>
 
-        {/* ── Workspace Panel (fixed right) ── */}
         <WorkspacePanel
           open={workspaceOpen}
           tab={workspaceTab}
@@ -301,7 +249,6 @@ export function Layout() {
           onCloseRun={() => setSelectedRun(null)}
         />
 
-        {/* ── Settings Modal ── */}
         <SettingsModal
           open={settingsOpen}
           tab={settingsTab}
@@ -309,20 +256,24 @@ export function Layout() {
           onClose={() => setSettingsOpen(false)}
         />
 
-        {/* ── Bottom Nav (mobile) ── */}
-        <nav className="bottom-nav">
-          {MOBILE_NAV.map(({ to, label, icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}
-            >
-              <span className="nav-tab-icon">{icon}</span>
-              <span className="nav-tab-label">{label}</span>
-            </NavLink>
-          ))}
-        </nav>
+        <div className="bos-proto-bottom-tabs">
+          <div className="bos-proto-tab-group">
+            {PROTOTYPE_NAV.map(({ to, label, icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) => `bos-proto-tab${isActive ? ' active' : ''}`}
+              >
+                <span>{icon}</span>
+                <span>{label}</span>
+                {label === 'Stream' && pendingRunList.length > 0 && <span className="bos-proto-tab-badge">{pendingRunList.length}</span>}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+
       </div>
+      </CmoChatProvider>
     </UIContext.Provider>
   );
 }

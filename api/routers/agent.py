@@ -25,6 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth import require_api_key
 from config import get_settings
 from db import get_db
+from memory_events import write_memory_event
 from models.run import Run
 from models.workspace import Brand
 from registry import get_module
@@ -232,6 +233,28 @@ async def agent_review(
     run.approval_status = new_status
     if body.reason:
         run.feedback = body.reason
+    event_type = {
+        "approved": "artifact_approved",
+        "rejected": "artifact_dismissed",
+        "flagged": "constraint_flag",
+    }[new_status]
+    await write_memory_event(
+        db,
+        workspace_id=run.workspace_id,
+        brand_id=run.brand_id,
+        event_type=event_type,
+        topic_tags=[],
+        summary=f"Agent review marked {run.module_id} as {new_status}",
+        rationale=body.reason,
+        source_ref=f"run:{run.id}",
+        full_record={
+            "run_id": str(run.id),
+            "module_id": run.module_id,
+            "approval_status": new_status,
+            "agent_action": body.action,
+            "reason": body.reason,
+        },
+    )
     await db.commit()
 
     if run.brand_id and new_status in ("approved", "rejected"):

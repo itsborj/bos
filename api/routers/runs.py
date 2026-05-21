@@ -15,9 +15,11 @@ from plugin_loader import inject_channel_credentials
 from db import get_db
 from errors import BosError
 from executor import execute_live, execute_mock, get_platform_key
+from memory_events import write_memory_event
 from model_overrides import effective_strict, get_module_model_override, reorder_candidates_for_model_override
 from provider_auth import resolve_stored_provider_credential
 from routers.backend_settings import resolve_backend_override
+from models.document import WorkspaceDocument
 from models.run import Run, RunAttempt, RunResult, RunTrace
 from models.workspace import Audience, Brand, Campaign, Product, Workspace
 from registry import get_module
@@ -91,6 +93,66 @@ async def _resolve_brief(db: AsyncSession, ws: Workspace, brief: dict) -> dict:
 
 
 # ── Image pre-generation (injected into brief before channel module dispatch) ──
+
+async def _inject_campaign_brand_kit_style(
+    brief: dict,
+    ws: Workspace,
+    brand_id,
+    db: AsyncSession,
+) -> dict:
+    """Attach approved Campaign Brand Kit excerpt/style constraints for image generation."""
+    if brief.get("campaign_brand_kit_excerpt") or brief.get("brand_visual_constraints"):
+        return brief
+
+    filters = [
+        WorkspaceDocument.workspace_id == ws.id,
+        WorkspaceDocument.doc_type == "campaign_brand_kit",
+        WorkspaceDocument.status == "approved",
+    ]
+    if brand_id:
+        filters.append(WorkspaceDocument.brand_id == brand_id)
+    else:
+        filters.append(WorkspaceDocument.brand_id.is_(None))
+
+    doc = (
+        await db.execute(
+            select(WorkspaceDocument)
+            .where(*filters)
+            .order_by(WorkspaceDocument.approved_at.desc().nullslast(), WorkspaceDocument.updated_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if not doc:
+        return brief
+
+    excerpt = (doc.content_markdown or "")[:2500]
+    if not excerpt:
+        return brief
+    return {
+        **brief,
+        "campaign_brand_kit_excerpt": excerpt,
+        "brand_visual_constraints": _extract_visual_constraints(excerpt),
+    }
+
+
+def _extract_visual_constraints(markdown: str) -> str:
+    """Small heuristic extractor for image prompt style constraints."""
+    keep: list[str] = []
+    keywords = (
+        "color", "colour", "palette", "visual", "style", "tone", "logo",
+        "typography", "font", "imagery", "photography", "brand voice", "avoid",
+    )
+    for raw in markdown.splitlines():
+        line = raw.strip(" -#\t")
+        if not line:
+            continue
+        lowered = line.lower()
+        if any(k in lowered for k in keywords):
+            keep.append(line)
+        if len("; ".join(keep)) > 700:
+            break
+    return "; ".join(keep)[:900]
+
 
 async def _inject_generated_image(
     brief: dict,
@@ -203,6 +265,9 @@ async def _execute_module(
 
     brief = await inject_channel_credentials(module_id, brief, brand_id, db, settings)
 
+    if module_id == "media.image.generate" or brief.get("image_prompt"):
+        brief = await _inject_campaign_brand_kit_style(brief, ws, brand_id, db)
+
     if module_id != "media.image.generate" and brief.get("image_prompt"):
         brief = await _inject_generated_image(brief, brand_id, db, settings)
 
@@ -254,6 +319,22 @@ async def _execute_module(
         ))
 
         run.status = "success" if verdict == "pass" else "partial"
+        await write_memory_event(
+            db,
+            workspace_id=ws.id,
+            brand_id=brand_id,
+            event_type="artifact_created",
+            topic_tags=[],
+            summary=f"Artifact created by {module_id}",
+            source_ref=f"run:{run.id}",
+            full_record={
+                "run_id": str(run.id),
+                "module_id": module_id,
+                "status": run.status,
+                "approval_status": run.approval_status,
+                "campaign_id": str(campaign_id) if campaign_id else None,
+            },
+        )
         await db.commit()
 
         if brand_id:
@@ -334,6 +415,16 @@ async def _execute_module(
         db.add(failed_run)
         await db.flush()
         db.add(RunTrace(run_id=failed_run.id, routing_json=routing_meta, lineage_json=None))
+        await write_memory_event(
+            db,
+            workspace_id=ws.id,
+            brand_id=brand_id,
+            event_type="run_failed",
+            topic_tags=[],
+            summary=f"Run failed for {module_id}: no eligible candidates",
+            source_ref=f"run:{failed_run.id}",
+            full_record={"run_id": str(failed_run.id), "module_id": module_id, "routing": routing_meta},
+        )
         await db.commit()
         raise BosError(503, "NO_ELIGIBLE_CANDIDATES", "No healthy model options for this capability and policy", routing_meta)
 
@@ -385,6 +476,21 @@ async def _execute_module(
             db.add(RunTrace(run_id=run.id, routing_json=routing_meta,
                             lineage_json={"failed_attempts": failed_attempts}))
             run.status = "failed"
+            await write_memory_event(
+                db,
+                workspace_id=ws.id,
+                brand_id=brand_id,
+                event_type="run_failed",
+                topic_tags=[],
+                summary=f"Run failed for {module_id}: all provider candidates failed",
+                source_ref=f"run:{run.id}",
+                full_record={
+                    "run_id": str(run.id),
+                    "module_id": module_id,
+                    "failed_attempts": failed_attempts,
+                    "last_error": last_error,
+                },
+            )
             await db.commit()
             raise BosError(500, "EXECUTION_FAILED", "All provider candidates failed", {"error": last_error})
         else:
@@ -429,6 +535,24 @@ async def _execute_module(
     ))
 
     run.status = "success" if verdict == "pass" else "partial"
+
+    await write_memory_event(
+        db,
+        workspace_id=ws.id,
+        brand_id=brand_id,
+        event_type="artifact_created",
+        topic_tags=[],
+        summary=f"Artifact created by {module_id}",
+        source_ref=f"run:{run.id}",
+        full_record={
+            "run_id": str(run.id),
+            "module_id": module_id,
+            "status": run.status,
+            "approval_status": run.approval_status,
+            "campaign_id": str(campaign_id) if campaign_id else None,
+            "self_check": verdict,
+        },
+    )
 
     await db.commit()
 
@@ -516,6 +640,7 @@ async def post_run(
 async def list_runs(
     module_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    approval_status: Optional[str] = Query(None),
     created_after: Optional[datetime] = Query(None),
     created_before: Optional[datetime] = Query(None),
     limit: int = Query(20, ge=1, le=100),
@@ -528,6 +653,8 @@ async def list_runs(
         filters.append(Run.module_id == module_id)
     if status:
         filters.append(Run.status == status)
+    if approval_status:
+        filters.append(Run.approval_status == approval_status)
     if created_after:
         filters.append(Run.created_at >= created_after)
     if created_before:
@@ -677,6 +804,16 @@ async def approve_run(
     
     run.approval_status = "approved"
     run.feedback = None
+    await write_memory_event(
+        db,
+        workspace_id=run.workspace_id,
+        brand_id=run.brand_id,
+        event_type="artifact_approved",
+        topic_tags=[],
+        summary=f"Artifact approved for {run.module_id}",
+        source_ref=f"run:{run.id}",
+        full_record={"run_id": str(run.id), "module_id": run.module_id, "approval_status": "approved"},
+    )
     await db.commit()
 
     if run.brand_id:
@@ -708,6 +845,22 @@ async def reject_run(
     
     run.approval_status = "rejected"
     run.feedback = body.feedback
+    await write_memory_event(
+        db,
+        workspace_id=run.workspace_id,
+        brand_id=run.brand_id,
+        event_type="artifact_dismissed",
+        topic_tags=[],
+        summary=f"Artifact rejected for {run.module_id}",
+        rationale=body.feedback,
+        source_ref=f"run:{run.id}",
+        full_record={
+            "run_id": str(run.id),
+            "module_id": run.module_id,
+            "approval_status": "rejected",
+            "feedback": body.feedback,
+        },
+    )
     await db.commit()
 
     if run.brand_id:
@@ -779,6 +932,22 @@ async def revise_run(
     new_run = new_run_result.scalar_one_or_none()
     if new_run:
         new_run.parent_run_id = run.id
+        await write_memory_event(
+            db,
+            workspace_id=run.workspace_id,
+            brand_id=run.brand_id,
+            event_type="artifact_revised",
+            topic_tags=[],
+            summary=f"Artifact revised for {run.module_id}",
+            rationale=feedback,
+            source_ref=f"run:{new_run.id}",
+            full_record={
+                "original_run_id": str(run.id),
+                "revised_run_id": str(new_run.id),
+                "module_id": run.module_id,
+                "feedback": feedback,
+            },
+        )
         await db.commit()
     
     return response

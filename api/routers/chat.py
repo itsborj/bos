@@ -21,6 +21,7 @@ from capability_manifest import build_dispatchable_manifest, format_manifest_for
 from config import get_settings
 from db import get_db
 from executor import get_adapter, get_platform_key
+from memory_events import write_memory_event
 from model_overrides import get_backend_override, parse_model_ref
 from provider_auth import resolve_stored_provider_credential
 from providers.connector_registry import format_connector_status_for_prompt
@@ -47,6 +48,18 @@ _RUN_PARAMS_RE = re.compile(
     r"RUN:\s*([a-zA-Z0-9_.-]+)((?:\n(?![ \t]*RUN\s*:)[ \t]*[a-zA-Z_][a-zA-Z0-9_]*\s*:[^\n]*)*)",
     re.MULTILINE,
 )
+
+# ── @council command routing ──────────────────────────────────────────────────
+_COUNCIL_RE = re.compile(r"^\s*@council\b", re.IGNORECASE)
+
+
+def _is_council_command(message: str) -> bool:
+    return bool(_COUNCIL_RE.match(message))
+
+
+def _parse_council_brief(message: str) -> str:
+    return _COUNCIL_RE.sub("", message).strip()
+
 
 # ── @klar command routing ─────────────────────────────────────────────────────
 _KLAR_RE = re.compile(r"^\s*@klar\b", re.IGNORECASE)
@@ -1095,6 +1108,25 @@ async def chat(
                     data={"brand_id": str(_matched.id), "brand_name": _matched.name},
                 )
 
+    # ── @council command routing ──────────────────────────────────────────────
+    if _is_council_command(body.message):
+        from capabilities.workspace.council.module import convene as _council_convene
+        _council_brief = _parse_council_brief(body.message)
+        if not _council_brief:
+            return ChatResponse(reply="What question should the council deliberate on?\n\nUsage: @council <question>")
+        _council_brand: Brand | None = None
+        if body.brand_id:
+            _council_brand = (await db.execute(
+                select(Brand).where(Brand.id == UUID(body.brand_id))
+            )).scalar_one_or_none()
+        _council_result = await _council_convene(
+            brief=_council_brief,
+            db=db,
+            ws=ws,
+            brand=_council_brand,
+        )
+        return ChatResponse(reply=_council_result["formatted_output"])
+
     # ── @klar command routing ─────────────────────────────────────────────────
     if _is_klar_command(body.message):
         cmd = _parse_klar_command(body.message)
@@ -1556,6 +1588,22 @@ Revision thread mode:
     new_run = (await db.execute(select(Run).where(Run.id == UUID(revised.run_id)))).scalar_one_or_none()
     if new_run:
         new_run.parent_run_id = original_run.id
+        await write_memory_event(
+            db,
+            workspace_id=ws.id,
+            brand_id=revise_brand.id if revise_brand else original_run.brand_id,
+            event_type="artifact_revised",
+            topic_tags=[],
+            summary=f"Artifact revised for {original_run.module_id}",
+            rationale=feedback,
+            source_ref=f"run:{new_run.id}",
+            full_record={
+                "original_run_id": str(original_run.id),
+                "revised_run_id": str(new_run.id),
+                "module_id": original_run.module_id,
+                "feedback": feedback,
+            },
+        )
         await db.commit()
 
     return ChatResponse(

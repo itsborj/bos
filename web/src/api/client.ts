@@ -9,13 +9,25 @@ import type {
   ChatResponse,
   ChatStreamEvent,
   BrandKitResponse,
+  DecisionBriefListResponse,
+  DecisionBriefOut,
+  EvaluateOutcomeOut,
+  HandoffBriefOut,
   IngestResponse,
   KeyListItem,
+  MemoryEventListResponse,
   ModuleInfo,
+  ObjectiveListResponse,
+  ObjectiveOut,
   OnboardingStatus,
+  OutcomeListResponse,
+  PendingDecisionListResponse,
   ProviderInfo,
+  AgentStateResponse,
   RunListResponse,
   RunResponse,
+  StreamListResponse,
+  StreamRefreshOut,
   WorkspaceDocument,
   WorkspaceResponse,
 } from './types';
@@ -194,6 +206,7 @@ export const api = {
   getRuns: (params?: {
     module_id?: string;
     status?: string;
+    approval_status?: string;
     created_after?: string;
     created_before?: string;
     limit?: number;
@@ -203,6 +216,18 @@ export const api = {
 
   getRun: (runId: string) =>
     request<RunResponse>(`/runs/${runId}`),
+
+  getAgentState: () =>
+    request<AgentStateResponse>('/agent/state'),
+
+  getStream: (include_read = false) =>
+    request<StreamListResponse>('/stream' + buildQuery({ include_read: include_read ? 'true' : undefined })),
+
+  refreshStream: () =>
+    request<StreamRefreshOut>('/stream/refresh', { method: 'POST' }),
+
+  dismissStreamUpdate: (updateId: string) =>
+    request<import('./types').StreamUpdateOut>(`/stream/${updateId}`, { method: 'DELETE' }),
 
   getProviders: (brand_id?: string) =>
     request<{ providers: ProviderInfo[] }>('/providers' + buildQuery({ brand_id })),
@@ -449,4 +474,46 @@ export const api = {
 
   cancelBooking: (bookingId: string) =>
     request<{ status: string }>(`/calendar/bookings/${bookingId}`, { method: 'DELETE' }),
+
+  // Gate 2 — Objectives
+  getObjectives: (params?: { brand_id?: string; status?: string; limit?: number }) =>
+    request<ObjectiveListResponse>('/objectives' + buildQuery(params as Record<string, string | number | undefined>)),
+
+  getActiveObjective: (brand_id?: string) =>
+    request<ObjectiveOut>('/objectives/active' + buildQuery({ brand_id })),
+
+  createObjective: (body: { brand_id?: string; summary: string; success_metric: string; horizon: string; status?: string; created_from?: string }) =>
+    request<ObjectiveOut>('/objectives', { method: 'POST', body: JSON.stringify(body) }),
+
+  patchObjective: (id: string, body: Partial<{ status: string; summary: string; success_metric: string; horizon: string }>) =>
+    request<ObjectiveOut>(`/objectives/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  // Gate 2 — Outcomes
+  getOutcomes: (params?: { brand_id?: string; objective_id?: string; limit?: number }) =>
+    request<OutcomeListResponse>('/outcomes' + buildQuery(params as Record<string, string | number | undefined>)),
+
+  evaluateOutcome: (body: { brand_id?: string; objective_id?: string; summary: string; metrics?: Record<string, unknown>; topic_tags?: string[]; confidence_source?: string; source_ref?: string }) =>
+    request<EvaluateOutcomeOut>('/outcomes/evaluate', { method: 'POST', body: JSON.stringify(body) }),
+
+  // Gate 2 — Memory events
+  getMemoryEvents: (params?: { brand_id?: string; objective_id?: string; event_type?: string; limit?: number }) =>
+    request<MemoryEventListResponse>('/memory/events' + buildQuery(params as Record<string, string | number | undefined>)),
+
+  // Gate 2 — Decision briefs
+  getDecisionBriefs: (params?: { brand_id?: string; objective_id?: string; limit?: number }) =>
+    request<DecisionBriefListResponse>('/decision-briefs' + buildQuery(params as Record<string, string | number | undefined>)),
+
+  generateDecisionBrief: (body: { brand_id?: string; objective_id?: string }) =>
+    request<DecisionBriefOut>('/decision-briefs/generate', { method: 'POST', body: JSON.stringify(body) }),
+
+  // Gate 2 — Pending decisions
+  getPendingDecisions: (params?: { brand_id?: string; objective_id?: string; status?: string }) =>
+    request<PendingDecisionListResponse>('/pending-decisions' + buildQuery(params as Record<string, string | number | undefined>)),
+
+  resolvePendingDecision: (id: string, resolution_summary?: string) =>
+    request<{ status: string }>(`/pending-decisions/${id}/resolve`, { method: 'POST', body: JSON.stringify({ resolution_summary }) }),
+
+  // Gate 2 — Handoff brief
+  getHandoffBrief: (brand_id?: string) =>
+    request<HandoffBriefOut>('/handoff/brief' + buildQuery({ brand_id })),
 };

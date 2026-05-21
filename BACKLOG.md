@@ -1,7 +1,7 @@
 # BOS — Backlog
 
-**Last updated:** 2026-05-13
-**Active phase:** Phase 3 — Frontend / CMO Command Hub refinement / Skill Contract preparation
+**Last updated:** 2026-05-22
+**Active phase:** Phase 6 — Gate 2 Gmail-only objective loop
 ---
 ## How to Use This
 - Pick the topmost `[ ]` item in the current phase and work it.
@@ -16,6 +16,44 @@
 [x]  Done
 [!]  Blocked (note reason)
 [-]  Deferred (moved out of scope for this phase)
+
+---
+
+## ⚑ Quick Nav
+
+**Active Phase:** Phase 6 — Full-Stack Marketing Automation (`Gate 2 passed 2026-05-20`)
+
+Phases 0–5 are complete. All active `[ ]` items are in Phase 6 and Council sections below.
+
+Quick jumps:
+- Phase 6 — Full-Stack Marketing Automation → search `## Phase 6`
+- Council — Deliberation Layer → search `## Council`
+- Parking Lot → search `## Parking Lot`
+- Decisions Log → search `## Decisions Log`
+
+---
+
+## ⚑ Locked Architecture (Do Not Revert)
+
+These decisions are final. Any change requires explicit architectural review and an update to `PROJECT_BRIEF.md`.
+
+| # | Rule | Locked in | Regression signal |
+|---|---|---|---|
+| 1 | **Channels in plugins only.** `api/capabilities/marketing/channel/` is deleted and must never be recreated. All channel Transform nodes live in `api/plugins/{channel}/`. | v3.7–3.8 (2026-05-12) | Finding channel Transform nodes in `api/capabilities/` |
+| 2 | **No hardcoded routing in `chat.py` / `skills/router.py`.** LLM reads `capability_manifest.py` only. No `_explicit_platforms()`, `_is_broad_sample_ads_request()`, `_has_generation_intent()`, or manual module ID lists. | v3.8 (2026-05-12) | Any `if "facebook" in message`, platform-matching function, or hardcoded module ID in router files |
+| 3 | **Brand active → `_brand_scoped_brief()`**, never `_resolve_brief()`. `_brand_scoped_brief()` must build from overrides + Brand rows only — not call `_resolve_brief()` first. | v3.16 (2026-05-13) | Cross-brand context bleed (e.g., MotorMoto copy in a Klaroha session) |
+| 4 | **`hydrate_memory_slots()` with `brand=active_brand`** when brand is active. Filters products, audiences, docs, and run memory by `brand_id`. No workspace fallback inside active-brand turns. | v3.17 (2026-05-15) | Wrong brand products/docs appearing in active-brand CMO replies |
+| 5 | **Brand switching via hidden `SCOPE:` directive** and `workspace.scope_resolution` SKILL.md. No phrase-matching or hardlock in `chat.py`. | v3.19 (2026-05-15) | Brand-name detection or hardlock code in `routers/chat.py` |
+| 6 | **CMO chat returns artifact refs only.** No inline copy, Subject/Body, Headline/Description, budgets, targeting, or fake proof. Workspace + Stream own native preview and approval. | v3.10 (2026-05-13) | Inline platform-native content in CMO reply text |
+| 7 | **Mobile-first CMO replies:** 1–4 lines, one idea per line, bullets for choices, max one question. Ref: `sample/mobile_cmo_reply_style_v1.md`. | v3.12 (2026-05-13) | Long dense CMO paragraphs in default (non-plan, non-report) chat replies |
+| 8 | **Plugin credentials via `inject_channel_credentials()` only.** Plugins read `brief["_channel_credentials"]`. They never call `get_settings()` or query the DB. | v3.5 (2026-05-10) | Plugin `module.py` querying `social_connections` or env vars directly |
+| 9 | **`capability_manifest.py` is the CMO capability single source of truth.** Adding a capability = add `SKILL.md` with `allowed_from_chat: true` + `module_id:`. No manifest code edits needed. | v3.8 (2026-05-12) | Manual edits to capability_manifest.py; hardcoded module IDs in `_build_system_prompt()` |
+| 10 | **Revise endpoint resolves Brand from `original_run.brand_id`** before building the execution brief. Same `_brand_scoped_brief()` path as dispatch. | v3.16–3.17 (2026-05-13) | Revision runs receiving workspace context instead of the original brand context |
+| 11 | **Artifact dispatch blocked when no Brand resolved** in multi-brand workspace. Returns a one-question brand clarification instead. | v3.18 (2026-05-15) | `brand_id=NULL` artifact creation in multi-brand workspaces |
+| 12 | **Backlog → ClickUp sync required** after every session with task status changes or new task additions. Script is idempotent. | v3.26 (2026-05-18) | See CLAUDE.md for the sync command and credentials |
+
+---
+
 ## Phase 0 — Foundation ✓
 ### Reference & Planning
 - [x] POC learnings extracted from cl_dm_os
@@ -740,6 +778,21 @@ Deferred to Phase 4.
 ## Phase 6 — Full-Stack Marketing Automation
 > Goal: replace every role in a marketing department. CMO orchestrates. Plugins are the specialists. Owner approves decisions. BOS remembers what worked.
 
+### UX Samples
+- [x] FRONTEND: `AdminObjectiveLoop.tsx` — `/admin/objective-loop` — loop readiness (Gmail/brand kit/objective), active objective detail, decision briefs, pending decisions, outcome records, memory ledger, generate brief button. Gate 2 API types + client methods added for all 7 Gate 2 endpoints.
+- [x] UX PROTOTYPE: `wireframes/bos-stream-first.html` is the canonical Gate 2 prototype — all three surfaces (Stream, CMO, Admin) merged. `bos-gate2-prototype.html` and `bos-gate2-prototype-agent-a.html` superseded. `bos-council-prototype.html` is a post-Gate 2 council UX sample only. Open design questions: council card color identity (amber vs purple), Watchpoints admin needs design pass, Council Seats section should move out of Gate 2 admin group.
+- [x] GATE 1 SAMPLE: Produce agreed Stream attention-card sample contract for six card families — `sample/bos_stream_sample.md`.
+
+### Gate 2 — Gmail-only Objective Loop
+- [x] GATE 2.1: Add minimal Objective anchor. Fields: `objective_id`, `brand_ref`, `status` (draft|active|paused|completed|archived), `summary`, `success_metric`, `horizon`, `created_from`.
+- [x] GATE 2.2: Add MemoryEvent append-only ledger. Event types: `artifact_created`, `artifact_approved`, `artifact_dismissed`, `artifact_revised`, `run_failed`, `decision_made`, `decision_not_to_act`, `outcome_recorded`, `constraint_flag`. Fields: `brand_ref`, `objective_ref`, `topic_tags`, `summary`, `rationale` (required on `decision_made`/`decision_not_to_act`; optional on passive lifecycle), `source_ref`, `timestamp`, `full_record`. Two write paths: passive (lifecycle hooks) and active (CMO conversation writes rationale explicitly).
+- [x] GATE 2.3: Add manual `evaluate_outcome` v0. Creates OutcomeRecord + MemoryEvent(`type=outcome_recorded`). `confidence_source` starts as `manually_reported`.
+- [x] GATE 2.4: Add DecisionBrief v0 analyst artifact. Inputs: active objective, brand context, run/artifact history, MemoryEvents, manual OutcomeRecords, Gmail context/signals if available. Output contract: `summary`, `objective_affected`, `evidence`, `hypothesis_ranking`, `confidence`, `recommended_next`, `do_not_list`, `allowed_actions`. STREAM SURFACE REQUIREMENT: decision_brief card must be visible and actionable in Stream. OutcomeRecord must surface as outcome card in Stream. topic_tags are the memory retrieval index: `creative_fatigue | tracking | attribution | offer | objection | commitment | outcome`.
+- [x] GATE 2.5: Add Handoff Brief + PendingDecision object. PendingDecision fields: `objective_ref`, `brand_ref`, `what_is_deferred`, `waiting_for`, `leading_hypothesis`, `action_blocked`, `created_at`, `resolved_at`. Brief covers: active objectives + state, performance narrative with confidence levels, pending decisions, committed actions/deadlines, known risks, what is working/not, what was decided against, recommended first action. Pass condition: new CMO operational in <15 minutes from brief alone.
+- [x] GATE 2.6: Prove one Gmail-only objective loop end-to-end. Loop: Objective → Artifact → approved send → Signal → OutcomeRecord → MemoryEvent → better next DecisionBrief. Pass condition: one objective completes a full primitive loop, decision_brief and outcome cards are visible and actionable in Stream, and memory demonstrably improves the next recommendation.
+
+Gate 2 pass condition: all six steps complete, the full primitive loop closes on a real Gmail-scoped objective, and the Stream surfaces the result. Passed 2026-05-20 via `api/scripts/prove_gate2_gmail_loop.py` with proof objective `0feb55a6-e430-420f-baa6-4d8bde820015`: Gmail draft run `5508783c-5835-49e3-bb08-a370562554ca` approved, OutcomeRecord `b0f17311-2309-4dba-a84b-47ae76a4b124`, MemoryEvent `415caee9-46b3-4955-be3a-3054045e5881`, DecisionBrief `b6f78179-cf24-457f-936f-683281e2e28c`, Stream cards `outcome` + `decision_brief` visible.
+
 ### Two-Cycle System Architecture
 
 BOS operates in two cycles that form a flywheel. Every client starts at Cycle 1. Once metrics exist, Cycle 2 begins and feeds back into Cycle 1 indefinitely.
@@ -784,15 +837,22 @@ CYCLE 2 — Intelligence to Optimization
 
 ---
 
+### Stream + CMO Unified Surface (2026-05-21)
+- [x] UX: Unified Stream + CMO split-screen — CMO chat (40%) left column, decision feed (60%) right column; Stream replaces the workspace slide-over as the artifact review surface; artifact links in CMO dispatch `bos:focus-artifact` event to focus the run in Stream's side panel without navigation
+- [x] UX: Mobile full-screen panel mode — screens ≤900px show one panel at a time; CMO chat is default; Stream slides in from the right when an artifact is focused; `← Chat` back button returns to CMO; CSS uses `transform: translateX` slide transition (250ms ease)
+- [x] UX: Removed duplicate bottom nav — old Stream/Workspace mobile nav (`MOBILE_NAV`) removed from Layout.tsx; prototype Stream/Admin tab bar (`PROTOTYPE_NAV`) is the single bottom navigation on all screen sizes
+- [x] BUG FIX: Stream artifact count inflation and styling flip — `streamArtifacts` merged `artifacts` (API) with ALL `pendingRunItems` (localStorage), including stale rejected/failed runs never cleaned up; localStorage items were spread *after* API items in the Map, silently overwriting live `approval_status` and causing green→blue styling flip on refresh; fix: API data is authoritative; localStorage items are only included if absent from the API response AND created within the last hour
+
 ### 6.0 — CMO Agent Harness (pi model)
 > Direct execution surface for agents — read, execute, write. No LLM routing. Agents call capabilities directly; result always lands at pending_review for human approval.
 - [x] `api/routers/agent.py` — 5-endpoint harness: GET /agent/state, GET /agent/context/{brand_id}, GET /agent/capabilities, POST /agent/execute, PATCH /agent/review/{run_id}
 - [x] POST /agent/execute calls existing `_execute_module()` in runs.py — same code path as CMO chat, no duplicate execution logic
 - [x] PATCH /agent/review triggers PM (ClickUp) sync on approve/reject
-- [ ] Frontend: Agent Activity panel in Admin — live view of agent-initiated runs and their review queue
+- [x] Frontend: Agent Activity panel in Admin — live view of agent-initiated runs and their review queue
 - [x] Agent loop script: `api/agents/cmo_loop.py` — monitor → prioritize → delegate → surface (runs on cron or webhook trigger)
 - [x] PIPELINE TEST: Add deterministic `api/plugins/hello/` smoke plugin + sample to validate multi-dev plugin discovery, manifest, execution, and artifact block without external credentials
 - [x] PIPELINE TEST: Bump hello smoke plugin marker for staging deployment verification
+- [x] INFRA: Multi-dev simultaneous workflow verified end-to-end — @kibanu pushed hello plugin v0.2.1, GitHub Actions CI #56 auto-deployed to staging.klaroha.com, both devs confirmed live via shared staging key `bos_a24e46...`; `marketing.channel` capability gap fixed via migration 027
 
 ### 6.1 — Visual Production (image gen)
 > Force multiplier. Feeds every channel. Build before social.
@@ -803,9 +863,9 @@ CYCLE 2 — Intelligence to Optimization
 - [x] Frontend renders `image_asset` block inline in artifact card (base64 PNG with prompt caption)
 - [x] CMO dispatches via `RUN: media.image.generate`; skill manifest includes Google Ads image ads, display ads, social creatives, hero images as triggers
 - [x] Image Generation card on Specialists page with Configure button
-- [ ] Reads Campaign Brand Kit for style constraints (colors, tone, visual identity) before generating — brief-driven today, brand kit injection planned
-- [ ] Quality gate: brand compliance check (color palette, no banned elements) before surfacing
-- [ ] Paired output: copy + image as a single `creative_bundle` artifact for ads and social
+- [x] Reads Campaign Brand Kit for style constraints (colors, tone, visual identity) before generating — brief-driven today, brand kit injection planned
+- [x] Quality gate: brand compliance check (color palette, no banned elements) before surfacing
+- [~] Paired output: copy + image as a single `creative_bundle` artifact for ads and social — BITE sample stage active before build
 
 ### 6.2 — Email Campaign Infrastructure
 > Moves email from placeholder to full marketing.execute + marketing.optimize channel.
@@ -972,6 +1032,32 @@ CYCLE 2 — Intelligence to Optimization
 - [ ] .env.example fully documented
 - [ ] SSL via nginx + certbot
 - [ ] PostgreSQL backup strategy
+## Council — Deliberation Layer
+
+### Infrastructure (complete)
+- [x] Council seat structure: `api/capabilities/workspace/council/seats/c1–c5/SKILL.md`
+- [x] Seat schema: seat id, display_name, status (vacant/active), model (provider + model_id configurable), ideology, tools
+- [x] Council capability SKILL.md + template.j2
+- [x] Council orchestrator module.py: parallel seat calls, agentic loop, convergence check, settlement synthesis
+- [x] CouncilSession DB model + migration 028
+- [x] `@council <question>` routing in CMO chat (chat.py)
+- [x] Council router: POST /council/convene, GET /council/sessions, GET /council/sessions/{id}
+- [x] Output format: C1: C2: C3: C4: C5: labelled per round, marching orders, parked decisions
+
+### Next — Recruitment
+- [ ] Recruit C1: set display_name, status: active, model_id, ideology in seats/c1/SKILL.md
+- [ ] Recruit C2–C5 same
+- [ ] Run migration 028 on staging
+- [ ] Smoke test @council with 1 active seat (vacant seats skipped gracefully)
+- [ ] Full 5-seat council test with real OpenRouter key
+
+### Future
+- [ ] Human injection between rounds (POST /council/{id}/inject mid-session)
+- [ ] Streaming output: emit each round as SSE so operator sees C1/C2/C3 appear in real-time
+- [ ] council_brief artifact in Stream (card type: council_brief)
+- [ ] Access gate: operator flag `council_access: true` per workspace/brand
+- [ ] Tool grants per seat (data access, plugin calls)
+
 ## Parking Lot
 - Multi-tenancy (SaaS mode)
 - Workflow chaining between modules
@@ -1008,6 +1094,7 @@ CYCLE 2 — Intelligence to Optimization
 | 2026-05-19 | Meta AI Business Assistant is a closed competitor, no BOS integration needed | Meta's own AI chat assistant (in Business Suite, Ad Center, Instagram Boost) handles ad performance Q&A, recommendations, and account issue resolution inside Meta's UI. No public API — can't integrate. BOS differentiation is cross-channel intelligence and brand workspace context that Meta's assistant can't access. No action required. |
 | 2026-05-19 | CMO streaming uses SSE not WebSocket; nginx requires dedicated location block or X-Accel-Buffering response header | WebSocket requires connection upgrade and bi-directional protocol — overkill for a server-push-only stream. SSE is HTTP/1.1, works through nginx reverse proxy with `proxy_buffering off` on the location block (belt) and `X-Accel-Buffering: no` response header (suspenders). Both are required: nginx config alone doesn't survive container restarts without reload; response header alone doesn't override global buffering config on some nginx builds. |
 | 2026-05-19 | `_run_modules_streaming()` is the single source of truth for module dispatch; both /chat and /chat/stream use it | Eliminated copy-paste divergence between the legacy `/chat` endpoint's dispatch loop and the new streaming endpoint. Any dispatch logic change goes in one place. `_run_modules_streaming()` yields typed dicts (`module_start`, `module_result`); callers consume the generator and decide what to do with results. |
+| 2026-05-19 | Multi-dev simultaneous workflow operational — both devs push to staging branch independently; GitHub Actions CI auto-deploys to VDS staging on every push; shared staging key scoped to `bos_staging` DB; `marketing.channel` capability added via migration 027 (was missing from all DBs); each dev maintains own local stack with independent keys | Production (hq.klaroha.com) deploy remains gated to `main` branch, controlled by lead dev only; staging is open to all plugin specialists with Write access |
 | 2026-05-19 | Step log persists as completed (greyed ✓) after reply arrives — not removed | Removing the step log when the reply arrived made the experience look like the old mechanical single-response pattern. The step log is the agentic loop trace — it shows what ran and in what order. Keeping it (faded, complete) proves the pipeline executed. This is the agreed sample: [step_log(✓ all)] → [artifact_card] → [reply_text]. |
 | 2026-05-14 | Staging lives at staging.klaroha.com on the same VDS as production | Separate Docker stack on different ports, separate database; plugin dev PRs target staging branch first, reviewed by main dev before merging to main/production; keeps costs low while maintaining isolation |
 | 2026-05-14 | Plugin dev (Dev 2) has GitHub repo access only — no server SSH | Internal junior dev scoped to api/plugins/ via branch protection; pushes to plugin/* branches, PRs to staging; main dev reviews before any code reaches production; server deploy is webhook-triggered on merge, not manual |
@@ -1238,3 +1325,18 @@ CYCLE 2 — Intelligence to Optimization
 - [ ] INFRA: Demo API key — separate named key for walkthrough sessions
 - [ ] INFRA: SSL via nginx + certbot (currently Cloudflare proxy handles TLS; needed if Cloudflare proxy ever bypassed)
 - [ ] INFRA: PostgreSQL backup strategy
+
+### Gate 2 UX — Stream + CMO split (2026-05-22)
+
+- [x] UX: Stream page split into two distinct surfaces — `/stream` = full-screen artifact feed only; `/cmo` = 40/60 split with CmoChat on left + artifact feed on right
+- [x] UX: CMO tab restored to bottom nav (Stream | CMO | Admin)
+- [x] UX: Removed "Always available" chip tray from CmoChat (Record outcome, Generate handoff brief, View Reports) — cleaned up dead handlers and viewMode state
+- [x] BUG: Artifact card Dismiss button now optimistic — card disappears immediately, API call fires in background
+- [x] BUG: ApprovalBundle Dismiss in side panel now calls api.rejectRun() and propagates onDismissed callback to close the panel and remove the card from the stream list
+- [x] ADMIN: Added four missing admin sections from wireframe gap analysis:
+  - `/admin/memory-audit` — outcome records, decision events, generate handoff brief
+  - `/admin/watchpoints` — add/edit/delete objective-bound attention rules (local state, no backend yet)
+  - `/admin/loop-flow` — 8-step annotated loop flow diagram
+  - `/admin/council-seats` — 5-seat LLM assignment form (local state, no backend yet)
+- [x] ADMIN: Nav restructured to Gate 2 / Investigate / Business / System / Post-Gate 2 grouping matching wireframe
+- [x] ADMIN: CSS for settings-group, hb-card, wp-form, flow-node, seat-card shared admin components added to index.css

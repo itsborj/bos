@@ -1,0 +1,50 @@
+COUNCIL BRIEF — Round {{ round_number }}
+Brand: {{ brand_name }}
+Session: {{ session_id }}
+Date: {{ date }}
+
+═══════════════════════════════════════
+QUESTION
+═══════════════════════════════════════
+{{ brief }}
+
+{% if brand_context %}
+═══════════════════════════════════════
+BRAND CONTEXT
+═══════════════════════════════════════
+{{ brand_context }}
+{% endif %}
+
+{% if peer_positions %}
+═══════════════════════════════════════
+PEER POSITIONS — Round {{ round_number - 1 }}
+═══════════════════════════════════════
+{% for pos in peer_positions %}
+{{ pos.seat_id | upper }}: {{ pos.content }}
+
+{% endfor %}
+{% endif %}
+
+{% if operator_injection %}
+═══════════════════════════════════════
+OPERATOR CONTEXT
+═══════════════════════════════════════
+{{ operator_injection }}
+{% endif %}
+
+═══════════════════════════════════════
+YOUR TASK
+═══════════════════════════════════════
+{% if round_number == 1 %}
+Give your independent position on this question.
+Do not hedge or defer — state your view clearly.
+{% else %}
+You have read the peer positions above.
+Respond directly to them. Update your position if warranted.
+Challenge positions you disagree with.
+{% endif %}
+
+End your response with exactly one of:
+  ALIGNED — you agree with the emerging direction
+  DISSENT — you disagree and state why
+  FLAG: [item] — you are aligned but one specific item must be resolved first

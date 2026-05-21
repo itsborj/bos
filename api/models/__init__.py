@@ -1,9 +1,15 @@
 from .api_key import ApiKey
+from .council import CouncilSession
 from .backend import ExecutionBackendOverride
 from .calendar import CalendarBooking, CalendarPage
 from .capability import Capability, ModelOption
+from .decision_brief import DecisionBrief
 from .document import WorkspaceDocument
 from .intent import CampaignIntent, IntentContract, ModuleCriterion
+from .memory import MemoryEvent
+from .objective import Objective
+from .outcome import OutcomeRecord
+from .pending_decision import PendingDecision
 from .provider import ProviderKey, ProviderLoginSession
 from .run import Run, RunAttempt, RunResult, RunTrace
 from .social import SocialConnection
@@ -16,6 +22,7 @@ __all__ = [
     "Product",
     "Audience",
     "Campaign",
+    "DecisionBrief",
     "WorkspaceDocument",
     "ProviderKey",
     "ProviderLoginSession",
@@ -30,8 +37,13 @@ __all__ = [
     "IntentContract",
     "CampaignIntent",
     "ModuleCriterion",
+    "MemoryEvent",
+    "Objective",
+    "OutcomeRecord",
+    "PendingDecision",
     "StreamUpdate",
     "SocialConnection",
     "CalendarPage",
     "CalendarBooking",
+    "CouncilSession",
 ]

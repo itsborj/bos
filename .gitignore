@@ -18,7 +18,14 @@ env/
 # Environment — never commit real keys
 .env
 .env.local
+.env.staging
 .env.*.local
+
+# Claude Code local settings (may contain embedded keys)
+.claude/settings.local.json
+
+# TypeScript build info
+web/.tsbuildinfo/
 
 # Docker
 *.log

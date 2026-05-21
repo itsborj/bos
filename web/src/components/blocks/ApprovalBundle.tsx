@@ -16,6 +16,7 @@ interface ApprovalBundleProps {
   surfaceContext: 'chat-inline' | 'panel' | 'full-screen';
   onRevision?: (reply: string, run: RunResponse, previousRunId?: string) => void;
   onApproved?: (run: RunResponse) => void;
+  onDismissed?: (run: RunResponse) => void;
   revisionHistory?: ChatHistoryItem[];
 }
 
@@ -64,7 +65,7 @@ function statusColor(status: ReviewStatus): string {
   return '#111827';
 }
 
-export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, revisionHistory = [] }: ApprovalBundleProps) {
+export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, onDismissed, revisionHistory = [] }: ApprovalBundleProps) {
   const { removePendingRun, addPendingRun, activeCampaign } = useUI();
   const [reviewStatus, setReviewStatus] = useState<ReviewStatus>('pending');
   const [modifying, setModifying] = useState(false);
@@ -110,6 +111,9 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, re
     setReviewStatus('dismissed');
     setModifying(false);
     removePendingRun(run.run_id);
+    onDismissed?.(run);
+    if (surfaceContext !== 'panel') return;
+    api.rejectRun(run.run_id, 'Dismissed from panel.').catch(() => {});
   };
 
   const buildRevisionContext = () => {
