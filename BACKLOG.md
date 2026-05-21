@@ -781,7 +781,8 @@ Deferred to Phase 4.
 - [x] META PUBLISH WIRING: Added plugin-declared `action_modules.publish`, generic `POST /runs/{run_id}/actions/{action}` approved-action endpoint, and Stream/Workspace `Approve & Publish` controls so Meta publish does not depend on CMO chat seeing hidden artifact body text.
 - [x] TEST: Verify staging BOS can connect to a Facebook Page — staging has Facebook SocialConnection rows; `marketing.channel.meta.pages.read` live Graph API read succeeded for Klarohahq page (run `88fb33d5-35f1-4cf0-a254-aa01ad78ec9c`). Local remains blocked by Facebook HTTPS redirect requirement.
 - [ ] BUG: Meta pages/read missing-credentials path returns a successful/pending run with failed block content; should surface as non-pending failure or clear setup-required artifact.
-- [~] DEPLOY: Push current localhost/staging-branch worktree to staging before continuing Meta integration.
+- [!] DEPLOY: Push current localhost/staging-branch worktree to staging before continuing Meta integration — pushed commit `d75b76f` to `origin/staging` and local staging compose is updated, but public `https://staging.klaroha.com` is still serving the older module set; investigate CI/edge routing before relying on public staging.
+- [ ] BUG: Public staging domain does not reflect latest `origin/staging` deploy after push; YouTube validation modules appear on local staging compose but not through `https://staging.klaroha.com/api/verticals/marketing/modules`.
 
 ## Active Work
 
