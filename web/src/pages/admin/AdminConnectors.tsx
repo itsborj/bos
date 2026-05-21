@@ -69,6 +69,7 @@ type ClickUpWorkspace = { id: string; name: string };
 const OAUTH_PLATFORMS: Record<string, { label: string; icon: string }> = {
   gmail:           { label: 'Gmail',           icon: '✉️' },
   google_calendar: { label: 'Google Calendar', icon: '📅' },
+  youtube:         { label: 'YouTube',         icon: '▶️' },
 };
 
 export function AdminConnectors() {
@@ -100,13 +101,17 @@ export function AdminConnectors() {
   useEffect(() => {
     const gm = searchParams.get('gmail');
     const gc = searchParams.get('google_calendar');
+    const yt = searchParams.get('youtube');
     const reason = searchParams.get('reason') || '';
-    if (gm || gc) {
+    if (gm || gc || yt) {
       setSearchParams({});
       if (gm === 'connected') showToast('✅ Gmail connected');
       else if (gm) showToast(`⚠️ Gmail failed — ${reason.replace(/_/g, ' ')}`);
       if (gc === 'connected') showToast('✅ Google Calendar connected');
       else if (gc) showToast(`⚠️ Google Calendar failed — ${reason.replace(/_/g, ' ')}`);
+      if (yt === 'connected') showToast('✅ YouTube connected');
+      else if (yt) showToast(`⚠️ YouTube failed — ${reason.replace(/_/g, ' ')}`);
+      api.listSocialConnections().then(setSocialConns).catch(() => {});
     }
   }, []);
 

@@ -542,6 +542,24 @@ The loop primitive should be platform-agnostic and should only know:
 
 ---
 
+### 2026-05-22 — Synthesis-after-results Path A implementation note
+
+- Goal: implement the first approved CMO execution-loop slice from `sample/creative_bundle_artifact_v1.md`.
+- Files touched: `api/routers/chat.py`, `sample/creative_bundle_artifact_v1.md`, `sample/council_brief_artifact_v1.md`, `BACKLOG.md`.
+- Sample used: `sample/creative_bundle_artifact_v1.md` for fast execution loop; `sample/council_brief_artifact_v1.md` remains artifact-first Council boundary reference.
+- Implementation: added generic `_continue_cmo_loop_after_results()` primitive. After specialists return, CMO sees safe artifact summaries only, emits a synthesis reply, and may request additional allowed `RUN:` directives up to max depth 3.
+- Invariants checked: no platform routing, no hardcoded module IDs, allowed-module security boundary retained, active-brand brief path retained, synthesis context excludes native artifact content.
+- Tests: `docker compose exec -T -e PYTHONPATH=/app api pytest -q tests/test_cmo_artifact_boundary_prompt.py tests/test_artifact_refs.py tests/test_brand_context_isolation.py` passed 10 tests. Full suite currently hits an existing import-shape issue in `tests/test_youtube_plugin_smoke.py` (`from api.plugins...` inside `/app`).
+
+### 2026-05-22 — Fixed sample: Facebook post + visual should not route to plan
+
+- Bad sample: "For Klaroha, draft a Facebook post for dormant prospects and generate a matching visual direction..." produced Image Generation + Campaign Plan.
+- Root cause: planning SKILL.md was too broad around campaign/launch wording and did not explicitly exclude specific execution artifacts; Meta post draft SKILL.md did not explicitly say paired Facebook post + visual requests should dispatch both post draft and image generation.
+- Fix: tightened `marketing.plan.campaign_strategy` frontmatter/exclusions and expanded `marketing.channel.meta.posts.draft` activation contract. No `chat.py` routing change.
+- Fixed sample target: Facebook Post Draft + Image Generation artifacts, then synthesis reply with Stream/Workspace refs only.
+
+---
+
 ## Invariants (must always be true)
 
 1. **Active brand = brand-scoped everything.** When `body.brand_id` is set and resolves to a Brand row, every downstream call — brief, memory, system prompt, module dispatch — must be scoped to that brand only. No workspace fallback is allowed inside an active-brand turn.

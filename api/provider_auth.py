@@ -405,18 +405,17 @@ class YouTubeOAuthHandler:
             userinfo = r.json()
 
         channel_id = None
-        if provider == "youtube":
-            async with httpx.AsyncClient(timeout=10.0) as client:
-                r = await client.get(
-                    "https://www.googleapis.com/youtube/v3/channels",
-                    params={"part": "id", "mine": "true"},
-                    headers={"Authorization": f"Bearer {access_token}"},
-                )
-                if r.status_code == 200:
-                    data = r.json()
-                    items = data.get("items", [])
-                    if items:
-                        channel_id = items[0].get("id")
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://www.googleapis.com/youtube/v3/channels",
+                params={"part": "id", "mine": "true"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                items = data.get("items", [])
+                if items:
+                    channel_id = items[0].get("id")
 
         expires_in = token_data.get("expires_in", 3600)
         return OAuthCredential(

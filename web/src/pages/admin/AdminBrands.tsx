@@ -108,6 +108,20 @@ export function AdminBrands() {
         showToast(`⚠️ Facebook connection failed — ${reason.replace(/_/g, ' ')}`);
       }
     }
+    const yt = searchParams.get('youtube');
+    if (yt) {
+      setSearchParams({}, { replace: true });
+      if (yt === 'connected') {
+        const account = searchParams.get('account') || 'YouTube channel';
+        showToast(`✅ YouTube "${account}" connected`);
+        api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
+      } else if (yt === 'denied') {
+        showToast('YouTube connection cancelled');
+      } else {
+        const reason = searchParams.get('reason') || 'unknown';
+        showToast(`⚠️ YouTube connection failed — ${reason.replace(/_/g, ' ')}`);
+      }
+    }
   }, []);
 
   async function handleCreate() {
@@ -200,6 +214,32 @@ export function AdminBrands() {
       showToast(`⚠️ Could not start Gmail connect — ${msg}`);
     } finally {
       setConnectingId(null);
+    }
+  }
+
+  async function handleConnectYouTube(brandId: string) {
+    setConnectingId(brandId + '_youtube');
+    try {
+      const res = await api.startSocialConnect(brandId, 'youtube');
+      window.location.href = res.authorize_url;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'check Google OAuth settings';
+      showToast(`⚠️ Could not start YouTube connect — ${msg}`);
+    } finally {
+      setConnectingId(null);
+    }
+  }
+
+  async function handleDisconnectYouTube(brandId: string) {
+    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'youtube');
+    if (!conn) return;
+    if (!window.confirm(`Disconnect YouTube channel "${conn.page_name}"?`)) return;
+    try {
+      await api.disconnectSocial(conn.id);
+      setConnections(prev => prev.filter(c => c.id !== conn.id));
+      showToast('YouTube channel disconnected');
+    } catch {
+      showToast('⚠️ Could not disconnect — try again');
     }
   }
 
@@ -413,6 +453,7 @@ export function AdminBrands() {
                   const gmConn = connections.find(c => c.brand_id === brand.id && c.platform === 'gmail');
                   const gcConn = connections.find(c => c.brand_id === brand.id && c.platform === 'google_calendar');
                   const fbConn = connections.find(c => c.brand_id === brand.id && c.platform === 'facebook');
+                  const ytConn = connections.find(c => c.brand_id === brand.id && c.platform === 'youtube');
                   return (
                     <>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
@@ -433,6 +474,28 @@ export function AdminBrands() {
                               disabled={connectingId === brand.id + '_facebook'}
                             >
                               {connectingId === brand.id + '_facebook' ? 'Redirecting…' : 'Connect'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <span style={{ fontSize: 13 }}>▶️</span>
+                        {ytConn ? (
+                          <>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{ytConn.page_name || ytConn.page_id}</span>
+                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectYouTube(brand.id)}>Disconnect</button>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>YouTube</span>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: 11, padding: '3px 10px' }}
+                              onClick={() => handleConnectYouTube(brand.id)}
+                              disabled={connectingId === brand.id + '_youtube'}
+                            >
+                              {connectingId === brand.id + '_youtube' ? 'Redirecting…' : 'Connect'}
                             </button>
                           </>
                         )}

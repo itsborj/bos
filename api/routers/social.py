@@ -106,7 +106,7 @@ async def start_social_connect(
     plugin_vars = await get_plugin_vars(plugin_id, db, settings) if plugin_id else {}
 
     try:
-        start = await handler.start_login(settings, overrides=plugin_vars)
+        start = await handler.start_login(settings, overrides=plugin_vars) if plugin_id else await handler.start_login(settings)
     except ValueError as exc:
         raise HTTPException(
             status_code=412,
@@ -285,80 +285,6 @@ async def google_calendar_callback(
     await db.delete(session)
     await db.commit()
     return _admin_connectors_redirect(frontend, google_calendar="connected", brand_id=brand_id, account=email)
-
-
-# ── YouTube OAuth Callback ──────────────────────────────────────────────────
-
-@router.get("/youtube/callback")
-async def youtube_callback(
-    code: str = "",
-    state: str = "",
-    error: str = "",
-    db: AsyncSession = Depends(get_db),
-    settings=Depends(get_settings),
-):
-    frontend = settings.frontend_url.rstrip("/")
-
-    if error or not code:
-        return _admin_connectors_redirect(frontend, youtube="denied", reason=error or "no_code")
-
-    session = (await db.execute(
-        select(ProviderLoginSession).where(
-            ProviderLoginSession.provider == "youtube",
-            ProviderLoginSession.state == state,
-        )
-    )).scalar_one_or_none()
-
-    if not session:
-        return _admin_connectors_redirect(frontend, youtube="error", reason="session_not_found")
-
-    raw = decrypt_secret(session.verifier_encrypted, settings)
-    stored_verifier, brand_id = (raw.split("|", 1) + [""])[:2]
-
-    ws = await get_singleton(db)
-    handler = get_oauth_handler("youtube")
-
-    try:
-        credential = await handler.complete_login(
-            code,
-            settings,
-            state=session.state,
-            verifier=stored_verifier,
-            redirect_uri=session.redirect_uri,
-        )
-    except Exception:
-        await db.delete(session)
-        await db.commit()
-        return _admin_connectors_redirect(frontend, youtube="error", reason="token_exchange_failed")
-
-    metadata = credential.metadata or {}
-    email = metadata.get("email", "")
-    channel_id = metadata.get("channel_id", "")
-
-    if not email or not channel_id:
-        await db.delete(session)
-        await db.commit()
-        return _admin_connectors_redirect(frontend, youtube="error", reason="incomplete_metadata")
-
-    token_meta = None
-    if credential.refresh_token:
-        token_meta = {
-            "refresh_token_encrypted": encrypt_secret(credential.refresh_token, settings),
-            "expires_at": credential.expires_at.isoformat() if credential.expires_at else None,
-        }
-
-    page = {
-        "id": channel_id,
-        "access_token": credential.access_token,
-        "name": metadata.get("name") or email,
-        "username": email,
-        "token_meta": token_meta,
-    }
-
-    await _store_connection(db, ws.id, brand_id or None, settings, "youtube", page)
-    await db.delete(session)
-    await db.commit()
-    return _admin_connectors_redirect(frontend, youtube="connected", brand_id=brand_id, account=metadata.get("name") or email)
 
 
 # ── YouTube OAuth Callback ──────────────────────────────────────────────────

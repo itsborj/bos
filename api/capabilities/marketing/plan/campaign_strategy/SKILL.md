@@ -1,7 +1,7 @@
 ---
 id: marketing.plan.campaign_strategy
 name: campaign-strategy-planner
-description: Use when the CMO needs to create a native campaign or marketing plan artifact for a brand, offer, launch, quarter, month, demand-capture motion, channel mix, or go-to-market priority. This implements the CMO-facing marketing.plan job. Do not use for capability questions; answer those conversationally. Do not paste the full plan inline in chat; create a Workspace plan artifact.
+description: Use only when the CMO needs to create a strategic marketing plan artifact for a brand, offer, launch, quarter, month, demand-capture motion, channel mix, or go-to-market priority. This implements the CMO-facing marketing.plan job. Do not use when the user asks to draft, write, create, or generate a specific channel artifact such as a Facebook post, social post, email, ad, image, or visual creative; route those to execution specialists instead. Do not use for capability questions; answer those conversationally. Do not paste the full plan inline in chat; create a Workspace plan artifact.
 scope: module
 status: active
 version: 0.1.0
@@ -33,6 +33,16 @@ excluded_triggers:
   - sample ads
   - draft email
   - write ad
+  - draft facebook post
+  - create a facebook post
+  - write a facebook post
+  - facebook post
+  - social post
+  - post copy
+  - matching visual
+  - visual direction
+  - generate image
+  - image generation
   - check inbox
   - check google ads performance
   - for which brand
@@ -88,7 +98,7 @@ This skill governs the native BOS Marketing Planning Specialist. It creates a re
 ## Do not activate for
 
 - Capability questions like "what can you do?".
-- A request to draft one specific channel artifact when a channel specialist owns it.
+- A request to draft one specific channel artifact when a channel specialist owns it, including Facebook/social posts, email drafts, ad drafts, images, visual directions, or paired copy + visual execution work.
 - Read-only diagnostics like checking Google Ads performance.
 - Approved external actions.
 

@@ -702,6 +702,152 @@ async def _complete_cmo_messages(
     return None
 
 
+_MAX_CMO_LOOP_DEPTH = 3
+
+
+def _normalize_self_check(value: str | None) -> str:
+    raw = (value or "").strip().lower()
+    if raw in {"pass", "passed", "ok", "success"}:
+        return "passed"
+    if raw in {"fail", "failed", "error"}:
+        return "failed"
+    if raw:
+        return "warnings"
+    return "unknown"
+
+
+def _specialist_result_summaries(run_results: list[RunResponse]) -> list[dict]:
+    """Build the only run context the CMO may see during synthesis.
+
+    Native artifact fields stay out of chat context. Workspace/Stream own those
+    previews; the CMO receives artifact refs, status, self-check, and decisions.
+    """
+    summaries: list[dict] = []
+    for run in run_results:
+        ref = artifact_ref_from_run(run)
+        block = run.result.block if run.result and isinstance(run.result.block, dict) else {}
+        allowed_actions = block.get("allowed_actions")
+        if not isinstance(allowed_actions, list) or not allowed_actions:
+            allowed_actions = ["review", "revise", "dismiss", "ask_cmo"]
+        summary = block.get("summary") if isinstance(block.get("summary"), str) else None
+        summaries.append({
+            "run_id": run.run_id,
+            "artifact_ref": ref.artifact_id,
+            "artifact_title": ref.title,
+            "artifact_type": ref.type,
+            "status": ref.status if run.status == "completed" else run.status,
+            "summary": summary or f"{ref.title} created for Stream review.",
+            "self_check": _normalize_self_check(run.result.self_check if run.result else None),
+            "recommended_decision": "review" if ref.status in {"pending_review", "saved"} else ref.status,
+            "objective_ref": run.campaign_id,
+            "brand_ref": run.brand_id,
+            "allowed_actions": allowed_actions,
+        })
+    return summaries
+
+
+def _build_synthesis_context(run_results: list[RunResponse], *, final_turn: bool) -> str:
+    return "\n".join([
+        "Specialist results are now available.",
+        "Write the operator-facing CMO reply only after reading these summaries.",
+        "Use artifact references/titles only; do not paste native artifact content, copy, prompts, targeting, budgets, or provider details.",
+        "Do not mention raw module IDs in the visible reply.",
+        "If useful and allowed, you may emit RUN directives for additional installed specialists only when more work is truly required." if not final_turn else "This is the final allowed loop turn. Do not emit RUN directives; summarize current results and next review action.",
+        "Specialist result summaries:",
+        "```json",
+        json.dumps(_specialist_result_summaries(run_results), indent=2),
+        "```",
+    ])
+
+
+async def _continue_cmo_loop_after_results(
+    db: AsyncSession,
+    ws,
+    settings,
+    messages: list[dict],
+    first_raw_reply: str,
+    initial_run_results: list[RunResponse],
+    modules: list[dict],
+    body: ChatRequest,
+    active_brand: Brand | None,
+    initial_execution_brand: Brand | None,
+    active_campaign_uuid: UUID | None,
+) -> AsyncGenerator[dict, None]:
+    """Generic CMO loop primitive: specialist results → CMO synthesis.
+
+    This mirrors tool-result loops without introducing capability-specific routing.
+    The CMO sees safe result summaries, may request more allowed RUN directives up
+    to a small depth limit, and must produce the final visible reply after results.
+    """
+    all_run_results = list(initial_run_results)
+    current_messages = list(messages)
+    current_reply = _strip_control_directives(first_raw_reply)
+    final_conversation_brand: Brand | None = None
+    final_execution_brand: Brand | None = initial_execution_brand
+    allowed_module_ids = set(m["id"] for m in modules)
+    depth = 2
+
+    while all_run_results and depth <= _MAX_CMO_LOOP_DEPTH:
+        yield {"type": "step", "label": "Synthesizing results..."}
+        final_turn = depth >= _MAX_CMO_LOOP_DEPTH
+        current_messages.append({"role": "assistant", "content": current_reply or "I requested specialist work."})
+        current_messages.append({"role": "user", "content": _build_synthesis_context(all_run_results, final_turn=final_turn)})
+        raw_reply = await _complete_cmo_messages(
+            db, ws, settings, current_messages, plan_mode=False, brand_id=body.brand_id
+        )
+        if raw_reply is None:
+            logger.warning("CMO synthesis failed; falling back to pre-synthesis reply")
+            break
+
+        scope_decision, reply_without_scope = _extract_scope_directive(raw_reply)
+        current_reply = _strip_control_directives(raw_reply)
+        scope_conversation_brand = await _resolve_scope_brand(db, ws, scope_decision.get("conversation_brand"))
+        scope_execution_brand = await _resolve_scope_brand(db, ws, scope_decision.get("execution_brand"))
+        final_conversation_brand = scope_conversation_brand or final_conversation_brand
+        final_execution_brand = scope_execution_brand or final_execution_brand
+
+        requested_modules = _RUN_RE.findall(reply_without_scope)
+        invalid = [mid for mid in requested_modules if mid not in allowed_module_ids]
+        if invalid:
+            logger.warning("CMO synthesis triggered modules outside allowed set — skipping: %s", invalid)
+        requested_modules = [mid for mid in requested_modules if mid in allowed_module_ids]
+
+        if final_turn or not requested_modules:
+            if final_turn and requested_modules:
+                logger.warning("CMO loop depth limit reached; skipping additional RUN directives: %s", requested_modules)
+            break
+
+        execution_brand = scope_execution_brand
+        if await _workspace_brands(db, ws) and not execution_brand:
+            logger.warning("CMO synthesis requested RUN without execution_brand; skipping: %s", requested_modules)
+            break
+
+        conversation_lines = [f"{h.role.upper()}: {h.text}" for h in body.history[-12:]] + [f"USER: {body.message}"]
+        brief = await _brand_scoped_brief(
+            db, ws, execution_brand or active_brand, {"conversation_context": "\n".join(conversation_lines)}
+        )
+        run_inline_params = _parse_run_inline_params(reply_without_scope)
+        yield {"type": "step", "label": "Routing to specialists..."}
+        async for event in _run_modules_streaming(
+            db, ws, requested_modules, brief, settings,
+            active_campaign_uuid, (execution_brand or active_brand).id if (execution_brand or active_brand) else None,
+            run_inline_params,
+        ):
+            yield event
+            if event["type"] == "module_result":
+                all_run_results.append(event["run"])
+
+        depth += 1
+
+    yield {
+        "type": "loop_complete",
+        "reply_text": current_reply,
+        "run_results": all_run_results,
+        "scope_conversation_brand": final_conversation_brand,
+        "scope_execution_brand": final_execution_brand,
+    }
+
+
 async def _pending_summary(db: AsyncSession, ws) -> str:
     """Return a short cross-brand pending decisions summary."""
     if not ws:
@@ -990,6 +1136,13 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
 
     run_results: list[RunResponse] = []
 
+    active_campaign_uuid: UUID | None = None
+    if body.campaign_id:
+        try:
+            active_campaign_uuid = UUID(body.campaign_id)
+        except (ValueError, TypeError):
+            pass
+
     if triggered_modules and ws:
         if await _workspace_brands(db, ws) and not execution_brand:
             yield _sse({"type": "reply", "text": reply_text or "Which brand is this artifact for?", "klar_action": KlarAction(action="pending_brand", data={"reason": "artifact_generation_requires_execution_brand"}).model_dump()})
@@ -998,12 +1151,6 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
         try:
             conversation_lines = [f"{h.role.upper()}: {h.text}" for h in body.history[-12:]] + [f"USER: {body.message}"]
             brief = await _brand_scoped_brief(db, ws, execution_brand or active_brand, {"conversation_context": "\n".join(conversation_lines)})
-            active_campaign_uuid: UUID | None = None
-            if body.campaign_id:
-                try:
-                    active_campaign_uuid = UUID(body.campaign_id)
-                except (ValueError, TypeError):
-                    pass
             active_brand_uuid: UUID | None = (execution_brand or active_brand).id if (execution_brand or active_brand) else None
             run_inline_params = _parse_run_inline_params(reply_without_scope)
 
@@ -1018,7 +1165,26 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
         except Exception as exc:
             logger.error("Brief resolution failed: %s", exc)
 
-    scope_switch_brand = scope_execution_brand if triggered_modules else scope_conversation_brand
+    final_conversation_brand = scope_conversation_brand
+    final_execution_brand = scope_execution_brand
+    if run_results:
+        async for loop_event in _continue_cmo_loop_after_results(
+            db, ws, settings, messages, raw_reply, run_results, modules, body,
+            active_brand, execution_brand, active_campaign_uuid,
+        ):
+            if loop_event["type"] == "step":
+                yield _sse({"type": "step", "label": loop_event["label"]})
+            elif loop_event["type"] == "module_start":
+                yield _sse({"type": "step", "label": f"Running {loop_event['label']}..."})
+            elif loop_event["type"] == "module_result":
+                yield _sse({"type": "module_result", "artifact_ref": artifact_ref_from_run(loop_event["run"]).model_dump()})
+            elif loop_event["type"] == "loop_complete":
+                reply_text = loop_event["reply_text"]
+                run_results = loop_event["run_results"]
+                final_conversation_brand = loop_event["scope_conversation_brand"] or final_conversation_brand
+                final_execution_brand = loop_event["scope_execution_brand"] or final_execution_brand
+
+    scope_switch_brand = final_execution_brand if run_results else final_conversation_brand
     if scope_switch_brand and body.brand_id != str(scope_switch_brand.id):
         _final_klar = KlarAction(action="brand_switch", data={"brand_id": str(scope_switch_brand.id), "brand_name": scope_switch_brand.name})
     else:
@@ -1358,6 +1524,7 @@ async def chat(
         )
         _resolved_brand_switch = _resolved_brand_switch or inferred_brand_action
 
+    list_all()  # ensure plugin skill roots are registered before chat skill routing
     routed = route_chat_skills(body.message)
     if not routed.module_ids and len(body.message.strip().split()) <= 5 and body.history:
         recent_user_context = "\n".join(h.text for h in body.history[-6:] if h.role == "user")
@@ -1442,6 +1609,12 @@ async def chat(
         logger.warning("CMO dispatch: %s", triggered_modules)
 
     run_results: list[RunResponse] = []
+    active_campaign_uuid: UUID | None = None
+    if body.campaign_id:
+        try:
+            active_campaign_uuid = UUID(body.campaign_id)
+        except (ValueError, TypeError):
+            pass
 
     if triggered_modules and ws:
         if await _workspace_brands(db, ws) and not execution_brand:
@@ -1456,12 +1629,6 @@ async def chat(
             ] + [f"USER: {body.message}"]
             chat_overrides = {"conversation_context": "\n".join(conversation_lines)}
             brief = await _brand_scoped_brief(db, ws, execution_brand or active_brand, chat_overrides)
-            active_campaign_uuid: UUID | None = None
-            if body.campaign_id:
-                try:
-                    active_campaign_uuid = UUID(body.campaign_id)
-                except (ValueError, TypeError):
-                    pass
             active_brand_uuid: UUID | None = (execution_brand or active_brand).id if (execution_brand or active_brand) else None
 
             run_inline_params = _parse_run_inline_params(reply_without_scope)
@@ -1474,6 +1641,19 @@ async def chat(
         except Exception as exc:
             logger.error("Brief resolution failed: %s", exc)
 
+    final_conversation_brand = scope_conversation_brand
+    final_execution_brand = scope_execution_brand
+    if run_results:
+        async for loop_event in _continue_cmo_loop_after_results(
+            db, ws, settings, messages, raw_reply, run_results, modules, body,
+            active_brand, execution_brand, active_campaign_uuid,
+        ):
+            if loop_event["type"] == "loop_complete":
+                reply_text = loop_event["reply_text"]
+                run_results = loop_event["run_results"]
+                final_conversation_brand = loop_event["scope_conversation_brand"] or final_conversation_brand
+                final_execution_brand = loop_event["scope_execution_brand"] or final_execution_brand
+
     if pending_plan_action:
         _final_klar = KlarAction(
             action="plan_draft",
@@ -1483,7 +1663,7 @@ async def chat(
             },
         )
     else:
-        scope_switch_brand = scope_execution_brand if triggered_modules else scope_conversation_brand
+        scope_switch_brand = final_execution_brand if run_results else final_conversation_brand
         if scope_switch_brand and body.brand_id != str(scope_switch_brand.id):
             _final_klar = KlarAction(
                 action="brand_switch",

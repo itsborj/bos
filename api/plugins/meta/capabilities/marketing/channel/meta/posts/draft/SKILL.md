@@ -1,7 +1,7 @@
 ---
 id: marketing.channel.meta.posts.draft
 name: Facebook Post Draft
-description: Use when the user asks to draft, write, create, or post something on Facebook — including casual requests like "say hi", "post a message", "share something". Always creates a draft artifact first; never publishes directly. For publishing, the user must approve the draft.
+description: Use when the user asks to draft, write, create, or post something on Facebook — including campaign-specific Facebook posts, dormant-prospect posts, social copy, paired copy + visual requests, and casual requests like "say hi", "post a message", "share something". If the user asks for a Facebook post plus a matching image/visual, dispatch this draft capability alongside the installed image generation capability. Always creates a draft artifact first; never publishes directly. For publishing, the user must approve the draft.
 scope: module
 status: active
 version: 0.1.0
@@ -21,6 +21,13 @@ triggers:
   - draft a post for facebook
   - write a post
   - post copy
+  - social copy
+  - social post
+  - facebook copy
+  - campaign post
+  - dormant prospects
+  - matching visual
+  - visual direction
   - say hi on facebook
   - say hi from
   - post a message
@@ -77,12 +84,20 @@ Never:
 
 ## CMO response behavior
 
-Show a brief acknowledgment, then dispatch with `task_name:` on the next line:
+Show a brief acknowledgment, then dispatch with `task_name:` on the next line. If the user asks for a matching visual/image, also dispatch `media.image.generate` with an image prompt derived from the same campaign angle.
 
 ```text
 Drafting a Facebook post for you.
 RUN: marketing.channel.meta.posts.draft
 task_name: <specific topic or instruction from the user — be precise>
+```
+
+```text
+Drafting the Facebook post and matching visual direction.
+RUN: marketing.channel.meta.posts.draft
+task_name: <specific topic or instruction from the user — be precise>
+RUN: media.image.generate
+image_prompt: <visual prompt based on the same campaign angle and active brand>
 ```
 
 Do NOT paste the post copy in chat. The draft goes to Workspace for review. After the user approves, they can publish via `posts.publish`.

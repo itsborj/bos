@@ -779,6 +779,9 @@ Deferred to Phase 4.
 - [x] BUG RESOLVED: `capability_manifest.py` never included plugin SKILL.md files — `build_dispatchable_manifest()` called `list_skill_manifests()` before the registry scan ran, so `_extra_skill_roots` was empty and plugin capabilities were invisible to the CMO. Fix: `build_dispatchable_manifest()` now calls `_ensure_plugins_registered()` (wraps `registry._ensure()`) before reading skills, guaranteeing registry scan runs first. All 4 Meta skills + all other plugin skills now appear in the CMO system prompt.
 - [x] BUG RESOLVED: Inline RUN params not extracted — CMO outputs `task_name:` / `message:` on lines after `RUN: <module_id>` but the dispatch loop only parsed the `RUN:` directive and ignored those lines. Fix: added `_RUN_PARAMS_RE` regex + `_parse_run_inline_params()` in `chat.py`; dispatch loop now merges per-module params into each brief. Also fixed regex with negative lookahead `(?![ \t]*RUN\s*:)` to prevent the next `RUN:` directive from being absorbed as a param of the previous module.
 - [x] META PUBLISH WIRING: Added plugin-declared `action_modules.publish`, generic `POST /runs/{run_id}/actions/{action}` approved-action endpoint, and Stream/Workspace `Approve & Publish` controls so Meta publish does not depend on CMO chat seeing hidden artifact body text.
+- [x] TEST: Verify staging BOS can connect to a Facebook Page — staging has Facebook SocialConnection rows; `marketing.channel.meta.pages.read` live Graph API read succeeded for Klarohahq page (run `88fb33d5-35f1-4cf0-a254-aa01ad78ec9c`). Local remains blocked by Facebook HTTPS redirect requirement.
+- [ ] BUG: Meta pages/read missing-credentials path returns a successful/pending run with failed block content; should surface as non-pending failure or clear setup-required artifact.
+- [~] DEPLOY: Push current localhost/staging-branch worktree to staging before continuing Meta integration.
 
 ## Active Work
 
@@ -1042,6 +1045,11 @@ CYCLE 2 — Intelligence to Optimization
 - [ ] Localhost proof harness: generate one shortform MP4 end-to-end from a hardcoded content atom with no external platform credentials
 
 **Publishing integrations**
+- [x] YOUTUBE PIPELINE VALIDATION: validate plugin discovery, OAuth callback, credential injection, and API smoke path before expanding publisher features (local/mock validated; live OAuth token still required for external proof)
+- [x] LIVE YOUTUBE OAUTH PROOF: connect a brand YouTube account and run `marketing.channel.youtube.connection.validate` against the real YouTube Data API
+- [x] BUG: YouTube CMO chat publish loses inline `video_url/title/description/privacy` fields before module execution
+- [x] BUG: YouTube publish extracts stale `video_url` from prior chat history instead of latest CMO message
+- [x] YOUTUBE CMO CHAT LIVE POST PROOF: user confirmed CMO chat posted a private video to the connected YouTube channel
 - [ ] `api/plugins/youtube/` — YouTube Shorts publisher plugin (`youtube.shorts.publish`) using Google OAuth/API; approved `shortform_video_asset` → upload vertical video with title/description/tags/privacy/schedule fields
 - [ ] YouTube quota guard: detect upload quota exhaustion, surface setup/blocker artifact, and preserve export fallback
 - [ ] Extend `api/plugins/meta/` with Instagram/Facebook Reels publishing modules (`meta.instagram.reels.publish`, `meta.facebook.reels.publish`) using hosted MP4 URL from asset storage; approval-gated action result with platform IDs/URLs
@@ -1054,9 +1062,10 @@ CYCLE 2 — Intelligence to Optimization
 ### CMO Chat Coordination
 - [x] DOCS: Establish shared CMO chat coordination hub in existing `api/routers/chat_notes.md` for multi-agent discussion, samples, invariants, and handoffs.
 - [x] DOCS: Distill Phase 6 CMO/Council loop marching orders into `PROJECT_BRIEF.md` summary + detailed `api/routers/chat_notes.md` code-dev stack.
-- [~] BITE SAMPLE: Produce Stage 2 sample for pi.dev-style Klaroha CMO agentic loop UX — fixed loop, streamed specialist steps, steering/follow-up queue, branchable session ledger, artifact review in Stream, and handoff/compaction summary.
-- [ ] BITE SAMPLE: Produce Stage 2 `council_brief` artifact sample — `@council` invocation, 5 strategist seats, final brief, parked decisions, expandable transcript detail, Stream artifact boundary.
-- [ ] CODE PREP: After approved samples, implement CMO synthesis-after-results Path A as a generic loop primitive; no platform routing, no inline artifact content, no unscoped brand dispatch.
+- [x] BITE SAMPLE: Produce Stage 2 sample for pi.dev-style Klaroha CMO agentic loop UX — fixed loop, streamed specialist steps, steering/follow-up queue, branchable session ledger, artifact review in Stream, and handoff/compaction summary. Sample updated: `sample/creative_bundle_artifact_v1.md`.
+- [x] BITE SAMPLE: Produce Stage 2 `council_brief` artifact sample — `@council` invocation, 5 strategist seats, final brief, parked decisions, expandable transcript detail, Stream artifact boundary. Sample added: `sample/council_brief_artifact_v1.md`.
+- [x] CODE PREP: After approved samples, implement CMO synthesis-after-results Path A as a generic loop primitive; no platform routing, no inline artifact content, no unscoped brand dispatch. Implemented generic `_continue_cmo_loop_after_results()` in `api/routers/chat.py`.
+- [x] BUG: Specific Facebook post + matching visual request routed to Campaign Plan + Image instead of Facebook Post Draft + Image; fixed in SKILL.md activation contracts only, no chat.py routing.
 
 ## Phase 5 — Hardening + Second Vertical
 ### Hardening
