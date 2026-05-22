@@ -225,6 +225,7 @@ The endpoint approves the source draft, builds an action brief from the persiste
 | `what did I post on facebook` | `meta.posts.read` | `meta_page_posts` | Recent posts from connected page |
 | `draft a facebook post` | `meta.posts.draft` | `fb_page_post_draft` | LLM-drafted post, no API mutation |
 | `write a post for my page` | `meta.posts.draft` | `fb_page_post_draft` | Same |
+| `draft a Facebook post and generate a matching visual` | `meta.posts.draft` + `media.image.generate` | `fb_page_post_draft` + `image_asset` | Paired draft + visual direction; no publish/spend |
 | `publish this to facebook` | `meta.posts.publish` | `fb_page_post_result` | Approval-gated; requires explicit confirm |
 | `show facebook comments` | `meta.comments.read` | `meta_comment_intelligence` | Phase 2 |
 | `reply to that comment` | `meta.comments.respond` | `meta_comment_response_result` | Phase 2, approval-gated |
@@ -342,6 +343,7 @@ Key fields for publish (`POST /{page_id}/feed`):
 
 ## Invariants
 
+- `posts.draft` routes through the seeded `marketing.channel` capability for LLM-backed channel drafting. Do not point it at the CMO-facing job label `marketing.execute`; that key is not a seeded execution capability and causes `No healthy model options` at runtime.
 - `posts.draft` never calls the Graph API. It returns a draft artifact only. `changed_resources` must always be `[]`.
 - `posts.publish` requires `allowed_actions` to include `"publish"` and must only execute after the CMO receives explicit user approval. Do not dispatch publish on a bare `RUN:` without a prior approval artifact.
 - `pages.read` and `posts.read` are strictly read-only. `changed_resources` must always be `[]`.

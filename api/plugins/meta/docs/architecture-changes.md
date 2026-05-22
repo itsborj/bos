@@ -1,5 +1,43 @@
 # Meta Plugin Architecture Changes
 
+## Facebook Draft Capability Routing Fix (2026-05-22)
+
+### Problem
+A request for a Facebook post plus matching visual correctly dispatched `marketing.channel.meta.posts.draft` and `media.image.generate`, but the Facebook draft run failed before producing an artifact:
+
+```text
+No healthy model options for this capability and policy
+```
+
+### Cause
+`posts/draft/module.py` pointed at `capability = "marketing.execute"`. In BOS today, `marketing.execute` is a CMO-facing job label / plugin metadata, not a seeded model-routing capability in the `capabilities` table. Channel draft modules must route through the seeded `marketing.channel` capability.
+
+### Fix
+Changed:
+
+```python
+capability = "marketing.channel"
+```
+
+in `api/plugins/meta/capabilities/marketing/channel/meta/posts/draft/module.py`.
+
+### Validation
+- The same CMO prompt now should produce Facebook Draft + Image Generation artifacts, not Campaign Plan.
+- Relevant tests passed in the API container:
+
+```bash
+docker compose exec -T -e PYTHONPATH=/app api pytest -q \
+  tests/test_cmo_artifact_boundary_prompt.py \
+  tests/test_artifact_refs.py \
+  tests/test_google_ads_skill_routing.py \
+  tests/test_email_cmo_skill_routing.py
+```
+
+### Architecture Note
+This is a module routing metadata fix, not CMO chat routing. Do not add phrase matching to `chat.py` for Facebook or image requests.
+
+---
+
 ## Meta Publish Wiring (2026-05-22)
 
 ### Problem

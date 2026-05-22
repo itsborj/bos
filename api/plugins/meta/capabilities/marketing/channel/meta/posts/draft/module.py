@@ -7,7 +7,7 @@ class MetaPostsDraftModule(ChannelModule):
     id = "marketing.channel.meta.posts.draft"
     name = "Facebook Post Draft"
     vertical = "marketing"
-    capability = "marketing.execute"
+    capability = "marketing.channel"
     platform_hint = "facebook post draft"
     policy_default = "balanced"
     template = "marketing/channel/meta/posts/draft/template.j2"
