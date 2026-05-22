@@ -869,23 +869,18 @@ async def approve_run(
     return {"run_id": run_id, "approval_status": "approved"}
 
 
-@router.post("/runs/{run_id}/actions/{action}", response_model=RunActionResponse, summary="Execute an approved artifact action")
-async def execute_run_action(
+async def execute_declared_run_action(
+    db: AsyncSession,
     run_id: str,
     action: str,
-    body: RunActionRequest,
-    db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_api_key),
-):
+    settings,
+    overrides: dict | None = None,
+) -> RunActionResponse:
     """Execute an action declared by a persisted artifact block.
 
-    The action target comes from plugin/capability output metadata, not router
-    phrase matching. This keeps approval-gated channel actions out of CMO chat
-    routing while still allowing Stream/Workspace to execute approved actions.
+    Generic core primitive used by Stream/Workspace and CMO chat. The action
+    target comes from plugin/capability output metadata, not platform routing.
     """
-    if not body.confirm:
-        raise HTTPException(status_code=400, detail={"error": {"code": "CONFIRM_REQUIRED", "message": "Set confirm=true to execute an external action", "details": {"action": action}}})
-
     try:
         run_uuid = UUID(run_id)
     except ValueError:
@@ -940,10 +935,9 @@ async def execute_run_action(
     if source_run.brand_id:
         _brand = (await db.execute(select(Brand).where(Brand.id == source_run.brand_id))).scalar_one_or_none()
         if _brand:
-            await _update_pm_task_status(source_run, "approved", _brand, db, get_settings())
+            await _update_pm_task_status(source_run, "approved", _brand, db, settings)
 
-    settings = get_settings()
-    action_brief = _brief_from_action_artifact(source_run, source_result, block, body.overrides)
+    action_brief = _brief_from_action_artifact(source_run, source_result, block, overrides)
     action_run = await _execute_module(
         db,
         ws,
@@ -972,6 +966,20 @@ async def execute_run_action(
         action=action,
         action_run=action_run,
     )
+
+
+@router.post("/runs/{run_id}/actions/{action}", response_model=RunActionResponse, summary="Execute an approved artifact action")
+async def execute_run_action(
+    run_id: str,
+    action: str,
+    body: RunActionRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """HTTP wrapper for executing a plugin-declared artifact action."""
+    if not body.confirm:
+        raise HTTPException(status_code=400, detail={"error": {"code": "CONFIRM_REQUIRED", "message": "Set confirm=true to execute an external action", "details": {"action": action}}})
+    return await execute_declared_run_action(db, run_id, action, get_settings(), body.overrides)
 
 
 @router.patch("/runs/{run_id}/reject", status_code=200, summary="Reject a run with feedback")

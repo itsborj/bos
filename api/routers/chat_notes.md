@@ -565,6 +565,22 @@ The loop primitive should be platform-agnostic and should only know:
 - Fix: `_run_modules_streaming()` now looks up the latest matching failed Run and yields it as a `module_result`, so the UI can show a failed artifact/setup blocker instead of silently disappearing.
 - Boundary unchanged: this does not make publishing automatic. Facebook publish still requires an explicit approved action or exact approved post text per the Meta publish SKILL.
 
+### 2026-05-22 — Direct action payload handoff principle
+
+- Sample: `sample/direct_action_payload_handoff_v1.md`.
+- Principle: if the operator gives a clear direct external-action instruction and supplies exact text, or explicitly authorizes a low-risk text-only test, that instruction is the approval/payload source. The CMO core must preserve and pass the payload to the action module.
+- Counter-principle: if BOS generates copy/image/audio/video, that generated artifact requires review before publish/send/upload unless a future sample explicitly approves an exception.
+- Generic contract target: direct-action skills declare metadata such as `action_type`, `direct_action_allowed`, `payload_text_field`, and `generated_content_requires_review`. CMO core uses metadata; plugins validate and execute.
+- Do not solve this with Facebook phrase branches in `chat.py`. The same action handoff pattern must work for Meta publish, Gmail send, YouTube upload, CMS publish, notifications, and future audio/video workflows.
+
+### 2026-05-22 — Generic ACTION directive for approved artifact deployment
+
+- Built generic `ACTION: <run_id> <action>` directive support in CMO chat.
+- `_build_system_prompt()` now lists recent brand-scoped actionable artifacts from persisted block metadata (`allowed_actions` + `action_modules`).
+- Chat/stream parse ACTION directives, call `execute_declared_run_action()`, surface the resulting action artifact, and synthesize after the action result.
+- `execute_declared_run_action()` is the shared core primitive behind both `POST /runs/{run_id}/actions/{action}` and CMO chat ACTION execution.
+- This keeps the channel-specific deploy target in plugin block metadata; CMO core only handles artifact action handoff.
+
 ---
 
 ## Invariants (must always be true)

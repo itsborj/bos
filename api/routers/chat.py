@@ -35,7 +35,7 @@ from models.intent import CampaignIntent, IntentContract
 from models.run import Run, RunResult, RunTrace
 from models.workspace import Audience, Brand, Campaign, Product
 from routers.brands import find_brand_by_name, resolve_brand
-from routers.runs import _execute_module, _resolve_brief
+from routers.runs import _execute_module, _resolve_brief, execute_declared_run_action
 from routers.workspace import get_singleton
 from schemas.runs import RunResponse, RunTraceOut
 
@@ -43,6 +43,7 @@ router = APIRouter(tags=["chat"])
 logger = logging.getLogger("bos.chat")
 
 _RUN_RE = re.compile(r"RUN:\s*([a-zA-Z0-9_.-]+)")
+_ACTION_RE = re.compile(r"ACTION:\s*([0-9a-fA-F-]{36})\s+([a-zA-Z0-9_-]+)")
 # Matches key: value lines immediately following a RUN: directive (until blank line or next RUN:)
 _RUN_PARAMS_RE = re.compile(
     r"RUN:\s*([a-zA-Z0-9_.-]+)((?:\n(?![ \t]*RUN\s*:)[ \t]*[a-zA-Z_][a-zA-Z0-9_]*\s*:[^\n]*)*)",
@@ -205,9 +206,10 @@ def _extract_scope_directive(text: str) -> tuple[dict[str, str], str]:
 
 
 def _strip_control_directives(text: str) -> str:
-    """Remove hidden scope/module-control directives from user-visible CMO copy."""
+    """Remove hidden scope/module/action-control directives from user-visible CMO copy."""
     _scope, without_scope = _extract_scope_directive(text)
     cleaned = _RUN_RE.sub("", without_scope)
+    cleaned = _ACTION_RE.sub("", cleaned)
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
     cleaned = re.sub(r" {2,}", " ", cleaned)
@@ -635,8 +637,15 @@ async def _build_system_prompt(db: AsyncSession, ws, skill_context: str = "", br
                 workspace_ctx += "Campaign Brand Kit excerpt:\n" + kit_excerpt + "\n"
 
     modules_str = format_manifest_for_prompt()
+    actionable_artifacts = await _actionable_artifacts_context(db, ws, brand=brand)
 
     operational_ctx = f"""
+
+Actionable approved/reviewable artifacts, for explicit deploy/publish/send/upload commands only:
+{actionable_artifacts}
+- To deploy an artifact action from this list, append hidden directive: ACTION: <run_id> <action>
+- Use ACTION only when the user explicitly asks to deploy/publish/send/upload an existing artifact or clearly approves it now.
+- Do not use ACTION for newly generated copy/image/audio/video unless the user is approving an existing artifact.
 
 Operational connector context, for explicit system/connector questions only:
 - MCP means Model Context Protocol, a connector layer BOS can use behind the scenes.
@@ -657,7 +666,8 @@ HARD RULES — no exceptions:
 7. Hidden scope directive: every reply must start with a SCOPE block exactly like the scope-resolution skill describes. If you append any RUN line, `execution_brand` must be one existing Brand name, not none.
 8. When the scope-resolution note sets a clear execution_brand for a new/equivalent artifact, append the matching RUN line if the installed capability exists. Do not ask for Brand profile details; BOS hydrates the execution Brand for the module.
 9. RUN lines must use ONLY the exact module IDs listed under "Deployable capabilities" below. Never invent, guess, or extrapolate a module ID. If no listed capability matches the request, say so — do not fabricate a RUN line.
-10. Never mass-dispatch. When a user asks to "trigger all capabilities", "test everything", "showcase all tools", or any similar blanket command: do NOT emit multiple RUN lines. Respond with a short capability summary and ask which specific job or brand to start with. A single turn must never dispatch more than 3 RUN lines unless the user has explicitly named each capability they want.
+10. ACTION lines must use ONLY run IDs and actions listed under "Actionable approved/reviewable artifacts". Never invent a run ID or action. ACTION is for approved artifact deployment; RUN is for specialist creation/read/action modules.
+11. Never mass-dispatch. When a user asks to "trigger all capabilities", "test everything", "showcase all tools", or any similar blanket command: do NOT emit multiple RUN lines. Respond with a short capability summary and ask which specific job or brand to start with. A single turn must never dispatch more than 3 RUN lines unless the user has explicitly named each capability they want.
 {brand_ctx}{workspace_ctx}{operational_ctx}
 Be mobile-first by default: short lines, one idea per line, no dense paragraphs. When the user asks what the project/brand/system is about, answer using the known project and operational context above. Do not claim details are unspecified if products, audiences, a brand kit, or connector context are present.
 
@@ -802,6 +812,51 @@ def _specialist_result_summaries(run_results: list[RunResponse]) -> list[dict]:
     return summaries
 
 
+def _extract_action_directives(text: str) -> list[tuple[str, str]]:
+    return [(match.group(1), match.group(2)) for match in _ACTION_RE.finditer(text or "")]
+
+
+async def _actionable_artifacts_context(db: AsyncSession, ws, brand: Brand | None = None) -> str:
+    if not ws:
+        return "No actionable artifacts available."
+    stmt = (
+        select(Run, RunTrace)
+        .join(RunTrace, RunTrace.run_id == Run.id)
+        .where(Run.workspace_id == ws.id)
+        .where(Run.status.in_(["success", "partial"]))
+        .order_by(Run.created_at.desc())
+        .limit(20)
+    )
+    if brand:
+        stmt = stmt.where(Run.brand_id == brand.id)
+    try:
+        rows = (await db.execute(stmt)).all()
+    except Exception as exc:
+        logger.debug("Could not load actionable artifacts context: %s", exc)
+        return "No actionable artifacts available."
+    lines: list[str] = []
+    for run, trace in rows:
+        block = ((trace.lineage_json or {}).get("block") if trace else None) or {}
+        if not isinstance(block, dict):
+            continue
+        action_modules = block.get("action_modules")
+        allowed_actions = block.get("allowed_actions")
+        if not isinstance(action_modules, dict) or not isinstance(allowed_actions, list):
+            continue
+        actions = [a for a in allowed_actions if isinstance(a, str) and isinstance(action_modules.get(a), str)]
+        if not actions:
+            continue
+        block_type = block.get("type") or "artifact"
+        status = run.approval_status or "pending"
+        lines.append(
+            f"- run_id: {run.id}; artifact_type: {block_type}; source_module: {run.module_id}; "
+            f"approval_status: {status}; actions: {', '.join(actions)}"
+        )
+    if not lines:
+        return "No actionable artifacts available."
+    return "\n".join(lines[:8])
+
+
 def _build_synthesis_context(run_results: list[RunResponse], *, final_turn: bool) -> str:
     return "\n".join([
         "Specialist results are now available.",
@@ -814,6 +869,20 @@ def _build_synthesis_context(run_results: list[RunResponse], *, final_turn: bool
         json.dumps(_specialist_result_summaries(run_results), indent=2),
         "```",
     ])
+
+
+async def _run_actions_streaming(
+    db: AsyncSession,
+    actions: list[tuple[str, str]],
+    settings,
+) -> AsyncGenerator[dict, None]:
+    for run_id, action in actions:
+        yield {"type": "module_start", "module_id": f"artifact_action.{action}", "label": f"Artifact {action}"}
+        try:
+            result = await execute_declared_run_action(db, run_id, action, settings)
+            yield {"type": "module_result", "module_id": f"artifact_action.{action}", "run": result.action_run}
+        except Exception as exc:
+            logger.error("Artifact action failed for run_id=%s action=%s: %s", run_id, action, exc)
 
 
 async def _continue_cmo_loop_after_results(
@@ -861,6 +930,14 @@ async def _continue_cmo_loop_after_results(
         scope_execution_brand = await _resolve_scope_brand(db, ws, scope_decision.get("execution_brand"))
         final_conversation_brand = scope_conversation_brand or final_conversation_brand
         final_execution_brand = scope_execution_brand or final_execution_brand
+
+        requested_actions = _extract_action_directives(reply_without_scope)
+        if requested_actions and not final_turn:
+            yield {"type": "step", "label": "Executing approved artifact action..."}
+            async for event in _run_actions_streaming(db, requested_actions, settings):
+                yield event
+                if event["type"] == "module_result":
+                    all_run_results.append(event["run"])
 
         requested_modules = _RUN_RE.findall(reply_without_scope)
         invalid = [mid for mid in requested_modules if mid not in allowed_module_ids]
@@ -1177,6 +1254,7 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
         return
 
     scope_decision, reply_without_scope = _extract_scope_directive(raw_reply)
+    triggered_actions = _extract_action_directives(reply_without_scope)
     triggered_modules = _RUN_RE.findall(reply_without_scope)
     reply_text = _strip_control_directives(raw_reply)
 
@@ -1198,6 +1276,15 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
             active_campaign_uuid = UUID(body.campaign_id)
         except (ValueError, TypeError):
             pass
+
+    if triggered_actions and ws:
+        yield _sse({"type": "step", "label": "Executing approved artifact action..."})
+        async for event in _run_actions_streaming(db, triggered_actions, settings):
+            if event["type"] == "module_start":
+                yield _sse({"type": "step", "label": f"Running {event['label']}..."})
+            elif event["type"] == "module_result":
+                run_results.append(event["run"])
+                yield _sse({"type": "module_result", "artifact_ref": artifact_ref_from_run(event["run"]).model_dump()})
 
     if triggered_modules and ws:
         if await _workspace_brands(db, ws) and not execution_brand:
@@ -1648,6 +1735,7 @@ async def chat(
         )
 
     scope_decision, reply_without_scope = _extract_scope_directive(raw_reply)
+    triggered_actions = _extract_action_directives(reply_without_scope)
     triggered_modules = _RUN_RE.findall(reply_without_scope)
     reply_text = _strip_control_directives(raw_reply)
 
@@ -1674,6 +1762,11 @@ async def chat(
             active_campaign_uuid = UUID(body.campaign_id)
         except (ValueError, TypeError):
             pass
+
+    if triggered_actions and ws:
+        async for event in _run_actions_streaming(db, triggered_actions, settings):
+            if event["type"] == "module_result":
+                run_results.append(event["run"])
 
     if triggered_modules and ws:
         if await _workspace_brands(db, ws) and not execution_brand:

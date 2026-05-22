@@ -57,6 +57,10 @@ metadata:
   platform: facebook
   output_contract: fb_page_post_result
   risk_policy: approval_gated
+  action_type: publish
+  direct_action_allowed: true
+  payload_text_field: message
+  generated_content_requires_review: true
 ---
 
 # Facebook Post Publish
