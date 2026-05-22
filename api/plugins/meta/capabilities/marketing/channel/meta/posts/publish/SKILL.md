@@ -1,7 +1,7 @@
 ---
 id: marketing.channel.meta.posts.publish
 name: Facebook Post Publish
-description: Use ONLY when the user has explicitly approved a specific Facebook post draft and is now asking to publish that exact approved text. Never use for new post creation — even casual ones like "post hello world" or "say hi". Those always go to posts/draft first. Only triggers after a draft artifact exists and the user says to go ahead.
+description: Use when the user explicitly instructs BOS to post/publish text directly to a Facebook Page, including low-risk test posts where the operator says the copy does not matter or gives exact text. The direct command itself is approval for that text-only external action. Also use when the user has approved a specific Facebook draft and asks to publish it. Never use for vague new creative drafting requests; those go to posts/draft first.
 scope: module
 status: active
 version: 0.1.0
@@ -19,19 +19,24 @@ triggers:
   - post it to facebook
   - publish this to my page
   - send this post
+  - post in facebook
+  - post on facebook
+  - post to facebook
+  - post in klaroha fb page
+  - klaroha fb page
+  - facebook test post
+  - test post
+  - text only
+  - just testing
 excluded_triggers:
   - draft a post
   - write a post
   - show my posts
   - what did I post
   - schedule a post
-  - post on facebook
-  - post in facebook
-  - post on
-  - just say
-  - say hi
-  - say hello
-  - post something
+  - draft a facebook post
+  - draft a post
+  - write a post
   - write something
 memory_slots:
   - brand_profile
@@ -58,26 +63,27 @@ metadata:
 
 ## Purpose
 
-Publish an approved Facebook post draft to the connected Page via the Graph API. Only dispatches after explicit user confirmation.
+Publish text to the connected Facebook Page via the Graph API.
+
+Direct text-only publish is allowed when the operator's message is itself an explicit instruction to post/publish, especially for test posts. In that case, the CMO must provide `message:` from either exact user text or a short safe test message derived from the instruction. Draft approval is still required for creative generation where the user asks to write/draft/create copy for review.
 
 ## Hard boundaries
 
-- Never dispatch without the approved post text in `brief["message"]`
-- Never dispatch on a bare user request without prior draft approval
+- Never dispatch without post text in `brief["message"]` or a clear exact/direct test-post instruction that can be converted into post text.
+- Never dispatch for vague creative drafting requests; use posts/draft instead.
 - Never fabricate the response — if the Graph API call fails, surface the error
 
 ## CMO response behavior
 
-Only dispatch after the user has confirmed they want to publish the specific post.
-Output the `message:` param on the line immediately after `RUN:` — this is required:
+Dispatch when the operator clearly says to post/publish to Facebook now. Output the `message:` param on the line immediately after `RUN:` — this is required:
 
 ```text
-Publishing your approved post to Facebook.
+Posting this to Facebook now.
 RUN: marketing.channel.meta.posts.publish
-message: <paste the exact approved post text here — no quotes, no truncation>
+message: <exact text to publish — no quotes, no truncation>
 ```
 
-If the approved post text is not available in context, tell the user to use the artifact's **Approve & Publish** action in Stream/Workspace or ask them to paste the exact approved post text. Never dispatch with a blank or placeholder message.
+For a low-risk test instruction where the operator says text-only/copy does not matter, create a short transparent test message, e.g. `Test post from Klaroha.` and pass that as `message:`. If the user asks to draft/write/create a polished post rather than post now, use `marketing.channel.meta.posts.draft`.
 
 ## Outcome contract
 

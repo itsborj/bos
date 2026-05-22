@@ -1,7 +1,7 @@
 ---
 id: marketing.channel.meta.posts.draft
 name: Facebook Post Draft
-description: Use when the user asks to draft, write, create, or post something on Facebook — including campaign-specific Facebook posts, dormant-prospect posts, social copy, paired copy + visual requests, and casual requests like "say hi", "post a message", "share something". If the user asks for a Facebook post plus a matching image/visual, dispatch this draft capability alongside the installed image generation capability. Always creates a draft artifact first; never publishes directly. For publishing, the user must approve the draft.
+description: Use when the user asks to draft, write, create, compose, or prepare Facebook copy for review — including campaign-specific Facebook posts, dormant-prospect posts, social copy, paired copy + visual requests, and casual requests where review is implied. If the user asks for a Facebook post plus a matching image/visual, dispatch this draft capability alongside the installed image generation capability. Do not use when the operator explicitly says to post/publish now or says a text-only test post is fine; those direct external-action instructions belong to posts/publish.
 scope: module
 status: active
 version: 0.1.0
@@ -33,13 +33,19 @@ triggers:
   - post a message
   - post something on facebook
   - share something on facebook
-  - post on facebook
-  - post in facebook
   - write something for facebook
 excluded_triggers:
   - publish to facebook
   - publish this post
   - go live on facebook
+  - post in facebook
+  - post on facebook
+  - post to facebook
+  - post in klaroha fb page
+  - facebook test post
+  - test post
+  - text only
+  - just testing
   - what did I post
   - show my posts
   - show facebook posts

@@ -1071,6 +1071,7 @@ CYCLE 2 — Intelligence to Optimization
 - [x] BUG: Failed specialist dispatch can disappear from chat/Stream because `_run_modules_streaming()` logs exceptions but yields no failed artifact/result; failed persisted Run rows are now yielded as module_result events.
 - [x] BUG: Direct Facebook publish instruction can dispatch publish without `message` param; CMO visible reply contains the intended post text but module brief does not receive it. Fixed by passing `cmo_directive_text` into briefs and extracting quoted direct-publish text in Meta publish module.
 - [x] LIVE META TERMINAL POST PROOF: public staging `/api/runs` executed `marketing.channel.meta.posts.publish` against connected Klarohahq Facebook Page; Graph API returned post ID `1172728675913055_122106319191295887` and permalink.
+- [x] BUG: Explicit direct Facebook post instructions route to draft instead of publish; operator wording grants approval for low-risk text-only test posts. Fixed Meta SKILL.md contracts and added routing tests.
 - [!] INFRA BUG: Public `staging.klaroha.com` is not serving the staging compose stack; fixed local compose nginx exposure from 8082 → 8080, but public Cloudflare route still returns a different long-running API instance. Blocked on Cloudflare/origin route access.
 
 ## Phase 5 — Hardening + Second Vertical
