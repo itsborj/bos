@@ -35,6 +35,12 @@ class Settings(BaseSettings):
     meta_app_secret: str = ""
     meta_redirect_uri: str = "http://localhost/social/facebook/callback"
 
+    # TikTok OAuth
+    tiktok_client_key: str = ""
+    tiktok_client_secret: str = ""
+    tiktok_redirect_uri: str = "http://localhost/social/tiktok/callback"
+    tiktok_scopes: str = "user.info.basic"
+
     # Frontend base URL — used to redirect after OAuth callbacks
     frontend_url: str = "http://localhost"
 

@@ -28,6 +28,7 @@ from routers.workspace import get_singleton
 # Platforms that load OAuth app credentials from plugin vars (DB) rather than .env
 _PLATFORM_PLUGIN_ID: dict[str, str] = {
     "facebook": "channel.meta",
+    "tiktok": "channel.tiktok",
 }
 
 router = APIRouter(prefix="/social", tags=["social"])
@@ -361,6 +362,82 @@ async def youtube_callback(
     return _admin_connectors_redirect(frontend, youtube="connected", brand_id=brand_id, account=metadata.get("name") or email)
 
 
+# ── TikTok OAuth Callback ────────────────────────────────────────────────────
+
+@router.get("/tiktok/callback")
+async def tiktok_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    frontend = settings.frontend_url.rstrip("/")
+
+    if error or not code:
+        return _admin_connectors_redirect(frontend, tiktok="denied", reason=error or "no_code")
+
+    session = (await db.execute(
+        select(ProviderLoginSession).where(
+            ProviderLoginSession.provider == "tiktok",
+            ProviderLoginSession.state == state,
+        )
+    )).scalar_one_or_none()
+
+    if not session:
+        return _admin_connectors_redirect(frontend, tiktok="error", reason="session_not_found")
+
+    raw = decrypt_secret(session.verifier_encrypted, settings)
+    stored_verifier, brand_id = (raw.split("|", 1) + [""])[:2]
+
+    ws = await get_singleton(db)
+    handler = get_oauth_handler("tiktok")
+    plugin_vars = await get_plugin_vars("channel.tiktok", db, settings)
+
+    try:
+        credential = await handler.complete_login(
+            code,
+            settings,
+            state=session.state,
+            verifier=stored_verifier,
+            redirect_uri=session.redirect_uri,
+            overrides=plugin_vars,
+        )
+    except Exception:
+        await db.delete(session)
+        await db.commit()
+        return _admin_connectors_redirect(frontend, tiktok="error", reason="token_exchange_failed")
+
+    metadata = credential.metadata or {}
+    open_id = metadata.get("open_id", "")
+    if not open_id:
+        await db.delete(session)
+        await db.commit()
+        return _admin_connectors_redirect(frontend, tiktok="error", reason="no_account_returned")
+
+    token_meta = None
+    if credential.refresh_token:
+        token_meta = {
+            "refresh_token_encrypted": encrypt_secret(credential.refresh_token, settings),
+            "expires_at": credential.expires_at.isoformat() if credential.expires_at else None,
+        }
+        if metadata.get("refresh_expires_at"):
+            token_meta["refresh_expires_at"] = metadata["refresh_expires_at"]
+
+    page = {
+        "id": open_id,
+        "access_token": credential.access_token,
+        "name": metadata.get("display_name") or open_id,
+        "username": metadata.get("profile_deep_link") or None,
+        "token_meta": token_meta,
+    }
+
+    await _store_connection(db, ws.id, brand_id or None, settings, "tiktok", page)
+    await db.delete(session)
+    await db.commit()
+    return _admin_connectors_redirect(frontend, tiktok="connected", brand_id=brand_id, account=metadata.get("display_name") or open_id)
+
+
 # ── Facebook OAuth Callback ───────────────────────────────────────────────────
 
 @router.get("/facebook/callback")
@@ -591,7 +668,12 @@ async def get_page_token(db: AsyncSession, brand_id: str, platform: str, setting
             if handler:
                 try:
                     refresh_token = decrypt_secret(refresh_token_enc, settings)
-                    refreshed = await handler.refresh_auth(refresh_token, settings)
+                    plugin_id = _PLATFORM_PLUGIN_ID.get(platform)
+                    plugin_vars = await get_plugin_vars(plugin_id, db, settings) if plugin_id else {}
+                    try:
+                        refreshed = await handler.refresh_auth(refresh_token, settings, overrides=plugin_vars) if plugin_id else await handler.refresh_auth(refresh_token, settings)
+                    except TypeError:
+                        refreshed = await handler.refresh_auth(refresh_token, settings)
                     row.access_token_encrypted = encrypt_secret(refreshed.access_token, settings)
                     new_meta = dict(meta)
                     new_meta["expires_at"] = refreshed.expires_at.isoformat() if refreshed.expires_at else None

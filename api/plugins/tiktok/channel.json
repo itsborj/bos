@@ -1,0 +1,22 @@
+{
+  "plugin_id": "channel.tiktok",
+  "name": "TikTok Specialist",
+  "version": "0.1.0",
+  "klaroha_min_version": "3.5",
+  "capabilities_root": "capabilities/",
+  "implements": ["marketing.execute", "marketing.optimize"],
+  "specialty": ["tiktok", "shortform_video", "connector_validation", "manual_export"],
+  "platforms": ["tiktok"],
+  "connector_protocol": "tiktok_oauth2_open_api_v2",
+  "risk_policy": "connection_validate_is_read_only; posting_requires_video_asset_and_explicit_approval",
+  "output_contracts": ["tiktok_connection_check", "tiktok_test_post_draft"],
+  "requires_social_connection": ["tiktok"],
+  "requires_platform_vars": [
+    "TIKTOK_CLIENT_KEY",
+    "TIKTOK_CLIENT_SECRET",
+    "TIKTOK_REDIRECT_URI"
+  ],
+  "capability_ids": [
+    "marketing.channel.tiktok.connection.validate"
+  ]
+}

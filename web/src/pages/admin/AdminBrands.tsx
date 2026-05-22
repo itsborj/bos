@@ -122,6 +122,20 @@ export function AdminBrands() {
         showToast(`⚠️ YouTube connection failed — ${reason.replace(/_/g, ' ')}`);
       }
     }
+    const tt = searchParams.get('tiktok');
+    if (tt) {
+      setSearchParams({}, { replace: true });
+      if (tt === 'connected') {
+        const account = searchParams.get('account') || 'TikTok account';
+        showToast(`✅ TikTok "${account}" connected`);
+        api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
+      } else if (tt === 'denied') {
+        showToast('TikTok connection cancelled');
+      } else {
+        const reason = searchParams.get('reason') || 'unknown';
+        showToast(`⚠️ TikTok connection failed — ${reason.replace(/_/g, ' ')}`);
+      }
+    }
   }, []);
 
   async function handleCreate() {
@@ -238,6 +252,32 @@ export function AdminBrands() {
       await api.disconnectSocial(conn.id);
       setConnections(prev => prev.filter(c => c.id !== conn.id));
       showToast('YouTube channel disconnected');
+    } catch {
+      showToast('⚠️ Could not disconnect — try again');
+    }
+  }
+
+  async function handleConnectTikTok(brandId: string) {
+    setConnectingId(brandId + '_tiktok');
+    try {
+      const res = await api.startSocialConnect(brandId, 'tiktok');
+      window.location.href = res.authorize_url;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'check TikTok OAuth settings';
+      showToast(`⚠️ Could not start TikTok connect — ${msg}`);
+    } finally {
+      setConnectingId(null);
+    }
+  }
+
+  async function handleDisconnectTikTok(brandId: string) {
+    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'tiktok');
+    if (!conn) return;
+    if (!window.confirm(`Disconnect TikTok account "${conn.page_name}"?`)) return;
+    try {
+      await api.disconnectSocial(conn.id);
+      setConnections(prev => prev.filter(c => c.id !== conn.id));
+      showToast('TikTok account disconnected');
     } catch {
       showToast('⚠️ Could not disconnect — try again');
     }
@@ -454,6 +494,7 @@ export function AdminBrands() {
                   const gcConn = connections.find(c => c.brand_id === brand.id && c.platform === 'google_calendar');
                   const fbConn = connections.find(c => c.brand_id === brand.id && c.platform === 'facebook');
                   const ytConn = connections.find(c => c.brand_id === brand.id && c.platform === 'youtube');
+                  const ttConn = connections.find(c => c.brand_id === brand.id && c.platform === 'tiktok');
                   return (
                     <>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
@@ -496,6 +537,28 @@ export function AdminBrands() {
                               disabled={connectingId === brand.id + '_youtube'}
                             >
                               {connectingId === brand.id + '_youtube' ? 'Redirecting…' : 'Connect'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <span style={{ fontSize: 13 }}>🎵</span>
+                        {ttConn ? (
+                          <>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{ttConn.page_name || ttConn.page_id}</span>
+                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectTikTok(brand.id)}>Disconnect</button>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>TikTok</span>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: 11, padding: '3px 10px' }}
+                              onClick={() => handleConnectTikTok(brand.id)}
+                              disabled={connectingId === brand.id + '_tiktok'}
+                            >
+                              {connectingId === brand.id + '_tiktok' ? 'Redirecting…' : 'Connect'}
                             </button>
                           </>
                         )}

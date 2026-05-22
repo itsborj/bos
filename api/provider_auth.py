@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import os
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -150,6 +151,10 @@ _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 _GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v1/userinfo"
 _GOOGLE_SCOPES = "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly openid email"
 _YOUTUBE_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl openid email"
+_TIKTOK_AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/"
+_TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
+_TIKTOK_USERINFO_URL = "https://open.tiktokapis.com/v2/user/info/"
+_TIKTOK_SCOPES = "user.info.basic"
 
 
 class GmailOAuthHandler:
@@ -460,6 +465,134 @@ _FACEBOOK_GRAPH_URL = "https://graph.facebook.com/v21.0"
 _FACEBOOK_SCOPES = "pages_show_list,pages_read_engagement,pages_manage_posts"
 
 
+class TikTokOAuthHandler:
+    provider = "tiktok"
+    display_name = "TikTok"
+
+    def _client_key(self, settings, overrides: dict) -> str:
+        v = overrides.get("tiktok_client_key") or overrides.get("TIKTOK_CLIENT_KEY") or settings.tiktok_client_key or os.getenv("TIKTOK_CLIENT_KEY", "")
+        if not v:
+            raise ValueError("TIKTOK_CLIENT_KEY is not configured")
+        return v
+
+    def _client_secret(self, settings, overrides: dict) -> str:
+        v = overrides.get("tiktok_client_secret") or overrides.get("TIKTOK_CLIENT_SECRET") or settings.tiktok_client_secret or os.getenv("TIKTOK_CLIENT_SECRET", "")
+        if not v:
+            raise ValueError("TIKTOK_CLIENT_SECRET is not configured")
+        return v
+
+    def _redirect_uri(self, settings, overrides: dict) -> str:
+        v = overrides.get("tiktok_redirect_uri") or overrides.get("TIKTOK_REDIRECT_URI") or settings.tiktok_redirect_uri or os.getenv("TIKTOK_REDIRECT_URI", "")
+        if not v:
+            raise ValueError("TIKTOK_REDIRECT_URI is not configured")
+        return v
+
+    def _scopes(self, settings, overrides: dict) -> str:
+        return overrides.get("tiktok_scopes") or overrides.get("TIKTOK_SCOPES") or settings.tiktok_scopes or os.getenv("TIKTOK_SCOPES", "") or _TIKTOK_SCOPES
+
+    async def start_login(self, settings, overrides: dict | None = None) -> LoginStart:
+        overrides = overrides or {}
+        client_key = self._client_key(settings, overrides)
+        redirect_uri = self._redirect_uri(settings, overrides)
+        verifier, challenge = _generate_pkce()
+        state = secrets.token_hex(16)
+        params = {
+            "client_key": client_key,
+            "response_type": "code",
+            "scope": self._scopes(settings, overrides),
+            "redirect_uri": redirect_uri,
+            "state": state,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        }
+        return LoginStart(
+            login_type="browser",
+            authorize_url=f"{_TIKTOK_AUTHORIZE_URL}?{urlencode(params)}",
+            state=state,
+            verifier=verifier,
+            redirect_uri=redirect_uri,
+        )
+
+    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str, overrides: dict | None = None) -> OAuthCredential:
+        overrides = overrides or {}
+        client_key = self._client_key(settings, overrides)
+        client_secret = self._client_secret(settings, overrides)
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _TIKTOK_TOKEN_URL,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data={
+                    "client_key": client_key,
+                    "client_secret": client_secret,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,
+                    "code_verifier": verifier,
+                },
+            )
+            r.raise_for_status()
+            token_data = r.json()
+
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise ValueError("TikTok token exchange failed — no access_token in response")
+
+        metadata: dict = {}
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                _TIKTOK_USERINFO_URL,
+                params={"fields": "open_id,union_id,avatar_url,display_name,profile_deep_link"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if r.status_code == 200:
+                user = (r.json().get("data") or {}).get("user") or {}
+                metadata = {
+                    "open_id": user.get("open_id"),
+                    "display_name": user.get("display_name"),
+                    "profile_deep_link": user.get("profile_deep_link"),
+                    "avatar_url": user.get("avatar_url"),
+                }
+
+        expires_in = token_data.get("expires_in", 86400)
+        refresh_expires_in = token_data.get("refresh_expires_in")
+        if refresh_expires_in:
+            metadata["refresh_expires_at"] = (datetime.now(timezone.utc) + timedelta(seconds=int(refresh_expires_in))).isoformat()
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=token_data.get("refresh_token"),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+            metadata=metadata,
+        )
+
+    async def refresh_auth(self, refresh_token: str, settings, overrides: dict | None = None) -> OAuthCredential:
+        overrides = overrides or {}
+        client_key = self._client_key(settings, overrides)
+        client_secret = self._client_secret(settings, overrides)
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _TIKTOK_TOKEN_URL,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data={
+                    "client_key": client_key,
+                    "client_secret": client_secret,
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+
+        access_token = data.get("access_token")
+        if not access_token:
+            raise ValueError("TikTok token refresh failed — no access_token in response")
+        expires_in = data.get("expires_in", 86400)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=data.get("refresh_token") or refresh_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+        )
+
+
 class FacebookOAuthHandler:
     provider = "facebook"
     display_name = "Facebook"
@@ -581,6 +714,7 @@ _OAUTH_HANDLERS: dict[str, OAuthProviderHandler] = {
     "gmail": GmailOAuthHandler(),
     "google_calendar": GoogleCalendarOAuthHandler(),
     "youtube": YouTubeOAuthHandler(),
+    "tiktok": TikTokOAuthHandler(),
     "facebook": FacebookOAuthHandler(),
 }
 

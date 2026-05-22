@@ -1055,7 +1055,7 @@ CYCLE 2 — Intelligence to Optimization
 - [ ] YouTube quota guard: detect upload quota exhaustion, surface setup/blocker artifact, and preserve export fallback
 - [ ] Extend `api/plugins/meta/` with Instagram/Facebook Reels publishing modules (`meta.instagram.reels.publish`, `meta.facebook.reels.publish`) using hosted MP4 URL from asset storage; approval-gated action result with platform IDs/URLs
 - [ ] Meta/Instagram setup gate: linked IG Business account + required permissions + app review state surfaced as connector readiness; staging/prod OAuth only unless Cloudflare Tunnel local dev is configured
-- [ ] `api/plugins/tiktok/` planning/sample first — manual export remains default until TikTok Content Posting API access/review is approved; no build blocked on TikTok approval
+- [x] `api/plugins/tiktok/` planning/sample first — manual export remains default until TikTok Content Posting API access/review is approved; no build blocked on TikTok approval
 - [ ] Scheduler handoff integration: export compatible CSV fields for Buffer/Later/Metricool/manual uploader before native platform scheduling exists
 - [ ] Publish audit trail: every native publish writes `action_result` artifact with changed_resources, platform post ID, URL, timestamp, publishing account, and source video asset ID
 - [ ] Platform analytics follow-up backlog: YouTube/Meta/TikTok performance read modules should become `marketing.optimize` analyst capabilities after publish proof, not before
