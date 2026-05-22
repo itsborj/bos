@@ -1206,7 +1206,10 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
             return
         try:
             conversation_lines = [f"{h.role.upper()}: {h.text}" for h in body.history[-12:]] + [f"USER: {body.message}"]
-            brief = await _brand_scoped_brief(db, ws, execution_brand or active_brand, {"conversation_context": "\n".join(conversation_lines)})
+            brief = await _brand_scoped_brief(db, ws, execution_brand or active_brand, {
+                "conversation_context": "\n".join(conversation_lines),
+                "cmo_directive_text": reply_without_scope,
+            })
             active_brand_uuid: UUID | None = (execution_brand or active_brand).id if (execution_brand or active_brand) else None
             run_inline_params = _parse_run_inline_params(reply_without_scope)
 
@@ -1683,7 +1686,10 @@ async def chat(
             conversation_lines = [
                 f"{h.role.upper()}: {h.text}" for h in body.history[-12:]
             ] + [f"USER: {body.message}"]
-            chat_overrides = {"conversation_context": "\n".join(conversation_lines)}
+            chat_overrides = {
+                "conversation_context": "\n".join(conversation_lines),
+                "cmo_directive_text": reply_without_scope,
+            }
             brief = await _brand_scoped_brief(db, ws, execution_brand or active_brand, chat_overrides)
             active_brand_uuid: UUID | None = (execution_brand or active_brand).id if (execution_brand or active_brand) else None
 

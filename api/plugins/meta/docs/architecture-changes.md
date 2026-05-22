@@ -1,5 +1,47 @@
 # Meta Plugin Architecture Changes
 
+## Direct Facebook Publish Message Extraction Fix (2026-05-22)
+
+### Problem
+A direct operator instruction to post to the Klaroha Facebook Page dispatched `marketing.channel.meta.posts.publish`, but the module received no `message` field and returned:
+
+```text
+brief must include message (the approved post text)
+```
+
+The CMO visible reply contained the intended exact text, e.g. `I'll post "Hi from Klaroha CMO"...`, but that text was not threaded into the module brief.
+
+### Fix
+- Chat dispatch now includes the stripped CMO directive text as `brief["cmo_directive_text"]`.
+- Meta publish module now derives the message from, in order:
+  1. explicit `message` / `post_text` / `text` / `approved_post_text`
+  2. quoted text in `cmo_directive_text`
+  3. safe non-generic `task_name`
+
+### Validation
+
+```bash
+docker compose exec -T api python - <<'PY'
+from pathlib import Path
+for path in [
+    '/app/routers/chat.py',
+    '/app/plugins/meta/capabilities/marketing/channel/meta/posts/publish/module.py',
+]:
+    compile(Path(path).read_text(), path, 'exec')
+print('syntax ok')
+PY
+
+docker compose exec -T -e PYTHONPATH=/app api pytest -q \
+  tests/test_cmo_artifact_boundary_prompt.py \
+  tests/test_artifact_refs.py \
+  tests/test_brand_context_isolation.py
+```
+
+### Boundary
+This enables an explicit direct publish instruction with exact post text. It does not relax artifact approval for generated drafts; draft → Approve & Publish remains the normal path when the post text has not been specified.
+
+---
+
 ## Facebook Draft Capability Routing Fix (2026-05-22)
 
 ### Problem

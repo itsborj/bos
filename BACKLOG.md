@@ -1069,6 +1069,7 @@ CYCLE 2 — Intelligence to Optimization
 - [x] BUG: Specific Facebook post + matching visual request routed to Campaign Plan + Image instead of Facebook Post Draft + Image; fixed in SKILL.md activation contracts only, no chat.py routing.
 - [x] BUG: Facebook Post Draft specialist starts but fails with `No healthy model options` because module capability points at non-seeded `marketing.execute` instead of routed channel capability; changed draft module capability to `marketing.channel`.
 - [x] BUG: Failed specialist dispatch can disappear from chat/Stream because `_run_modules_streaming()` logs exceptions but yields no failed artifact/result; failed persisted Run rows are now yielded as module_result events.
+- [x] BUG: Direct Facebook publish instruction can dispatch publish without `message` param; CMO visible reply contains the intended post text but module brief does not receive it. Fixed by passing `cmo_directive_text` into briefs and extracting quoted direct-publish text in Meta publish module.
 - [!] INFRA BUG: Public `staging.klaroha.com` is not serving the staging compose stack; fixed local compose nginx exposure from 8082 → 8080, but public Cloudflare route still returns a different long-running API instance. Blocked on Cloudflare/origin route access.
 
 ## Phase 5 — Hardening + Second Vertical

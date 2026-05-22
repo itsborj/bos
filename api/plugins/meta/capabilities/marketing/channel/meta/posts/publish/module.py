@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -65,6 +66,26 @@ class MetaPostsPublishModule(ChannelModule):
         with urlopen(req, timeout=35) as resp:
             return json.loads(resp.read().decode("utf-8"))
 
+    def _message_from_brief(self, brief: dict) -> str:
+        for key in ("message", "post_text", "text", "approved_post_text"):
+            value = str(brief.get(key, "")).strip()
+            if value:
+                return value
+
+        directive = str(brief.get("cmo_directive_text", "")).strip()
+        if directive:
+            # If the CMO says it is posting an exact quoted string, use that as
+            # the approved post text. This keeps direct-publish instructions from
+            # failing when the model forgets the `message:` inline param.
+            quoted = re.search(r"[\"“](.+?)[\"”]", directive, flags=re.DOTALL)
+            if quoted and quoted.group(1).strip():
+                return quoted.group(1).strip()
+
+        task_name = str(brief.get("task_name", "")).strip()
+        if task_name and not task_name.lower().startswith(("publish", "post to", "post on")):
+            return task_name
+        return ""
+
     def execute_tool_result(self, brief: dict) -> tuple[dict, dict]:
         start = time.perf_counter()
         try:
@@ -80,7 +101,7 @@ class MetaPostsPublishModule(ChannelModule):
             if not page_id:
                 return self._failure(start, "missing_credentials", "Facebook page ID not found")
 
-            message = str(brief.get("message", "")).strip()
+            message = self._message_from_brief(brief)
             if not message:
                 return self._failure(start, "missing_message", "brief must include message (the approved post text)")
 
