@@ -32,12 +32,12 @@ from skills.memory import compile_memory_context, hydrate_memory_slots
 from skills.router import route_chat_skills
 from models.document import WorkspaceDocument
 from models.intent import CampaignIntent, IntentContract
-from models.run import Run, RunResult
+from models.run import Run, RunResult, RunTrace
 from models.workspace import Audience, Brand, Campaign, Product
 from routers.brands import find_brand_by_name, resolve_brand
 from routers.runs import _execute_module, _resolve_brief
 from routers.workspace import get_singleton
-from schemas.runs import RunResponse
+from schemas.runs import RunResponse, RunTraceOut
 
 router = APIRouter(tags=["chat"])
 logger = logging.getLogger("bos.chat")
@@ -257,6 +257,59 @@ def _sse(event: dict) -> str:
     return f"data: {json.dumps(event)}\n\n"
 
 
+async def _latest_failed_run_response(
+    db: AsyncSession,
+    ws,
+    module_id: str,
+    campaign_id,
+    brand_id,
+) -> RunResponse | None:
+    """Return the failed Run row created by `_execute_module()`, if any.
+
+    `_execute_module()` persists failed runs for routing/provider failures before
+    raising. Chat/stream must still surface that failed result instead of making
+    the specialist step disappear.
+    """
+    if not ws:
+        return None
+    stmt = select(Run).where(
+        Run.workspace_id == ws.id,
+        Run.module_id == module_id,
+        Run.status == "failed",
+    )
+    if brand_id:
+        stmt = stmt.where(Run.brand_id == brand_id)
+    if campaign_id:
+        stmt = stmt.where(Run.campaign_id == campaign_id)
+    failed_run = (await db.execute(stmt.order_by(Run.created_at.desc()).limit(1))).scalar_one_or_none()
+    if not failed_run:
+        return None
+    trace_row = (await db.execute(
+        select(RunTrace).where(RunTrace.run_id == failed_run.id)
+    )).scalar_one_or_none()
+    routing = trace_row.routing_json if trace_row and trace_row.routing_json else {}
+    return RunResponse(
+        run_id=str(failed_run.id),
+        module_id=failed_run.module_id,
+        vertical="marketing",
+        status=failed_run.status,
+        approval_status=failed_run.approval_status,
+        campaign_id=str(failed_run.campaign_id) if failed_run.campaign_id else None,
+        brand_id=str(failed_run.brand_id) if failed_run.brand_id else None,
+        result=None,
+        execution=None,
+        trace=RunTraceOut(
+            capability=routing.get("capability", ""),
+            policy=routing.get("policy", "balanced"),
+            candidates_considered=routing.get("candidates_considered", 0),
+            candidates_filtered=routing.get("candidates_filtered", 0),
+            winner=routing.get("winner"),
+            routing_reason=routing.get("routing_reason", routing.get("error", "failed before execution")),
+        ) if routing else None,
+        created_at=failed_run.created_at,
+    )
+
+
 async def _run_modules_streaming(
     db: AsyncSession,
     ws,
@@ -287,6 +340,9 @@ async def _run_modules_streaming(
             yield {"type": "module_result", "module_id": module_id, "run": result}
         except Exception as exc:
             logger.error("Module dispatch failed for %s: %s", module_id, exc)
+            failed_result = await _latest_failed_run_response(db, ws, module_id, campaign_id, brand_id)
+            if failed_result:
+                yield {"type": "module_result", "module_id": module_id, "run": failed_result}
 
 
 async def _workspace_brands(db: AsyncSession, ws) -> list[Brand]:

@@ -558,6 +558,13 @@ The loop primitive should be platform-agnostic and should only know:
 - Fix: tightened `marketing.plan.campaign_strategy` frontmatter/exclusions and expanded `marketing.channel.meta.posts.draft` activation contract. No `chat.py` routing change.
 - Fixed sample target: Facebook Post Draft + Image Generation artifacts, then synthesis reply with Stream/Workspace refs only.
 
+### 2026-05-22 — Failed specialist results must not disappear
+
+- Bad sample: CMO step trace showed "Running Facebook Post Draft..." but no artifact appeared when execution failed.
+- Root cause: `_execute_module()` persists failed Run rows before raising, but `_run_modules_streaming()` caught the exception and yielded nothing to chat/Stream.
+- Fix: `_run_modules_streaming()` now looks up the latest matching failed Run and yields it as a `module_result`, so the UI can show a failed artifact/setup blocker instead of silently disappearing.
+- Boundary unchanged: this does not make publishing automatic. Facebook publish still requires an explicit approved action or exact approved post text per the Meta publish SKILL.
+
 ---
 
 ## Invariants (must always be true)

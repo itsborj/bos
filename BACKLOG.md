@@ -1068,6 +1068,7 @@ CYCLE 2 — Intelligence to Optimization
 - [x] CODE PREP: After approved samples, implement CMO synthesis-after-results Path A as a generic loop primitive; no platform routing, no inline artifact content, no unscoped brand dispatch. Implemented generic `_continue_cmo_loop_after_results()` in `api/routers/chat.py`.
 - [x] BUG: Specific Facebook post + matching visual request routed to Campaign Plan + Image instead of Facebook Post Draft + Image; fixed in SKILL.md activation contracts only, no chat.py routing.
 - [x] BUG: Facebook Post Draft specialist starts but fails with `No healthy model options` because module capability points at non-seeded `marketing.execute` instead of routed channel capability; changed draft module capability to `marketing.channel`.
+- [x] BUG: Failed specialist dispatch can disappear from chat/Stream because `_run_modules_streaming()` logs exceptions but yields no failed artifact/result; failed persisted Run rows are now yielded as module_result events.
 
 ## Phase 5 — Hardening + Second Vertical
 ### Hardening
