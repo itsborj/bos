@@ -14,7 +14,8 @@
   "requires_platform_vars": [
     "TIKTOK_CLIENT_KEY",
     "TIKTOK_CLIENT_SECRET",
-    "TIKTOK_REDIRECT_URI"
+    "TIKTOK_REDIRECT_URI",
+    "TIKTOK_SCOPES"
   ],
   "capability_ids": [
     "marketing.channel.tiktok.connection.validate"

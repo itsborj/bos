@@ -22,6 +22,10 @@ Required app vars:
 TIKTOK_CLIENT_KEY=
 TIKTOK_CLIENT_SECRET=
 TIKTOK_REDIRECT_URI=http://localhost/social/tiktok/callback
+TIKTOK_SCOPES=user.info.basic
+
+# If your TikTok Sandbox app exposes only expanded scopes, use the exact enabled set:
+# TIKTOK_SCOPES=user.info.profile,user.info.stats,video.list
 ```
 
 ## V1 boundary
