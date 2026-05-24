@@ -68,6 +68,14 @@ services:
       - web
       - relay
 
+  public:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "3001:80"
+    volumes:
+      - ./public:/usr/share/nginx/html:ro
+
 volumes:
   staging_postgres_data:
   staging_redis_data:
