@@ -208,7 +208,11 @@ def _extract_scope_directive(text: str) -> tuple[dict[str, str], str]:
 def _strip_control_directives(text: str) -> str:
     """Remove hidden scope/module/action-control directives from user-visible CMO copy."""
     _scope, without_scope = _extract_scope_directive(text)
-    cleaned = _RUN_RE.sub("", without_scope)
+    # Strip the full RUN block — the RUN: line AND any indented key:value param lines
+    # under it (e.g. caption:, image_prompt:) — so hidden params never leak into the
+    # user-visible reply. _RUN_PARAMS_RE matches RUN lines with or without params.
+    cleaned = _RUN_PARAMS_RE.sub("", without_scope)
+    cleaned = _RUN_RE.sub("", cleaned)
     cleaned = _ACTION_RE.sub("", cleaned)
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
     cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
@@ -506,6 +510,49 @@ class ChatReviseRequest(BaseModel):
 
 
 
+_CHANNEL_DISPLAY = {
+    "google_drive": "Google Drive (creative asset storage)",
+    "facebook": "Facebook",
+    "instagram": "Instagram",
+    "meta": "Meta (Facebook/Instagram)",
+    "gmail": "Gmail",
+    "youtube": "YouTube",
+    "google_calendar": "Google Calendar",
+}
+
+
+async def _brand_channel_readiness(db: AsyncSession, brand: Brand | None) -> str:
+    """Brand-scoped connected-channel facts for dispatch decisions. Facts, not routing —
+    the LLM still chooses. Prevents dispatching publish/store capabilities to channels the
+    active brand has not connected (e.g. a failed Facebook publish, or a Drive store with
+    no Drive connection)."""
+    if not brand:
+        return ""
+    from models.social import SocialConnection
+
+    rows = (await db.execute(
+        select(SocialConnection).where(
+            SocialConnection.brand_id == brand.id,
+            SocialConnection.status == "connected",
+        )
+    )).scalars().all()
+    connected = sorted({r.platform for r in rows})
+    if connected:
+        names = ", ".join(_CHANNEL_DISPLAY.get(p, p) for p in connected)
+        connected_line = f"Connected for {brand.name}: {names}."
+    else:
+        connected_line = f"No external channels are connected for {brand.name} yet."
+    return (
+        "\nActive-brand channel readiness (use this for dispatch decisions):\n"
+        f"- {connected_line}\n"
+        "- Only dispatch a capability that PUBLISHES, SENDS, or POSTS to an external platform, "
+        "or that STORES to a channel, when that channel is connected for the active brand above.\n"
+        "- If a needed channel is not connected: produce the offline deliverable you can (the creative/copy) "
+        "and tell the user in ONE line to connect that channel in Admin → Brands. "
+        "Never dispatch a publish/send/post action for an unconnected channel.\n"
+    )
+
+
 async def _build_system_prompt(db: AsyncSession, ws, skill_context: str = "", brand: Brand | None = None) -> str:
     # Active brand name takes precedence over workspace name
     ws_name = (brand.name if brand else None) or (ws.name if ws else "this business")
@@ -638,8 +685,10 @@ async def _build_system_prompt(db: AsyncSession, ws, skill_context: str = "", br
 
     modules_str = format_manifest_for_prompt()
     actionable_artifacts = await _actionable_artifacts_context(db, ws, brand=brand)
+    channel_readiness = await _brand_channel_readiness(db, brand)
 
     operational_ctx = f"""
+{channel_readiness}
 
 Actionable approved/reviewable artifacts, for explicit deploy/publish/send/upload commands only:
 {actionable_artifacts}
@@ -666,6 +715,11 @@ HARD RULES — no exceptions:
 7. Hidden scope directive: every reply must start with a SCOPE block exactly like the scope-resolution skill describes. If you append any RUN line, `execution_brand` must be one existing Brand name, not none.
 8. When the scope-resolution note sets a clear execution_brand for a new/equivalent artifact, append the matching RUN line if the installed capability exists. Do not ask for Brand profile details; BOS hydrates the execution Brand for the module.
 9. RUN lines must use ONLY the exact module IDs listed under "Deployable capabilities" below. Never invent, guess, or extrapolate a module ID. If no listed capability matches the request, say so — do not fabricate a RUN line.
+9a. Passing parameters to a RUN: when a capability's description asks for inputs (e.g. `caption`, `image_prompt`), append them as indented `key: value` lines directly under the RUN line, one per line, no blank line between. Example:
+   RUN: creative.post.image
+   caption: <the full post copy you composed, in the brand voice>
+   image_prompt: <vivid visual description — scene, mood, no text or logos>
+   Always supply the inputs a capability's description requests; these params are hidden from the user and feed the specialist. Composing copy for a hidden param like `caption` does NOT violate Rule 1 — Rule 1 only forbids platform copy in your VISIBLE reply; RUN params are stripped before the user sees the reply.
 10. ACTION lines must use ONLY run IDs and actions listed under "Actionable approved/reviewable artifacts". Never invent a run ID or action. ACTION is for approved artifact deployment; RUN is for specialist creation/read/action modules.
 11. Never mass-dispatch. When a user asks to "trigger all capabilities", "test everything", "showcase all tools", or any similar blanket command: do NOT emit multiple RUN lines. Respond with a short capability summary and ask which specific job or brand to start with. A single turn must never dispatch more than 3 RUN lines unless the user has explicitly named each capability they want.
 {brand_ctx}{workspace_ctx}{operational_ctx}

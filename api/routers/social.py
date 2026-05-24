@@ -438,6 +438,140 @@ async def tiktok_callback(
     return _admin_connectors_redirect(frontend, tiktok="connected", brand_id=brand_id, account=metadata.get("display_name") or open_id)
 
 
+# ── Google Drive OAuth Callback ───────────────────────────────────────────────
+
+@router.get("/google-drive/callback")
+async def google_drive_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    frontend = settings.frontend_url.rstrip("/")
+
+    if error or not code:
+        return _admin_brands_redirect(frontend, google_drive="denied", reason=error or "no_code")
+
+    session = (await db.execute(
+        select(ProviderLoginSession).where(
+            ProviderLoginSession.provider == "google_drive",
+            ProviderLoginSession.state == state,
+        )
+    )).scalar_one_or_none()
+
+    if not session:
+        return _admin_brands_redirect(frontend, google_drive="error", reason="session_not_found")
+
+    raw = decrypt_secret(session.verifier_encrypted, settings)
+    stored_verifier, brand_id = (raw.split("|", 1) + [""])[:2]
+
+    ws = await get_singleton(db)
+    handler = get_oauth_handler("google_drive")
+
+    try:
+        credential = await handler.complete_login(
+            code,
+            settings,
+            state=session.state,
+            verifier=stored_verifier,
+            redirect_uri=session.redirect_uri,
+        )
+    except Exception:
+        await db.delete(session)
+        await db.commit()
+        return _admin_brands_redirect(frontend, google_drive="error", reason="token_exchange_failed")
+
+    metadata = credential.metadata or {}
+    email = metadata.get("email", "")
+
+    if not email:
+        await db.delete(session)
+        await db.commit()
+        return _admin_brands_redirect(frontend, google_drive="error", reason="incomplete_metadata")
+
+    token_meta = None
+    if credential.refresh_token:
+        token_meta = {
+            "refresh_token_encrypted": encrypt_secret(credential.refresh_token, settings),
+            "expires_at": credential.expires_at.isoformat() if credential.expires_at else None,
+        }
+
+    page = {
+        # page_id is the stable connection identity (the Drive account email).
+        # The per-brand root folder ID is created later by drive.folder.setup.
+        "id": email,
+        "access_token": credential.access_token,
+        "name": metadata.get("name") or email,
+        "username": email,
+        "token_meta": token_meta,
+    }
+
+    await _store_connection(db, ws.id, brand_id or None, settings, "google_drive", page)
+    await db.delete(session)
+    await db.commit()
+    return _admin_brands_redirect(frontend, google_drive="connected", brand_id=brand_id, account=metadata.get("name") or email)
+
+
+# ── Google Drive folder selection (Google Picker) ─────────────────────────────
+
+class SetDriveRootRequest(BaseModel):
+    brand_id: str
+    folder_id: str
+    folder_name: Optional[str] = None
+    folder_path: Optional[str] = None
+
+
+@router.get("/drive/picker-config", dependencies=[Depends(require_api_key)])
+async def drive_picker_config(
+    brand_id: str,
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    """Return what the browser Google Picker needs: a fresh OAuth token, the browser
+    API key, and the app (project) id. The token is the operator's own Drive token —
+    exposed only to the authenticated admin UI for the Picker session."""
+    token, _ = await get_page_token(db, brand_id, "google_drive", settings)
+    if not token:
+        raise HTTPException(status_code=404, detail={"error": {"code": "DRIVE_NOT_CONNECTED", "message": "Connect Google Drive for this brand first", "details": None}})
+    if not settings.google_picker_api_key:
+        raise HTTPException(status_code=412, detail={"error": {"code": "PICKER_KEY_MISSING", "message": "GOOGLE_PICKER_API_KEY is not configured", "details": None}})
+    app_id = (settings.google_client_id or "").split("-", 1)[0]
+    return {"access_token": token, "api_key": settings.google_picker_api_key, "app_id": app_id}
+
+
+@router.post("/drive/root", dependencies=[Depends(require_api_key)])
+async def set_drive_root(
+    body: SetDriveRootRequest,
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    """Store the operator-picked root folder on the brand's Drive connection.
+    The creative factory, channel specialists, and CMO resolve asset paths from here."""
+    row = (await db.execute(
+        select(SocialConnection).where(
+            SocialConnection.brand_id == uuid.UUID(body.brand_id),
+            SocialConnection.platform == "google_drive",
+            SocialConnection.status == "connected",
+        ).order_by(SocialConnection.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail={"error": {"code": "DRIVE_NOT_CONNECTED", "message": "Connect Google Drive for this brand first", "details": None}})
+
+    meta = dict(row.token_meta_json or {})
+    meta["drive_root_folder_id"] = body.folder_id
+    meta["drive_root_name"] = body.folder_name
+    meta["drive_root_path"] = body.folder_path
+    row.token_meta_json = meta
+    await db.commit()
+    return {
+        "status": "ok",
+        "drive_root_folder_id": body.folder_id,
+        "drive_root_name": body.folder_name,
+        "drive_root_path": body.folder_path,
+    }
+
+
 # ── Facebook OAuth Callback ───────────────────────────────────────────────────
 
 @router.get("/facebook/callback")

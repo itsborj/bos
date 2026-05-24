@@ -1060,6 +1060,59 @@ CYCLE 2 — Intelligence to Optimization
 - [ ] Publish audit trail: every native publish writes `action_result` artifact with changed_resources, platform post ID, URL, timestamp, publishing account, and source video asset ID
 - [ ] Platform analytics follow-up backlog: YouTube/Meta/TikTok performance read modules should become `marketing.optimize` analyst capabilities after publish proof, not before
 
+### 6.18 — Creative Supply Chain
+> Channel-agnostic creative manufacturing layer between campaign strategy and channel distribution. BOS is a routing/orchestration system — all generation and rendering is third-party; BOS builds the JSON request, captures the result, stitches via render provider, stores in Drive. Full architecture: `CREATIVE_SUPPLY_CHAIN.md`.
+
+**Phase A — Foundation**
+- [x] DB migration `034_creative_supply_chain`: `creative_jobs`, `creative_assets`, `creative_blueprints` tables + models registered. Validated: migration `033→034 head`, all 3 tables/indexes/FKs in Postgres, ORM insert/read round-trip (JSONB + server defaults), 63 tests pass.
+- [x] BUG: app startup crash `'CreativeBlueprintAssembleModule' object has no attribute 'platform_hint'` — three scaffolded creative-factory modules missing required `platform_hint` ClassVar read by `module_info()` at startup. Fixed: added to all three. Captured in `api/plugins/creative-factory/plugin_notes.md`.
+- [x] BUG: `tests/test_youtube_plugin_smoke.py` broke pytest collection (and CI) — imported `api.plugins.youtube...` but CI/tests run from `api/`, so the prefix must be `plugins.youtube...`. The youtube plugin DOES exist; fixed the 3 import lines. All 12 youtube tests pass. CI test step (`pytest tests/ plugins/google-ads/tests/`) now green.
+- [x] Google Drive OAuth connection layer: `GoogleDriveOAuthHandler` (drive.file + drive.readonly scopes), registered as `google_drive`, `/social/google-drive/callback` (per-brand, redirects to Brands page), token auto-refresh via existing `get_page_token()`. Validated: handler registered, route present, `start_login` produces correct authorize URL (derived redirect, PKCE, offline/consent), app healthy, 63 tests pass. USER ACTION: register Drive callback URIs in Google Cloud Console.
+- [x] Drive root folder selection via Google Picker: operator picks an existing folder (matches agency Drive layout); `GET /social/drive/picker-config` (fresh token + browser key + app id) + `POST /social/drive/root` (stores `drive_root_folder_id`/name/path on connection without clobbering refresh token); AdminBrands "Choose folder" button loads gapi Picker. Validated: endpoints work (picker-config 412 until key set; root store + persist verified), web builds, 63 tests pass. USER ACTION: enable Google Picker API + create browser API key → set `GOOGLE_PICKER_API_KEY`.
+- [x] `api/plugins/google-drive/` plugin: `drive_client.py` (sync Drive REST v3) + 4 capabilities (`drive.folder.setup`/`asset.upload`/`asset.list`/`asset.get`) reading injected `google_drive` token. VALIDATED LIVE against connected brand: generate→upload→list→download byte-identical round-trip; `POST /runs drive.folder.setup` created full subtree in operator's real Drive. Gotcha fixed: `attempt` dict needs `tokens_output` or `runs.py` 500s. Notes: `api/plugins/google-drive/plugin_notes.md`.
+- [ ] SKILL.md for the 4 drive capabilities (deferred — infra/orchestration, allowed_from_chat:false; add when a capability becomes CMO-facing for Scenario B)
+- [x] BUG: `creative.post.image` failure (e.g. Drive not connected for the brand) rendered as an approvable "Self-check passed · Needs review" draft. Added `self_check` returning "fail" when content indicates failure → run marked `partial`, not an approvable draft. (Per-brand isolation itself was correct: Mactan/MotorMoto have no Drive; only Klaroha does — module correctly fails closed, never falls back to another brand's Drive.) Validated: Mactan→partial/fail, Klaroha→success. 63 tests pass.
+- [ ] FOLLOWUP: missing-connection failures should surface as a distinct `setup_blocker` artifact (per brief), not just a failed draft — improve Stream rendering for connection-blocked runs.
+- [x] WORKFLOW FIX (agency model — BL sees one curated proof, not factory parts): (1) active-brand connected-channel awareness injected into CMO prompt — only dispatch a channel's publish/store capabilities when connected; kills failed-publish cards. (2) `creative.post.image` is now the single business-named "Facebook Post" bundle (caption + image + Drive), `platform_hint=facebook post` → feed-preview rendering; SKILL.md makes it THE default for "make a post" (draft narrowed to explicit copy-only). (3) System prompt now documents RUN key:value params (caption/image_prompt) + reconciles with Rule 1. (4) BUG fixed: `_strip_control_directives` stripped the RUN line but not its param lines → caption/image_prompt leaked into visible reply; now strips the full RUN block via `_RUN_PARAMS_RE`. (5) ApprovalBundle renders `creative_post_asset` as a Facebook feed proof (image + caption). VALIDATED via /chat on Klaroha: one "Facebook Post" artifact = caption + image, clean visible reply, no sprawl, no failed publish. Routing tests updated; 64 pass.
+- [x] CMO CHAT → CREATIVE → DRIVE: `creative.post.image` capability (allowed_from_chat) generates a Meta post creative and stores it in the brand's Drive (`Creative Assets/Meta Posts/`). Declarative `requires_generated_image` ClassVar on ModuleBase + generic runs.py hook (no capability hardcoded in core); `inject_channel_credentials` now surfaces `drive_root_folder_id` for google_drive. VALIDATED LIVE via `/chat` with brand active → 2 creatives confirmed in operator's real Drive. 63 tests pass. Does NOT publish (scoped out per request).
+- [ ] WAREHOUSE LOOP PROVEN end-to-end: image AI → Drive store → Drive read-back works with real code against the operator's picked folder. Connective tissue (factory writes / reader reads) is live.
+- [x] BITE sample: `sample/google_drive_setup_v1.md` — per-brand folder structure, OAuth scope, 4 capability contracts, both acceptance scenarios mapped (produced, pending approval)
+- [ ] ACCEPTANCE Scenario A: one brand asset + background → stitched banner (300×250, 728×90), IG carousel (1080×1080 ×3), shortform (1080×1920 MP4) from one CompositionSpec via render target params
+- [ ] ACCEPTANCE Scenario B: attach existing Drive creative → single approved social post (no generation, no stitch — `drive.asset.get` → channel plugin → publish)
+- [ ] Admin provider configuration: Specialists panel for image gen, video gen, stitch/render, design providers; extend `inject_channel_credentials()` to resolve creative-factory provider keys; readiness blocker for missing providers
+
+**Phase B — Core pipeline (request-build-and-route)**
+- [x] BITE sample: `sample/creative_concept_artifact_v1.md` — Creative Director concept output (produced, pending BL approval)
+- [x] BITE sample: `sample/creative_composition_spec_v1.json` — CompositionSpec (Stage 4) for Vantage poster vertical; valid JSON
+- [x] BITE sample: `sample/creative_primitive_request_v1.json` — Stage 3 image-gen request + captured asset; valid JSON
+- [x] PROOF: image-gen engine works live — `POST /runs media.image.generate` returned a real 981KB PNG via the Cloudflare Workers AI worker (creds configured in DB plugin vars). "BOS builds JSON request → 3rd-party AI returns pixels" validated end-to-end.
+- [ ] ARCH FINDING: `creative.primitive.generate` must be a worker/orchestrator, NOT a pure ChannelModule — it calls image gen N times AND must persist `creative_assets` rows (needs DB access modules don't have) and store binaries to Drive. Build as the plugin-local async worker (Phase C), gated on the google-drive plugin for storage.
+- [ ] `api/capabilities/marketing/creative/concept/` — `creative.concept` first-party capability; single extended-thinking call; outputs `creative_concept` artifact
+- [ ] `api/capabilities/marketing/creative/craft/` — shared design discipline rules (typography, color, anti-ai-slop, safe-zones, motion)
+- [ ] `creative.pack.generate` — create `creative_job` row, return job artifact immediately, start async job
+- [ ] `creative.primitive.generate` — build prompt per primitive → call configured provider → upload to Drive → write `creative_assets` row; production CD auto-validation
+- [ ] `creative.blueprint.assemble` — fill template CompositionSpec skeleton with approved primitives + brand slots → write `creative_blueprints` row
+- [ ] BRAND.md injection: extend `_inject_campaign_brand_kit_style()` in `runs.py` to emit structured Brand Kit for capabilities declaring `bos.brand_slots`
+
+**Phase C — Stitch and surface**
+- [ ] BITE sample: render `example.html` files for `poster_vertical`, `video_frames`, `email_html`
+- [ ] `creative.render` FFmpeg adapter: CompositionSpec → resolve asset_ids/brand_slots → FFmpeg filter_complex → output → Drive → Export Package
+- [ ] Brand validation gate (Stage 5): P0 craft checks against BRAND.md before render
+- [ ] Plugin-local worker: poll `creative_jobs`, run the production loop, update progress
+- [ ] Creative Bundle assembly: curate top Export Packages → `creative_bundle` artifact
+- [ ] BITE sample: `sample/creative_bundle_v2.md` (revise existing `creative_bundle_artifact_v1.md`)
+- [ ] Stream card for `creative_bundle`: render target previews, concept ref, compliance status, approve/revise actions
+
+**Phase D — Design outputs**
+- [ ] Huashu concept deck: activate Huashu SKILL.md → interactive device-mockup HTML + PPTX export
+- [ ] BITE sample: `sample/creative_concept_deck_v1.html` — Vantage 3-concept review with device mockups
+
+**Phase E — Scale (V2, deferred)**
+- [ ] Shotstack render provider adapter
+- [ ] Creatomate render provider adapter
+- [ ] Batch modifications loop (N renders from one template)
+- [ ] Per-brand provider overrides in Admin
+
 ### CMO Chat Coordination
 - [x] DOCS: Establish shared CMO chat coordination hub in existing `api/routers/chat_notes.md` for multi-agent discussion, samples, invariants, and handoffs.
 - [x] DOCS: Distill Phase 6 CMO/Council loop marching orders into `PROJECT_BRIEF.md` summary + detailed `api/routers/chat_notes.md` code-dev stack.

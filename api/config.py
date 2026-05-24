@@ -29,6 +29,8 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/social/gmail/callback"
     google_calendar_redirect_uri: str = ""
+    # Browser API key for the Google Picker (folder selection). Separate from the OAuth client.
+    google_picker_api_key: str = ""
 
     # Meta (Facebook / Instagram) OAuth
     meta_app_id: str = ""

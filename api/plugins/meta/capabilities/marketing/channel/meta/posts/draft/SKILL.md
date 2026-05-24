@@ -1,7 +1,7 @@
 ---
 id: marketing.channel.meta.posts.draft
 name: Facebook Post Draft
-description: Use when the user asks to draft, write, create, compose, or prepare Facebook copy for review — including campaign-specific Facebook posts, dormant-prospect posts, social copy, paired copy + visual requests, and casual requests where review is implied. If the user asks for a Facebook post plus a matching image/visual, dispatch this draft capability alongside the installed image generation capability. Do not use when the operator explicitly says to post/publish now or says a text-only test post is fine; those direct external-action instructions belong to posts/publish.
+description: Use ONLY when the user EXPLICITLY asks for Facebook copy/text ALONE — e.g. "just write the copy", "caption only", "draft the words, no image". A plain "make a Facebook post" or "create a post about X" is NOT this — that is a COMPLETE post (copy + visual); use creative.post.image instead. Never pair this with image generation. Do not use when the operator says to post/publish now; that belongs to posts/publish.
 scope: module
 status: active
 version: 0.1.0
@@ -11,41 +11,28 @@ requires_intent:
   - discussion
   - generation
 triggers:
-  - draft a facebook post
-  - write a post for my page
+  - draft facebook copy
+  - write facebook copy
+  - facebook copy only
+  - post copy only
+  - just the copy
+  - draft the post copy
+  - facebook caption
+excluded_triggers:
+  - make a facebook post
   - create a facebook post
-  - write a post about
-  - facebook post draft
-  - write a facebook post
-  - compose a post
-  - draft a post for facebook
-  - write a post
-  - post copy
-  - social copy
-  - social post
-  - facebook copy
-  - campaign post
-  - dormant prospects
+  - facebook post
+  - instagram post
+  - post for our facebook page
   - matching visual
   - visual direction
-  - say hi on facebook
-  - say hi from
-  - post a message
-  - post something on facebook
-  - share something on facebook
-  - write something for facebook
-excluded_triggers:
+  - with an image
+  - with a visual
   - publish to facebook
   - publish this post
   - go live on facebook
-  - post in facebook
-  - post on facebook
   - post to facebook
-  - post in klaroha fb page
   - facebook test post
-  - test post
-  - text only
-  - just testing
   - what did I post
   - show my posts
   - show facebook posts

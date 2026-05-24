@@ -1,0 +1,56 @@
+{
+  "_sample": "Stage 3 — Primitive Generation. Shows how BOS turns ONE Creative Brief primitive requirement into a JSON image-generation request for a third-party provider, then captures the result as a creative_asset row. BOS builds the request and stores the result; the provider generates the pixels. BOS generates nothing itself.",
+  "_gates": "creative.primitive.generate (api/plugins/creative-factory/capabilities/creative/primitive/generate/). Derived from the approved Creative Brief in sample/creative_concept_artifact_v1.md (Concept 1).",
+
+  "concept_ref": "run_vantage_concept_1:concept_1",
+  "brand_id": "vantage_001",
+  "campaign": "VP Transition",
+  "job_id": "job_vantage_vp_001",
+
+  "requirement": {
+    "primitive_id": "req_image_plate_workspace_01",
+    "asset_type": "image_plate",
+    "modality": "image",
+    "description": "Warm minimal desk setup, no faces, natural light, wide angle",
+    "index": "1 of 3 workspace plates"
+  },
+
+  "provider_request": {
+    "_routing": "Provider + model resolved from Admin → Creative Factory → Image generation. Key injected via brief._channel_credentials. Never hardcoded, never a direct SDK import in the module.",
+    "provider": "openai",
+    "model": "gpt-image-1",
+    "prompt": "A calm, minimal professional workspace in warm natural light. A half-closed laptop, a plain ceramic coffee mug, and an open notebook with handwriting rest on a warm-grey desk. Off-white background, soft amber light from a side window, shallow depth of field, wide establishing angle. Editorial and understated — real, not staged or glossy. No people, no faces, no text, no logos, no on-screen graphics.",
+    "negative_prompt": "motivational poster aesthetics, stock-photo handshakes, conference room, bold shouted typography, crowds, faces, watermark, logo, text overlay, lorem ipsum",
+    "size": "1024x1536",
+    "n": 1,
+    "response_format": "b64_json",
+    "_brand_inputs_applied": {
+      "_source": "BRAND.md extracted from Vantage Campaign Brand Kit + injected pre-execution",
+      "visual_mood": "calm and authoritative",
+      "palette_hint": ["#1A2B3C", "#E8E0D4", "warm neutral"],
+      "forbidden_elements": ["motivational poster aesthetics", "stock-photo handshakes", "faces", "on-screen text"]
+    },
+    "_craft_applied": ["anti-ai-slop", "no-text-in-plate", "natural-light"]
+  },
+
+  "captured_asset": {
+    "_note": "What BOS writes to creative_assets after the provider returns. Binary goes to Drive under the operator-picked root; the row indexes it.",
+    "asset_id": "ca_img_plate_workspace_01",
+    "asset_type": "image_plate",
+    "modality": "image",
+    "source": "ai_generated",
+    "provider": "openai:gpt-image-1",
+    "generation_prompt": "<provider_request.prompt stored verbatim for audit + regeneration>",
+    "drive_file_id": "1Drive_plate_01",
+    "drive_path": "<picked root>/Campaigns/VP Transition/Primitives/Image Plates/plate_workspace_warm_01.png",
+    "tags_json": { "role": "background", "mood": "calm", "orientation": "vertical-ready", "has_text": false, "has_faces": false },
+    "approval_status": "draft",
+    "usage_rights": "campaign_only"
+  },
+
+  "production_cd_validation": {
+    "_note": "Production Creative Director auto-validates against BRAND.md craft rules. Passing = approval_status flips to approved. BL never sees individual primitives — only the final Creative Bundle.",
+    "checks": ["no_faces", "no_text_in_plate", "matches_visual_mood", "no_forbidden_elements"],
+    "result": "approved"
+  }
+}

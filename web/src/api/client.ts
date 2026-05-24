@@ -423,6 +423,15 @@ export const api = {
   disconnectSocial: (connection_id: string) =>
     request<{ status: string }>(`/social/connections/${connection_id}`, { method: 'DELETE' }),
 
+  getDrivePickerConfig: (brand_id: string) =>
+    request<{ access_token: string; api_key: string; app_id: string }>(`/social/drive/picker-config?brand_id=${brand_id}`),
+
+  setDriveRoot: (brand_id: string, folder_id: string, folder_name?: string, folder_path?: string) =>
+    request<{ status: string; drive_root_folder_id: string; drive_root_name: string | null; drive_root_path: string | null }>('/social/drive/root', {
+      method: 'POST',
+      body: JSON.stringify({ brand_id, folder_id, folder_name, folder_path }),
+    }),
+
   listPlugins: () =>
     request<{ plugins: import('./types').PluginInfo[] }>('/plugins'),
 

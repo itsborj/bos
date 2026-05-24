@@ -179,9 +179,14 @@ Per-brand OAuth connections are stored in the `social_connections` table. Each b
 ```
 http://localhost/social/gmail/callback
 http://localhost/social/google-calendar/callback
+http://localhost/social/youtube/callback
+http://localhost/social/google-drive/callback
 https://hq.klaroha.com/social/gmail/callback
 https://hq.klaroha.com/social/google-calendar/callback
+https://hq.klaroha.com/social/youtube/callback
+https://hq.klaroha.com/social/google-drive/callback
 ```
+> Note: this deployment's `GOOGLE_REDIRECT_URI` uses `http://localhost:8090/...` locally (not port 80). Register the matching `:8090` Drive callback for local connect, plus the staging/prod hosts.
 
 **After OAuth changes:** `api/` hot-reloads via Watchfiles. `web/` is a static build — run `docker compose build web && docker compose up -d web` after any frontend change.
 

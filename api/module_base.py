@@ -35,6 +35,10 @@ class ModuleBase(ABC):
     platform_hint: ClassVar[str]
     policy_default: ClassVar[str] = "balanced"
     template: ClassVar[str]
+    # When True, the host generates an image (media.image.generate) before this module
+    # runs and injects _image_data_b64 — even if the brief carries no explicit image_prompt
+    # (media.image builds one from the brand brief). Declarative; the core stays generic.
+    requires_generated_image: ClassVar[bool] = False
     name: ClassVar[Optional[str]] = None
     internal: ClassVar[bool] = False
     copywriting_skills: ClassVar[List[str]] = []

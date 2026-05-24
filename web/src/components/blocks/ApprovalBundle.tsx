@@ -298,6 +298,11 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
       );
     }
 
+    if (result.block?.type === 'creative_post_asset' && result.block?.status === 'succeeded') {
+      const b = result.block;
+      const src = b.image_data_b64 ? `data:${b.mime_type || 'image/png'};base64,${b.image_data_b64}` : undefined;
+      return <FacebookFeedPreview pageName={brandName} adCopy={b.caption || 'Caption pending'} imageUrl={src} ctaText={b.cta || 'Learn More'} />;
+    }
     if (channel.includes('facebook')) {
       return <FacebookFeedPreview pageName={brandName} adCopy={result.content || 'Copy missing'} ctaText={result.cta || 'Learn More'} />;
     }

@@ -1,11 +1,11 @@
 import asyncio
 import pytest
 
-from api.plugins.youtube.module import YouTubeModule
-from api.plugins.youtube.capabilities.marketing.channel.youtube.connection.validate.module import (
+from plugins.youtube.module import YouTubeModule
+from plugins.youtube.capabilities.marketing.channel.youtube.connection.validate.module import (
     YouTubeConnectionValidateModule,
 )
-from api.plugins.youtube.capabilities.marketing.channel.youtube.video.publish.module import (
+from plugins.youtube.capabilities.marketing.channel.youtube.video.publish.module import (
     YouTubeVideoPublishModule,
 )
 from plugin_loader import get_plugin_for_module

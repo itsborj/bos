@@ -3,7 +3,7 @@
 
 **Date:** 2026-05-22  
 **Status:** Phase 6 in progress — Plugin documentation strategy implemented  
-**Version:** 3.39 (Plugin documentation structure)  
+**Version:** 3.41 (CMO chat → creative → Drive working; google-drive plugin live)  
 
 > **MANDATORY READING:** Before any new system update, feature build, or architectural change, read `BITE.md`. It is both the Business Implementation by Example methodology and the BOS architecture constitution for minimal core, plugin/package extensibility, SKILL.md ownership, live manifests, MCP boundaries, lifecycle hooks, and command registration.
 ---
@@ -56,6 +56,7 @@ Default creative production should run in parallel from a shared campaign brief 
 | `BITE.md` | Architecture constitution — overrides all conflicting code patterns or stale docs |
 | `api/plugins/PLUGIN_SDK.md` | Complete plugin developer contract |
 | `api/capabilities/workspace/council/` | CMO Council deliberation layer (post-Gate 2) |
+| `CREATIVE_SUPPLY_CHAIN.md` | Creative supply chain mini project brief — concept → primitives → blueprints → render targets → Drive; all detail lives there |
 
 ---
 
@@ -226,6 +227,8 @@ content atom
 4. **TikTok** — keep manual/scheduler export until Content Posting API access and review are clear.
 
 **Approval boundary:** generating a video asset is safe; publishing to any external platform is an approved external action. Native publish modules must produce `action_result` artifacts with platform IDs/URLs and changed resources. Bulk publishing without approval is forbidden.
+
+**Creative supply chain (manufacturing layer):** The full architecture for the layer between campaign strategy and channel distribution — Creative Director concept capability, primitive generation, blueprint assembly, render targets, BRAND.md injection, Google Drive as the asset library, and agency role mapping — lives in **`CREATIVE_SUPPLY_CHAIN.md`**. Do not duplicate that detail here.
 
 ---
 
@@ -735,6 +738,21 @@ The platform supports two execution modes. A user may use either, or mix by prov
 ### Login/OAuth Mode (provider auth)
 - Interactive browser login (e.g., OpenAI Chat). BOS manages encrypted refresh tokens.
 
+### Platform OAuth Broker — customer self-host model (decided 2026-05-24)
+
+**Deployment model:** BOS is a product Klaroha makes; customers **self-host** it in their own cloud on their own domains. But the *system* — its identity and third-party integrations — is **Klaroha's**. The analogy: a company installs Windows on its own machines, but when a user signs into their Microsoft account / OneDrive, they authenticate against Microsoft's identity service — they never register their own Azure app. Microsoft runs the central auth; the install just talks to it.
+
+**Therefore: third-party OAuth (Google Drive/Gmail/Calendar/YouTube, Meta, etc.) must NOT require any per-customer or per-deployment provider setup.** A customer must never create a Google Cloud project, OAuth client, consent screen, or API key. Requiring that is wrong and is explicitly rejected.
+
+**The mechanism — a central Klaroha-run OAuth broker:**
+- Klaroha runs one always-on auth service (e.g. `connect.klaroha.com`) holding **one verified** Google app (all Google scopes) + the Picker API key, and the platform Meta app. Verified once, by Klaroha.
+- A self-hosted BOS instance never holds `GOOGLE_CLIENT_SECRET` (or any platform client secret). It holds only a **broker URL + a deployment identity credential**.
+- Connect flow: BOS instance → redirect to broker → broker runs consent on Klaroha's verified app → provider calls back to **one stable redirect URI** at the broker → broker hands the token back to the originating instance via a signed one-time exchange → instance stores it locally in its own `social_connections`. One verified app covers every install; no per-domain redirect registration.
+
+**Critical scoping note — this only changes token *acquisition*.** Everything downstream — `get_page_token()` and its auto-refresh, the per-brand `social_connections` model, all channel plugins, the creative factory — reads tokens from the connection row and is unaffected by whether they arrived via env-var app (today's single dev box) or the broker (productization). So feature work that consumes connections does **not** block on the broker, and the broker slots in behind the existing connection model with no downstream rework.
+
+**Status:** Decision locked; broker is its own platform-level mini-project (spans all integrations, needs Google app verification + CASA assessment for restricted scopes, secure signed token handoff, and a Klaroha-hosted Picker page for cross-domain referrer constraints). The current single Klaroha deployment continues on env-var platform credentials (`GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI/PICKER_API_KEY`) until the broker is built. Per-deployment BYO-Google-app setup is **not** the model and must not be documented as a customer step.
+
 ---
 
 ## 8. UI Component Architecture
@@ -820,6 +838,9 @@ Run this sync whenever a significant batch of tasks is completed or added. The s
 
 | Version | Date | Changes |
 |---|---|---|
+| 3.41 | 2026-05-24 | **CMO chat → creative → Drive (live):** `google-drive` plugin built (`drive_client.py` Drive REST v3 + `drive.folder.setup`/`asset.upload`/`asset.list`/`asset.get`); Google Drive OAuth connection (per-brand) + Google Picker root-folder selection. New `creative.post.image` capability (creative-factory, `allowed_from_chat`) generates a Meta-post visual via the image hook and stores it in the brand's Drive under `Creative Assets/Meta Posts/` — does NOT publish. Declarative `requires_generated_image` ClassVar on `ModuleBase` + generic `runs.py` hook (no capability hardcoded in core); `inject_channel_credentials` now surfaces `drive_root_folder_id` for google_drive. Validated live via `/chat` on the Klaroha brand. Per-brand isolation confirmed: a brand without a Drive connection correctly fails closed (no fallback to another brand's Drive). Detail: `CREATIVE_SUPPLY_CHAIN.md`. |
+| 3.40 | 2026-05-24 | **Platform OAuth Broker — customer self-host model:** Locked the deployment model — BOS is self-hosted by customers in their own cloud, but the system/integrations are Klaroha's (Windows-install analogy: customers run the OS, auth against Microsoft's identity, never register their own app). Third-party OAuth (Google Drive/Gmail/Calendar/YouTube, Meta) must require ZERO per-customer provider setup; BYO-Google-app per deployment is explicitly rejected. Mechanism: one Klaroha-run central OAuth broker holding one verified app + Picker key, one stable redirect URI, signed one-time token handoff back to each self-hosted instance. Critical scope: broker only changes token *acquisition* — `get_page_token()`, `social_connections`, channel plugins, and the creative factory are unaffected, so feature work does not block on it. Broker is its own platform mini-project (needs Google verification + CASA, Klaroha-hosted Picker page). Current single Klaroha dev box continues on env-var platform credentials until the broker is built. See Section 7 → Platform OAuth Broker. |
+| 3.39 | 2026-05-24 | **Creative Supply Chain mini-project:** Channel-agnostic creative manufacturing layer (concept → primitives → blueprint CompositionSpec → stitch/render → export) between campaign strategy and channel distribution. BOS is routing/orchestration only — all generation/rendering is third-party (image/video AI, Shotstack/Creatomate/FFmpeg, Huashu); BOS builds the JSON request and captures the result. Per-brand Google Drive as asset library (operator picks existing root folder via Google Picker). Full detail in `CREATIVE_SUPPLY_CHAIN.md`. Phase A foundation built: `creative_jobs`/`creative_assets`/`creative_blueprints` tables, Google Drive OAuth connection layer + Picker folder selection. |
 | 3.37 | 2026-05-22 | **CMO/Council Loop Marching Orders:** Distilled Phase 6 agentic direction after pi.dev comparison and agency-process discussion. Klaroha applies pi-style loop mechanics inside a business/marketing operating system for overloaded multi-brand operators. Two loops are distinct: the CMO execution loop shortens idea → artifact → approval → memory, while the Council deliberation loop is explicit `@council` escalation for high-stakes GTM, brand, budget, resource, and positioning judgment. Council's final product is a `council_brief` artifact; transcript may be supporting detail. Creative production defaults to parallel specialists from a shared brief, with sequential chaining reserved for risk/dependency. Full details live in `api/routers/chat_notes.md`. |
 | 3.36 | 2026-05-21 | **Shortform Video Production + Publishing Pipeline Direction:** Added Phase 6 build direction for high-volume shortform content. The fastest path is not cinematic text-to-video generation; it is template-rendered vertical assets: content atom → script → voiceover → motion text/branded template → captions/metadata → `shortform_video_asset` artifact → Stream approval → export/manual scheduler handoff first, then approval-gated native publishing plugins. A new non-channel `media-shortform` specialist should own generation/rendering/storage/QA. Platform publishing remains plugin-owned: YouTube Shorts first (Google OAuth/API pattern already familiar), Meta/Instagram Reels second (existing Meta plugin/OAuth path), TikTok later/manual export until Content Posting API approval is clear. No shortform platform behavior belongs in CMO chat routing or BOS core. |
 | 1.0-1.7 | 2026-05-01..06 | Foundation, Core API, Provider Layer (BYOK), Frontend Shell, and CMO Chat. |

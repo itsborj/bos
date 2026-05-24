@@ -3,6 +3,9 @@ from .council import CouncilSession
 from .backend import ExecutionBackendOverride
 from .calendar import CalendarBooking, CalendarPage
 from .capability import Capability, ModelOption
+from .creative_asset import CreativeAsset
+from .creative_blueprint import CreativeBlueprint
+from .creative_job import CreativeJob
 from .decision_brief import DecisionBrief
 from .document import WorkspaceDocument
 from .intent import CampaignIntent, IntentContract, ModuleCriterion
@@ -46,4 +49,7 @@ __all__ = [
     "CalendarPage",
     "CalendarBooking",
     "CouncilSession",
+    "CreativeAsset",
+    "CreativeBlueprint",
+    "CreativeJob",
 ]

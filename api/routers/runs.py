@@ -268,7 +268,7 @@ async def _execute_module(
     if module_id == "media.image.generate" or brief.get("image_prompt"):
         brief = await _inject_campaign_brand_kit_style(brief, ws, brand_id, db)
 
-    if module_id != "media.image.generate" and brief.get("image_prompt"):
+    if module_id != "media.image.generate" and (brief.get("image_prompt") or getattr(module, "requires_generated_image", False)):
         brief = await _inject_generated_image(brief, brand_id, db, settings)
 
     tool_executor = getattr(module, "execute_tool_result", None)
