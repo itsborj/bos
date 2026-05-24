@@ -157,6 +157,26 @@ _TIKTOK_USERINFO_URL = "https://open.tiktokapis.com/v2/user/info/"
 _TIKTOK_SCOPES = "user.info.basic"
 _GOOGLE_DRIVE_SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly openid email"
 
+# Paths for each Google OAuth callback — derived from FRONTEND_URL so no per-env redirect URI config is needed.
+_GOOGLE_CALLBACK_PATHS: dict[str, str] = {
+    "gmail": "/social/gmail/callback",
+    "google_calendar": "/social/google-calendar/callback",
+    "youtube": "/social/youtube/callback",
+    "google_drive": "/social/google-drive/callback",
+}
+
+
+def _google_redirect_uri(platform: str, settings) -> str:
+    """Derive the Google OAuth redirect URI from FRONTEND_URL.
+
+    Never requires GOOGLE_REDIRECT_URI to be set. FRONTEND_URL is the single
+    source of truth for the host — the same OAuth client works across all
+    environments as long as all three callback URIs are registered in Google Console.
+    """
+    base = (settings.frontend_url or "http://localhost").rstrip("/")
+    path = _GOOGLE_CALLBACK_PATHS.get(platform, f"/social/{platform}/callback")
+    return f"{base}{path}"
+
 
 class GmailOAuthHandler:
     provider = "gmail"
@@ -167,13 +187,12 @@ class GmailOAuthHandler:
             raise ValueError("GOOGLE_CLIENT_ID is not configured")
         if not settings.google_client_secret:
             raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
-        if not settings.google_redirect_uri:
-            raise ValueError("GOOGLE_REDIRECT_URI is not configured")
+        redirect_uri = _google_redirect_uri("gmail", settings)
         verifier, challenge = _generate_pkce()
         state = secrets.token_hex(16)
         params = {
             "client_id": settings.google_client_id,
-            "redirect_uri": settings.google_redirect_uri,
+            "redirect_uri": redirect_uri,
             "response_type": "code",
             "scope": _GOOGLE_SCOPES,
             "access_type": "offline",
@@ -187,7 +206,7 @@ class GmailOAuthHandler:
             authorize_url=f"{_GOOGLE_AUTHORIZE_URL}?{urlencode(params)}",
             state=state,
             verifier=verifier,
-            redirect_uri=settings.google_redirect_uri,
+            redirect_uri=redirect_uri,
         )
 
     async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str) -> OAuthCredential:
@@ -263,9 +282,7 @@ class GoogleCalendarOAuthHandler:
             raise ValueError("GOOGLE_CLIENT_ID is not configured")
         if not settings.google_client_secret:
             raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
-        redirect_uri = settings.google_calendar_redirect_uri or (
-            settings.google_redirect_uri.replace("/social/gmail/callback", "/social/google-calendar/callback")
-        )
+        redirect_uri = _google_redirect_uri("google_calendar", settings)
         verifier, challenge = _generate_pkce()
         state = secrets.token_hex(16)
         params = {
@@ -357,9 +374,7 @@ class YouTubeOAuthHandler:
             raise ValueError("GOOGLE_CLIENT_ID is not configured")
         if not settings.google_client_secret:
             raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
-        redirect_uri = settings.google_redirect_uri.replace("/social/gmail/callback", "/social/youtube/callback") if settings.google_redirect_uri else None
-        if not redirect_uri:
-             raise ValueError("GOOGLE_REDIRECT_URI is not configured")
+        redirect_uri = _google_redirect_uri("youtube", settings)
              
         verifier, challenge = _generate_pkce()
         state = secrets.token_hex(16)
@@ -469,12 +484,7 @@ class GoogleDriveOAuthHandler:
             raise ValueError("GOOGLE_CLIENT_ID is not configured")
         if not settings.google_client_secret:
             raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
-        redirect_uri = (
-            settings.google_redirect_uri.replace("/social/gmail/callback", "/social/google-drive/callback")
-            if settings.google_redirect_uri else None
-        )
-        if not redirect_uri:
-            raise ValueError("GOOGLE_REDIRECT_URI is not configured")
+        redirect_uri = _google_redirect_uri("google_drive", settings)
 
         verifier, challenge = _generate_pkce()
         state = secrets.token_hex(16)
