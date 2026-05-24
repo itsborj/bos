@@ -117,7 +117,7 @@ class DriveClient:
         q = f"'{parent_id}' in parents and trashed = false"
         if mime_type:
             q += f" and mimeType = '{mime_type}'"
-        r = self._client.get(_FILES, params={"q": q, "fields": "files(id,name,mimeType,size,webViewLink)", "pageSize": 200})
+        r = self._client.get(_FILES, params={"q": q, "fields": "files(id,name,mimeType,size,webViewLink,thumbnailLink)", "pageSize": 200})
         r.raise_for_status()
         return r.json().get("files", [])
 

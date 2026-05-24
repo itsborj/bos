@@ -26,8 +26,14 @@ Token arrives via `brief._channel_credentials.page_token` (alias for `google_dri
 - Warehouse round-trip via `drive_client` against the real connected brand ("Sir Borj" root): generate (928KB PNG) → `ensure_path` → `upload_file` → `list_children` → `download_file` → **byte-identical (md5 match)**.
 - Dispatchable path via `POST /runs drive.folder.setup` (real credential injection) created the full subtree in the operator's Drive.
 
+## Cross-plugin Drive token injection
+
+The `channel.meta` plugin declares `requires_social_connection: ["facebook", "google_drive"]`. This means every Meta module execution brief also receives the brand's Drive token as `google_drive_page_token` in `_channel_credentials`. The publish module uses it to download a Drive-attached image at publish time.
+
+Key rule: the meta plugin's `facebook` comes first in `requires_social_connection`, so the generic `page_token` / `access_token` slots hold the Facebook token. Always read Drive token from `google_drive_page_token` explicitly — never from the generic `page_token`, which is the Facebook page token.
+
 ## Local backlog
 
-- SKILL.md not yet added for the 4 capabilities — they are orchestration/infra (`allowed_from_chat` should stay false), so they dispatch via `/runs` and the worker without chat discovery. Add SKILL.md if any becomes CMO-facing (e.g. Scenario B "attach existing asset").
-- `drive_root_folder_id` is not currently injected into briefs — the orchestrator/worker (which has DB) passes `root_folder_id`/`parent_folder_id` explicitly. If a CMO-dispatched drive capability is added, inject the root via `inject_channel_credentials`.
+- SKILL.md not yet added for the 4 drive capabilities — they are orchestration/infra (`allowed_from_chat` should stay false), so they dispatch via `/runs` and the worker without chat discovery. Add SKILL.md if any becomes CMO-facing (e.g. Scenario B "attach existing asset").
+- `drive_root_folder_id` is not currently injected into briefs for drive capabilities — the orchestrator/worker (which has DB) passes `root_folder_id`/`parent_folder_id` explicitly. It IS injected when a cross-plugin (e.g. meta) declares `google_drive` in its `requires_social_connection`.
 - Next: the primitive-generation worker that loops Creative Brief requirements → `media.image.generate` → `drive.asset.upload` → writes `creative_assets` rows.

@@ -712,11 +712,19 @@ class FacebookOAuthHandler:
         return v
 
     def _redirect_uri(self, settings, overrides: dict) -> str:
-        return (
-            overrides.get("meta_redirect_uri")
-            or overrides.get("META_REDIRECT_URI")
-            or settings.meta_redirect_uri
-        )
+        from urllib.parse import urlparse
+        stored = overrides.get("meta_redirect_uri") or overrides.get("META_REDIRECT_URI")
+        if stored:
+            stored_host = urlparse(stored).netloc
+            frontend_host = urlparse(settings.frontend_url or "").netloc
+            if stored_host and frontend_host and stored_host != frontend_host:
+                stored = None
+        if stored:
+            return stored
+        if settings.meta_redirect_uri and settings.meta_redirect_uri != "http://localhost/social/facebook/callback":
+            return settings.meta_redirect_uri
+        base = (settings.frontend_url or "http://localhost").rstrip("/")
+        return f"{base}/social/facebook/callback"
 
     async def start_login(self, settings, overrides: dict | None = None) -> LoginStart:
         overrides = overrides or {}

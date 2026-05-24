@@ -136,7 +136,7 @@ Do not request Instagram scopes in Phase 1. Scope creep in the OAuth consent scr
 
 ### Credential injection
 
-Declared in `channel.json` as `requires_social_connection: ["facebook"]` and `requires_platform_vars: ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"]`.
+Declared in `channel.json` as `requires_social_connection: ["facebook", "google_drive"]` and `requires_platform_vars: ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"]`.
 
 Plugin vars (META_APP_ID, META_APP_SECRET, META_REDIRECT_URI) are stored in the DB via Admin → Plugins → Meta Channel and loaded at runtime via `get_plugin_vars("channel.meta", db, settings)`.
 
@@ -144,13 +144,16 @@ BOS injects page credentials into `brief["_channel_credentials"]`:
 
 ```python
 creds = brief.get("_channel_credentials", {})
-page_token   = creds.get("facebook_page_token")   # Page Access Token
-page_id      = creds.get("facebook_page_id")       # Facebook Page ID (string)
-page_name    = creds.get("facebook_page_name")     # Human-readable Page name
-ig_account   = creds.get("facebook_ig_account_id") # Instagram Business Account ID (Phase 3+)
+page_token        = creds.get("facebook_page_token")       # Facebook Page Access Token
+page_id           = creds.get("facebook_page_id")          # Facebook Page ID (string)
+page_name         = creds.get("facebook_page_name")        # Human-readable Page name
+ig_account        = creds.get("facebook_ig_account_id")    # Instagram Business Account ID (Phase 3+)
+drive_token       = creds.get("google_drive_page_token")   # Drive OAuth token (for image attachment)
 ```
 
-Phase 4 (Ads) requires a different credential path — ad account token — which is separate from the Page Access Token. That will be handled by a dedicated credential key or a second `requires_social_connection` entry. Do not mix ad account credentials with page credentials.
+`facebook` is always first in `requires_social_connection` so its token claims the generic `access_token` / `page_token` slots. `google_drive` injects under `google_drive_page_token` only. The publish module reads Facebook from `facebook_page_token` and Drive from `google_drive_page_token` explicitly — never the generic `page_token` for Drive, which would be the Facebook token.
+
+Phase 4 (Ads) requires a different credential path — ad account token — which is separate from the Page Access Token. That will be handled by a dedicated credential key or a third `requires_social_connection` entry. Do not mix ad account credentials with page credentials.
 
 ### OAuth handler
 
@@ -267,12 +270,18 @@ The endpoint approves the source draft, builds an action brief from the persiste
   "message": "Big news — our new integration is live! ...",
   "link": null,
   "image_prompt": null,
+  "image_url": null,
+  "drive_file_id": null,
+  "drive_file_name": null,
+  "drive_file_mime": null,
   "status": "draft",
   "allowed_actions": ["revise", "dismiss", "approve", "publish"],
   "action_modules": {"publish": "marketing.channel.meta.posts.publish"},
   "risk_policy": "draft_only_until_approved"
 }
 ```
+
+Operator can attach a Drive image before publishing: `PATCH /runs/{run_id}/attach-image` sets `drive_file_id`, `drive_file_name`, `drive_file_mime` on the persisted block and clears `image_url`. The publish module reads `drive_file_id` at execution time and downloads the binary via `DriveClient`.
 
 ### `fb_page_post_result` (posts/publish)
 
@@ -325,19 +334,42 @@ Key endpoints for Phase 1:
 GET  /me/accounts                                       → list pages + page tokens
 GET  /{page_id}?fields=name,category,fan_count,...      → page details
 GET  /{page_id}/posts?fields=message,created_time,...   → page posts
-POST /{page_id}/feed                                    → publish a post
+POST /{page_id}/feed                                    → publish text post (+ optional link)
+POST /{page_id}/photos                                  → publish image post (url or binary source)
 ```
 
-Key fields for publish (`POST /{page_id}/feed`):
+Key fields for text publish (`POST /{page_id}/feed`):
 
 ```json
 {
   "message": "...",
   "link": "https://...",      // optional
-  "published": true,          // false = schedule (requires scheduled_publish_time)
+  "published": true,
   "access_token": "<page_token>"
 }
 ```
+
+Key fields for image publish by URL (`POST /{page_id}/photos`):
+
+```json
+{
+  "url": "https://...",
+  "message": "...",
+  "published": "true",
+  "access_token": "<page_token>"
+}
+```
+
+Key fields for image publish from binary (`POST /{page_id}/photos`, multipart/form-data):
+
+```
+source      <binary image bytes>
+message     ...
+published   true
+access_token  <page_token>
+```
+
+The `/photos` endpoint returns `{"id": "...", "post_id": "..."}`. Use `post_id` (not `id`) as the timeline post ID for the permalink. The publish module routes to `/photos` when `drive_file_id` or `image_url` is present in the brief, and falls back to `/feed` for text-only posts.
 
 ---
 
@@ -363,7 +395,7 @@ Key fields for publish (`POST /{page_id}/feed`):
 - Do not use the User Access Token for any page action. Exchange it for a Page Access Token at OAuth time and discard the user token.
 - Do not add ad account credential handling to Phase 1–3 capabilities. Ads are Phase 4 and use a separate credential path.
 - Do not hardcode page IDs. They come from `brief["_channel_credentials"]["facebook_page_id"]`.
-- Do not accept image uploads directly. Image post support (via `/photos` endpoint) is a Phase 2 extension; Phase 1 posts are text + optional link only.
+- Image posts via Drive attachment are supported in Phase 1: `PATCH /runs/{run_id}/attach-image` stores the Drive file reference; the publish module downloads and uploads binary to `/photos`. Direct image URL posting (`image_url` in brief) is also supported.
 - Do not schedule posts (Phase 1). `published: false` + `scheduled_publish_time` is a Phase 2 addition.
 
 ---
@@ -384,8 +416,23 @@ Key fields for publish (`POST /{page_id}/feed`):
 ## Required social connection
 
 ```
-requires_social_connection: ["facebook"]
+requires_social_connection: ["facebook", "google_drive"]
 requires_platform_vars: ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"]
 ```
 
 Platform vars are stored in DB via Admin → Plugins → Meta Channel. Never put them in `.env` for production — `.env` values are fallbacks for local dev only.
+
+`google_drive` is optional at runtime — if the brand has no Drive connection, `google_drive_page_token` will be absent from `_channel_credentials`. The publish module returns `missing_credentials` only when `drive_file_id` is in the brief but `google_drive_page_token` is absent. Text-only posts proceed regardless of Drive connection.
+
+## Image attachment workflow
+
+```
+1. Operator reviews fb_page_post_draft artifact in Workspace/Stream
+2. Clicks "Attach image" → Drive picker modal loads images from GET /social/drive/images?brand_id=
+3. Selects file → PATCH /runs/{run_id}/attach-image stores drive_file_id/name/mime in RunTrace.lineage_json.block
+4. Clicks "Approve & Publish" → POST /runs/{run_id}/actions/publish?confirm=true
+5. Publish module reads drive_file_id from brief, downloads binary via DriveClient (google_drive_page_token)
+6. POSTs multipart to /{page_id}/photos with source=<binary> → live image post on Facebook page
+```
+
+`GET /social/drive/images?brand_id=` lists images from the brand's `drive_root_folder_id` (set via Google Picker). Supported MIME types: `image/jpeg`, `image/png`, `image/gif`, `image/webp`.

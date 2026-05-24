@@ -153,6 +153,18 @@ export function Layout() {
   }, [refreshConversations]);
 
   useEffect(() => {
+    const handle = (e: Event) => {
+      const run = (e as CustomEvent).detail;
+      if (!run?.run_id) return;
+      setPendingRunItems(prev => ({ ...prev, [run.run_id]: run }));
+      // Stream's own side panel handles bos:focus-artifact. Do not open the
+      // WorkspacePanel slide-over here — that surface was retired.
+    };
+    window.addEventListener('bos:focus-artifact', handle);
+    return () => window.removeEventListener('bos:focus-artifact', handle);
+  }, []);
+
+  useEffect(() => {
     writePendingRuns(pendingRunItems);
   }, [pendingRunItems]);
 

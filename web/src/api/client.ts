@@ -426,6 +426,17 @@ export const api = {
   getDrivePickerConfig: (brand_id: string) =>
     request<{ access_token: string; api_key: string; app_id: string }>(`/social/drive/picker-config?brand_id=${brand_id}`),
 
+  listDriveImages: (brand_id: string, folder_id?: string) =>
+    request<{ folder_id: string; files: { id: string; name: string; mimeType: string; size?: number; webViewLink?: string }[] }>(
+      `/social/drive/images?brand_id=${encodeURIComponent(brand_id)}${folder_id ? `&folder_id=${encodeURIComponent(folder_id)}` : ''}`
+    ),
+
+  attachImageToRun: (runId: string, drive_file_id: string, drive_file_name: string, drive_file_mime: string) =>
+    request<{ run_id: string; drive_file_id: string; drive_file_name: string }>(`/runs/${runId}/attach-image`, {
+      method: 'PATCH',
+      body: JSON.stringify({ drive_file_id, drive_file_name, drive_file_mime }),
+    }),
+
   setDriveRoot: (brand_id: string, folder_id: string, folder_name?: string, folder_path?: string) =>
     request<{ status: string; drive_root_folder_id: string; drive_root_name: string | null; drive_root_path: string | null }>('/social/drive/root', {
       method: 'POST',

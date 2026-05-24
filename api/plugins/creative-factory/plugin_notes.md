@@ -27,6 +27,7 @@ Regression-prevention notes for the creative supply chain plugin. Architecture: 
 - **Drive token + root injection:** the plugin declares `requires_social_connection: ["google_drive"]`, so `inject_channel_credentials` injects the google_drive `page_token` AND (new) the `drive_root_folder_id`/`drive_root_name` from the connection's `token_meta_json`. The module loads `drive_client` from `/app/plugins/google-drive/drive_client.py` (absolute path — cross-plugin) and uploads under the picked root.
 - **Validated 2026-05-24:** live `/chat` "make an image for a Facebook post…" with brand active → dispatched creative.post.image → image generated from brand brief → stored to Drive (`meta_post_*.png`). Two files confirmed in the operator's real `Creative Assets/Meta Posts/`.
 - **Gotcha:** if `image_prompt` absent AND `requires_generated_image` False → no image → fails. The flag is what makes chat-without-explicit-prompt work.
+- **Publish handoff (2026-05-24):** `creative_post_asset` block now declares `action_modules: {"publish": "marketing.channel.meta.posts.publish"}` and includes both `caption` and `message` fields (same value) plus `drive_file_mime`. The Stream "Approve & Publish" button fires `POST /runs/{id}/actions/publish` → action endpoint reads `drive_file_id` + `message` from the block and dispatches the publish module. CMO MUST NOT re-dispatch `posts.publish` from chat for image posts — it doesn't know the drive_file_id. The SKILL.md body instructs the CMO to tell the operator to click the artifact button.
 
 ## Local backlog
 

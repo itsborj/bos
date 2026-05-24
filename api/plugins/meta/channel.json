@@ -10,7 +10,7 @@
   "connector_protocol": "meta_graph_api_v21",
   "risk_policy": "read_is_read_only; publish_is_approval_gated; draft_is_draft_only",
   "output_contracts": ["meta_page_inventory", "meta_page_posts", "fb_page_post_draft", "fb_page_post_result"],
-  "requires_social_connection": ["facebook"],
+  "requires_social_connection": ["facebook", "google_drive"],
   "requires_platform_vars": [
     "META_APP_ID",
     "META_APP_SECRET",

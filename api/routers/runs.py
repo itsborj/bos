@@ -319,6 +319,9 @@ async def _execute_module(
         ))
 
         run.status = "success" if verdict == "pass" else "partial"
+        block_data = result_data.get("block") or {}
+        if run.status == "success" and block_data.get("status") == "succeeded":
+            run.approval_status = "approved"
         await write_memory_event(
             db,
             workspace_id=ws.id,
@@ -867,6 +870,46 @@ async def approve_run(
             await _update_pm_task_status(run, "approved", _brand, db, get_settings())
 
     return {"run_id": run_id, "approval_status": "approved"}
+
+
+class AttachImageRequest(BaseModel):
+    drive_file_id: str
+    drive_file_name: str = ""
+    drive_file_mime: str = "image/jpeg"
+
+
+@router.patch("/runs/{run_id}/attach-image", status_code=200, summary="Attach a Drive image to a pending artifact")
+async def attach_image_to_run(
+    run_id: str,
+    body: AttachImageRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Store Drive image metadata in RunTrace.lineage_json.block so the publish
+    action can resolve it at execution time."""
+    try:
+        run_uuid = UUID(run_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid run ID format")
+
+    row = (await db.execute(
+        select(RunTrace).join(Run, Run.id == RunTrace.run_id).where(Run.id == run_uuid)
+    )).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Run trace not found")
+
+    lineage = dict(row.lineage_json or {})
+    block = dict(lineage.get("block") or {})
+    block["drive_file_id"] = body.drive_file_id
+    block["drive_file_name"] = body.drive_file_name
+    block["drive_file_mime"] = body.drive_file_mime
+    # Clear any previously set direct image_url so the drive path takes precedence
+    block.pop("image_url", None)
+    lineage["block"] = block
+    row.lineage_json = lineage
+    await db.commit()
+
+    return {"run_id": run_id, "drive_file_id": body.drive_file_id, "drive_file_name": body.drive_file_name}
 
 
 async def execute_declared_run_action(

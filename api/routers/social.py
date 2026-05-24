@@ -540,6 +540,59 @@ async def drive_picker_config(
     return {"access_token": token, "api_key": settings.google_picker_api_key, "app_id": app_id}
 
 
+@router.get("/drive/images", dependencies=[Depends(require_api_key)])
+async def list_drive_images(
+    brand_id: str,
+    folder_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    """List image files from the brand's connected Google Drive folder.
+
+    Uses the folder_id query param if supplied, otherwise the brand's stored
+    drive_root_folder_id. Falls back to Drive 'root' if nothing is set.
+    """
+    import sys
+    import os
+    plugin_dir = os.path.join(os.path.dirname(__file__), "..", "plugins", "google-drive")
+    if plugin_dir not in sys.path:
+        sys.path.insert(0, plugin_dir)
+    from drive_client import DriveClient
+
+    token, _ = await get_page_token(db, brand_id, "google_drive", settings)
+    if not token:
+        raise HTTPException(status_code=404, detail={"error": {"code": "DRIVE_NOT_CONNECTED", "message": "Connect Google Drive for this brand first", "details": None}})
+
+    # Resolve target folder
+    target_folder = folder_id
+    if not target_folder:
+        row = (await db.execute(
+            select(SocialConnection).where(
+                SocialConnection.brand_id == uuid.UUID(brand_id),
+                SocialConnection.platform == "google_drive",
+                SocialConnection.status == "connected",
+            ).order_by(SocialConnection.created_at.desc()).limit(1)
+        )).scalar_one_or_none()
+        target_folder = ((row.token_meta_json or {}).get("drive_root_folder_id") if row else None) or "root"
+
+    with DriveClient(token) as drive:
+        all_files: list[dict] = []
+        for mime in ("image/jpeg", "image/png", "image/gif", "image/webp"):
+            items = drive.list_children(target_folder, mime_type=mime)
+            all_files.extend(items)
+
+    # De-duplicate by id (list_children per mime can return overlaps)
+    seen: set[str] = set()
+    unique = []
+    for f in all_files:
+        if f["id"] not in seen:
+            seen.add(f["id"])
+            unique.append(f)
+    unique.sort(key=lambda f: f.get("name", ""))
+
+    return {"folder_id": target_folder, "files": unique}
+
+
 @router.post("/drive/root", dependencies=[Depends(require_api_key)])
 async def set_drive_root(
     body: SetDriveRootRequest,
@@ -720,6 +773,50 @@ async def facebook_select_page(
     await db.delete(session)
     await db.commit()
     return {"status": "connected", "page_id": page["id"], "page_name": page["name"]}
+
+
+# ── Direct token storage (admin / dev bypass) ─────────────────────────────────
+
+class FacebookDirectConnectRequest(BaseModel):
+    brand_id: str
+    page_id: str
+    page_name: str
+    page_token: str
+
+
+@router.post("/facebook/direct-connect", dependencies=[Depends(require_api_key)])
+async def facebook_direct_connect(
+    body: FacebookDirectConnectRequest,
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    """Store a Facebook page token directly without OAuth — admin/dev use when OAuth
+    redirect is misconfigured or for testing with a manually obtained page token.
+    """
+    try:
+        brand_uuid = uuid.UUID(body.brand_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail={"error": {"code": "INVALID_BRAND_ID", "message": "Invalid brand_id", "details": None}})
+
+    ws = await get_singleton(db)
+    if not ws:
+        raise HTTPException(status_code=412, detail="Workspace not initialized")
+
+    brand = (await db.execute(
+        select(Brand).where(Brand.id == brand_uuid, Brand.workspace_id == ws.id)
+    )).scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail={"error": {"code": "BRAND_NOT_FOUND", "message": "Brand not found", "details": None}})
+
+    conn = await _store_connection(db, ws.id, body.brand_id, settings, "facebook", {
+        "id": body.page_id,
+        "name": body.page_name,
+        "access_token": body.page_token,
+        "username": None,
+        "token_meta": {},
+    })
+    await db.commit()
+    return {"status": "connected", "page_id": conn.page_id, "page_name": conn.page_name, "brand_id": body.brand_id}
 
 
 # ── List connections ──────────────────────────────────────────────────────────

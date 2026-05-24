@@ -97,12 +97,15 @@ class CreativePostImageModule(ChannelModule):
                 "channel": "meta",
                 "image_data_b64": img_b64,
                 "mime_type": "image/png",
+                "drive_file_mime": "image/png",
                 "caption": caption or None,
+                "message": caption or None,
                 "drive_file_id": meta.get("id"),
                 "drive_web_view_link": meta.get("webViewLink"),
                 "drive_folder": "Creative Assets/Meta Posts",
                 "reusable": True,
-                "allowed_actions": ["use", "regenerate", "dismiss"],
+                "allowed_actions": ["publish", "regenerate", "dismiss"],
+                "action_modules": {"publish": "marketing.channel.meta.posts.publish"},
             },
         }
 

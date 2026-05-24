@@ -8,20 +8,21 @@ def _ensure_plugins_loaded() -> None:
     list_all()
 
 
-def test_direct_facebook_test_post_routes_to_publish_not_draft() -> None:
+def test_explicit_publish_command_with_copy_routes_to_publish() -> None:
     _ensure_plugins_loaded()
+    # Operator provides explicit publish command with the post text inline.
     routed = route_chat_skills(
-        "lets post facebook test for mactan group text only will do no image, just testing"
+        "post this to facebook: BOS is live — testing our infrastructure."
     )
 
     assert "marketing.channel.meta.posts.publish" in routed.module_ids
     assert "marketing.channel.meta.posts.draft" not in routed.module_ids
 
 
-def test_facebook_post_with_visual_routes_to_bundle_not_split() -> None:
+def test_facebook_post_with_visual_routes_to_creative_for_review() -> None:
     _ensure_plugins_loaded()
-    # A complete post (copy + visual) is ONE bundle (creative.post.image),
-    # not a separate copy draft, and never an unrequested publish.
+    # "Make a Facebook post with visual" → creative.post.image for operator review.
+    # Approval is mandatory — never route direct to publish for creative requests.
     routed = route_chat_skills(
         "make a Facebook post for dormant prospects with a matching visual"
     )

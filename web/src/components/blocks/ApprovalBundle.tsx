@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useCallback } from 'react';
 import { api } from '../../api/client';
 import { useUI } from '../../context/UIContext';
 import { GoogleSearchPreview } from './previews/GoogleSearchPreview';
@@ -10,6 +10,8 @@ import { EmailPreview } from './previews/EmailPreview';
 import { PinterestPreview } from './previews/PinterestPreview';
 import { TwitterFeedPreview } from './previews/TwitterFeedPreview';
 import type { ChatHistoryItem, RunResponse } from '../../api/types';
+
+type DriveFile = { id: string; name: string; mimeType: string; size?: number; webViewLink?: string; thumbnailLink?: string };
 
 interface ApprovalBundleProps {
   run: RunResponse;
@@ -39,6 +41,7 @@ function artifactTitle(run: RunResponse, platformLabel: string): string {
   if (moduleId.includes('email') || platformLabel.toLowerCase().includes('email')) return 'Email Draft';
   if (moduleId.includes('plan')) return 'Campaign Plan';
   if (moduleId.includes('report') || moduleId.includes('analytics')) return 'Marketing Report';
+  if (moduleId.includes('creative.post')) return 'Facebook Post Creative';
   if (moduleId.includes('meta.pages.read')) return 'Facebook Pages';
   if (moduleId.includes('meta.posts.draft')) return 'Facebook Post Draft';
   if (moduleId.includes('meta.posts.publish')) return 'Facebook Post';
@@ -73,7 +76,7 @@ function hasArtifactAction(run: RunResponse, action: string): boolean {
 }
 
 export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, onDismissed, revisionHistory = [] }: ApprovalBundleProps) {
-  const { removePendingRun, addPendingRun, activeCampaign } = useUI();
+  const { removePendingRun, addPendingRun, activeCampaign, activeBrand } = useUI();
   const [reviewStatus, setReviewStatus] = useState<ReviewStatus>('pending');
   const [modifying, setModifying] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -84,6 +87,14 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
   const [revision, setRevision] = useState<RunResponse | null>(null);
   const [revisionReply, setRevisionReply] = useState<string>('');
   const [localRevisionHistory, setLocalRevisionHistory] = useState<ChatHistoryItem[]>([]);
+
+  // Drive image picker (shared between fb_page_post_draft attach and creative_post_asset swap)
+  const [drivePickerOpen, setDrivePickerOpen] = useState(false);
+  const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
+  const [driveLoading, setDriveLoading] = useState(false);
+  const [driveError, setDriveError] = useState<string | null>(null);
+  const [attachedImage, setAttachedImage] = useState<DriveFile | null>(null);
+  const [attaching, setAttaching] = useState(false);
 
   const result = run.result;
   const moduleId = run.module_id.toLowerCase();
@@ -97,8 +108,18 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
   const socialHandle = result.block?.brand_handle || result.brand_handle || '@klarohahq';
   const selfCheckPassed = result.self_check === 'pass';
   const canPublish = hasArtifactAction(run, 'publish');
+  const isFbDraft = result.block?.type === 'fb_page_post_draft';
+  const isCreativePost = result.block?.type === 'creative_post_asset' && result.block?.status === 'succeeded';
+
+  // Editable state for creative_post_asset review
+  const [editedCaption, setEditedCaption] = useState<string>(result.block?.caption || result.block?.message || '');
+  const [swappedAttachment, setSwappedAttachment] = useState<DriveFile | null>(null);
 
   const handleApprove = async () => {
+    if (isCreativePost) {
+      await handleCreativeApprove();
+      return;
+    }
     if (canPublish) {
       await handleApproveAndPublish();
       return;
@@ -111,6 +132,35 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     } catch (e) {
       setReviewStatus('pending');
       setRevisionError(e instanceof Error ? e.message : 'Could not approve this artifact.');
+    }
+  };
+
+  const handleCreativeApprove = async () => {
+    const trimmedCaption = editedCaption.trim();
+    if (!trimmedCaption) {
+      setRevisionError('Post copy is required before publishing. Enter the caption text above.');
+      return;
+    }
+    setPublishing(true);
+    setRevisionError(null);
+    try {
+      const overrides: Record<string, unknown> = { message: trimmedCaption };
+      if (swappedAttachment) {
+        overrides.drive_file_id = swappedAttachment.id;
+        overrides.drive_file_mime = swappedAttachment.mimeType;
+      }
+      const resp = await api.executeRunAction(run.run_id, 'publish', { confirm: true, overrides });
+      setReviewStatus('approved');
+      setModifying(false);
+      removePendingRun(run.run_id);
+      addPendingRun(resp.action_run);
+      onApproved?.(run);
+      window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: resp.action_run }));
+    } catch (e) {
+      setReviewStatus('pending');
+      setRevisionError(e instanceof Error ? e.message : 'Could not publish to Facebook.');
+    } finally {
+      setPublishing(false);
     }
   };
 
@@ -148,13 +198,54 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     api.rejectRun(run.run_id, 'Dismissed from panel.').catch(() => {});
   };
 
+  const openDrivePicker = useCallback(async () => {
+    setDrivePickerOpen(true);
+    setDriveError(null);
+    if (driveFiles.length > 0) return;
+    setDriveLoading(true);
+    try {
+      const brandId = activeBrand?.id || run.result?.block?.brand_id || '';
+      if (!brandId) {
+        setDriveError('No active brand — select a brand first.');
+        return;
+      }
+      const res = await api.listDriveImages(brandId);
+      setDriveFiles(res.files);
+    } catch (e) {
+      setDriveError(e instanceof Error ? e.message : 'Could not load Drive images.');
+    } finally {
+      setDriveLoading(false);
+    }
+  }, [activeBrand, driveFiles.length, run.result?.block?.brand_id]);
+
+  const selectDriveImage = async (file: DriveFile) => {
+    if (isCreativePost) {
+      setSwappedAttachment(file);
+      setDrivePickerOpen(false);
+      return;
+    }
+    setAttaching(true);
+    setDriveError(null);
+    try {
+      await api.attachImageToRun(run.run_id, file.id, file.name, file.mimeType);
+      setAttachedImage(file);
+      setDrivePickerOpen(false);
+    } catch (e) {
+      setDriveError(e instanceof Error ? e.message : 'Could not attach image.');
+    } finally {
+      setAttaching(false);
+    }
+  };
+
   const buildRevisionContext = () => {
     const block = result.block || {};
+    // Strip large binary fields before serialising — image_data_b64 alone can be >500 KB
+    const { image_data_b64: _dropped, ...blockForContext } = block as Record<string, unknown>;
     return [
       `Current module: ${run.module_id}`,
       `Current platform: ${platformLabel}`,
       result.content ? `Current full draft:\n${result.content}` : '',
-      block && Object.keys(block).length ? `Current structured draft JSON:\n${JSON.stringify(block, null, 2)}` : '',
+      Object.keys(blockForContext).length ? `Current structured draft JSON:\n${JSON.stringify(blockForContext, null, 2)}` : '',
     ].filter(Boolean).join('\n\n');
   };
 
@@ -241,6 +332,14 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
           <div style={{ padding: '0 12px 16px', fontSize: 14, color: '#050505', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>
             {message}
           </div>
+          {attachedImage && (
+            <div style={{ margin: '0 12px 12px', padding: '8px 12px', background: '#f0fdf4', borderRadius: 6, border: '1px solid #bbf7d0', display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}>
+              <span style={{ fontSize: 16 }}>🖼</span>
+              <span style={{ fontWeight: 600, color: '#166534' }}>Image attached:</span>
+              <span style={{ color: '#374151' }}>{attachedImage.name}</span>
+              <button style={{ marginLeft: 'auto', fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setAttachedImage(null)}>Remove</button>
+            </div>
+          )}
         </div>
       );
     }
@@ -248,10 +347,18 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     if (blockType === 'fb_page_post_result') {
       const b = result.block as any;
       const succeeded = b.status === 'succeeded';
+      const apiDetail = b.details?.response || b.details?.error || '';
       return (
         <div style={{ padding: '18px 20px', fontSize: 13, color: '#1f2937', maxWidth: 520, border: '1px solid #e5e7eb', borderRadius: 12, background: succeeded ? '#f0fdf4' : '#fef2f2' }}>
           <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 8 }}>{succeeded ? 'Facebook post published' : 'Facebook publish failed'}</div>
           <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.45, marginBottom: 10 }}>{b.message_preview || b.message || result.content}</div>
+          {!succeeded && b.message && <div style={{ color: '#b91c1c', fontSize: 12, marginBottom: 6 }}>{b.message}</div>}
+          {!succeeded && apiDetail && (
+            <details style={{ marginBottom: 8 }}>
+              <summary style={{ color: '#6b7280', fontSize: 11, cursor: 'pointer' }}>Graph API response</summary>
+              <pre style={{ marginTop: 6, padding: 8, background: '#fff', borderRadius: 6, fontSize: 11, overflowX: 'auto', whiteSpace: 'pre-wrap', wordBreak: 'break-all', color: '#374151' }}>{typeof apiDetail === 'string' ? apiDetail : JSON.stringify(apiDetail, null, 2)}</pre>
+            </details>
+          )}
           {b.post_id && <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 6 }}>Post ID: {b.post_id}</div>}
           {b.permalink && <a href={b.permalink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontWeight: 700 }}>View on Facebook →</a>}
         </div>
@@ -304,8 +411,10 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
 
     if (result.block?.type === 'creative_post_asset' && result.block?.status === 'succeeded') {
       const b = result.block;
-      const src = b.image_data_b64 ? `data:${b.mime_type || 'image/png'};base64,${b.image_data_b64}` : undefined;
-      return <FacebookFeedPreview pageName={brandName} adCopy={b.caption || 'Caption pending'} imageUrl={src} ctaText={b.cta || 'Learn More'} />;
+      const src = swappedAttachment
+        ? (swappedAttachment.thumbnailLink || undefined)
+        : b.image_data_b64 ? `data:${b.mime_type || 'image/png'};base64,${b.image_data_b64}` : undefined;
+      return <FacebookFeedPreview pageName={brandName} adCopy={editedCaption || b.caption || 'Caption pending'} imageUrl={src} ctaText={b.cta || 'Learn More'} />;
     }
     if (channel.includes('facebook')) {
       return <FacebookFeedPreview pageName={brandName} adCopy={result.content || 'Copy missing'} ctaText={result.cta || 'Learn More'} />;
@@ -543,6 +652,48 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
           </div>
         )}
 
+        {isCreativePost && reviewStatus !== 'approved' && reviewStatus !== 'dismissed' && (
+          <>
+            <div className="artifact-copy-panel">
+              <div className="artifact-section-label">Copy</div>
+              <textarea
+                className="artifact-revision-input"
+                value={editedCaption}
+                onChange={e => setEditedCaption(e.target.value)}
+                rows={4}
+                placeholder="Post copy…"
+              />
+            </div>
+            <div className="artifact-copy-panel">
+              <div className="artifact-section-label">Attachment</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {swappedAttachment ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, flex: 1, minWidth: 0 }}>
+                    {swappedAttachment.thumbnailLink
+                      ? <img src={swappedAttachment.thumbnailLink} alt={swappedAttachment.name} style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid #e5e7eb', flexShrink: 0 }} />
+                      : <span style={{ fontSize: 20, flexShrink: 0 }}>🖼</span>
+                    }
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{swappedAttachment.name}</div>
+                      <div style={{ color: '#6b7280', fontSize: 11 }}>{swappedAttachment.mimeType}</div>
+                    </div>
+                    <button style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setSwappedAttachment(null)}>Remove</button>
+                  </div>
+                ) : result.block?.image_data_b64 ? (
+                  <img
+                    src={`data:${result.block.mime_type || 'image/png'};base64,${result.block.image_data_b64}`}
+                    alt="Post image"
+                    style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid #e5e7eb', flexShrink: 0 }}
+                  />
+                ) : (
+                  <div style={{ width: 56, height: 56, borderRadius: 6, border: '1px dashed #d1d5db', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 20, flexShrink: 0 }}>🖼</div>
+                )}
+                <button className="artifact-btn ghost" onClick={openDrivePicker}>Swap · Drive</button>
+              </div>
+            </div>
+          </>
+        )}
+
         <div className="artifact-review-bar">
           <div className="artifact-review-note">
             {reviewStatus === 'approved' && 'Approved and removed from needs-attention.'}
@@ -554,9 +705,14 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
             {reviewStatus !== 'approved' && (
               <>
                 <button className="artifact-btn ghost" onClick={handleDismiss}>Dismiss</button>
-                <button className="artifact-btn ghost" onClick={handleSaveDraft}>Save draft</button>
+                {!isCreativePost && <button className="artifact-btn ghost" onClick={handleSaveDraft}>Save draft</button>}
                 <button className="artifact-btn ghost" onClick={() => { setModifying(v => !v); addPendingRun(run); }}>Revise</button>
-                <button className="artifact-btn primary" onClick={handleApprove} disabled={publishing}>{publishing ? 'Publishing…' : (canPublish ? 'Approve & Publish' : 'Approve')}</button>
+                {isFbDraft && (
+                  <button className="artifact-btn ghost" onClick={openDrivePicker} disabled={attaching}>
+                    {attachedImage ? '🖼 Change image' : 'Attach image'}
+                  </button>
+                )}
+                <button className="artifact-btn primary" onClick={handleApprove} disabled={publishing}>{publishing ? 'Publishing…' : (canPublish && !isCreativePost ? 'Approve & Publish' : 'Approve')}</button>
               </>
             )}
             {reviewStatus === 'approved' && (
@@ -607,6 +763,48 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
         <div className="artifact-revision-result">
           <div className="artifact-revision-note">{revisionReply || `I revised this ${platformLabel} draft based on your note.`}</div>
           <ApprovalBundle run={revision} surfaceContext="chat-inline" revisionHistory={localRevisionHistory} />
+        </div>
+      )}
+
+      {drivePickerOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={e => { if (e.target === e.currentTarget) setDrivePickerOpen(false); }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 24, width: 480, maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>{isCreativePost ? 'Swap image from Drive' : 'Attach image from Drive'}</div>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#6b7280' }} onClick={() => setDrivePickerOpen(false)}>✕</button>
+            </div>
+            {driveLoading && <div style={{ color: '#6b7280', fontSize: 13 }}>Loading images from Drive…</div>}
+            {driveError && <div style={{ color: '#ef4444', fontSize: 13 }}>{driveError}</div>}
+            {!driveLoading && !driveError && driveFiles.length === 0 && (
+              <div style={{ color: '#6b7280', fontSize: 13 }}>No images found in your connected Drive folder. Upload images to the folder set in brand settings.</div>
+            )}
+            {!driveLoading && driveFiles.length > 0 && (
+              <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {driveFiles.map(f => {
+                  const isSelected = isCreativePost ? swappedAttachment?.id === f.id : attachedImage?.id === f.id;
+                  return (
+                    <button key={f.id} disabled={attaching}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: isSelected ? '#f0fdf4' : '#f9fafb', border: `1px solid ${isSelected ? '#86efac' : '#e5e7eb'}`, borderRadius: 7, cursor: 'pointer', textAlign: 'left', fontSize: 13 }}
+                      onClick={() => selectDriveImage(f)}>
+                      {f.thumbnailLink
+                        ? <img src={f.thumbnailLink} alt={f.name} style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 5, flexShrink: 0, border: '1px solid #e5e7eb' }} />
+                        : <span style={{ fontSize: 20, flexShrink: 0 }}>🖼</span>
+                      }
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</div>
+                        <div style={{ color: '#6b7280', fontSize: 11 }}>{f.mimeType}{f.size ? ` · ${(f.size / 1024).toFixed(0)} KB` : ''}</div>
+                      </div>
+                      {isSelected && <span style={{ marginLeft: 'auto', color: '#16a34a', fontWeight: 700, flexShrink: 0 }}>✓</span>}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              <button className="artifact-btn ghost" onClick={() => setDrivePickerOpen(false)}>Cancel</button>
+            </div>
+          </div>
         </div>
       )}
     </div>
