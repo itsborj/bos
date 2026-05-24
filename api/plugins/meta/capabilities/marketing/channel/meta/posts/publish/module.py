@@ -67,24 +67,41 @@ class MetaPostsPublishModule(ChannelModule):
             return json.loads(resp.read().decode("utf-8"))
 
     def _message_from_brief(self, brief: dict) -> str:
-        for key in ("message", "post_text", "text", "approved_post_text"):
-            value = str(brief.get(key, "")).strip()
+        for key in (“message”, “post_text”, “text”, “approved_post_text”):
+            value = str(brief.get(key, “”)).strip()
             if value:
                 return value
 
-        directive = str(brief.get("cmo_directive_text", "")).strip()
+        directive = str(brief.get(“cmo_directive_text”, “”)).strip()
         if directive:
-            # If the CMO says it is posting an exact quoted string, use that as
-            # the approved post text. This keeps direct-publish instructions from
-            # failing when the model forgets the `message:` inline param.
-            quoted = re.search(r"[\"“](.+?)[\"”]", directive, flags=re.DOTALL)
+            quoted = re.search(r”[\””](.+?)[\””]”, directive, flags=re.DOTALL)
             if quoted and quoted.group(1).strip():
                 return quoted.group(1).strip()
 
-        task_name = str(brief.get("task_name", "")).strip()
-        if task_name and not task_name.lower().startswith(("publish", "post to", "post on")):
+        task_name = str(brief.get(“task_name”, “”)).strip()
+        if task_name and not task_name.lower().startswith((“publish”, “post to”, “post on”)):
             return task_name
-        return ""
+
+        # Fallback: extract from the last USER message in conversation context.
+        # Handles “post this to facebook: <text>” when the LLM omits message: param.
+        conv = str(brief.get(“conversation_context”, “”)).strip()
+        if conv:
+            last_user = “”
+            for line in reversed(conv.splitlines()):
+                if line.strip().upper().startswith(“USER:”):
+                    last_user = line.strip()[5:].strip()
+                    break
+            if last_user:
+                m = re.search(
+                    r”(?:post|publish|send)\b.{0,40}?(?:to|on|in)\b.{0,25}?”
+                    r”(?:facebook|fb)\b[^:]*:\s*(.+)”,
+                    last_user,
+                    flags=re.IGNORECASE | re.DOTALL,
+                )
+                if m and m.group(1).strip():
+                    return m.group(1).strip()
+
+        return “”
 
     def execute_tool_result(self, brief: dict) -> tuple[dict, dict]:
         start = time.perf_counter()

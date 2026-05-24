@@ -1,7 +1,7 @@
 ---
 id: marketing.channel.meta.posts.publish
 name: Facebook Post Publish
-description: Use when the user explicitly instructs BOS to post/publish text directly to a Facebook Page, including low-risk test posts where the operator says the copy does not matter or gives exact text. The direct command itself is approval for that text-only external action. Also use when the user has approved a specific Facebook draft and asks to publish it. Never use for vague new creative drafting requests; those go to posts/draft first.
+description: "Use when the user explicitly instructs BOS to post/publish text directly to a Facebook Page, including low-risk test posts where the operator says the copy does not matter or gives exact text. The direct command itself is approval for that text-only external action. Also use when the user has approved a specific Facebook draft and asks to publish it. Never use for vague new creative drafting requests; those go to posts/draft first. REQUIRED inline param: always append `message: <exact text to post>` on the line immediately after the RUN: directive — omitting it will fail the run."
 scope: module
 status: active
 version: 0.1.0
