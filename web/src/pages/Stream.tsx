@@ -270,15 +270,15 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, onApprove, onDismi
 
   async function approve() {
     setBusy(true);
-    try { await api.approveRun(run.run_id); onApprove(run); } finally { setBusy(false); }
-  }
-
-  async function approveAndPublish() {
-    setBusy(true);
     try {
-      const resp = await api.executeRunAction(run.run_id, 'publish', { confirm: true });
-      onApprove(run);
-      onActionRun(resp.action_run);
+      if (canPublish) {
+        const resp = await api.executeRunAction(run.run_id, 'publish', { confirm: true });
+        onApprove(run);
+        onActionRun(resp.action_run);
+      } else {
+        await api.approveRun(run.run_id);
+        onApprove(run);
+      }
     } finally { setBusy(false); }
   }
 
@@ -301,8 +301,7 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, onApprove, onDismi
       <div className="g2actions">
         {status === 'pending' && (
           <>
-            {canPublish && <button className="btn btn-primary" onClick={approveAndPublish} disabled={busy}>{busy ? '…' : 'Approve & Publish'}</button>}
-            <button className={canPublish ? 'btn btn-ghost' : 'btn btn-primary'} onClick={approve} disabled={busy}>{canPublish ? 'Approve only' : 'Approve'}</button>
+            <button className="btn btn-primary" onClick={approve} disabled={busy}>{busy ? '…' : (canPublish ? 'Approve & Publish' : 'Approve')}</button>
             <button className="btn btn-ghost" onClick={() => navigate('/cmo')}>Ask CMO</button>
             <button className="btn btn-ghost" onClick={dismiss} disabled={busy}>Dismiss</button>
           </>

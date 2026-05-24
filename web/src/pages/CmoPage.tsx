@@ -256,7 +256,13 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, onApprove, onDismi
   async function approve() {
     setBusy(true);
     try {
-      await api.approveRun(run.run_id);
+      const publishModule = run.result?.block?.action_modules?.publish;
+      if (publishModule) {
+        const resp = await api.executeRunAction(run.run_id, 'publish', { confirm: true });
+        window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: resp.action_run }));
+      } else {
+        await api.approveRun(run.run_id);
+      }
       onApprove(run);
     } finally {
       setBusy(false);

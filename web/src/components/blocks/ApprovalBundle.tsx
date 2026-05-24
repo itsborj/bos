@@ -99,6 +99,10 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
   const canPublish = hasArtifactAction(run, 'publish');
 
   const handleApprove = async () => {
+    if (canPublish) {
+      await handleApproveAndPublish();
+      return;
+    }
     setReviewStatus('approved');
     removePendingRun(run.run_id);
     try {
@@ -552,8 +556,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
                 <button className="artifact-btn ghost" onClick={handleDismiss}>Dismiss</button>
                 <button className="artifact-btn ghost" onClick={handleSaveDraft}>Save draft</button>
                 <button className="artifact-btn ghost" onClick={() => { setModifying(v => !v); addPendingRun(run); }}>Revise</button>
-                {canPublish && <button className="artifact-btn primary" onClick={handleApproveAndPublish} disabled={publishing}>{publishing ? 'Publishing…' : 'Approve & Publish'}</button>}
-                <button className={canPublish ? 'artifact-btn ghost' : 'artifact-btn primary'} onClick={handleApprove} disabled={publishing}>{canPublish ? 'Approve only' : 'Approve'}</button>
+                <button className="artifact-btn primary" onClick={handleApprove} disabled={publishing}>{publishing ? 'Publishing…' : (canPublish ? 'Approve & Publish' : 'Approve')}</button>
               </>
             )}
             {reviewStatus === 'approved' && (
