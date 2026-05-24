@@ -22,7 +22,14 @@ from models.provider import ProviderLoginSession
 from models.social import SocialConnection
 from models.workspace import Brand
 from plugin_loader import get_plugin_vars
-from provider_auth import encrypt_secret, decrypt_secret, get_oauth_handler
+from provider_auth import (
+    encrypt_secret,
+    decrypt_secret,
+    get_oauth_handler,
+    relay_claim_handoff,
+    relay_refresh_token,
+    GOOGLE_RELAY_PLATFORMS,
+)
 from routers.workspace import get_singleton
 
 # Platforms that load OAuth app credentials from plugin vars (DB) rather than .env
@@ -147,10 +154,35 @@ async def gmail_callback(
     code: str = "",
     state: str = "",
     error: str = "",
+    handoff_token: str = "",
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
 ):
     frontend = settings.frontend_url.rstrip("/")
+
+    if handoff_token and settings.klaroha_relay_url:
+        try:
+            payload = await relay_claim_handoff(handoff_token, settings)
+        except Exception:
+            return _admin_connectors_redirect(frontend, gmail="error", reason="relay_claim_failed")
+        meta = payload.get("metadata") or {}
+        email = meta.get("email", "")
+        brand_id = payload.get("brand_id") or ""
+        if not email:
+            return _admin_connectors_redirect(frontend, gmail="error", reason="no_email_returned")
+        ws = await get_singleton(db)
+        token_meta = None
+        if payload.get("refresh_token"):
+            token_meta = {
+                "refresh_token_encrypted": encrypt_secret(payload["refresh_token"], settings),
+                "expires_at": payload.get("expires_at"),
+            }
+        await _store_connection(db, ws.id, brand_id or None, settings, "gmail", {
+            "id": email, "access_token": payload["access_token"],
+            "name": meta.get("name") or email, "username": email, "token_meta": token_meta,
+        })
+        await db.commit()
+        return _admin_connectors_redirect(frontend, gmail="connected", brand_id=brand_id, account=email)
 
     if error or not code:
         return _admin_connectors_redirect(frontend, gmail="denied", reason=error or "no_code")
@@ -220,6 +252,7 @@ async def google_calendar_callback(
     code: str = "",
     state: str = "",
     error: str = "",
+    handoff_token: str = "",
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
 ):
@@ -227,6 +260,30 @@ async def google_calendar_callback(
                 code[:8] + "..." if code else "", state[:8] + "..." if state else "", error,
                 dict(request.query_params))
     frontend = settings.frontend_url.rstrip("/")
+
+    if handoff_token and settings.klaroha_relay_url:
+        try:
+            payload = await relay_claim_handoff(handoff_token, settings)
+        except Exception:
+            return _admin_connectors_redirect(frontend, google_calendar="error", reason="relay_claim_failed")
+        meta = payload.get("metadata") or {}
+        email = meta.get("email", "")
+        brand_id = payload.get("brand_id") or ""
+        if not email:
+            return _admin_connectors_redirect(frontend, google_calendar="error", reason="no_email_returned")
+        ws = await get_singleton(db)
+        token_meta = None
+        if payload.get("refresh_token"):
+            token_meta = {
+                "refresh_token_encrypted": encrypt_secret(payload["refresh_token"], settings),
+                "expires_at": payload.get("expires_at"),
+            }
+        await _store_connection(db, ws.id, brand_id or None, settings, "google_calendar", {
+            "id": email, "access_token": payload["access_token"],
+            "name": meta.get("name") or email, "username": email, "token_meta": token_meta,
+        })
+        await db.commit()
+        return _admin_connectors_redirect(frontend, google_calendar="connected", brand_id=brand_id, account=email)
 
     if error or not code:
         return _admin_connectors_redirect(frontend, google_calendar="denied", reason=error or "no_code")
@@ -295,10 +352,36 @@ async def youtube_callback(
     code: str = "",
     state: str = "",
     error: str = "",
+    handoff_token: str = "",
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
 ):
     frontend = settings.frontend_url.rstrip("/")
+
+    if handoff_token and settings.klaroha_relay_url:
+        try:
+            payload = await relay_claim_handoff(handoff_token, settings)
+        except Exception:
+            return _admin_connectors_redirect(frontend, youtube="error", reason="relay_claim_failed")
+        meta = payload.get("metadata") or {}
+        email = meta.get("email", "")
+        channel_id = meta.get("channel_id", "")
+        brand_id = payload.get("brand_id") or ""
+        if not email or not channel_id:
+            return _admin_connectors_redirect(frontend, youtube="error", reason="incomplete_metadata")
+        ws = await get_singleton(db)
+        token_meta = None
+        if payload.get("refresh_token"):
+            token_meta = {
+                "refresh_token_encrypted": encrypt_secret(payload["refresh_token"], settings),
+                "expires_at": payload.get("expires_at"),
+            }
+        await _store_connection(db, ws.id, brand_id or None, settings, "youtube", {
+            "id": channel_id, "access_token": payload["access_token"],
+            "name": meta.get("name") or email, "username": email, "token_meta": token_meta,
+        })
+        await db.commit()
+        return _admin_connectors_redirect(frontend, youtube="connected", brand_id=brand_id, account=meta.get("name") or email)
 
     if error or not code:
         return _admin_connectors_redirect(frontend, youtube="denied", reason=error or "no_code")
@@ -445,10 +528,35 @@ async def google_drive_callback(
     code: str = "",
     state: str = "",
     error: str = "",
+    handoff_token: str = "",
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
 ):
     frontend = settings.frontend_url.rstrip("/")
+
+    if handoff_token and settings.klaroha_relay_url:
+        try:
+            payload = await relay_claim_handoff(handoff_token, settings)
+        except Exception:
+            return _admin_brands_redirect(frontend, google_drive="error", reason="relay_claim_failed")
+        meta = payload.get("metadata") or {}
+        email = meta.get("email", "")
+        brand_id = payload.get("brand_id") or ""
+        if not email:
+            return _admin_brands_redirect(frontend, google_drive="error", reason="incomplete_metadata")
+        ws = await get_singleton(db)
+        token_meta = None
+        if payload.get("refresh_token"):
+            token_meta = {
+                "refresh_token_encrypted": encrypt_secret(payload["refresh_token"], settings),
+                "expires_at": payload.get("expires_at"),
+            }
+        await _store_connection(db, ws.id, brand_id or None, settings, "google_drive", {
+            "id": email, "access_token": payload["access_token"],
+            "name": meta.get("name") or email, "username": email, "token_meta": token_meta,
+        })
+        await db.commit()
+        return _admin_brands_redirect(frontend, google_drive="connected", brand_id=brand_id, account=meta.get("name") or email)
 
     if error or not code:
         return _admin_brands_redirect(frontend, google_drive="denied", reason=error or "no_code")
@@ -899,12 +1007,15 @@ async def get_page_token(db: AsyncSession, brand_id: str, platform: str, setting
             if handler:
                 try:
                     refresh_token = decrypt_secret(refresh_token_enc, settings)
-                    plugin_id = _PLATFORM_PLUGIN_ID.get(platform)
-                    plugin_vars = await get_plugin_vars(plugin_id, db, settings) if plugin_id else {}
-                    try:
-                        refreshed = await handler.refresh_auth(refresh_token, settings, overrides=plugin_vars) if plugin_id else await handler.refresh_auth(refresh_token, settings)
-                    except TypeError:
-                        refreshed = await handler.refresh_auth(refresh_token, settings)
+                    if settings.klaroha_relay_url and platform in GOOGLE_RELAY_PLATFORMS:
+                        refreshed = await relay_refresh_token(platform, refresh_token, settings)
+                    else:
+                        plugin_id = _PLATFORM_PLUGIN_ID.get(platform)
+                        plugin_vars = await get_plugin_vars(plugin_id, db, settings) if plugin_id else {}
+                        try:
+                            refreshed = await handler.refresh_auth(refresh_token, settings, overrides=plugin_vars) if plugin_id else await handler.refresh_auth(refresh_token, settings)
+                        except TypeError:
+                            refreshed = await handler.refresh_auth(refresh_token, settings)
                     row.access_token_encrypted = encrypt_secret(refreshed.access_token, settings)
                     new_meta = dict(meta)
                     new_meta["expires_at"] = refreshed.expires_at.isoformat() if refreshed.expires_at else None

@@ -1,6 +1,6 @@
 # Auth Relay Architecture
 
-> Status: Designed, not built. Build before first external client.
+> Status: BOS-side wiring complete (2026-05-25). Relay server not yet built. Build relay before first external client.
 > Owner: Klaroha platform team.
 
 ---
@@ -182,51 +182,99 @@ BOS's `get_page_token` calls this instead of refreshing directly with Google. Th
 
 ---
 
-## Changes required in BOS when relay is built
-
-### `provider_auth.py`
-
-All Google and Facebook handlers gain a relay-aware mode. When `KLAROHA_RELAY_URL` is set in settings, handlers delegate to the relay instead of calling Google/Meta directly.
-
-```python
-def _google_redirect_uri(platform: str, settings) -> str:
-    if settings.klaroha_relay_url:
-        # Relay mode — callback lands on relay, relay redirects back to instance
-        return f"{settings.klaroha_relay_url}/relay/google/callback"
-    # Local dev mode — direct, FRONTEND_URL-derived
-    base = (settings.frontend_url or "http://localhost").rstrip("/")
-    return f"{base}/social/{platform}/callback"
-```
-
-Refresh in `get_page_token` (`social.py`):
-```python
-if settings.klaroha_relay_url and refresh_token_enc:
-    # Delegate refresh to relay — client_secret stays on relay
-    refreshed = await _relay_refresh(platform, refresh_token_enc, settings)
-else:
-    # Direct refresh (dev mode only)
-    refreshed = await handler.refresh_auth(refresh_token, settings)
-```
-
-### `routers/social.py`
-
-OAuth callback routes (`/social/{platform}/callback`) gain a `handoff_token` path:
-
-```python
-# Relay delivers handoff_token to the browser callback
-if handoff_token := request.query_params.get("handoff_token"):
-    payload = await _relay_claim(handoff_token, settings)
-    # store payload in social_connections exactly as today
-    return _admin_brands_redirect(...)
-```
+## BOS-side wiring (complete as of 2026-05-25)
 
 ### `config.py`
 
-Two new optional settings:
+Two optional settings added. Both default to empty string — empty = dev mode, no behaviour change.
+
 ```python
 klaroha_relay_url: str = ""      # empty = dev mode (direct OAuth)
-klaroha_relay_key: str = ""      # shared secret, set at deploy time
+klaroha_relay_key: str = ""      # shared secret issued per-instance by relay onboarding script
 ```
+
+`.env.example` documents both vars with setup instructions.
+
+---
+
+### `provider_auth.py`
+
+`_google_redirect_uri()` is relay-aware. All four Google platforms share the single
+registered relay URI; the relay redirects back to the platform-specific BOS callback
+with a `handoff_token`.
+
+```python
+def _google_redirect_uri(platform: str, settings) -> str:
+    if getattr(settings, "klaroha_relay_url", ""):
+        relay = settings.klaroha_relay_url.rstrip("/")
+        return f"{relay}/relay/google/callback"
+    base = (settings.frontend_url or "http://localhost").rstrip("/")
+    path = _GOOGLE_CALLBACK_PATHS.get(platform, f"/social/{platform}/callback")
+    return f"{base}{path}"
+```
+
+Two relay helpers exported for use in `social.py`:
+
+```python
+GOOGLE_RELAY_PLATFORMS: frozenset[str]   # gmail, google_calendar, youtube, google_drive
+
+async def relay_claim_handoff(handoff_token: str, settings) -> dict:
+    """POST /relay/claim — one-time token exchange, returns access/refresh/metadata."""
+
+async def relay_refresh_token(platform: str, refresh_token: str, settings) -> OAuthCredential:
+    """POST /relay/refresh — delegate token refresh; refresh_token must be plaintext (decrypted)."""
+```
+
+---
+
+### `routers/social.py`
+
+All four Google callbacks (`/social/gmail/callback`, `/social/google-calendar/callback`,
+`/social/youtube/callback`, `/social/google-drive/callback`) accept a `handoff_token`
+query param. When present and `KLAROHA_RELAY_URL` is set, the callback claims the token
+from the relay and stores the connection — the direct code-exchange path is skipped.
+
+```python
+# at the top of each Google callback:
+if handoff_token and settings.klaroha_relay_url:
+    payload = await relay_claim_handoff(handoff_token, settings)
+    # build page dict from payload, call _store_connection() exactly as today
+    ...
+```
+
+`get_page_token()` delegates refresh to the relay for Google platforms:
+
+```python
+if settings.klaroha_relay_url and platform in GOOGLE_RELAY_PLATFORMS:
+    refreshed = await relay_refresh_token(platform, refresh_token, settings)
+else:
+    # direct refresh — dev mode / non-Google platforms unchanged
+    ...
+```
+
+---
+
+## What the relay still needs to implement (BOS is ready)
+
+When the relay server is built, BOS requires no further changes for Google OAuth.
+The relay must:
+
+1. Accept `GET /relay/{platform}/start` — receive PKCE state + verifier from BOS, store
+   them, build the Google authorize URL using Klaroha's `GOOGLE_CLIENT_SECRET`, return it.
+2. Accept `GET /relay/google/callback` — validate state, exchange code with Google using
+   the stored verifier, fetch user metadata, encrypt token + brand_id into a one-time
+   handoff, store in Redis (60s TTL), redirect browser to
+   `{instance_url}/social/{platform}/callback?handoff_token={uuid}`.
+3. Accept `POST /relay/claim` — validate `relay_key`, return token payload, delete from Redis.
+4. Accept `POST /relay/refresh` — receive plaintext `refresh_token`, call Google refresh
+   with `GOOGLE_CLIENT_SECRET`, return new `access_token` + `expires_at`.
+
+Note: `start_social_connect()` in BOS currently calls `handler.start_login()` directly,
+which builds the Google authorize URL with `redirect_uri = {relay}/relay/google/callback`.
+In relay mode the relay must also receive and store the PKCE verifier before the user
+lands on Google — the relay start endpoint handles this. No BOS change is needed for
+the callback or refresh paths; only the start flow requires the relay to be reachable
+before `start_social_connect()` is called.
 
 ---
 
@@ -275,7 +323,7 @@ This is acceptable for internal dev and for clients who bring their own OAuth ap
 - [ ] Register `https://auth.klaroha.com/relay/meta/callback` in Klaroha's Meta Developer app
 - [ ] Submit Klaroha's Meta app for App Review (`pages_manage_posts`, `pages_show_list`, `pages_read_engagement`)
 - [ ] Submit Klaroha's Google app for verification (required for non-test users on Gmail/Drive scopes)
-- [ ] Add `KLAROHA_RELAY_URL` + `KLAROHA_RELAY_KEY` to BOS `config.py` and `.env.example`
-- [ ] Add relay-aware paths to `provider_auth.py` and `social.py` (see Changes section above)
+- [x] Add `KLAROHA_RELAY_URL` + `KLAROHA_RELAY_KEY` to BOS `config.py` and `.env.example`
+- [x] Add relay-aware paths to `provider_auth.py` and `social.py` (see BOS-side wiring section above)
 - [ ] Write relay onboarding script: registers a new instance URL + issues a `relay_key`
 - [ ] Update one-click deploy docs to include `KLAROHA_RELAY_KEY` as a required env var

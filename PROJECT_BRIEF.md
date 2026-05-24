@@ -892,3 +892,150 @@ Run this sync whenever a significant batch of tasks is completed or added. The s
 | 3.30 | 2026-05-20 | **Architecture alignment — judgment system, Gate 2 marching order:** BOS repositioned as a judgment system — competitive advantage is judgment quality, not production speed. Three layers formalized: Attention (eyes), Memory (intelligence), Execution (hands). Three surfaces: Stream (attention queue), CMO (steering), Admin (configuration). Six primitives mapped to layers: `read_signal`, `write_memory`, `create_artifact`, `request_approval`, `execute_approved_action`, `evaluate_outcome`. Six Stream card families frozen: `pending_artifact`, `decision_brief`, `setup_blocker`, `signal_update`, `outcome`, `council_brief`. Stream card contract defined: `objective_ref`, `card_type`, `why_now`, `confidence`, `primary_evidence`, `recommended_next`, `approval_boundary`, `allowed_actions`, `source_state`. CMO Council specified: 5 members (Strategist, Analyst, Creative, Channel Specialist, Devil's Advocate), two triggers (`strategic_complexity`, `persistent_dismissal`). Key data objects defined: `MemoryEvent` (append-only ledger, two write paths — passive lifecycle + active CMO rationale), `Objective`, `DecisionBrief`, `OutcomeRecord`, `PendingDecision` (deferred decision first-class object with `waiting_for`/`action_blocked` fields). Confidence model: `staleness_score + corroboration + instrumentation state`. Surfacing rule: signal surfaces only when it changes the recommended action for an active objective. Gate 1 sample complete: `sample/bos_stream_sample.md`. Gate 2 (active): six sequential steps proving one Gmail-only objective through the full primitive loop. Gate 3 (seven dependency-ordered items) and Parked list defined. Architecture doc at `sample/bos_systems_architecture.md`. |
 | 3.26 | 2026-05-18 | **Backlog → ClickUp sync as build process:** `BACKLOG.md` is the source of truth; `Klaroha BOS` ClickUp list mirrors it for team visibility. Sync script at `api/plugins/clickup/scripts/sync_backlog.py` — idempotent, creates missing tasks, updates changed statuses, rate-limited to stay under ClickUp's 100 req/min cap. Documented in Section 9 (Technical Reference). Distinct from the product-level ClickUp plugin (`tasks.create`/`tasks.read` for client org workflows — app users never touch the backlog sync). |
 | 3.25 | 2026-05-17 | **Import Brief scope gate + Getting Started banner:** AdminOnboarding now requires a scope selection step before the form — first-time users choose org vs brand; returning users pick from existing brands or create new. New brand imports create the Brand row first, then pass `brand_id` to ingest — workspace-level slot (`brand_id=NULL`) is never touched. Scope lock badge shown in update mode. Getting Started banner added to all admin pages; uses `workspace_configured && campaign_brand_kit_approved` instead of `all_ready` (which also checks module routing). `brand_profile_configured` in onboarding status now accepts `brand_json` on any Brand row, not only `ws.brand_json`. Deployment ops documented: two stacks (`bos` + `staging`) run from `~/bos/` using `docker-compose.yml` and `docker-compose.staging.yml`; correct deploy commands and known pitfalls captured in `git.md`. |
+
+---
+
+## Appendix B — Pi.dev Capability Development Standards
+
+> Extracted 2026-05-25 from pi.dev documentation. Pi is the minimal agent harness BOS takes direct architectural inspiration from. These standards translate pi's patterns into BOS-specific rules. Where BOS already complies, the rule is a confirmation. Where BOS does not yet comply, the rule is a build target.
+
+### B.1 SKILL.md is an activation contract, not a config file
+
+Pi's progressive disclosure model: descriptions always in context; full instructions load on demand only. The description alone determines when the LLM activates a skill.
+
+**BOS rules:**
+- `description` must name direct task phrases, synonyms, exclusions, and handoffs — not a one-liner summary. Bad: "Facebook post helper." Good: "Drafts, formats, and publishes Facebook posts with image attachments. Use when the user wants to create or schedule a Facebook post."
+- `description` ≤ 1024 chars. `name` ≤ 64 chars, lowercase-with-hyphens only.
+- Full instructions (triggers, memory slots, template hints, quality gates) stay in the SKILL.md body — never bloat frontmatter.
+- `allowed-tools` restricts what tools a skill can invoke. `disable-model-invocation: true` marks purely deterministic capabilities.
+- BOS extends pi's base fields with: `allowed_from_chat`, `requires_intent`, `triggers`, `excluded_triggers`, `module_id`, `memory_slots`, `related_skills`, `output_contract`, `quality_gates`.
+
+### B.2 Single-entrypoint plugin factory — one public surface
+
+Pi extensions export one default factory function. All registration happens inside it. No side effects at import time.
+
+**BOS rules:**
+- Every plugin's `module.py` exposes one function: `execute(brief, context)`. Nothing else is public.
+- Async startup work (token validation, credential check) belongs inside `execute()`, not at module import.
+- Plugins register their own capabilities via `channel.json` and `SKILL.md`. The core router never inspects plugin internals.
+
+### B.3 State in run records, never in process memory
+
+Pi's explicit rule: store extension state in tool result `details` for session branching support. State is rebuilt from stored records on restart — never held in memory.
+
+**BOS rules:**
+- `Run` records are the canonical state. Never rely on in-process cache across API requests.
+- The `execution_brief` passed to a module must be fully self-contained — the module never reaches out to reconstruct context not passed to it.
+- Approval/revision state persists in the `Run` record (`approval_status`, `revision_of`). Never infer it from chat history.
+
+### B.4 Typed JSONL event stream — deterministic lifecycle order
+
+Pi streams `AgentSessionEvent` objects as newline-delimited JSON (LF-only). Event sequence is fixed and deterministic.
+
+**BOS target stream event order:**
+```
+run_start → step_start → [delta...] → step_end → [approval_required] → run_end
+```
+
+**BOS rules:**
+- Every stream event object carries: `type`, `run_id`, `timestamp`. No bare string messages.
+- Retry and compaction events are explicit typed objects — never inlined into delta text.
+- Module output passed back to the orchestrator must be bounded. Truncate and annotate; never silently drop content.
+- `terminate: true` equivalent: modules may return `skip_followup: true` to prevent an automatic follow-up LLM call.
+
+### B.5 RPC pattern — enqueue + stream, never block
+
+Pi RPC: commands in via stdin (with optional `id` for correlation), events out via stdout. HTTP response never blocks waiting for LLM completion.
+
+**BOS rules:**
+- `POST /chat` and `POST /runs` return immediately with `run_id` (accepted response). Completion events come over the SSE stream.
+- Webhook/callback payloads to external callers include the originating `request_id`.
+- Mid-stream messages (steer vs follow-up) require explicit behavior declaration — not implicit ordering assumptions.
+
+### B.6 Package manifest — explicit, glob-aware, auto-discovered
+
+Pi packages declare resources under a `pi` key in `package.json`. Auto-discovery falls back to convention directories (`skills/`, `extensions/`, `prompts/`) when no manifest exists.
+
+**BOS → pi mapping:**
+
+| Pi concept | BOS equivalent | Location |
+|---|---|---|
+| `pi.skills` (package manifest) | plugin SKILL.md auto-scan | `api/plugins/{channel}/` |
+| `pi.extensions` | plugin `module.py` (discovered by scanner) | same |
+| `pi.prompts` | `template.j2` co-located in capability dir | same |
+| glob exclusions `!pattern` | scanner ignore list | `capability_manifest.py` |
+| peerDependencies `"*"` | BOS SDK import only (`from klaroha_sdk import ChannelModule`) | `module.py` |
+| bundledDependencies | plugin-owned third-party libs declared in `channel.json` | `api/plugins/{channel}/channel.json` |
+
+### B.7 Tool registration — schema-first, cancellable, output-bounded
+
+Pi tools require typed `parameters` schema (TypeBox), an `AbortSignal` for cancellation, and output truncation above ~50 KB.
+
+**BOS rules:**
+- Every capability's `module.py` `execute()` must be cancellable — check a stop signal at each I/O boundary.
+- Module output schemas are defined in Pydantic — not inferred from LLM output shape.
+- Use `StringEnum`-style enumerations (not raw string unions) in schemas for cross-provider compatibility.
+- If output exceeds safe context bounds, the module truncates and appends a truncation notice to the payload. Never silently drop content.
+
+### B.8 Auth resolution — priority chain, never logged
+
+Pi resolves credentials in strict priority: **runtime overrides → stored credentials → environment variables**. Keys are never logged or returned in responses.
+
+**BOS auth resolution order (confirmed):**
+```
+SocialConnection row (per-brand, auto-refreshed) → BYOK encrypted key → platform env var
+```
+
+**BOS rules:**
+- Never short-circuit this chain. If a `SocialConnection` row exists for the brand and platform, it is always the first source.
+- Any code path that handles a raw token must not write it to logs, run output, or API responses.
+- `get_page_token()` in `api/routers/social.py` is the only place token refresh logic lives. Callers never handle expired tokens themselves.
+
+### B.9 Three run modes — interactive, single-shot, headless
+
+Pi exports three modes: full TUI (interactive), single execution (print), JSON-RPC subprocess (headless).
+
+**BOS rules:**
+- Every capability must be invokable in at least two modes: **interactive** (CMO chat → Stream UX) and **headless** (direct `POST /runs`, no UX dependency).
+- Approval gates must be bypassable via API flag (`auto_approve: true`) for programmatic/scheduled runs.
+- `module.py` `execute()` must never import or reference UI components. Output is data; rendering belongs to the frontend.
+
+### B.10 Security boundary — one gate, never re-checked downstream
+
+Pi: extensions run with full system permissions; the only gate is at install time (trust the source). Pi does not re-verify intent inside execution.
+
+**BOS rules (confirmed, from Locked Rule #4 and CLAUDE.md):**
+- Security is enforced at one point: is this `module_id` in `allowed_module_ids`? If yes, dispatch. If no, log and skip.
+- No intent re-checking, phrase re-matching, or platform re-filtering inside execution. The LLM decided; the manifest allowed it; the module runs.
+- Channel credential scope is enforced at `inject_channel_credentials()` in `runs.py` — modules receive a scoped token, never full OAuth credentials.
+
+### B.11 Concept → sample → build sequence (pi + BITE alignment)
+
+Pi's async factory pattern allows one-time startup work before the pipeline runs. BOS uses BITE's Discuss → Sample → Agree → Reverse-spec → Build sequence for the same reason: validate shape before committing to implementation.
+
+**BOS rules:**
+- No new capability, plugin, or stream event type enters build without an approved sample in `sample/`.
+- The sample must include both allowed and forbidden outcomes (per CLAUDE.md CMO rules).
+- Progressive disclosure applies to samples too: produce the minimal sample that proves the shape, not a full production artifact.
+
+### B.12 Pi → BOS full concept map
+
+| Pi concept | BOS equivalent | File/location |
+|---|---|---|
+| Extension factory | Plugin `module.py` `execute()` | `api/plugins/{channel}/` |
+| SKILL.md | SKILL.md | Co-located with module |
+| `pi` manifest key | Plugin auto-scan config | `capability_manifest.py` |
+| `registerTool()` | Executor interface | `api/providers/` |
+| RPC JSON event stream | Run SSE stream | `api/routers/runs.py` + `Stream.tsx` |
+| `AgentSession.prompt()` | CMO chat POST | `api/routers/chat.py` |
+| `ctx.signal` (AbortSignal) | Run cancellation flag | orchestrator |
+| `AuthStorage` priority chain | `get_page_token()` | `api/routers/social.py` |
+| Session state rebuild on start | Run history replay | `api/routers/runs.py` |
+| `extension_ui_request` | Approval gate event | Stream approval widget |
+| `terminate: true` | `skip_followup: true` in module return | `module.py` |
+| `renderCall` / `renderResult` | Artifact renderer hints (`layout_hint`) | Plugin output schema |
+
+**Current BOS gaps vs pi.dev (build targets):**
+1. Typed JSONL event lifecycle (run_start → step_start → delta → step_end → run_end) is not yet consistently enforced across all run types.
+2. Explicit `AbortSignal` / cancellation propagation into `module.py` `execute()` is not implemented.
+3. Output truncation with annotation is ad hoc — no standard utility function shared across modules.

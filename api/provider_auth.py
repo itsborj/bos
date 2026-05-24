@@ -167,12 +167,18 @@ _GOOGLE_CALLBACK_PATHS: dict[str, str] = {
 
 
 def _google_redirect_uri(platform: str, settings) -> str:
-    """Derive the Google OAuth redirect URI from FRONTEND_URL.
+    """Return the Google OAuth redirect URI.
 
-    Never requires GOOGLE_REDIRECT_URI to be set. FRONTEND_URL is the single
-    source of truth for the host — the same OAuth client works across all
-    environments as long as all three callback URIs are registered in Google Console.
+    Relay mode: all Google platforms share one registered URI on the relay
+    (https://auth.klaroha.com/relay/google/callback). The relay handles the
+    code exchange and redirects back to the instance with a handoff_token.
+
+    Dev mode: URI derived from FRONTEND_URL — the same OAuth client works across
+    all environments as long as all callback URIs are registered in Google Console.
     """
+    if getattr(settings, "klaroha_relay_url", ""):
+        relay = settings.klaroha_relay_url.rstrip("/")
+        return f"{relay}/relay/google/callback"
     base = (settings.frontend_url or "http://localhost").rstrip("/")
     path = _GOOGLE_CALLBACK_PATHS.get(platform, f"/social/{platform}/callback")
     return f"{base}{path}"
@@ -943,6 +949,52 @@ async def resolve_stored_provider_credential(
         return token, "oauth"
 
     return decrypt_secret(row.key_encrypted, settings), "api_key"
+
+
+# ── Auth relay helpers ────────────────────────────────────────────────────────
+
+# Google platforms that can use the central relay for token refresh.
+GOOGLE_RELAY_PLATFORMS: frozenset[str] = frozenset({"gmail", "google_calendar", "youtube", "google_drive"})
+
+
+async def relay_claim_handoff(handoff_token: str, settings) -> dict:
+    """Claim a one-time handoff token from the central auth relay.
+
+    Returns the token payload: platform, brand_id, access_token, refresh_token,
+    expires_at, metadata. Token is deleted from relay Redis on first claim.
+    """
+    relay = settings.klaroha_relay_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.post(
+            f"{relay}/relay/claim",
+            json={"handoff_token": handoff_token, "relay_key": settings.klaroha_relay_key},
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+async def relay_refresh_token(platform: str, refresh_token: str, settings) -> OAuthCredential:
+    """Delegate a Google token refresh to the central auth relay.
+
+    The relay holds the client_secret so it never ships in the BOS Docker image.
+    `refresh_token` must be the plaintext (already decrypted) refresh token.
+    """
+    relay = settings.klaroha_relay_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.post(
+            f"{relay}/relay/refresh",
+            json={"platform": platform, "refresh_token": refresh_token, "relay_key": settings.klaroha_relay_key},
+        )
+        r.raise_for_status()
+        data = r.json()
+    expires_at = datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") else None
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return OAuthCredential(
+        access_token=data["access_token"],
+        refresh_token=None,
+        expires_at=expires_at,
+    )
 
 
 def _generate_pkce() -> tuple[str, str]:

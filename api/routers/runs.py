@@ -186,6 +186,61 @@ async def _inject_generated_image(
     return brief
 
 
+async def _resolve_drive_attachment(
+    brief: dict,
+    brand_id,
+    db: AsyncSession,
+    settings,
+) -> dict:
+    """If brief contains drive_file_id, download the file from Google Drive and
+    inject it as _image_data_b64 / _image_mime so every channel module receives
+    pre-resolved bytes without needing Drive-specific code."""
+    drive_file_id = str(brief.get("drive_file_id") or "").strip()
+    if not drive_file_id:
+        return brief
+    # Image bytes may be present under either key:
+    #   _image_data_b64 — set by _inject_generated_image (underscore-prefixed pipeline key)
+    #   image_data_b64  — copied from the artifact block by _brief_from_action_artifact
+    #                     (block fields without underscore prefix are preserved)
+    # Normalise to _image_data_b64 so publish modules find the bytes regardless of path.
+    existing_b64 = brief.get("_image_data_b64") or brief.get("image_data_b64")
+    if existing_b64:
+        mime = str(
+            brief.get("_image_mime") or brief.get("mime_type") or brief.get("drive_file_mime") or "image/png"
+        ).strip()
+        return {**brief, "_image_data_b64": existing_b64, "_image_mime": mime}
+    try:
+        from routers.social import get_page_token
+        brand_id_str = str(brand_id) if brand_id else None
+        if not brand_id_str:
+            return brief
+        token, _ = await get_page_token(db, brand_id_str, "google_drive", settings)
+        if not token:
+            logger.warning("Drive attachment present but no google_drive token for brand %s", brand_id_str)
+            return brief
+        import base64
+        import importlib.util
+        import pathlib
+        _drive_dir = str(pathlib.Path(__file__).parent.parent / "plugins" / "google-drive")
+        spec = importlib.util.spec_from_file_location(
+            "_bos_drive_client", pathlib.Path(_drive_dir) / "drive_client.py"
+        )
+        _dc_mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(_dc_mod)  # type: ignore[union-attr]
+        DriveClient = _dc_mod.DriveClient
+        with DriveClient(token) as drive:
+            image_data = drive.download_file(drive_file_id)
+        mime = str(brief.get("drive_file_mime") or "image/jpeg").strip()
+        return {
+            **brief,
+            "_image_data_b64": base64.b64encode(image_data).decode(),
+            "_image_mime": mime,
+        }
+    except Exception:
+        logger.exception("Drive attachment resolution failed for file %s — continuing without image", drive_file_id)
+        return brief
+
+
 # ── PM plugin run sync helpers ────────────────────────────────────────────────
 # These helpers are PM-system agnostic. The active plugin is read from
 # brand.brand_json["pm_config"]["plugin"] (e.g. "channel.clickup").
@@ -271,6 +326,9 @@ async def _execute_module(
     if module_id != "media.image.generate" and (brief.get("image_prompt") or getattr(module, "requires_generated_image", False)):
         brief = await _inject_generated_image(brief, brand_id, db, settings)
 
+    if module_id != "media.image.generate" and brief.get("drive_file_id"):
+        brief = await _resolve_drive_attachment(brief, brand_id, db, settings)
+
     tool_executor = getattr(module, "execute_tool_result", None)
     if callable(tool_executor):
         run = Run(
@@ -320,7 +378,11 @@ async def _execute_module(
 
         run.status = "success" if verdict == "pass" else "partial"
         block_data = result_data.get("block") or {}
-        if run.status == "success" and block_data.get("status") == "succeeded":
+        # Don't auto-approve artifacts that still require a human publish action.
+        # These arrive on Stream as 'pending' so the operator can review and publish.
+        _allowed_actions = block_data.get("allowed_actions") or []
+        _needs_publish = "publish" in _allowed_actions
+        if run.status == "success" and block_data.get("status") == "succeeded" and not _needs_publish:
             run.approval_status = "approved"
         await write_memory_event(
             db,

@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     tiktok_redirect_uri: str = "http://localhost/social/tiktok/callback"
     tiktok_scopes: str = "user.info.basic"
 
+    # Auth relay — empty = dev mode (direct OAuth with local GOOGLE_CLIENT_ID/SECRET)
+    klaroha_relay_url: str = ""
+    klaroha_relay_key: str = ""
+
     # Frontend base URL — used to redirect after OAuth callbacks
     frontend_url: str = "http://localhost"
 

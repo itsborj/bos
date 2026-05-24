@@ -1,9 +1,7 @@
 from __future__ import annotations
 
 import json
-import os
 import re
-import sys
 import time
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlencode
@@ -12,13 +10,6 @@ from urllib.request import Request, urlopen
 from klaroha_sdk import ChannelModule
 
 _GRAPH = "https://graph.facebook.com/v21.0"
-
-# Drive client path (resolved relative to this file so it works in any working dir)
-_DRIVE_CLIENT_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "..", "..", "..", "google-drive")
-)
-if _DRIVE_CLIENT_DIR not in sys.path:
-    sys.path.insert(0, _DRIVE_CLIENT_DIR)
 
 
 class MetaPostsPublishModule(ChannelModule):
@@ -149,10 +140,10 @@ class MetaPostsPublishModule(ChannelModule):
             if not message:
                 return self._failure(start, "missing_message", "brief must include message (the approved post text)")
 
+            # _image_data_b64 is pre-resolved by the orchestrator (from Drive attachment,
+            # direct generation, or any other source) — module never downloads from Drive.
             image_data_b64 = brief.get("_image_data_b64") or ""
             image_mime = str(brief.get("_image_mime") or "image/png").strip()
-            drive_file_id = str(brief.get("drive_file_id") or "").strip()
-            drive_file_mime = str(brief.get("drive_file_mime") or "image/jpeg").strip()
             image_url = str(brief.get("image_url") or "").strip()
             link = brief.get("link") or None
 
@@ -161,23 +152,6 @@ class MetaPostsPublishModule(ChannelModule):
                 image_data = base64.b64decode(image_data_b64)
                 fields = {"message": message, "access_token": token, "published": "true"}
                 result = self._post_photo_binary(f"{_GRAPH}/{page_id}/photos", image_data, image_mime, fields)
-                post_id = result.get("post_id") or result.get("id", "")
-            elif drive_file_id:
-                # Download from Drive, upload as binary to Facebook Photos API
-                from drive_client import DriveClient
-                creds_for_drive = brief.get("_channel_credentials") or {}
-                # Use google_drive_page_token explicitly — brief._channel_credentials may also
-                # contain the Facebook page_token as the generic fallback, which would 401 on Drive.
-                drive_token = (
-                    creds_for_drive.get("google_drive_page_token")
-                    or creds_for_drive.get("google_drive_access_token")
-                )
-                if not drive_token:
-                    return self._failure(start, "missing_credentials", "Google Drive not connected — cannot fetch image")
-                with DriveClient(drive_token) as drive:
-                    image_data = drive.download_file(drive_file_id)
-                fields = {"message": message, "access_token": token, "published": "true"}
-                result = self._post_photo_binary(f"{_GRAPH}/{page_id}/photos", image_data, drive_file_mime, fields)
                 post_id = result.get("post_id") or result.get("id", "")
             elif image_url:
                 payload: dict = {"url": image_url, "message": message, "access_token": token, "published": "true"}
