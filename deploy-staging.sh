@@ -39,9 +39,8 @@ docker compose -f docker-compose.staging.yml -p staging up -d --build
 echo "=== Running migrations ==="
 docker compose -f docker-compose.staging.yml -p staging exec -T api alembic upgrade head
 
-echo "=== Reloading Nginx ==="
-nginx -t
-systemctl reload nginx
+echo "=== Restarting staging nginx (re-resolves container IPs) ==="
+docker compose -f docker-compose.staging.yml -p staging restart nginx
 
 echo "=== Running smoke tests ==="
 sleep 5

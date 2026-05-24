@@ -14,21 +14,19 @@ fi
 echo "OK — FRONTEND_URL=$FRONTEND_URL"
 
 echo "=== Checking Docker ports ==="
-ss -lntp | grep -E ':80|:8080|:5174|:8001' || true
-
-echo "=== Checking Nginx config ==="
-nginx -t
-
-echo "=== Verifying staging proxy target is 8080 ==="
-nginx -T 2>/dev/null | grep -A20 -B5 "server_name staging.klaroha.com" | grep "127.0.0.1:8080" \
-  || { echo "ERROR: staging nginx proxy is not pointing to 127.0.0.1:8080 — check /etc/nginx/nginx.conf"; exit 1; }
+ss -lntp | grep -E ':8080|:5174|:8001|:3001' || true
 
 echo "=== Checking staging homepage ==="
-curl -fsS -H "Host: staging.klaroha.com" http://127.0.0.1/ > /dev/null
+curl -fsS -o /dev/null -w "web: HTTP %{http_code}\n" http://127.0.0.1:8080/ \
+  || { echo "ERROR: staging web check failed"; exit 1; }
 
 echo "=== Checking staging API ==="
-curl -fsS -H "Host: staging.klaroha.com" http://127.0.0.1/api/ | grep '"status":"ok"' \
+curl -fsS http://127.0.0.1:8080/api/ | grep '"status":"ok"' \
   || { echo "ERROR: staging API health check failed"; exit 1; }
+
+echo "=== Checking public service ==="
+curl -fsS -o /dev/null -w "public: HTTP %{http_code}\n" http://127.0.0.1:3001/ \
+  || { echo "ERROR: public service check failed"; exit 1; }
 
 echo ""
 echo "Staging is healthy."
