@@ -9,6 +9,7 @@ from urllib.parse import urlencode
 
 import logging
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
@@ -109,6 +110,32 @@ async def start_social_connect(
     )).scalar_one_or_none()
     if not brand:
         raise HTTPException(status_code=404, detail={"error": {"code": "BRAND_NOT_FOUND", "message": "Brand not found", "details": None}})
+
+    # Relay mode — Google platforms use central auth relay (no local client credentials needed)
+    if settings.klaroha_relay_url and body.platform in GOOGLE_RELAY_PLATFORMS:
+        relay = settings.klaroha_relay_url.rstrip("/")
+        try:
+            async with httpx.AsyncClient(timeout=15.0) as client:
+                resp = await client.get(
+                    f"{relay}/relay/{body.platform}/start",
+                    params={
+                        "instance_url": settings.frontend_url,
+                        "relay_key": settings.klaroha_relay_key,
+                        "brand_id": body.brand_id,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail={"error": {"code": "RELAY_UNAVAILABLE", "message": f"Auth relay error: {exc}", "details": None}},
+            ) from exc
+        return ConnectStartResponse(
+            session_id=data.get("session_id", "relay"),
+            authorize_url=data["authorize_url"],
+            platform=body.platform,
+        )
 
     plugin_id = _PLATFORM_PLUGIN_ID.get(body.platform)
     plugin_vars = await get_plugin_vars(plugin_id, db, settings) if plugin_id else {}

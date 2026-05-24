@@ -39,6 +39,23 @@ services:
     ports:
       - "5174:80"
 
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - staging_redis_data:/data
+
+  relay:
+    build:
+      context: ./relay
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env.staging
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
+
   nginx:
     image: nginx:alpine
     restart: unless-stopped
@@ -49,6 +66,8 @@ services:
     depends_on:
       - api
       - web
+      - relay
 
 volumes:
   staging_postgres_data:
+  staging_redis_data:
