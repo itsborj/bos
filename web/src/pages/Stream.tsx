@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useUI } from '../context/UIContext';
@@ -33,6 +33,7 @@ function artifactTitle(run: RunResponse): string {
   if (id.includes('email')) return 'Email Draft';
   if (id.includes('plan')) return 'Campaign Plan';
   if (id.includes('report') || id.includes('analytics')) return 'Marketing Report';
+  if (id.includes('creative.post')) return 'Facebook Post Creative';
   if (id.includes('meta.pages.read')) return 'Facebook Pages';
   if (id.includes('meta.posts.draft')) return 'Facebook Post Draft';
   if (id.includes('meta.posts.publish')) return 'Facebook Post';
@@ -109,12 +110,25 @@ function renderNativePreview(run: RunResponse) {
   if (channel.includes('google') && channel.includes('display')) {
     return <GoogleDisplayPreview dimensions={result.dimensions || '300x250'} headline={result.headline || 'Headline Missing'} description={result.description || 'Description Missing'} ctaText={result.cta || 'Learn More'} />;
   }
+  if (result.block?.type === 'creative_post_asset' && result.block?.status === 'succeeded') {
+    const b = result.block as any;
+    const imageUrl = b.image_data_b64 ? `data:${b.mime_type || 'image/png'};base64,${b.image_data_b64}` : undefined;
+    return <FacebookFeedPreview pageName={brandName} adCopy={b.caption || b.message || 'Caption pending — review to add copy'} imageUrl={imageUrl} ctaText="" />;
+  }
   if (result.block?.type === 'fb_page_post_draft') {
     return <FacebookFeedPreview pageName={result.block.page_name || brandName} adCopy={result.block.message || result.content || 'Post text missing'} ctaText="" />;
   }
   if (result.block?.type === 'fb_page_post_result') {
     const b = result.block as any;
-    return <div className="stream-artifact-fallback">{b.status === 'succeeded' ? 'Published to Facebook' : 'Facebook publish failed'}{b.post_id ? ` · ${b.post_id}` : ''}</div>;
+    const succeeded = b.status === 'succeeded';
+    return (
+      <div style={{ padding: '14px 16px', fontSize: 13, color: '#1f2937', border: `1px solid ${succeeded ? '#bbf7d0' : '#fca5a5'}`, borderRadius: 8, background: succeeded ? '#f0fdf4' : '#fef2f2' }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>{succeeded ? 'Published to Facebook' : 'Facebook publish failed'}</div>
+        {b.message_preview && <div style={{ color: '#4b5563', marginBottom: 6, lineHeight: 1.4 }}>{b.message_preview.slice(0, 120)}{b.message_preview.length > 120 ? '…' : ''}</div>}
+        {b.post_id && <div style={{ color: '#6b7280', fontSize: 11, marginBottom: 4 }}>Post ID: {b.post_id}</div>}
+        {b.permalink && <a href={b.permalink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 12, fontWeight: 600 }}>View on Facebook →</a>}
+      </div>
+    );
   }
   if (channel.includes('facebook')) {
     return <FacebookFeedPreview pageName={brandName} adCopy={result.content || 'Copy missing'} ctaText={result.cta || 'Learn More'} />;
@@ -136,6 +150,111 @@ function renderNativePreview(run: RunResponse) {
   }
   if (channel.includes('pinterest')) {
     return <PinterestPreview title={result.headline || 'Title Missing'} description={result.content || 'Description missing'} />;
+  }
+  if (result.block?.type === 'meta_page_posts') {
+    const b = result.block as any;
+    if (b.status === 'failed') {
+      return (
+        <div style={{ padding: 24, textAlign: 'center', color: '#6b7280', fontSize: 13 }}>
+          <div style={{ color: '#ef4444', fontWeight: 600, marginBottom: 6 }}>Facebook not connected</div>
+          <div>{b.message || result.content}</div>
+        </div>
+      );
+    }
+    const posts: any[] = b.posts || [];
+    return (
+      <div style={{ padding: '16px 20px', fontSize: 13, color: '#1f2937', maxWidth: 520 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Recent Posts · {b.page_name || brandName}</div>
+        {posts.length === 0
+          ? <div style={{ color: '#6b7280' }}>No posts found on this page.</div>
+          : posts.slice(0, 5).map((p: any, i: number) => (
+            <div key={p.post_id || i} style={{ padding: '8px 0', borderTop: i ? '1px solid #f3f4f6' : 'none' }}>
+              <div style={{ color: '#6b7280', fontSize: 11, marginBottom: 2 }}>{(p.created_time || '').slice(0, 10)}</div>
+              <div style={{ lineHeight: 1.4, marginBottom: 4 }}>{p.message ? (p.message.length > 120 ? p.message.slice(0, 120) + '…' : p.message) : '(no text)'}</div>
+              <div style={{ color: '#6b7280', fontSize: 11 }}>❤️ {p.likes ?? 0} · 💬 {p.comments ?? 0} · ↗ {p.shares ?? 0}</div>
+            </div>
+          ))}
+      </div>
+    );
+  }
+  if (result.block?.type === 'meta_page_inventory') {
+    const pages: any[] = (result.block as any).pages || [];
+    return (
+      <div style={{ padding: '16px 20px', fontSize: 13, color: '#1f2937', maxWidth: 520 }}>
+        <div style={{ fontWeight: 700, fontSize: 15, marginBottom: 12 }}>Facebook Pages</div>
+        {pages.length === 0 ? <div style={{ color: '#6b7280' }}>No pages found.</div> : pages.map((p: any, i: number) => (
+          <div key={p.page_id || i} style={{ padding: '8px 0', borderTop: i ? '1px solid #f3f4f6' : 'none' }}>
+            <div style={{ fontWeight: 600 }}>{p.name}</div>
+            <div style={{ color: '#6b7280', fontSize: 12 }}>{p.category}{p.followers != null ? ` · ${p.followers.toLocaleString()} followers` : ''}</div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (result.block?.type === 'marketing_plan' || moduleId.includes('marketing.plan')) {
+    const block = result.block || {};
+    const channels: any[] = Array.isArray((block as any).recommended_channels) ? (block as any).recommended_channels : [];
+    const focus: any[] = Array.isArray((block as any).focus) ? (block as any).focus : [];
+    const title = (block as any).title || artifactTitle(run);
+    return (
+      <div style={{ padding: '16px 20px', fontSize: 13, color: '#1f2937', border: '1px solid #e5e7eb', borderRadius: 12, maxWidth: 520, background: '#fff' }}>
+        <div style={{ color: '#6b7280', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>Marketing plan</div>
+        <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>{title}</div>
+        {(block as any).campaign_theme && <div style={{ color: '#4b5563', marginBottom: 8 }}>{(block as any).campaign_theme}</div>}
+        {focus.length > 0 && (
+          <ol style={{ margin: '0 0 10px', paddingLeft: 18 }}>
+            {focus.slice(0, 3).map((item: string, idx: number) => <li key={idx}>{item}</li>)}
+          </ol>
+        )}
+        {channels.length > 0 && channels.slice(0, 3).map((ch: any, idx: number) => (
+          <div key={idx} style={{ padding: '6px 0', borderTop: idx ? '1px solid #f3f4f6' : 'none' }}>
+            <strong>{ch.channel || ch.name}</strong>{ch.status ? ` · ${ch.status}` : ''}
+            {ch.role && <div style={{ color: '#4b5563' }}>{ch.role}</div>}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (result.block?.type === 'image_asset' && (result.block as any).image_data_b64) {
+    const b = result.block as any;
+    const src = `data:${b.mime_type || 'image/png'};base64,${b.image_data_b64}`;
+    return (
+      <div style={{ textAlign: 'center', padding: '12px 0' }}>
+        <img src={src} alt={b.prompt || 'Generated image'} style={{ maxWidth: '100%', borderRadius: 10, display: 'block', margin: '0 auto' }} />
+        {b.prompt && <div style={{ color: '#888', fontSize: 11, marginTop: 6, fontStyle: 'italic' }}>{b.width && b.height ? `${b.width}×${b.height} · ` : ''}{b.prompt}</div>}
+      </div>
+    );
+  }
+  if (result.block?.type === 'image_asset' && (result.block as any).status === 'failed') {
+    return (
+      <div style={{ padding: 20, textAlign: 'center', color: '#ef4444', fontSize: 13 }}>
+        <div style={{ fontSize: 20, marginBottom: 6 }}>⚠</div>
+        <div>{(result.block as any).message || result.content}</div>
+      </div>
+    );
+  }
+  if (result.block?.type === 'clickup_task_status') {
+    const b = result.block as any;
+    const buckets = [
+      { label: 'Blocked', count: (b.blocked || []).length, color: '#ef4444', bg: '#fef2f2' },
+      { label: 'Overdue', count: (b.overdue || []).length, color: '#f97316', bg: '#fff7ed' },
+      { label: 'In Progress', count: (b.in_progress || []).length, color: '#3b82f6', bg: '#eff6ff' },
+      { label: 'To Do', count: b.todo_count || 0, color: '#6b7280', bg: '#f9fafb' },
+      { label: 'Done', count: b.done_count || 0, color: '#16a34a', bg: '#f0fdf4' },
+    ];
+    return (
+      <div style={{ padding: '14px 18px', fontSize: 13, color: '#1f2937', maxWidth: 520 }}>
+        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>ClickUp · {b.space_count} space{b.space_count !== 1 ? 's' : ''} · {b.task_count} tasks</div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+          {buckets.map(bk => (
+            <div key={bk.label} style={{ background: bk.bg, border: `1px solid ${bk.color}22`, borderRadius: 6, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 5 }}>
+              <span style={{ fontWeight: 700, color: bk.color }}>{bk.count}</span>
+              <span style={{ color: '#374151', fontSize: 11 }}>{bk.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
   }
   return <div className="stream-artifact-fallback">{result.content || 'Artifact content unavailable.'}</div>;
 }
@@ -253,13 +372,14 @@ function StreamDataCard({ update, brandName, objectiveTitle, onDismiss, onAskCMO
   );
 }
 
-function StreamArtifactCard({ run, brandName, objectiveTitle, onApprove, onDismiss, onActionRun }: {
+function StreamArtifactCard({ run, brandName, objectiveTitle, onApprove, onDismiss, onActionRun, onOpenPanel }: {
   run: RunResponse;
   brandName: string;
   objectiveTitle: string;
   onApprove: (run: RunResponse) => void;
   onDismiss: (run: RunResponse) => void;
   onActionRun: (run: RunResponse) => void;
+  onOpenPanel: (run: RunResponse) => void;
 }) {
   const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
@@ -267,6 +387,8 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, onApprove, onDismi
   const createdAt = new Date(run.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const source = artifactPlatform(run) + ' · ' + createdAt + ' · ' + timeAgo(run.created_at);
   const canPublish = hasArtifactAction(run, 'publish');
+  // creative_post_asset requires caption entry before publish — always open panel for review.
+  const requiresReview = run.result?.block?.type === 'creative_post_asset';
 
   async function approve() {
     setBusy(true);
@@ -301,7 +423,11 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, onApprove, onDismi
       <div className="g2actions">
         {status === 'pending' && (
           <>
-            <button className="btn btn-primary" onClick={approve} disabled={busy}>{busy ? '…' : (canPublish ? 'Approve & Publish' : 'Approve')}</button>
+            {requiresReview ? (
+              <button className="btn btn-primary" onClick={() => onOpenPanel(run)}>Review & Publish</button>
+            ) : (
+              <button className="btn btn-primary" onClick={approve} disabled={busy}>{busy ? '…' : (canPublish ? 'Approve & Publish' : 'Approve')}</button>
+            )}
             <button className="btn btn-ghost" onClick={() => navigate('/cmo')}>Ask CMO</button>
             <button className="btn btn-ghost" onClick={dismiss} disabled={busy}>Dismiss</button>
           </>
@@ -398,6 +524,7 @@ export function Stream() {
   const [activeObjective, setActiveObjective] = useState<ObjectiveOut | null>(null);
   const [loading, setLoading] = useState(false);
   const [panelItem, setPanelItem] = useState<StreamUpdateOut | RunResponse | null>(null);
+  const knownRunIds = useRef(new Set<string>());
 
   useEffect(() => {
     const handleFocusArtifact = (e: Event) => {
@@ -431,6 +558,7 @@ export function Stream() {
     ])
       .then(([fullRuns, stream, objective]) => {
         if (!cancelled) {
+          fullRuns.forEach(r => knownRunIds.current.add(r.run_id));
           setArtifacts(fullRuns);
           setStreamUpdates((stream.updates || []).filter(update =>
             ['outcome', 'decision_brief', 'setup_blocker', 'pending_artifact'].includes(update.type) &&
@@ -443,6 +571,45 @@ export function Stream() {
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [activeBrand?.id]);
+
+  // Poll every 15 s for new runs — makes Stream a live TikTok-style feed.
+  useEffect(() => {
+    if (loading) return;
+    const brandId = activeBrand?.id;
+
+    const poll = async () => {
+      try {
+        const r = await api.getRuns({ limit: 10, brand_id: brandId });
+        const newCandidates = r.runs.filter(run =>
+          run.status !== 'failed' &&
+          run.approval_status !== 'rejected' &&
+          (!brandId || run.brand_id === brandId) &&
+          !knownRunIds.current.has(run.run_id)
+        );
+        if (newCandidates.length === 0) return;
+        const fullRuns = await Promise.all(
+          newCandidates.map(async run => {
+            const fullRun = await api.getRun(run.run_id).catch(() => null);
+            return fullRun
+              ? ({ ...fullRun, approval_status: run.approval_status, brand_id: fullRun.brand_id || run.brand_id } as RunResponse)
+              : null;
+          })
+        );
+        const valid = fullRuns.filter((r): r is RunResponse => !!r && (!brandId || r.brand_id === brandId));
+        if (valid.length > 0) {
+          valid.forEach(r => knownRunIds.current.add(r.run_id));
+          setArtifacts(prev => {
+            const ids = new Set(prev.map(a => a.run_id));
+            const fresh = valid.filter(r => !ids.has(r.run_id));
+            return fresh.length > 0 ? [...fresh, ...prev] : prev;
+          });
+        }
+      } catch {}
+    };
+
+    const timer = setInterval(poll, 15_000);
+    return () => clearInterval(timer);
+  }, [activeBrand?.id, loading]);
 
   const streamArtifacts = useMemo(() => {
     const brandId = activeBrand?.id;
@@ -531,6 +698,7 @@ export function Stream() {
                   onApprove={run => { updateLocalStatus(run, 'approved'); if (panelItem && 'run_id' in panelItem && panelItem.run_id === run.run_id) setPanelItem(null); }}
                   onDismiss={run => { updateLocalStatus(run, 'rejected'); if (panelItem && 'run_id' in panelItem && panelItem.run_id === run.run_id) setPanelItem(null); }}
                   onActionRun={actionRun => setArtifacts(prev => [actionRun, ...prev])}
+                  onOpenPanel={setPanelItem}
                 />
               ))}
             </div>

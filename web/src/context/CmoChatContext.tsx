@@ -88,7 +88,7 @@ export function useCmoChat(): CmoChatContextValue {
 }
 
 export function CmoChatProvider({ children }: { children: React.ReactNode }) {
-  const { activeBrand, activeCampaign, setActiveBrand, setActiveCampaign } = useUI();
+  const { activeBrand, activeCampaign, setActiveBrand, setActiveCampaign, addPendingRun } = useUI();
 
   const [msgs, setMsgs] = useState<Msg[]>(() => readStoredMessages(activeBrand?.id));
   const [busy, setBusy] = useState(false);
@@ -182,6 +182,9 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
           ));
         } else if (event.type === 'module_result') {
           setMsgs(m => [...m, { id: uid(), role: 'ai', artifactRef: event.artifact_ref, time: new Date() }]);
+          if (event.artifact_ref.status !== 'failed') {
+            api.getRun(event.artifact_ref.artifact_id).then(addPendingRun).catch(() => {});
+          }
         } else if (event.type === 'reply') {
           handleKlarAction(event.klar_action);
           setMsgs(m => {
