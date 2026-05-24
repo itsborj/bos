@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
-import { api } from '../api/client';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { api, clearApiKey } from '../api/client';
 import { UIContext } from '../context/UIContext';
 import { CmoChatProvider } from '../context/CmoChatContext';
 import { WorkspacePanel } from './WorkspacePanel';
@@ -123,6 +123,7 @@ function readPendingRuns(): Record<string, RunResponse> {
 }
 
 export function Layout() {
+  const navigate = useNavigate();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceTab, setWorkspaceTab]   = useState<WorkspaceTab>('campaigns');
   const [selectedRun, setSelectedRun]     = useState<RunResponse | null>(null);
@@ -272,6 +273,13 @@ export function Layout() {
           </label>
           <div className="bos-proto-topbar-right">
             <span className="bos-proto-date">May 20</span>
+            <button
+              className="bos-proto-signout"
+              title="Sign out"
+              onClick={() => { clearApiKey(); navigate('/auth'); }}
+            >
+              Sign out
+            </button>
           </div>
         </div>
 

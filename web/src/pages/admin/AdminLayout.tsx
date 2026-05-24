@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { api, getApiKey } from '../../api/client';
+import { api, getApiKey, clearApiKey } from '../../api/client';
 
 type AdminNavItem = { to?: string; label: string; icon: string; parked?: boolean };
 type AdminNavSection = { label: string; parked?: boolean; items: AdminNavItem[] };
@@ -98,6 +98,7 @@ function GettingStartedBanner() {
 }
 
 export function AdminLayout() {
+  const navigate = useNavigate();
   if (!getApiKey()) return <Navigate to="/auth" replace />;
 
   return (
@@ -137,6 +138,12 @@ export function AdminLayout() {
             → Getting Started
           </NavLink>
           <a href="/" className="admin-back-link">← CMO App</a>
+          <button
+            className="admin-back-link admin-signout"
+            onClick={() => { clearApiKey(); navigate('/auth'); }}
+          >
+            Sign out
+          </button>
         </div>
       </aside>
       <main className="admin-content">
