@@ -1477,3 +1477,5 @@ CYCLE 2 — Intelligence to Optimization
   - `/admin/council-seats` — 5-seat LLM assignment form (local state, no backend yet)
 - [x] ADMIN: Nav restructured to Gate 2 / Investigate / Business / System / Post-Gate 2 grouping matching wireframe
 - [x] ADMIN: CSS for settings-group, hb-card, wp-form, flow-node, seat-card shared admin components added to index.css
+- [x] FEATURE: `AdminBrandDetail.tsx` Integrations tab — full per-brand OAuth connection management (Facebook, YouTube, TikTok, Google Drive, Gmail, Google Calendar); connect/disconnect per platform; Facebook multi-page picker modal; Google Drive Picker folder selection; toast notifications; `sessionStorage` return-path so OAuth callbacks redirect back to the brand detail page. Tab order: Profile → Integrations → Products → Audiences → Guidelines → Brand Kit → Project Mgmt.
+- [x] BUG: `AdminConnectors.tsx` — Facebook missing from `OAUTH_PLATFORMS` map; added `facebook: { label: 'Facebook', icon: '📘' }` so Facebook connections display correctly in the read-only Connectors overview.

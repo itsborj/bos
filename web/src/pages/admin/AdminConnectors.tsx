@@ -67,6 +67,7 @@ type ClickUpStep = 'token' | 'workspace';
 type ClickUpWorkspace = { id: string; name: string };
 
 const OAUTH_PLATFORMS: Record<string, { label: string; icon: string }> = {
+  facebook:        { label: 'Facebook',        icon: '📘' },
   gmail:           { label: 'Gmail',           icon: '✉️' },
   google_calendar: { label: 'Google Calendar', icon: '📅' },
   youtube:         { label: 'YouTube',         icon: '▶️' },
