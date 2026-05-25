@@ -191,3 +191,150 @@ BOS uses a single Google OAuth 2.0 app for all Google integrations (Gmail, Googl
 - Does the frontend use a hardcoded API key or `VITE_API_KEY` at build time? Needs audit before deploy.
 - Watchtower polling interval: 5 min is fine for beta. Tighten or loosen as needed.
 - Backup strategy: pg_dump cron + local rotation is enough for beta. Add off-site (S3/R2) when data matters.
+
+---
+
+## Localhost → Staging Breakage Runbook
+
+> Living document. When a feature works on localhost but breaks after a staging deploy, come here first.
+> Work through candidate causes in order. Log findings in the Incident Log at the bottom.
+> Closed causes stay in the list — mark status and move on.
+>
+> Goal: isolate root causes through controlled experiments and never violate the confirmed rules again.
+
+---
+
+### The Structural Root Cause (Always True)
+
+Localhost and staging run from different sources of truth:
+
+| | Localhost | Staging |
+|---|---|---|
+| Source of truth | `./api/` on disk (live volume mount) | `origin/staging` branch in git |
+| Code sync | Volume mount — instant, no commit needed | `git reset --hard origin/staging` + image build |
+| Uncommitted edits | **Visible to container** | **Not in image — invisible** |
+| Untracked files | **Present** | **Absent** |
+| Local `.env` overrides | Applied from `.env` | Only from `.env.example` defaults + `.env.staging` |
+| `/tmp` video files | Survive across dev sessions | **Destroyed on every `docker compose up --build`** |
+
+The gap between your filesystem and `origin/staging` is always the first place to look.
+
+---
+
+### Candidate Causes
+
+#### C1 — Uncommitted local edits not on staging branch
+**Status:** `CONFIRMED 2026-05-26`
+
+You fix something locally. It works immediately via the volume mount. You deploy without committing the fix. `deploy-staging.sh` runs `git reset --hard origin/staging`, reverting staging to the unfixed code. Feels like the deploy broke something; staging just reverted.
+
+**Side effect:** `git reset --hard` resets the local working directory too — uncommitted local edits are wiped from your filesystem, not just from staging.
+
+**Confirm:**
+```bash
+git diff origin/staging -- api/     # any local changes not on staging?
+git status                          # any modified/untracked tracked files?
+```
+
+**Rule:** Always commit and push to `origin/staging` before running `deploy-staging.sh`. If you have uncommitted local changes when you deploy, you will lose them and staging will run stale code.
+
+---
+
+#### C2 — Untracked local ffmpeg binaries (version/codec mismatch)
+**Status:** `unconfirmed`  **First seen:** 2026-05-26
+
+Three untracked static ffmpeg binaries sit in the repo root (`ffmpeg`, `ffmpeg-static`, `ffprobe-static`, ~80 MB each). The video module resolves the binary via `FFMPEG_PATH` env var, defaulting to `"ffmpeg"` (system PATH). If local `.env` points `FFMPEG_PATH` to one of these static builds and `.env.staging` does not, staging uses the apt-installed system ffmpeg (Dockerfile: `apt-get install -y ffmpeg`). A version or codec difference can silently break renders that work locally.
+
+**Confirm:**
+```bash
+grep FFMPEG_PATH .env .env.staging          # compare values
+docker compose exec api ffmpeg -version     # localhost container version
+docker compose -p staging exec api ffmpeg -version   # staging container version
+```
+
+**Rule out:** `FFMPEG_PATH` is unset or identical in both envs, and both containers report the same version.
+
+**Fix pattern:** rely on the apt-installed binary everywhere (unset `FFMPEG_PATH`), or commit the static binary and set `FFMPEG_PATH` consistently in `.env.example`.
+
+---
+
+#### C3 — `/tmp` video files destroyed on every deploy
+**Status:** `unconfirmed`  **First seen:** 2026-05-26
+
+Every `docker compose up --build` recreates the API container and clears `/tmp`. The DB still holds `video_path` rows pointing to those paths. The media endpoint (`/api/media/video/{filename}`) returns 404. The Drive re-download layer (`_resolve_drive_video()` in `runs.py`) should recover — but only if Drive OAuth is connected for the brand on staging, `drive_file_id` was stored in the DB during render, and the Drive token is still valid.
+
+**Confirm:**
+```bash
+# Check recent runs for drive_file_id
+docker compose -p staging exec db psql -U bos -c \
+  "SELECT id, brief->>'drive_file_id', brief->>'video_path' FROM runs ORDER BY created_at DESC LIMIT 10;"
+```
+Open a video run that existed before the deploy. If it fails with 404 and `drive_file_id` is NULL, this is the cause.
+
+**Rule out:** Drive connected, `drive_file_id` populated, re-download succeeds after deploy.
+
+**Fix pattern:** ensure Drive OAuth is active on staging for every video-generating brand. Long-term: treat `/tmp` as cache only — always write to Drive first, serve from Drive URL.
+
+---
+
+#### C4 — Env var in local `.env` but absent from `.env.example`
+**Status:** `unconfirmed`  **First seen:** 2026-05-26
+
+`deploy-staging.sh` auto-fills `.env.staging` from `.env.example` defaults. Keys that exist in local `.env` but not in `.env.example` never reach staging. The capability relies on that key and fails silently on staging.
+
+**Confirm:**
+```bash
+comm -23 <(grep -oE '^[A-Z_]+' .env | sort) \
+         <(grep -oE '^[A-Z_]+|^#\s*[A-Z_]+' .env.example | sed 's/^#\s*//' | sort)
+```
+
+**Rule out:** every key the affected module uses is present in `.env.example`.
+
+**Rule:** any new env var introduced must be added to `.env.example` the same day (already in CLAUDE.md). Violation of this causes a C4 failure.
+
+---
+
+#### C5 — Untracked plugin files present locally, absent from staging image
+**Status:** `unconfirmed`  **First seen:** 2026-05-26
+
+The volume mount makes every file in `./api/` visible locally — including untracked files. The staging image only contains committed files. If a module depends on a file that exists locally but isn't in git, staging fails with FileNotFoundError or silent import failure.
+
+Known untracked files at discovery (2026-05-26) — docs only, no runtime impact:
+- `api/plugins/creative-factory/CREATIVE_SUPPLY_CHAIN.md`
+- `api/plugins/gmail-auth/GMAIL_INTEGRATION_SPEC.md`
+- `api/plugins/gmail/GMAIL_PLUGIN_V0.md`
+
+**Confirm:**
+```bash
+git ls-files --others --exclude-standard api/plugins/
+git ls-files --others --exclude-standard api/capabilities/
+```
+
+**Rule out:** every file the module opens or imports at runtime is tracked in git.
+
+**Rule:** if a module reads a file at runtime (config, template, credentials), that file must be committed. Docs and specs are fine untracked.
+
+---
+
+### Process of Elimination
+
+When a feature breaks after a staging deploy, work through in this order:
+
+1. **C1** — `git diff origin/staging -- api/` — 5 seconds, rules out the most common cause.
+2. **C3** — is this a pre-deploy run or a new generation? Pre-deploy video = check Drive connectivity + `drive_file_id` in DB.
+3. **C4** — diff local `.env` against `.env.example` for keys the capability uses.
+4. **C2** — only if the render itself fails (not just serving). Compare ffmpeg versions between containers.
+5. **C5** — only if you see import errors or missing file errors in API logs.
+
+---
+
+### Incident Log
+
+> One entry per incident. Never delete. Closed entries stay.
+
+### INC-001 — 2026-05-26 — C1 confirmed: uncommitted local edit not present on staging
+
+- **Cause confirmed:** C1 — Uncommitted local edits not on staging branch
+- **Confirmed by:** Controlled experiment. Added `[C1-TEST]` to the `description` field in `api/main.py` without committing. Verified localhost API (`port 8000`) returned the new string. Ran `deploy-staging.sh`. Staging API (`port 8001`) returned the original string with no `[C1-TEST]`. Additionally, `git reset --hard origin/staging` wiped the change from the local filesystem as a side effect — the DEPLOY.md runbook section written earlier in the same session was also lost, a collateral C1 example.
+- **Resolved by:** N/A — controlled experiment, no production breakage. Rule established: commit and push before every staging deploy.
+- **Notes:** Pydantic Settings env vars override class defaults — `APP_VERSION` in `.env` masked a first attempt using `config.py`. Changed test target to a hardcoded string in `main.py` which has no env override.
