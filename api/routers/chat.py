@@ -999,6 +999,22 @@ async def _continue_cmo_loop_after_results(
             logger.warning("CMO synthesis triggered modules outside allowed set — skipping: %s", invalid)
         requested_modules = [mid for mid in requested_modules if mid in allowed_module_ids]
 
+        # Never re-dispatch a module that already produced a permanent credential/config failure.
+        # These errors require operator action (e.g. connect an account); retrying won't help.
+        _PERMANENT_FAILURE_CODES = {"missing_credentials", "invalid_brief"}
+        hard_failed = {
+            run.module_id
+            for run in all_run_results
+            if (run.result and isinstance(run.result.block, dict)
+                and run.result.block.get("status") == "failed"
+                and run.result.block.get("reason_code") in _PERMANENT_FAILURE_CODES)
+        }
+        if hard_failed:
+            blocked = [mid for mid in requested_modules if mid in hard_failed]
+            if blocked:
+                logger.warning("CMO synthesis re-requested permanently-failed modules — skipping: %s", blocked)
+            requested_modules = [mid for mid in requested_modules if mid not in hard_failed]
+
         if final_turn or not requested_modules:
             if final_turn and requested_modules:
                 logger.warning("CMO loop depth limit reached; skipping additional RUN directives: %s", requested_modules)
