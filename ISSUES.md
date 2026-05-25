@@ -25,9 +25,9 @@
 ## Open Issues
 
 ### ISS-009 — CMO asks for caption/video_prompt instead of dispatching creative.shortform.video
-- **Status:** investigating
+- **Status:** fixed
 - **Found:** 2026-05-26
-- **Fixed:** —
+- **Fixed:** 2026-05-26
 - **Area:** prompt · manifest
 - **Symptom:** User says "lets create a video" or "show me video for posting." CMO replies asking for `caption` and `video_prompt` instead of dispatching `RUN: creative.shortform.video`. These two fields (`caption`, `video_prompt`) belong to the **image** module (`creative.post.image`), not the video module. The video module requires no params — all are optional and auto-resolved from brand context.
 - **What we know:**
@@ -60,7 +60,7 @@
   - `api/routers/chat.py:725` — Rule 9a example (H1 fix target)
   - `api/capability_manifest.py` — `format_manifest_for_prompt()` controls what the CMO sees
 
-- **Resolution:** —
+- **Resolution:** H2 confirmed. Rewrote the `description` field in `creative.shortform.video/SKILL.md`. Replaced "optionally pass hook_text (max 120 chars), cta_text, aspect_ratio..." with "Dispatch immediately — no params required. Hook, CTA, aspect ratio, and duration are all auto-resolved from brand context. Do NOT ask the user for caption, video_prompt, or any other input before dispatching." After restart, "lets create a video" dispatched `creative.shortform.video` immediately — rendered video, uploaded to Drive, `drive_file_id` populated. H1 (Rule 9a example in chat.py) was not needed.
 
 ---
 

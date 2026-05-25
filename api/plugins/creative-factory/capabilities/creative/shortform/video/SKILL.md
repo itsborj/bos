@@ -2,7 +2,7 @@
 id: creative.shortform.video
 name: shortform-video
 module_id: creative.shortform.video
-description: THE default capability for producing a short-form video creative. Use for "make a video / prepare a video / create a short / video for YouTube / video for TikTok / video for Instagram". Module composes hook and CTA from brand context automatically — optionally pass hook_text (max 120 chars), cta_text, aspect_ratio (9:16 default), duration (default 15s), background_color hex. Do NOT also dispatch a publish module — production and publishing are separate. Do NOT use for image requests.
+description: THE default capability for producing a short-form video creative. Use for "make a video / prepare a video / create a short / video for YouTube / video for TikTok / video for Instagram". Dispatch immediately — no params required. Hook, CTA, aspect ratio, and duration are all auto-resolved from brand context. Do NOT ask the user for caption, video_prompt, or any other input before dispatching. Do NOT also dispatch a publish module — production and publishing are separate. Do NOT use for image requests.
 scope: module
 status: active
 version: 0.1.0
