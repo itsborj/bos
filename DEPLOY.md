@@ -241,7 +241,7 @@ git status                          # any modified/untracked tracked files?
 ---
 
 #### C2 — Untracked local ffmpeg binaries (version/codec mismatch)
-**Status:** `unconfirmed`  **First seen:** 2026-05-26
+**Status:** `RULED OUT (2026-05-26)`
 
 Three untracked static ffmpeg binaries sit in the repo root (`ffmpeg`, `ffmpeg-static`, `ffprobe-static`, ~80 MB each). The video module resolves the binary via `FFMPEG_PATH` env var, defaulting to `"ffmpeg"` (system PATH). If local `.env` points `FFMPEG_PATH` to one of these static builds and `.env.staging` does not, staging uses the apt-installed system ffmpeg (Dockerfile: `apt-get install -y ffmpeg`). A version or codec difference can silently break renders that work locally.
 
@@ -253,6 +253,8 @@ docker compose -p staging exec api ffmpeg -version   # staging container version
 ```
 
 **Rule out:** `FFMPEG_PATH` is unset or identical in both envs, and both containers report the same version.
+
+**Findings (2026-05-26):** `FFMPEG_PATH` is not set in `.env` or `.env.staging` — both containers use system `ffmpeg`. Both localhost and staging images report identical version: `7.1.4-0+deb13u1`, same build flags, same gcc. The three untracked static binaries in the repo root (`ffmpeg`, `ffmpeg-static`, `ffprobe-static`) are unreferenced by any code. C2 is not the cause.
 
 **Fix pattern:** rely on the apt-installed binary everywhere (unset `FFMPEG_PATH`), or commit the static binary and set `FFMPEG_PATH` consistently in `.env.example`.
 
@@ -285,7 +287,7 @@ Open a video run that existed before the deploy. If it fails with 404 and `drive
 ---
 
 #### C4 — Env var in local `.env` but absent from `.env.example`
-**Status:** `unconfirmed`  **First seen:** 2026-05-26
+**Status:** `RULED OUT for Meta + Google Drive (2026-05-26) — mechanism real, not current cause`
 
 `deploy-staging.sh` auto-fills `.env.staging` from `.env.example` defaults. Keys that exist in local `.env` but not in `.env.example` never reach staging. The capability relies on that key and fails silently on staging.
 
@@ -297,12 +299,17 @@ comm -23 <(grep -oE '^[A-Z_]+' .env | sort) \
 
 **Rule out:** every key the affected module uses is present in `.env.example`.
 
+**Findings (2026-05-26):** Twelve keys in local `.env` absent from `.env.example`. Checked against active feature scope (Meta + Google Drive):
+- `META_APP_ID`, `META_APP_SECRET`, `META_REDIRECT_URI` — all in `.env.example` ✓
+- `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `GOOGLE_PICKER_API_KEY` — all in `.env.example` ✓
+- Missing keys are Google Analytics (not tested locally) and `GOOGLE_CALENDAR_REDIRECT_URI` (auto-derived from `GOOGLE_REDIRECT_URI`, empty default in `config.py` is safe)
+
 **Rule:** any new env var introduced must be added to `.env.example` the same day (already in CLAUDE.md). Violation of this causes a C4 failure.
 
 ---
 
 #### C5 — Untracked plugin files present locally, absent from staging image
-**Status:** `unconfirmed`  **First seen:** 2026-05-26
+**Status:** `RULED OUT (2026-05-26)`
 
 The volume mount makes every file in `./api/` visible locally — including untracked files. The staging image only contains committed files. If a module depends on a file that exists locally but isn't in git, staging fails with FileNotFoundError or silent import failure.
 
@@ -318,6 +325,8 @@ git ls-files --others --exclude-standard api/capabilities/
 ```
 
 **Rule out:** every file the module opens or imports at runtime is tracked in git.
+
+**Findings (2026-05-26):** Three untracked files in `api/plugins/`: `CREATIVE_SUPPLY_CHAIN.md`, `GMAIL_INTEGRATION_SPEC.md`, `GMAIL_PLUGIN_V0.md`. Searched all Python files for references — found only in code comments (`models/creative_asset.py`, `models/creative_job.py`, `models/creative_blueprint.py`). None are opened or imported at runtime. C5 is not the cause.
 
 **Rule:** if a module reads a file at runtime (config, template, credentials), that file must be committed. Docs and specs are fine untracked.
 
