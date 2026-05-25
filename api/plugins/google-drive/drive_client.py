@@ -16,6 +16,7 @@ import httpx
 
 _FILES = "https://www.googleapis.com/drive/v3/files"
 _UPLOAD = "https://www.googleapis.com/upload/drive/v3/files"
+_DRIVES = "https://www.googleapis.com/drive/v3/drives"
 _FOLDER_MIME = "application/vnd.google-apps.folder"
 
 
@@ -113,13 +114,34 @@ class DriveClient:
         r.raise_for_status()
         return r.json()
 
-    def list_children(self, parent_id: str, mime_type: Optional[str] = None) -> list[dict]:
+    def list_children(self, parent_id: str, mime_type: Optional[str] = None, all_drives: bool = False) -> list[dict]:
         q = f"'{parent_id}' in parents and trashed = false"
         if mime_type:
             q += f" and mimeType = '{mime_type}'"
-        r = self._client.get(_FILES, params={"q": q, "fields": "files(id,name,mimeType,size,webViewLink,thumbnailLink)", "pageSize": 200})
+        params: dict = {"q": q, "fields": "files(id,name,mimeType,size,webViewLink,thumbnailLink)", "pageSize": 200}
+        if all_drives:
+            params["supportsAllDrives"] = "true"
+            params["includeItemsFromAllDrives"] = "true"
+        r = self._client.get(_FILES, params=params)
         r.raise_for_status()
         return r.json().get("files", [])
+
+    def list_shared_with_me_folders(self) -> list[dict]:
+        params = {
+            "q": f"sharedWithMe = true and mimeType = '{_FOLDER_MIME}' and trashed = false",
+            "fields": "files(id,name)",
+            "pageSize": 200,
+            "includeItemsFromAllDrives": "true",
+            "supportsAllDrives": "true",
+        }
+        r = self._client.get(_FILES, params=params)
+        r.raise_for_status()
+        return r.json().get("files", [])
+
+    def list_shared_drives(self) -> list[dict]:
+        r = self._client.get(_DRIVES, params={"pageSize": 100, "fields": "drives(id,name)"})
+        r.raise_for_status()
+        return r.json().get("drives", [])
 
     def get_file_meta(self, file_id: str) -> dict:
         r = self._client.get(f"{_FILES}/{file_id}", params={"fields": "id,name,mimeType,size,webViewLink,parents"})

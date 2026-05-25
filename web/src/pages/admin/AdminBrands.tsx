@@ -18,6 +18,26 @@ function profileComplete(brand: BrandResponse): boolean {
 
 type SocialConn = { id: string; brand_id: string | null; platform: string; page_id: string; page_name: string | null; page_handle: string | null; status: string };
 
+function loadGapiPicker(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const w = window as unknown as { gapi?: { load: (n: string, o: { callback: () => void }) => void }; google?: { picker?: unknown } };
+    if (w.google?.picker) return resolve();
+    const ready = () => w.gapi!.load('picker', { callback: () => resolve() });
+    const existing = document.getElementById('gapi-script') as HTMLScriptElement | null;
+    if (existing) {
+      if (w.gapi) ready(); else existing.addEventListener('load', ready);
+      return;
+    }
+    const s = document.createElement('script');
+    s.id = 'gapi-script';
+    s.src = 'https://apis.google.com/js/api.js';
+    s.onload = ready;
+    s.onerror = () => reject(new Error('Failed to load Google API script'));
+    document.body.appendChild(s);
+  });
+}
+
+
 export function AdminBrands() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -325,25 +345,6 @@ export function AdminBrands() {
     }
   }
 
-  function loadGapiPicker(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      const w = window as unknown as { gapi?: { load: (n: string, o: { callback: () => void }) => void }; google?: { picker?: unknown } };
-      if (w.google?.picker) return resolve();
-      const ready = () => w.gapi!.load('picker', { callback: () => resolve() });
-      const existing = document.getElementById('gapi-script') as HTMLScriptElement | null;
-      if (existing) {
-        if (w.gapi) ready(); else existing.addEventListener('load', ready);
-        return;
-      }
-      const s = document.createElement('script');
-      s.id = 'gapi-script';
-      s.src = 'https://apis.google.com/js/api.js';
-      s.onload = ready;
-      s.onerror = () => reject(new Error('Failed to load Google API script'));
-      document.body.appendChild(s);
-    });
-  }
-
   async function handleChooseDriveFolder(brandId: string) {
     try {
       const cfg = await api.getDrivePickerConfig(brandId);
@@ -352,13 +353,13 @@ export function AdminBrands() {
       const g = (window as any).google;
       const view = new g.picker.DocsView(g.picker.ViewId.FOLDERS)
         .setSelectFolderEnabled(true)
-        .setMimeTypes('application/vnd.google-apps.folder')
-        .setParent('root');
+        .setMimeTypes('application/vnd.google-apps.folder');
       const picker = new g.picker.PickerBuilder()
         .setOAuthToken(cfg.access_token)
         .setDeveloperKey(cfg.api_key)
         .setAppId(cfg.app_id)
         .addView(view)
+        .enableFeature(g.picker.Feature.SUPPORT_DRIVES)
         .setTitle("Choose the root folder for this brand's assets")
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .setCallback(async (data: any) => {

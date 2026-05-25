@@ -426,6 +426,11 @@ export const api = {
   getDrivePickerConfig: (brand_id: string) =>
     request<{ access_token: string; api_key: string; app_id: string }>(`/social/drive/picker-config?brand_id=${brand_id}`),
 
+  listDriveFolders: (brand_id: string, parent_id?: string) =>
+    request<{ folders: { id: string; name: string }[] }>(
+      `/social/drive/folders?brand_id=${encodeURIComponent(brand_id)}${parent_id ? `&parent_id=${encodeURIComponent(parent_id)}` : ''}`
+    ),
+
   listDriveImages: (brand_id: string, folder_id?: string) =>
     request<{ folder_id: string; files: { id: string; name: string; mimeType: string; size?: number; webViewLink?: string }[] }>(
       `/social/drive/images?brand_id=${encodeURIComponent(brand_id)}${folder_id ? `&folder_id=${encodeURIComponent(folder_id)}` : ''}`

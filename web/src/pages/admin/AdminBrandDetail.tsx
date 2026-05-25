@@ -680,13 +680,13 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
       const g = (window as any).google;
       const view = new g.picker.DocsView(g.picker.ViewId.FOLDERS)
         .setSelectFolderEnabled(true)
-        .setMimeTypes('application/vnd.google-apps.folder')
-        .setParent('root');
+        .setMimeTypes('application/vnd.google-apps.folder');
       const picker = new g.picker.PickerBuilder()
         .setOAuthToken(cfg.access_token)
         .setDeveloperKey(cfg.api_key)
         .setAppId(cfg.app_id)
         .addView(view)
+        .enableFeature(g.picker.Feature.SUPPORT_DRIVES)
         .setTitle("Choose the root folder for this brand's assets")
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .setCallback(async (data: any) => {

@@ -675,6 +675,49 @@ async def drive_picker_config(
     return {"access_token": token, "api_key": settings.google_picker_api_key, "app_id": app_id}
 
 
+@router.get("/drive/folders", dependencies=[Depends(require_api_key)])
+async def list_drive_folders(
+    brand_id: str,
+    parent_id: str = "root",
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    """List subfolders of a Drive folder for the brand folder browser."""
+    import sys
+    import os
+    plugin_dir = os.path.join(os.path.dirname(__file__), "..", "plugins", "google-drive")
+    if plugin_dir not in sys.path:
+        sys.path.insert(0, plugin_dir)
+    from drive_client import DriveClient
+
+    token, _ = await get_page_token(db, brand_id, "google_drive", settings)
+    if not token:
+        raise HTTPException(status_code=404, detail={"error": {"code": "DRIVE_NOT_CONNECTED", "message": "Connect Google Drive for this brand first", "details": None}})
+
+    with DriveClient(token) as drive:
+        if parent_id == "root":
+            my_drive = drive.list_children("root", mime_type="application/vnd.google-apps.folder")
+            items = [{"id": f["id"], "name": f["name"]} for f in my_drive]
+            try:
+                shared_with_me = drive.list_shared_with_me_folders()
+                seen = {f["id"] for f in my_drive}
+                for f in shared_with_me:
+                    if f["id"] not in seen:
+                        items.append({"id": f["id"], "name": f["name"]})
+            except Exception:
+                pass
+            try:
+                for sd in drive.list_shared_drives():
+                    items.append({"id": sd["id"], "name": sd["name"]})
+            except Exception:
+                pass
+        else:
+            subfolders = drive.list_children(parent_id, mime_type="application/vnd.google-apps.folder", all_drives=True)
+            items = [{"id": f["id"], "name": f["name"]} for f in subfolders]
+
+    return {"folders": sorted(items, key=lambda x: x["name"].lower())}
+
+
 @router.get("/drive/images", dependencies=[Depends(require_api_key)])
 async def list_drive_images(
     brand_id: str,
