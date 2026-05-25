@@ -24,10 +24,16 @@ while IFS= read -r line; do
         ;;
       ENCRYPTION_KEY)
         if [[ -z "$default_val" ]]; then
-          # Generate a random 32-byte hex key for fresh deploys
           generated=$(python3 -c "import secrets; print(secrets.token_hex(32))")
           sed -i "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=${generated}|" .env.staging
           echo "  generated random ENCRYPTION_KEY"
+        fi
+        ;;
+      FRONTEND_URL)
+        # Override localhost default with the actual staging domain
+        if [[ "$default_val" == *"localhost"* ]]; then
+          sed -i "s|^FRONTEND_URL=.*|FRONTEND_URL=https://staging.klaroha.com|" .env.staging
+          echo "  overrode FRONTEND_URL to https://staging.klaroha.com"
         fi
         ;;
     esac
