@@ -82,10 +82,7 @@ jobs:
           script: |
             set -e
             cd ${{ secrets.STAGING_PATH }}
-            git pull origin staging
-            docker compose -p staging -f docker-compose.staging.yml up --build -d
-            docker compose -p staging -f docker-compose.staging.yml exec -T api alembic upgrade head
-            echo "Staging deploy complete at $(date)"
+            bash deploy-staging.sh
 
   # ── Deploy to production ─────────────────────────────────────────────────
   deploy-production:
