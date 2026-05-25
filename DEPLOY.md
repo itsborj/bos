@@ -387,11 +387,41 @@ git ls-files --others --exclude-standard api/capabilities/
 
 When a feature breaks after a staging deploy, work through in this order:
 
-1. **C1** — `git diff origin/staging -- api/` — 5 seconds, rules out the most common cause.
-2. **C3** — is this a pre-deploy run or a new generation? Pre-deploy video = check Drive connectivity + `drive_file_id` in DB.
-3. **C4** — diff local `.env` against `.env.example` for keys the capability uses.
-4. **C2** — only if the render itself fails (not just serving). Compare ffmpeg versions between containers.
-5. **C5** — only if you see import errors or missing file errors in API logs.
+1. **C6** — check VDS API uptime first. If uptime is hours/days old despite recent CI runs, the CI deploy isn't reaching the containers. `curl https://staging.klaroha.com/api/ | python3 -c "import json,sys; print(json.load(sys.stdin)['uptime_seconds'])"` — anything over 10 minutes after a CI run is suspicious.
+2. **C1** — `git diff origin/staging -- api/` — 5 seconds, rules out the most common cause.
+3. **C3** — is this a pre-deploy run or a new generation? Pre-deploy video = check Drive connectivity + `drive_file_id` in DB.
+4. **C4** — diff local `.env` against `.env.example` for keys the capability uses.
+5. **C2** — only if the render itself fails (not just serving). Compare ffmpeg versions between containers.
+6. **C5** — only if you see import errors or missing file errors in API logs.
+
+---
+
+### C6 — CI deploy silently succeeds while deploy script fails on VDS
+
+**Status:** `CONFIRMED AND FIXED (2026-05-26)`
+
+Every CI run reports green (~55s) but the VDS API container never restarts and new code never loads.
+
+**Root causes (two compounding bugs):**
+
+1. **Bootstrapping loop:** The CI runs `bash deploy-staging.sh` using the *existing script on the VDS*. The old script failed immediately on missing `.env.staging` keys (before reaching `git reset --hard origin/staging`). So the new version of the script — which had auto-fill — could never pull itself. Every CI run ran the same broken old script and exited early.
+
+2. **`appleboy/ssh-action` swallows exit codes:** By default, the action reports success even when the remote script exits non-zero. CI showed green for every broken deploy. Added `script_stop: true` to the action so failures are visible.
+
+3. **`docker compose up --build` doesn't recreate containers when image hash is unchanged:** The API Dockerfile rarely changes; Python file changes via volume mount don't change the image digest. Docker Compose saw "image unchanged" and left the running container alone. New code was on disk but never loaded. Added `--force-recreate` to guarantee a fresh container on every deploy.
+
+**Confirm:**
+```bash
+# Check VDS API uptime — if unchanged across multiple CI runs, containers aren't restarting
+curl https://staging.klaroha.com/api/ | python3 -c "import json,sys; print(json.load(sys.stdin)['uptime_seconds'])"
+# Check CI run logs — look for the deploy-staging step output, not just green/red
+```
+
+**Rule:** CI must pull the latest repo code BEFORE running deploy-staging.sh. The script cannot update itself if it errors before the git reset line. CI workflow now does `git fetch && git reset --hard origin/staging` before `bash deploy-staging.sh`.
+
+**Fixes applied (2026-05-26):**
+- `ci.yml`: added `git fetch origin && git reset --hard origin/staging` before `bash deploy-staging.sh`; added `script_stop: true` to SSH action
+- `deploy-staging.sh`: added `--force-recreate` to `docker compose up`; removed redundant `docker compose restart nginx` (was causing `set -e` exit on port conflict)
 
 ---
 
@@ -412,3 +442,16 @@ When a feature breaks after a staging deploy, work through in this order:
 - **Confirmed by:** Controlled experiment. Created `/tmp/bos_c3_probe.txt` inside the API container. Ran `docker compose restart api` → file survived (same container, filesystem intact). Ran `docker compose up -d --build api` (what `deploy-staging.sh` uses) → file gone on the next exec into the container. The recreate step creates a fresh container from the image; `/tmp` is not a mounted volume, so it starts empty every time.
 - **Resolved by:** N/A — controlled experiment. Rule established: `/tmp` is ephemeral across deploys. `drive_file_id` is the only durable video reference.
 - **Notes:** `restart` vs `up --build` is the key distinction. Restart keeps the container alive (just stops/starts the process). Build recreates the container from scratch. The deploy script always uses build.
+
+### INC-003 — 2026-05-26 — C6 confirmed: CI silently broken for 14+ hours; VDS running stale code
+
+- **Cause confirmed:** C6 — CI deploy silently succeeds while deploy script fails on VDS
+- **Symptom:** VDS `staging.klaroha.com` was running a 14-hour-old build. `creative.shortform.video` module (added in commit `7bb20bc`) was absent from VDS capabilities despite 10+ subsequent CI runs all showing green. User discovered the issue when video dispatch worked in CMO (ISS-009 fixed) but the actual module was not found on VDS.
+- **Root cause:** Three compounding bugs — see C6 above.
+- **Confirmed by:** VDS API uptime was unchanged (875 min) across multiple CI runs. Direct `GET /agent/capabilities` on VDS showed 29 capabilities without `creative.shortform.video`. Direct execute returned `{"detail":"Module 'creative.shortform.video' not found"}`.
+- **Resolved by:**
+  1. `ci.yml` — added `git fetch origin && git reset --hard origin/staging` before `bash deploy-staging.sh`; added `script_stop: true`
+  2. `deploy-staging.sh` — added `--force-recreate`; removed `docker compose restart nginx`
+  3. VDS `.env.staging` — manually updated `NGINX_PORT=8080` → `8091` via SSH (file is gitignored)
+  4. VDS — manual `git fetch && git reset --hard origin/staging && bash deploy-staging.sh` to bootstrap out of the loop; followed by `docker compose up -d --force-recreate --remove-orphans` to clear a stale container reference
+- **Notes:** The stale container error (`No such container: 0a12b98f…_staging-api-1`) is a Docker Compose artefact from a previous failed/interrupted run. `--remove-orphans` clears it. Future deploys use `--force-recreate` which handles this automatically.
