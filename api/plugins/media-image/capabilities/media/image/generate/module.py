@@ -162,7 +162,10 @@ class MediaImageGenerateModule(ChannelModule):
                         "constraints_applied": constraints_applied,
                         "constraints_excerpt": brand_constraints[:300] if brand_constraints else None,
                     },
-                    "allowed_actions": ["use", "regenerate", "dismiss"],
+                    "allowed_actions": ["publish_facebook", "use", "regenerate", "dismiss"],
+                    "action_modules": {
+                        "publish_facebook": "marketing.channel.meta.posts.publish",
+                    },
                 },
             }
 

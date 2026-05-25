@@ -113,6 +113,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
   const isFbDraft = result.block?.type === 'fb_page_post_draft';
   const isCreativePost = result.block?.type === 'creative_post_asset' && result.block?.status === 'succeeded';
   const isShortformVideo = result.block?.type === 'creative_shortform_video' && result.block?.status === 'succeeded';
+  const isImageAsset = result.block?.type === 'image_asset' && result.block?.status === 'succeeded';
 
   // Editable state for creative_post_asset review
   const [editedCaption, setEditedCaption] = useState<string>(result.block?.caption || result.block?.message || '');
@@ -122,6 +123,9 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
   const [editedHookText, setEditedHookText] = useState<string>((result.block as any)?.hook_text || '');
   const [editedCtaText, setEditedCtaText] = useState<string>((result.block as any)?.cta_text || '');
   const [swappedVideo, setSwappedVideo] = useState<DriveFile | null>(null);
+
+  // Editable state for image_asset review
+  const [imageCaption, setImageCaption] = useState<string>('');
 
   const handleApprove = async () => {
     if (isShortformVideo) {
@@ -218,6 +222,30 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     } catch (e) {
       setReviewStatus('pending');
       setRevisionError(e instanceof Error ? e.message : 'Could not approve this artifact.');
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  const handleImagePublish = async (action: string) => {
+    setPublishing(true);
+    setRevisionError(null);
+    try {
+      const b = result.block as any;
+      const overrides: Record<string, unknown> = {
+        _image_data_b64: b?.image_data_b64,
+        _image_mime: b?.mime_type || 'image/png',
+        message: imageCaption.trim() || b?.prompt || '',
+      };
+      const resp = await api.executeRunAction(run.run_id, action, { confirm: true, overrides });
+      setReviewStatus('approved');
+      removePendingRun(run.run_id);
+      addPendingRun(resp.action_run);
+      onApproved?.(run);
+      window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: resp.action_run }));
+    } catch (e) {
+      setReviewStatus('pending');
+      setRevisionError(e instanceof Error ? e.message : 'Could not publish image.');
     } finally {
       setPublishing(false);
     }
@@ -851,6 +879,19 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
           </>
         )}
 
+        {isImageAsset && reviewStatus !== 'approved' && reviewStatus !== 'dismissed' && (result.block as any)?.action_modules && (
+          <div className="artifact-copy-panel">
+            <div className="artifact-section-label">Caption</div>
+            <textarea
+              className="artifact-revision-input"
+              value={imageCaption}
+              onChange={e => setImageCaption(e.target.value)}
+              rows={2}
+              placeholder="Post caption (optional — leave blank to use the image prompt)"
+            />
+          </div>
+        )}
+
         <div className="artifact-review-bar">
           <div className="artifact-review-note">
             {reviewStatus === 'approved' && 'Approved and removed from needs-attention.'}
@@ -862,41 +903,44 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
             {reviewStatus !== 'approved' && (
               <>
                 <button className="artifact-btn ghost" onClick={handleDismiss}>Dismiss</button>
-                {!isCreativePost && !isShortformVideo && <button className="artifact-btn ghost" onClick={handleSaveDraft}>Save draft</button>}
+                {!isCreativePost && !isShortformVideo && !isImageAsset && <button className="artifact-btn ghost" onClick={handleSaveDraft}>Save draft</button>}
                 <button className="artifact-btn ghost" onClick={() => { setModifying(v => !v); addPendingRun(run); }}>Revise</button>
                 {isFbDraft && (
                   <button className="artifact-btn ghost" onClick={() => openDrivePicker()} disabled={attaching}>
                     {attachedImage ? '🖼 Change image' : 'Attach image'}
                   </button>
                 )}
-                {isShortformVideo ? (() => {
+                {(() => {
                   const actionModules = (result.block as any)?.action_modules as Record<string, string> | undefined;
                   const channelLabel: Record<string, string> = {
                     publish_youtube: 'YouTube',
                     publish_facebook: 'Facebook',
                     publish_tiktok: 'TikTok',
+                    publish_instagram: 'Instagram',
                   };
-                  return actionModules ? (
-                    <>
-                      {Object.keys(actionModules).map(action => (
-                        <button
-                          key={action}
-                          className="artifact-btn primary"
-                          onClick={() => handleVideoPublish(action)}
-                          disabled={publishing}
-                        >
-                          {publishing ? 'Publishing…' : `Publish to ${channelLabel[action] || action.replace('publish_', '')}`}
-                        </button>
-                      ))}
-                    </>
-                  ) : (
+                  if ((isShortformVideo || isImageAsset) && actionModules) {
+                    const handler = isImageAsset ? handleImagePublish : handleVideoPublish;
+                    return (
+                      <>
+                        {Object.keys(actionModules).map(action => (
+                          <button
+                            key={action}
+                            className="artifact-btn primary"
+                            onClick={() => handler(action)}
+                            disabled={publishing}
+                          >
+                            {publishing ? 'Publishing…' : `Publish to ${channelLabel[action] || action.replace('publish_', '')}`}
+                          </button>
+                        ))}
+                      </>
+                    );
+                  }
+                  return (
                     <button className="artifact-btn primary" onClick={handleApprove} disabled={publishing}>
-                      {publishing ? 'Publishing…' : 'Approve'}
+                      {publishing ? 'Publishing…' : (canPublish && !isCreativePost ? 'Approve & Publish' : 'Approve')}
                     </button>
                   );
-                })() : (
-                  <button className="artifact-btn primary" onClick={handleApprove} disabled={publishing}>{publishing ? 'Publishing…' : (canPublish && !isCreativePost ? 'Approve & Publish' : 'Approve')}</button>
-                )}
+                })()}
               </>
             )}
             {reviewStatus === 'approved' && (
