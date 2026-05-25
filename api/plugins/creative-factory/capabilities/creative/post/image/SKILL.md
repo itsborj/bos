@@ -2,7 +2,7 @@
 id: creative.post.image
 module_id: creative.post.image
 name: facebook-post
-description: THE default capability for "make/create a Facebook post" or "Instagram post". A post means a COMPLETE post — caption (copy) AND visual together — as one reviewable proof, stored in the brand's Drive. ALWAYS use this for any "make a post / create a post / post about X" request unless the user EXPLICITLY asks for copy/text only. Compose the post copy yourself and pass it as the `caption` param; pass an `image_prompt` describing the visual. Produces ONE post proof. Do NOT also dispatch marketing.channel.meta.posts.draft for the same request (that splits one post into two cards), and do NOT publish — publishing is a separate explicit approved action on the artifact.
+description: THE default capability for "make/create a Facebook post" or "Instagram post". A post means a COMPLETE post — caption (copy) AND visual together — as one reviewable proof, stored in the brand's Drive. ALWAYS use this for any "make a post / create a post / post about X" request unless the user EXPLICITLY asks for copy/text only OR uses the word "draft" (e.g. "Facebook Post Draft", "draft a post", "draft the copy"). For draft/copy-only requests use marketing.channel.meta.posts.draft instead. Compose the post copy yourself and pass it as the `caption` param; pass an `image_prompt` describing the visual. Produces ONE post proof. Do NOT also dispatch marketing.channel.meta.posts.draft for the same request (that splits one post into two cards), and do NOT publish — publishing is a separate explicit approved action on the artifact.
 scope: module
 status: active
 version: 1.1.0
@@ -21,6 +21,14 @@ triggers:
   - design a facebook post
   - creative for a facebook post
 excluded_triggers:
+  - facebook post draft
+  - post draft
+  - draft a post
+  - draft the post
+  - draft facebook post
+  - draft only
+  - text only
+  - caption only
   - publish
   - post it now
   - send to facebook

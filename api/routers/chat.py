@@ -536,7 +536,14 @@ async def _brand_channel_readiness(db: AsyncSession, brand: Brand | None) -> str
             SocialConnection.status == "connected",
         )
     )).scalars().all()
-    connected = sorted({r.platform for r in rows})
+    # Google Drive requires a root folder selection before it can store assets.
+    # Report it as connected only when drive_root_folder_id is set; otherwise
+    # the CMO would dispatch creative.post.image which fails mid-run.
+    connected = sorted({
+        r.platform for r in rows
+        if r.platform != "google_drive"
+        or (r.token_meta_json or {}).get("drive_root_folder_id")
+    })
     if connected:
         names = ", ".join(_CHANNEL_DISPLAY.get(p, p) for p in connected)
         connected_line = f"Connected for {brand.name}: {names}."
