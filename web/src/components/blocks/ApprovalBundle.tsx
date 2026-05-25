@@ -232,7 +232,11 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     setRevisionError(null);
     try {
       const b = result.block as any;
-      const overrides: Record<string, unknown> = {
+      const overrides: Record<string, unknown> = swappedAttachment ? {
+        drive_file_id: swappedAttachment.id,
+        drive_file_mime: swappedAttachment.mimeType,
+        message: imageCaption.trim() || b?.prompt || '',
+      } : {
         _image_data_b64: b?.image_data_b64,
         _image_mime: b?.mime_type || 'image/png',
         message: imageCaption.trim() || b?.prompt || '',
@@ -314,7 +318,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
       setDrivePickerOpen(false);
       return;
     }
-    if (isCreativePost) {
+    if (isCreativePost || isImageAsset) {
       setSwappedAttachment(file);
       setDrivePickerOpen(false);
       return;
@@ -880,16 +884,42 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
         )}
 
         {isImageAsset && reviewStatus !== 'approved' && reviewStatus !== 'dismissed' && (result.block as any)?.action_modules && (
-          <div className="artifact-copy-panel">
-            <div className="artifact-section-label">Caption</div>
-            <textarea
-              className="artifact-revision-input"
-              value={imageCaption}
-              onChange={e => setImageCaption(e.target.value)}
-              rows={2}
-              placeholder="Post caption (optional — leave blank to use the image prompt)"
-            />
-          </div>
+          <>
+            <div className="artifact-copy-panel">
+              <div className="artifact-section-label">Caption</div>
+              <textarea
+                className="artifact-revision-input"
+                value={imageCaption}
+                onChange={e => setImageCaption(e.target.value)}
+                rows={2}
+                placeholder="Post caption (optional — leave blank to use the image prompt)"
+              />
+            </div>
+            <div className="artifact-copy-panel">
+              <div className="artifact-section-label">Attachment</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                {swappedAttachment ? (
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, flex: 1, minWidth: 0 }}>
+                    {swappedAttachment.thumbnailLink
+                      ? <img src={swappedAttachment.thumbnailLink} alt={swappedAttachment.name} style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid #e5e7eb', flexShrink: 0 }} />
+                      : <span style={{ fontSize: 20, flexShrink: 0 }}>🖼</span>
+                    }
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{swappedAttachment.name}</div>
+                      <div style={{ color: '#6b7280', fontSize: 11 }}>{swappedAttachment.mimeType}</div>
+                    </div>
+                    <button style={{ marginLeft: 'auto', flexShrink: 0, fontSize: 11, color: '#6b7280', background: 'none', border: 'none', cursor: 'pointer' }} onClick={() => setSwappedAttachment(null)}>Remove</button>
+                  </div>
+                ) : (() => {
+                  const b = result.block as any;
+                  return b?.image_data_b64
+                    ? <img src={`data:${b.mime_type || 'image/png'};base64,${b.image_data_b64}`} alt="Generated" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid #e5e7eb', flexShrink: 0 }} />
+                    : <div style={{ width: 56, height: 56, borderRadius: 6, border: '1px dashed #d1d5db', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 20, flexShrink: 0 }}>🖼</div>;
+                })()}
+                <button className="artifact-btn ghost" onClick={() => openDrivePicker('image', true)}>Swap · Drive</button>
+              </div>
+            </div>
+          </>
         )}
 
         <div className="artifact-review-bar">
@@ -1000,7 +1030,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
           <div style={{ background: '#fff', borderRadius: 14, padding: 24, width: 480, maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ fontWeight: 700, fontSize: 15 }}>
-                {isShortformVideo ? 'Swap video from Drive' : isCreativePost ? 'Swap image from Drive' : 'Attach image from Drive'}
+                {isShortformVideo ? 'Swap video from Drive' : (isCreativePost || isImageAsset) ? 'Swap image from Drive' : 'Attach image from Drive'}
               </div>
               <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#6b7280' }} onClick={() => setDrivePickerOpen(false)}>✕</button>
             </div>
