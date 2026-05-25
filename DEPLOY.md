@@ -194,6 +194,57 @@ BOS uses a single Google OAuth 2.0 app for all Google integrations (Gmail, Googl
 
 ---
 
+## Host Proxy & Port Topology
+
+> The VDS runs one host-level nginx proxy (`docker-compose.proxy.yml`) that routes public domains to the correct Docker stack. All port assignments are permanent — changing one requires updating both the Docker stack env and this proxy config.
+
+### How it works
+
+```
+Internet → port 80 (bos-proxy-proxy-1, network_mode: host, nginx.host.conf)
+  ├── klaroha.com / www.klaroha.com  → 127.0.0.1:3000  (bos-public-1 �� marketing pages)
+  ├── hq.klaroha.com                 → 127.0.0.1:8090  (bos-nginx-1 — local/production stack)
+  └── staging.klaroha.com            → 127.0.0.1:8091  (staging-nginx-1 — staging stack)
+```
+
+### Port assignments
+
+| Port | Service | Docker project | Notes |
+|------|---------|---------------|-------|
+| 80   | `bos-proxy-proxy-1` | `bos-proxy` | Host nginx, `network_mode: host`. Routes public domains. |
+| 3000 | `bos-public-1` | `bos` | Klaroha marketing pages. |
+| 3001 | `staging-public-1` | `staging` | Staging marketing pages (local only). |
+| 5173 | `bos-web-1` | `bos` | Local dev frontend. |
+| 5174 | `staging-web-1` | `staging` | Staging frontend. |
+| 8000 | `bos-api-1` | `bos` | Local/production API. |
+| 8001 | `staging-api-1` | `staging` | Staging API. |
+| 8090 | `bos-nginx-1` | `bos` | **Local dev / production nginx.** `hq.klaroha.com` routes here. |
+| 8091 | `staging-nginx-1` | `staging` | **Staging nginx.** `staging.klaroha.com` routes here. |
+| **8080** | `open-webui` | — | **Unrelated container, network_mode: host. Do not assign any BOS service to this port.** |
+
+### Key files
+
+- `docker-compose.proxy.yml` — host proxy service definition (`network_mode: host`)
+- `nginx.host.conf` — domain ��� port routing rules (source of truth for which port each domain hits)
+- `.env.staging` — `NGINX_PORT=8091` overrides the docker-compose.yml default (`${NGINX_PORT:-8090}`)
+
+### Rules
+
+1. **Never use port 8080 for any BOS service.** `open-webui` runs `network_mode: host` with `PORT=8080` and will always win the bind race.
+2. **Any port change requires two file updates:** `.env.staging` (or `.env`) AND `nginx.host.conf`. Changing only one will break routing silently.
+3. **Reload the host proxy after changing `nginx.host.conf`:** `docker compose -p bos-proxy exec proxy nginx -s reload`
+4. **`.env.staging` is gitignored.** After a port change, update it on the VDS server manually: `sed -i 's/NGINX_PORT=OLD/NGINX_PORT=NEW/' .env.staging`
+
+### History
+
+| Date | Change | Reason |
+|------|--------|--------|
+| 2026-05-22 | Staging nginx moved from 8082 → 8080 (`docker-compose.staging.yml`) | Port alignment |
+| 2026-05-25 | `docker-compose.staging.yml` deleted; single `docker-compose.yml` with `NGINX_PORT` env var | One compose file for both envs |
+| 2026-05-26 | Staging nginx moved from 8080 → **8091** | `open-webui` (unrelated, `network_mode: host`) was squatting on 8080, causing `staging-nginx-1` to fail on every deploy |
+
+---
+
 ## Localhost → Staging Breakage Runbook
 
 > Living document. When a feature works on localhost but breaks after a staging deploy, come here first.
