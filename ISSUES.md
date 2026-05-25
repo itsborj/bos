@@ -24,6 +24,46 @@
 
 ## Open Issues
 
+### ISS-009 — CMO asks for caption/video_prompt instead of dispatching creative.shortform.video
+- **Status:** investigating
+- **Found:** 2026-05-26
+- **Fixed:** —
+- **Area:** prompt · manifest
+- **Symptom:** User says "lets create a video" or "show me video for posting." CMO replies asking for `caption` and `video_prompt` instead of dispatching `RUN: creative.shortform.video`. These two fields (`caption`, `video_prompt`) belong to the **image** module (`creative.post.image`), not the video module. The video module requires no params — all are optional and auto-resolved from brand context.
+- **What we know:**
+  - `creative.shortform.video` IS in the CMO dispatchable manifest (30 total modules confirmed via container check).
+  - Triggers in SKILL.md include "create a video", "make a video", "video creative" — these should match the user intent.
+  - The CMO can dispatch the module directly (confirmed via `POST /agent/execute` — renders and uploads to Drive correctly).
+  - The CMO can see the module description: *"Module composes hook and CTA from brand context automatically — optionally pass hook_text (max 120 chars)..."*
+- **Root cause hypotheses:**
+
+  **H1 — Rule 9a example cross-contamination (system prompt `chat.py:725`)**
+  Rule 9a in the CMO system prompt uses `creative.post.image` as its sole example of how to pass params:
+  ```
+  RUN: creative.post.image
+  caption: <the full post copy...>
+  image_prompt: <vivid visual description...>
+  ```
+  The CMO pattern-matches video requests to this example and asks for `caption` + `video_prompt` (a near-match for `image_prompt`) even though the video module has no such params. The example is so close to a video post that the LLM conflates them.
+
+  **H2 — "optionally pass hook_text" in manifest description causes CMO to solicit params before dispatching**
+  The SKILL.md description says: *"optionally pass hook_text (max 120 chars), cta_text, aspect_ratio..."* Combined with Rule 9a's instruction to "always supply the inputs a capability's description requests", the CMO reads this as a requirement to gather params from the user before dispatching, even though they're all optional.
+
+- **Test plan (process of elimination — do H2 first, no system prompt change needed):**
+
+  **H2 test:** Remove the "optionally pass..." hint from the `creative.shortform.video` SKILL.md description. Replace with a dispatch-first instruction: "Dispatch immediately — no params required. Brand context is auto-resolved." If the CMO dispatches without asking → H2 confirmed.
+
+  **H1 test (if H2 doesn't fix it):** Change the Rule 9a example in `chat.py:725` from `creative.post.image` to a non-visual module, or add a second example showing a no-param dispatch. If the CMO stops asking for `caption`/`video_prompt` → H1 confirmed.
+
+- **Key files:**
+  - `api/plugins/creative-factory/capabilities/creative/shortform/video/SKILL.md` — description field (H2 fix target)
+  - `api/routers/chat.py:725` — Rule 9a example (H1 fix target)
+  - `api/capability_manifest.py` — `format_manifest_for_prompt()` controls what the CMO sees
+
+- **Resolution:** —
+
+---
+
 ### ISS-008 — Auth relay unbuilt — blocks one-click client deploy
 - **Status:** open
 - **Found:** 2026-05-25
