@@ -259,7 +259,7 @@ docker compose -p staging exec api ffmpeg -version   # staging container version
 ---
 
 #### C3 — `/tmp` video files destroyed on every deploy
-**Status:** `unconfirmed`  **First seen:** 2026-05-26
+**Status:** `CONFIRMED 2026-05-26`
 
 Every `docker compose up --build` recreates the API container and clears `/tmp`. The DB still holds `video_path` rows pointing to those paths. The media endpoint (`/api/media/video/{filename}`) returns 404. The Drive re-download layer (`_resolve_drive_video()` in `runs.py`) should recover — but only if Drive OAuth is connected for the brand on staging, `drive_file_id` was stored in the DB during render, and the Drive token is still valid.
 
@@ -272,6 +272,13 @@ docker compose -p staging exec db psql -U bos -c \
 Open a video run that existed before the deploy. If it fails with 404 and `drive_file_id` is NULL, this is the cause.
 
 **Rule out:** Drive connected, `drive_file_id` populated, re-download succeeds after deploy.
+
+**Critical distinction — confirmed:**
+- `docker compose restart api` → same container, `/tmp` survives
+- `docker compose up -d --build api` → container recreated, `/tmp` wiped
+- `deploy-staging.sh` always uses `up -d --build` → every deploy wipes `/tmp`
+
+**Rule:** never treat `/tmp` as durable storage for anything the user needs to see after a deploy. Drive `drive_file_id` is the only durable reference for video assets. Any run with `video_path` set but `drive_file_id` NULL will have a dead link after the next deploy.
 
 **Fix pattern:** ensure Drive OAuth is active on staging for every video-generating brand. Long-term: treat `/tmp` as cache only — always write to Drive first, serve from Drive URL.
 
@@ -338,3 +345,10 @@ When a feature breaks after a staging deploy, work through in this order:
 - **Confirmed by:** Controlled experiment. Added `[C1-TEST]` to the `description` field in `api/main.py` without committing. Verified localhost API (`port 8000`) returned the new string. Ran `deploy-staging.sh`. Staging API (`port 8001`) returned the original string with no `[C1-TEST]`. Additionally, `git reset --hard origin/staging` wiped the change from the local filesystem as a side effect — the DEPLOY.md runbook section written earlier in the same session was also lost, a collateral C1 example.
 - **Resolved by:** N/A — controlled experiment, no production breakage. Rule established: commit and push before every staging deploy.
 - **Notes:** Pydantic Settings env vars override class defaults — `APP_VERSION` in `.env` masked a first attempt using `config.py`. Changed test target to a hardcoded string in `main.py` which has no env override.
+
+### INC-002 — 2026-05-26 — C3 confirmed: /tmp is wiped on every deploy
+
+- **Cause confirmed:** C3 — `/tmp` video files destroyed on every deploy
+- **Confirmed by:** Controlled experiment. Created `/tmp/bos_c3_probe.txt` inside the API container. Ran `docker compose restart api` → file survived (same container, filesystem intact). Ran `docker compose up -d --build api` (what `deploy-staging.sh` uses) → file gone on the next exec into the container. The recreate step creates a fresh container from the image; `/tmp` is not a mounted volume, so it starts empty every time.
+- **Resolved by:** N/A — controlled experiment. Rule established: `/tmp` is ephemeral across deploys. `drive_file_id` is the only durable video reference.
+- **Notes:** `restart` vs `up --build` is the key distinction. Restart keeps the container alive (just stops/starts the process). Build recreates the container from scratch. The deploy script always uses build.
