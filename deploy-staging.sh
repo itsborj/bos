@@ -15,11 +15,19 @@ while IFS= read -r line; do
     default_val="${line#*=}"
     echo "${key}=${default_val}" >> .env.staging
     echo "  auto-filled: ${key}"
-    # Only block deploy for keys that have no usable default
+    # Only block deploy for keys that have no usable default and no generator
     case "$key" in
-      DATABASE_URL|API_SECRET_KEY|ENCRYPTION_KEY)
+      DATABASE_URL|API_SECRET_KEY)
         if [[ -z "$default_val" ]]; then
           CRITICAL_MISSING+=("$key")
+        fi
+        ;;
+      ENCRYPTION_KEY)
+        if [[ -z "$default_val" ]]; then
+          # Generate a random 32-byte hex key for fresh deploys
+          generated=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+          sed -i "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=${generated}|" .env.staging
+          echo "  generated random ENCRYPTION_KEY"
         fi
         ;;
     esac
