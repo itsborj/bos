@@ -75,13 +75,6 @@ function statusText(status: ArtifactStatus): string {
   return 'Saved';
 }
 
-function hasArtifactAction(run: RunResponse, action: string): boolean {
-  const block = run.result?.block;
-  return Array.isArray(block?.allowed_actions)
-    && block.allowed_actions.includes(action)
-    && typeof block?.action_modules?.[action] === 'string';
-}
-
 function renderNativePreview(run: RunResponse) {
   const result = run.result;
   if (!result) return <div className="stream-artifact-fallback">No artifact content available.</div>;
@@ -126,6 +119,18 @@ function renderNativePreview(run: RunResponse) {
         <div style={{ fontWeight: 700, marginBottom: 4 }}>{succeeded ? 'Published to Facebook' : 'Facebook publish failed'}</div>
         {b.message_preview && <div style={{ color: '#4b5563', marginBottom: 6, lineHeight: 1.4 }}>{b.message_preview.slice(0, 120)}{b.message_preview.length > 120 ? '…' : ''}</div>}
         {b.post_id && <div style={{ color: '#6b7280', fontSize: 11, marginBottom: 4 }}>Post ID: {b.post_id}</div>}
+        {b.permalink && <a href={b.permalink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 12, fontWeight: 600 }}>View on Facebook →</a>}
+      </div>
+    );
+  }
+  if (result.block?.type === 'fb_page_video_result') {
+    const b = result.block as any;
+    const succeeded = b.status === 'succeeded';
+    return (
+      <div style={{ padding: '14px 16px', fontSize: 13, color: '#1f2937', border: `1px solid ${succeeded ? '#bbf7d0' : '#fca5a5'}`, borderRadius: 8, background: succeeded ? '#f0fdf4' : '#fef2f2' }}>
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>{succeeded ? 'Facebook video published' : 'Facebook video publish failed'}</div>
+        {b.description_preview && <div style={{ color: '#4b5563', marginBottom: 6, lineHeight: 1.4 }}>{b.description_preview.slice(0, 120)}{b.description_preview.length > 120 ? '…' : ''}</div>}
+        {b.video_id && <div style={{ color: '#6b7280', fontSize: 11, marginBottom: 4 }}>Video ID: {b.video_id}</div>}
         {b.permalink && <a href={b.permalink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 12, fontWeight: 600 }}>View on Facebook →</a>}
       </div>
     );
@@ -256,6 +261,19 @@ function renderNativePreview(run: RunResponse) {
       </div>
     );
   }
+  if (result.block?.type === 'creative_shortform_video') {
+    const b = result.block as any;
+    if (b.status !== 'succeeded') {
+      return (
+        <div style={{ padding: 16, textAlign: 'center', color: '#ef4444', fontSize: 13 }}>
+          {b.message || result.content}
+        </div>
+      );
+    }
+    const filename = (b.video_path || '').split('/').pop();
+    const videoSrc = filename ? `/api/media/video/${filename}` : undefined;
+    return <FacebookFeedPreview pageName={brandName} adCopy={b.hook_text || ''} videoSrc={videoSrc} ctaText={b.cta_text || 'Learn More'} />;
+  }
   return <div className="stream-artifact-fallback">{result.content || 'Artifact content unavailable.'}</div>;
 }
 
@@ -372,43 +390,17 @@ function StreamDataCard({ update, brandName, objectiveTitle, onDismiss, onAskCMO
   );
 }
 
-function StreamArtifactCard({ run, brandName, objectiveTitle, onApprove, onDismiss, onActionRun, onOpenPanel }: {
+function StreamArtifactCard({ run, brandName, objectiveTitle, onApproved, onDismissed, onRevised }: {
   run: RunResponse;
   brandName: string;
   objectiveTitle: string;
-  onApprove: (run: RunResponse) => void;
-  onDismiss: (run: RunResponse) => void;
-  onActionRun: (run: RunResponse) => void;
-  onOpenPanel: (run: RunResponse) => void;
+  onApproved: (run: RunResponse) => void;
+  onDismissed: (run: RunResponse) => void;
+  onRevised: (original: RunResponse) => void;
 }) {
-  const navigate = useNavigate();
-  const [busy, setBusy] = useState(false);
   const status = artifactStatus(run);
   const createdAt = new Date(run.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const source = artifactPlatform(run) + ' · ' + createdAt + ' · ' + timeAgo(run.created_at);
-  const canPublish = hasArtifactAction(run, 'publish');
-  // creative_post_asset requires caption entry before publish — always open panel for review.
-  const requiresReview = run.result?.block?.type === 'creative_post_asset';
-
-  async function approve() {
-    setBusy(true);
-    try {
-      if (canPublish) {
-        const resp = await api.executeRunAction(run.run_id, 'publish', { confirm: true });
-        onApprove(run);
-        onActionRun(resp.action_run);
-      } else {
-        await api.approveRun(run.run_id);
-        onApprove(run);
-      }
-    } finally { setBusy(false); }
-  }
-
-  async function dismiss() {
-    setBusy(true);
-    onDismiss(run);
-    try { await api.rejectRun(run.run_id, 'Dismissed from Stream.'); } catch { } finally { setBusy(false); }
-  }
 
   return (
     <article className="g2card">
@@ -419,49 +411,19 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, onApprove, onDismi
       <div className="g2obj">{objectiveTitle || 'Active objective'}</div>
       <div className="g2brand">{brandName}</div>
       <div className="g2src-row"><span className="g2src">{source}</span></div>
-      <div className="stream-artifact-preview" style={{ marginBottom: 10 }}>{renderNativePreview(run)}</div>
-      <div className="g2actions">
-        {status === 'pending' && (
-          <>
-            {requiresReview ? (
-              <button className="btn btn-primary" onClick={() => onOpenPanel(run)}>Review & Publish</button>
-            ) : (
-              <button className="btn btn-primary" onClick={approve} disabled={busy}>{busy ? '…' : (canPublish ? 'Approve & Publish' : 'Approve')}</button>
-            )}
-            <button className="btn btn-ghost" onClick={() => navigate('/cmo')}>Ask CMO</button>
-            <button className="btn btn-ghost" onClick={dismiss} disabled={busy}>Dismiss</button>
-          </>
-        )}
-      </div>
-    </article>
-  );
-}
-
-function StreamRunPanel({ run, onClose, onApproved, onDismissed }: {
-  run: RunResponse;
-  onClose: () => void;
-  onApproved: (run: RunResponse) => void;
-  onDismissed: (run: RunResponse) => void;
-}) {
-  const [currentRun, setCurrentRun] = useState(run);
-  return (
-    <>
-      <div className="stream-panel-header">
-        <span className="stream-panel-title">{artifactTitle(run)}</span>
-        <button className="stream-panel-close" onClick={onClose}>✕</button>
-      </div>
-      <div className="stream-panel-body">
+      {status === 'pending' ? (
         <ApprovalBundle
-          key={currentRun.run_id}
-          run={currentRun}
+          run={run}
           surfaceContext="panel"
-          revisionHistory={[{ role: 'ai', text: currentRun.result?.content || '' }]}
-          onRevision={(_, revised) => setCurrentRun(revised)}
+          revisionHistory={[{ role: 'ai', text: run.result?.content || '' }]}
           onApproved={onApproved}
           onDismissed={onDismissed}
+          onRevision={(_, _revised) => onRevised(run)}
         />
-      </div>
-    </>
+      ) : (
+        <div className="stream-artifact-preview" style={{ marginTop: 10 }}>{renderNativePreview(run)}</div>
+      )}
+    </article>
   );
 }
 
@@ -523,12 +485,18 @@ export function Stream() {
   const [streamUpdates, setStreamUpdates] = useState<StreamUpdateOut[]>([]);
   const [activeObjective, setActiveObjective] = useState<ObjectiveOut | null>(null);
   const [loading, setLoading] = useState(false);
-  const [panelItem, setPanelItem] = useState<StreamUpdateOut | RunResponse | null>(null);
+  const [panelItem, setPanelItem] = useState<StreamUpdateOut | null>(null);
   const knownRunIds = useRef(new Set<string>());
 
+  // When CMO chat dispatches a new run, surface it in the feed immediately.
   useEffect(() => {
     const handleFocusArtifact = (e: Event) => {
-      setPanelItem((e as CustomEvent<RunResponse>).detail);
+      const focusedRun = (e as CustomEvent<RunResponse>).detail;
+      if (!focusedRun?.run_id) return;
+      setArtifacts(prev => {
+        const ids = new Set(prev.map(r => r.run_id));
+        return ids.has(focusedRun.run_id) ? prev : [focusedRun, ...prev];
+      });
     };
     window.addEventListener('bos:focus-artifact', handleFocusArtifact);
     return () => window.removeEventListener('bos:focus-artifact', handleFocusArtifact);
@@ -651,7 +619,6 @@ export function Stream() {
   const dateLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const brandLabel = activeBrand?.name || 'All brands';
   const objectiveTitle = activeObjective?.summary || 'Active objective';
-  const panelIsRun = panelItem && 'run_id' in panelItem;
 
   return (
     <div className="stream-fullscreen">
@@ -695,10 +662,9 @@ export function Stream() {
                   run={run}
                   brandName={brandLabel}
                   objectiveTitle={objectiveTitle}
-                  onApprove={run => { updateLocalStatus(run, 'approved'); if (panelItem && 'run_id' in panelItem && panelItem.run_id === run.run_id) setPanelItem(null); }}
-                  onDismiss={run => { updateLocalStatus(run, 'rejected'); if (panelItem && 'run_id' in panelItem && panelItem.run_id === run.run_id) setPanelItem(null); }}
-                  onActionRun={actionRun => setArtifacts(prev => [actionRun, ...prev])}
-                  onOpenPanel={setPanelItem}
+                  onApproved={r => updateLocalStatus(r, 'approved')}
+                  onDismissed={r => updateLocalStatus(r, 'rejected')}
+                  onRevised={original => setArtifacts(prev => prev.filter(r => r.run_id !== original.run_id))}
                 />
               ))}
             </div>
@@ -709,21 +675,13 @@ export function Stream() {
       {panelItem && <div className="stream-panel-backdrop" onClick={() => setPanelItem(null)} />}
 
       <div className={`stream-side-panel${panelItem ? ' stream-side-panel-open' : ''}`}>
-        {panelItem && (panelIsRun ? (
-          <StreamRunPanel
-            key={(panelItem as RunResponse).run_id}
-            run={panelItem as RunResponse}
-            onClose={() => setPanelItem(null)}
-            onApproved={run => { updateLocalStatus(run, 'approved'); setPanelItem(null); }}
-            onDismissed={run => { updateLocalStatus(run, 'rejected'); setPanelItem(null); }}
-          />
-        ) : (
+        {panelItem && (
           <StreamUpdatePanel
-            key={(panelItem as StreamUpdateOut).id}
-            update={panelItem as StreamUpdateOut}
+            key={panelItem.id}
+            update={panelItem}
             onClose={() => setPanelItem(null)}
           />
-        ))}
+        )}
       </div>
     </div>
   );

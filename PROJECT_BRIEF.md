@@ -487,7 +487,7 @@ The interface is designed for a CMO managing one or many brands/clients, with op
 - **The Aggregated Stream:** A consolidated decision queue. The CMO sees "Pending Decisions" (e.g., Approvals) from *all* brands in one priority list.
 - **Workspace Panel:** A sliding right panel (420px) focused on high-frequency CMO work: active campaigns, pinned assets, past campaigns, and pending generated assets. Reference/administrative views do not live here.
 - **Workspace Artifacts:** Workspace is the canonical artifact plane. Generated capability/plugin outputs are stored as run-backed artifact records with IDs, status, renderer hints, and approval state. CMO chat only links to these artifact records; it does not render platform-native previews inline.
-- **Pending Decisions:** Generated artifacts surface in Stream as timestamped native previews until approved, revised, or dismissed. Draft Campaign Brand Kit review is linked from onboarding/Admin flows rather than normal CMO chat.
+- **Pending Decisions:** Pending artifact cards in Stream are full inline review surfaces — native platform preview, editable copy textarea, Drive image attachment, and Dismiss/Revise/Approve actions all render directly inside the Stream card (via embedded `ApprovalBundle`). There is no separate side panel for artifact review. The side panel is reserved only for `StreamUpdateOut` cards (decision_brief, outcome, setup_blocker) that need expanded narrative context. Draft Campaign Brand Kit review is linked from onboarding/Admin flows rather than normal CMO chat.
 - **Admin:** Setup, memory, connectors, specialists, outcomes, and system/debug. Admin is not the daily marketing dashboard; it configures the company brain and specialist access.
 
 **Key UX Principles:**

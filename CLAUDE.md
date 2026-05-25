@@ -107,6 +107,8 @@ This keeps the `Klaroha BOS` ClickUp list in sync automatically. The script is i
 | Frontend is first-class | `web/` is React + Vite (decided 2026-05-02). Component tests required before Phase 3 is complete. |
 | One workspace per deployment | No tenant_id columns yet. The workspace table has one row. SaaS tenancy is a later addition. |
 | FastAPI for BOS core | Async, typed, OpenAPI spec generated automatically at `/docs`. |
+| Stream artifact cards are inline approval surfaces | `StreamArtifactCard` embeds `ApprovalBundle` directly for pending runs — full platform preview, editable copy, attachment, Dismiss/Revise/Approve inline. Do not re-add `StreamRunPanel`, `onOpenPanel` prop, or `requiresReview → panel` pattern. `stream-side-panel` is for `StreamUpdateOut` types only (decision_brief, outcome, setup_blocker). `bos:focus-artifact` injects runs into the feed state — it must not call `setPanelItem` with a `RunResponse`. |
+| Creative assets are channel-agnostic; distribution is never hardwired | BOS is omni-channel, multi-location, multi-brand. A generated image or video is a Drive asset — not a Facebook post, not a YouTube video. Creative modules must not hardwire channel publish logic. Channel distribution = CMO dispatches the appropriate channel capability with the asset reference (`drive_file_id` / `run_id`). Available channels = installed plugins × connected brand accounts. Native channel settings (page, ad account, playlist, recipient list) stay inside each channel plugin — never cross-injected into creative modules. The `publish_facebook` / `publish_youtube` buttons in Phase 6 are pragmatic shortcuts, not architecture. Do not model future creative modules after them. |
 
 ---
 

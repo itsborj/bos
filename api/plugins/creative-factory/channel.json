@@ -18,6 +18,7 @@
   "capability_ids": [
     "creative.pack.generate",
     "creative.primitive.generate",
+    "creative.shortform.video",
     "creative.blueprint.assemble",
     "creative.post.image"
   ],

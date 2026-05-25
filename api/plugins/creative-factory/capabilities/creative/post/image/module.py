@@ -75,22 +75,32 @@ class CreativePostImageModule(ChannelModule):
 
         if not img_b64:
             return self._fail(start, "no_image", "no image generated — include an image_prompt in the brief")
-        if not token:
-            return self._fail(start, "drive_not_connected", "Google Drive not connected for this brand")
-        if not root:
-            return self._fail(start, "no_root_folder", "no Drive root folder selected — pick one in Admin → Brands")
 
-        dc = _load_drive()
-        name = f"meta_post_{int(time.time())}.png"
-        try:
-            with dc.DriveClient(token) as client:
-                folder = client.ensure_path(["Creative Assets", "Meta Posts"], root)
-                meta = client.upload_file(name, base64.b64decode(img_b64), "image/png", folder)
-        except Exception as exc:
-            return self._fail(start, "drive_upload_failed", str(exc))
+        # Drive upload — non-fatal. Creative is always returned for review even if Drive is unavailable.
+        drive_file_id: str | None = None
+        drive_web_view_link: str | None = None
+        drive_name: str | None = None
+        if token and root:
+            dc = _load_drive()
+            name = f"meta_post_{int(time.time())}.png"
+            try:
+                with dc.DriveClient(token) as client:
+                    folder = client.ensure_path(["Creative Assets", "Meta Posts"], root)
+                    meta = client.upload_file(name, base64.b64decode(img_b64), "image/png", folder)
+                drive_file_id = meta.get("id")
+                drive_web_view_link = meta.get("webViewLink")
+                drive_name = meta.get("name")
+            except Exception:
+                pass  # Drive storage failure does not block the review card or publish
+
+        content = (
+            f"Meta post creative generated and saved to Drive ({drive_name})."
+            if drive_name
+            else "Meta post creative generated."
+        )
 
         return self._attempt(start, "succeeded"), {
-            "content": f"Meta post creative generated and saved to Drive ({meta.get('name')}).",
+            "content": content,
             "block": {
                 "type": "creative_post_asset",
                 "status": "succeeded",
@@ -100,20 +110,19 @@ class CreativePostImageModule(ChannelModule):
                 "drive_file_mime": "image/png",
                 "caption": caption or None,
                 "message": caption or None,
-                "drive_file_id": meta.get("id"),
-                "drive_web_view_link": meta.get("webViewLink"),
-                "drive_folder": "Creative Assets/Meta Posts",
-                "reusable": True,
+                "drive_file_id": drive_file_id,
+                "drive_web_view_link": drive_web_view_link,
+                "drive_folder": "Creative Assets/Meta Posts" if drive_file_id else None,
+                "reusable": bool(drive_file_id),
                 "allowed_actions": ["publish", "regenerate", "dismiss"],
                 "action_modules": {"publish": "marketing.channel.meta.posts.publish"},
             },
         }
 
     def self_check(self, content: str, brief: dict) -> tuple[str, list[str]]:
-        # A failed run (e.g. Drive not connected) must NOT surface as an approvable draft.
-        # Fail the check so the run is marked partial and rendered as a problem, not "ready".
         if not isinstance(content, str):
             return "fail", ["content_not_string"]
+        # Only fail when the image itself was not generated
         if content.lower().startswith("meta post creative failed"):
-            return "fail", ["generation_or_storage_failed"]
+            return "fail", ["image_generation_failed"]
         return "pass", []

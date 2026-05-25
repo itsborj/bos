@@ -1,4 +1,6 @@
 import logging
+import os
+import tempfile
 from datetime import datetime
 from typing import Optional
 
@@ -241,6 +243,58 @@ async def _resolve_drive_attachment(
         return brief
 
 
+async def _resolve_drive_video(
+    brief: dict,
+    brand_id,
+    db: AsyncSession,
+    settings,
+) -> dict:
+    """If video_path is absent, the file has been cleaned up, or a swap was requested,
+    download the video from Google Drive into a fresh temp file.
+
+    Swap detection: the frontend sets _video_swapped=True in overrides when the user
+    picks a different Drive file. Without this marker the resolver would return early
+    when the original local file still exists on disk.
+    """
+    video_path = str(brief.get("video_path") or "").strip()
+    drive_file_id = str(brief.get("drive_file_id") or "").strip()
+    video_swapped = bool(brief.get("_video_swapped"))
+
+    if not drive_file_id:
+        return brief
+    if not video_swapped and video_path and os.path.exists(video_path):
+        return brief  # local copy present, no swap requested — use it
+
+    try:
+        from routers.social import get_page_token
+        brand_id_str = str(brand_id) if brand_id else None
+        if not brand_id_str:
+            return brief
+        token, _ = await get_page_token(db, brand_id_str, "google_drive", settings)
+        if not token:
+            return brief
+
+        import pathlib
+        import importlib.util as _iutil
+        _drive_dir = str(pathlib.Path(__file__).parent.parent / "plugins" / "google-drive")
+        spec = _iutil.spec_from_file_location("_bos_drive_client_video", pathlib.Path(_drive_dir) / "drive_client.py")
+        _dc_mod = _iutil.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(_dc_mod)  # type: ignore[union-attr]
+        DriveClient = _dc_mod.DriveClient
+        with DriveClient(token) as drive:
+            video_data = drive.download_file(drive_file_id)
+
+        fd, new_path = tempfile.mkstemp(prefix="bos_video_", suffix=".mp4")
+        os.close(fd)
+        with open(new_path, "wb") as fh:
+            fh.write(video_data)
+        logger.info("Drive video re-downloaded for file %s → %s", drive_file_id, new_path)
+        return {**brief, "video_path": new_path}
+    except Exception:
+        logger.exception("Drive video re-download failed for file %s — continuing without re-download", drive_file_id)
+        return brief
+
+
 # ── PM plugin run sync helpers ────────────────────────────────────────────────
 # These helpers are PM-system agnostic. The active plugin is read from
 # brand.brand_json["pm_config"]["plugin"] (e.g. "channel.clickup").
@@ -326,8 +380,14 @@ async def _execute_module(
     if module_id != "media.image.generate" and (brief.get("image_prompt") or getattr(module, "requires_generated_image", False)):
         brief = await _inject_generated_image(brief, brand_id, db, settings)
 
-    if module_id != "media.image.generate" and brief.get("drive_file_id"):
+    _drive_mime = str(brief.get("drive_file_mime") or "").lower()
+    if (module_id != "media.image.generate"
+            and brief.get("drive_file_id")
+            and not _drive_mime.startswith("video/")):
         brief = await _resolve_drive_attachment(brief, brand_id, db, settings)
+
+    if brief.get("video_path") or brief.get("drive_file_id"):
+        brief = await _resolve_drive_video(brief, brand_id, db, settings)
 
     tool_executor = getattr(module, "execute_tool_result", None)
     if callable(tool_executor):
@@ -381,7 +441,7 @@ async def _execute_module(
         # Don't auto-approve artifacts that still require a human publish action.
         # These arrive on Stream as 'pending' so the operator can review and publish.
         _allowed_actions = block_data.get("allowed_actions") or []
-        _needs_publish = "publish" in _allowed_actions
+        _needs_publish = any(str(a).startswith("publish") for a in _allowed_actions)
         if run.status == "success" and block_data.get("status") == "succeeded" and not _needs_publish:
             run.approval_status = "approved"
         await write_memory_event(

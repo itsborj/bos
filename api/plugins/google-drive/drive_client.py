@@ -126,6 +126,25 @@ class DriveClient:
         r.raise_for_status()
         return r.json().get("files", [])
 
+    def search_files(self, mime_types: list[str]) -> list[dict]:
+        """Search the entire connected Drive for files matching any of the given MIME types.
+
+        No parent constraint — works across all subfolders. Use when the caller wants to
+        pick any matching file from the brand's Drive (e.g. the image/video swap picker).
+        """
+        mime_q = " or ".join(f"mimeType = '{m}'" for m in mime_types)
+        q = f"({mime_q}) and trashed = false"
+        params: dict = {
+            "q": q,
+            "fields": "files(id,name,mimeType,size,webViewLink,thumbnailLink)",
+            "pageSize": 200,
+            "supportsAllDrives": "true",
+            "includeItemsFromAllDrives": "true",
+        }
+        r = self._client.get(_FILES, params=params)
+        r.raise_for_status()
+        return r.json().get("files", [])
+
     def list_shared_with_me_folders(self) -> list[dict]:
         params = {
             "q": f"sharedWithMe = true and mimeType = '{_FOLDER_MIME}' and trashed = false",

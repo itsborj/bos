@@ -431,9 +431,9 @@ export const api = {
       `/social/drive/folders?brand_id=${encodeURIComponent(brand_id)}${parent_id ? `&parent_id=${encodeURIComponent(parent_id)}` : ''}`
     ),
 
-  listDriveImages: (brand_id: string, folder_id?: string) =>
-    request<{ folder_id: string; files: { id: string; name: string; mimeType: string; size?: number; webViewLink?: string }[] }>(
-      `/social/drive/images?brand_id=${encodeURIComponent(brand_id)}${folder_id ? `&folder_id=${encodeURIComponent(folder_id)}` : ''}`
+  listDriveImages: (brand_id: string, folder_id?: string, media_type?: string) =>
+    request<{ folder_id: string; files: { id: string; name: string; mimeType: string; size?: number; webViewLink?: string; thumbnailLink?: string }[] }>(
+      `/social/drive/images?brand_id=${encodeURIComponent(brand_id)}${folder_id ? `&folder_id=${encodeURIComponent(folder_id)}` : ''}${media_type ? `&media_type=${encodeURIComponent(media_type)}` : ''}`
     ),
 
   attachImageToRun: (runId: string, drive_file_id: string, drive_file_name: string, drive_file_mime: string) =>

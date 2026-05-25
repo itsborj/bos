@@ -722,6 +722,7 @@ async def list_drive_folders(
 async def list_drive_images(
     brand_id: str,
     folder_id: Optional[str] = None,
+    media_type: Optional[str] = "image",
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
 ):
@@ -753,22 +754,17 @@ async def list_drive_images(
         )).scalar_one_or_none()
         target_folder = ((row.token_meta_json or {}).get("drive_root_folder_id") if row else None) or "root"
 
+    _MIME_TYPES: dict[str, list[str]] = {
+        "image": ["image/jpeg", "image/png", "image/gif", "image/webp"],
+        "video": ["video/mp4", "video/quicktime", "video/x-msvideo", "video/webm"],
+    }
+    mimes = _MIME_TYPES.get(media_type or "image", _MIME_TYPES["image"])
+
     with DriveClient(token) as drive:
-        all_files: list[dict] = []
-        for mime in ("image/jpeg", "image/png", "image/gif", "image/webp"):
-            items = drive.list_children(target_folder, mime_type=mime)
-            all_files.extend(items)
+        all_files = drive.search_files(mimes)
 
-    # De-duplicate by id (list_children per mime can return overlaps)
-    seen: set[str] = set()
-    unique = []
-    for f in all_files:
-        if f["id"] not in seen:
-            seen.add(f["id"])
-            unique.append(f)
-    unique.sort(key=lambda f: f.get("name", ""))
-
-    return {"folder_id": target_folder, "files": unique}
+    all_files.sort(key=lambda f: f.get("name", ""))
+    return {"folder_id": target_folder, "files": all_files}
 
 
 @router.post("/drive/root", dependencies=[Depends(require_api_key)])

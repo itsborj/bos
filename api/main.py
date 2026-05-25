@@ -50,7 +50,7 @@ app.add_exception_handler(BosError, bos_error_handler)
 app.add_exception_handler(Exception, unhandled_error_handler)
 
 from routers import auth as auth_router  # noqa: E402
-from routers import agent, backend_settings, billing, brands, calendar, capabilities, campaigns, chat, council, decision_briefs, documents, handoff, health, intents, memory, objectives, onboarding, outcomes, plugins, providers, runs, social, stream, verticals, webhooks, workspace  # noqa: E402
+from routers import agent, backend_settings, billing, brands, calendar, capabilities, campaigns, chat, council, decision_briefs, documents, handoff, health, intents, media, memory, objectives, onboarding, outcomes, plugins, providers, runs, social, stream, verticals, webhooks, workspace  # noqa: E402
 
 app.include_router(health.router)
 app.include_router(agent.router)
@@ -79,3 +79,4 @@ app.include_router(webhooks.router)
 app.include_router(plugins.router)
 app.include_router(calendar.router)
 app.include_router(council.router)
+app.include_router(media.router)
