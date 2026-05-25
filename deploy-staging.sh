@@ -54,13 +54,10 @@ git fetch origin
 git reset --hard origin/staging
 
 echo "=== Building staging containers ==="
-docker compose --env-file .env.staging -p staging up -d --build
+docker compose --env-file .env.staging -p staging up -d --build --force-recreate
 
 echo "=== Running migrations ==="
 docker compose --env-file .env.staging -p staging exec -T api alembic upgrade head
-
-echo "=== Restarting staging nginx (re-resolves container IPs) ==="
-docker compose --env-file .env.staging -p staging restart nginx
 
 echo "=== Running smoke tests ==="
 sleep 5
