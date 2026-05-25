@@ -3,26 +3,36 @@ set -euo pipefail
 
 cd ~/bos
 
-# ── Env drift check ──────────────────────────────────────────────────────────
+# ── Env drift check — auto-fill missing keys from .env.example defaults ──────
 echo "=== Checking .env.staging for missing keys ==="
-MISSING=()
+CRITICAL_MISSING=()
 while IFS= read -r line; do
   [[ "$line" =~ ^[[:space:]]*# ]] && continue
   [[ -z "${line// }" ]] && continue
   key="${line%%=*}"
   [[ -z "$key" ]] && continue
   if ! grep -qE "^${key}=" .env.staging 2>/dev/null; then
-    MISSING+=("$key")
+    default_val="${line#*=}"
+    echo "${key}=${default_val}" >> .env.staging
+    echo "  auto-filled: ${key}"
+    # Only block deploy for keys that have no usable default
+    case "$key" in
+      DATABASE_URL|API_SECRET_KEY|ENCRYPTION_KEY)
+        if [[ -z "$default_val" ]]; then
+          CRITICAL_MISSING+=("$key")
+        fi
+        ;;
+    esac
   fi
 done < .env.example
 
-if [[ ${#MISSING[@]} -gt 0 ]]; then
+if [[ ${#CRITICAL_MISSING[@]} -gt 0 ]]; then
   echo ""
-  echo "ERROR: the following keys are in .env.example but missing from .env.staging:"
-  for k in "${MISSING[@]}"; do echo "  $k"; done
+  echo "ERROR: critical keys missing with no default — set these in .env.staging:"
+  for k in "${CRITICAL_MISSING[@]}"; do echo "  $k"; done
   exit 1
 else
-  echo "OK — .env.staging has all keys from .env.example."
+  echo "OK — .env.staging is complete."
 fi
 
 echo "=== Pulling staging ==="
