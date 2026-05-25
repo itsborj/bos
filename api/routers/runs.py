@@ -844,6 +844,7 @@ async def get_run(
     run_id: str,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
+    settings=Depends(get_settings),
 ):
     run_row = await db.execute(select(Run).where(Run.id == run_id))
     run = run_row.scalar_one_or_none()
@@ -871,6 +872,10 @@ async def get_run(
     routing = trace.routing_json if trace else {}
     lineage = trace.lineage_json if trace else {}
 
+    block = (lineage or {}).get("block")
+    if block and (block.get("video_path") or block.get("drive_file_id")):
+        block = await _resolve_drive_video(block, run.brand_id, db, settings)
+
     return RunResponse(
         run_id=str(run.id),
         module_id=run.module_id,
@@ -883,7 +888,7 @@ async def get_run(
             content=result.content,
             self_check=result.self_check_verdict,
             platform=platform,
-            block=(lineage or {}).get("block"),
+            block=block,
         ) if result else None,
         execution=RunExecutionOut(
             provider=attempt.provider,

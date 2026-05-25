@@ -8,7 +8,7 @@ from fastapi.responses import FileResponse
 
 router = APIRouter(prefix="/media", tags=["media"])
 
-_ALLOWED_VIDEO = re.compile(r"^bos_shortform_[a-f0-9]{12}\.mp4$")
+_ALLOWED_VIDEO = re.compile(r"^(bos_shortform_[a-f0-9]{12}|bos_video_[a-z0-9]+)\.mp4$")
 
 
 @router.get("/video/{filename}")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import logging
 import os
 import subprocess
 import tempfile
@@ -9,6 +10,8 @@ import uuid
 from pathlib import Path
 
 from klaroha_sdk import ChannelModule
+
+_logger = logging.getLogger(__name__)
 
 _FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
 _FONT = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
@@ -227,8 +230,8 @@ class CreativeShortformVideoModule(ChannelModule):
                     meta = client.upload_file(vid_name, vid_bytes, "video/mp4", folder)
                 drive_file_id = meta.get("id")
                 drive_web_view_link = meta.get("webViewLink")
-            except Exception:
-                pass  # Drive upload failure does not block the artifact
+            except Exception as exc:
+                _logger.warning("Drive upload failed for shortform video — artifact still delivered: %s", exc)
 
         return self._attempt(start, "succeeded"), {
             "content": (
