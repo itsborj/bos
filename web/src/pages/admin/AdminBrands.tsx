@@ -352,7 +352,8 @@ export function AdminBrands() {
       const g = (window as any).google;
       const view = new g.picker.DocsView(g.picker.ViewId.FOLDERS)
         .setSelectFolderEnabled(true)
-        .setMimeTypes('application/vnd.google-apps.folder');
+        .setMimeTypes('application/vnd.google-apps.folder')
+        .setParent('root');
       const picker = new g.picker.PickerBuilder()
         .setOAuthToken(cfg.access_token)
         .setDeveloperKey(cfg.api_key)
