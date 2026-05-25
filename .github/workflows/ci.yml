@@ -82,7 +82,6 @@ jobs:
           username: ${{ secrets.VDS_USER }}
           key: ${{ secrets.VDS_DEPLOY_KEY }}
           envs: STAGING_ENV_FILE
-          script_stop: true
           script: |
             set -euo pipefail
             STAGING_PATH=${{ secrets.STAGING_PATH }}
