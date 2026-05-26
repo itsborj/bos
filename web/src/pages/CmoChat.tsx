@@ -251,11 +251,14 @@ export function CmoChat() {
   }
 
   async function handleOpenArtifact(artifactId: string) {
+    // Focus immediately by ID so the Stream can scroll/inject the exact card without
+    // waiting on a full run-detail request. Then send preview/full data when available.
+    window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: { run_id: artifactId } }));
     try {
-      const run = await api.getRun(artifactId);
+      const run = await api.getRun(artifactId, { includeAssets: false });
       window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: run }));
     } catch {
-      // artifact may not be loaded yet
+      // Stream owns fallback loading by run_id.
     }
   }
 

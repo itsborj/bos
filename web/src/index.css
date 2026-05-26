@@ -887,6 +887,7 @@ textarea { font-family: inherit; }
 /* ── Gate 2 prototype Stream card contract ── */
 .g2card{background:var(--surface);border:1px solid var(--border-light);border-radius:12px;padding:18px 20px;margin-bottom:12px;box-shadow:none;overflow:visible}
 .g2card.featured{border-color:var(--racing-green);border-left:3px solid var(--racing-green)}
+.g2card.stream-focused-artifact{border-color:var(--racing-green);box-shadow:0 0 0 3px rgba(9,83,65,.14)}
 .g2top{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
 .g2type{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:5px}
 .g2type.decision_brief{background:#fef3c7;color:#92400e}

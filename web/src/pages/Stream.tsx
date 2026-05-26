@@ -430,10 +430,12 @@ function StreamDataCard({ update, brandName, objectiveTitle, onDismiss, onAskCMO
   );
 }
 
-function StreamArtifactCard({ run, brandName, objectiveTitle, onApproved, onDismissed, onRevised }: {
+function StreamArtifactCard({ run, brandName, objectiveTitle, focused = false, registerCard, onApproved, onDismissed, onRevised }: {
   run: RunResponse;
   brandName: string;
   objectiveTitle: string;
+  focused?: boolean;
+  registerCard?: (runId: string, node: HTMLElement | null) => void;
   onApproved: (run: RunResponse) => void;
   onDismissed: (run: RunResponse) => void;
   onRevised: (original: RunResponse) => void;
@@ -446,6 +448,15 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, onApproved, onDism
   const displayRun = hydratedRun || run;
   const createdAt = new Date(run.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const source = artifactPlatform(run) + ' · ' + createdAt + ' · ' + timeAgo(run.created_at);
+
+  const setCardNode = useCallback((node: HTMLElement | null) => {
+    cardRef.current = node;
+    registerCard?.(run.run_id, node);
+  }, [registerCard, run.run_id]);
+
+  useEffect(() => {
+    return () => registerCard?.(run.run_id, null);
+  }, [registerCard, run.run_id]);
 
   useEffect(() => {
     const node = cardRef.current;
@@ -473,7 +484,7 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, onApproved, onDism
   }, [hasEnteredView, hydratedRun, hydrating, run]);
 
   return (
-    <article className="g2card" ref={cardRef}>
+    <article className={`g2card${focused ? ' stream-focused-artifact' : ''}`} ref={setCardNode}>
       <div className="g2top">
         <span className="g2type pending_artifact">{artifactTitle(run)}</span>
         <span className={`g2conf ${status === 'approved' ? 'green' : 'amber'}`}>{statusText(status)}</span>
@@ -563,22 +574,56 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
   const [runOffset, setRunOffset] = useState(0);
   const [hasMoreRuns, setHasMoreRuns] = useState(true);
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
+  const [focusedRunId, setFocusedRunId] = useState<string | null>(null);
   const knownRunIds = useRef(new Set<string>());
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const artifactCardRefs = useRef(new Map<string, HTMLElement>());
 
-  // When CMO chat dispatches a new run, surface it in the feed immediately.
+  const registerArtifactCard = useCallback((runId: string, node: HTMLElement | null) => {
+    if (node) artifactCardRefs.current.set(runId, node);
+    else artifactCardRefs.current.delete(runId);
+  }, []);
+
+  // When CMO chat references an artifact, focus the exact matching Stream card.
+  // If it is outside the currently loaded page, fetch a lightweight preview and inject it.
   useEffect(() => {
-    const handleFocusArtifact = (e: Event) => {
-      const focusedRun = (e as CustomEvent<RunResponse>).detail;
-      if (!focusedRun?.run_id) return;
+    const upsertFocusedRun = (focusedRun: RunResponse) => {
+      knownRunIds.current.add(focusedRun.run_id);
       setArtifacts(prev => {
-        const ids = new Set(prev.map(r => r.run_id));
-        return ids.has(focusedRun.run_id) ? prev : [focusedRun, ...prev];
+        const exists = prev.some(r => r.run_id === focusedRun.run_id);
+        if (!exists) return [focusedRun, ...prev];
+        return prev.map(r => r.run_id === focusedRun.run_id ? ({ ...r, ...focusedRun } as RunResponse) : r);
       });
+    };
+
+    const handleFocusArtifact = (e: Event) => {
+      const detail = (e as CustomEvent<Partial<RunResponse> & { artifact_id?: string }>).detail;
+      const runId = detail?.run_id || detail?.artifact_id;
+      if (!runId) return;
+      setFocusedRunId(runId);
+      if (detail.module_id) {
+        upsertFocusedRun(detail as RunResponse);
+        return;
+      }
+      api.getRun(runId, { includeAssets: false })
+        .then(run => upsertFocusedRun(run))
+        .catch(() => {});
     };
     window.addEventListener('bos:focus-artifact', handleFocusArtifact);
     return () => window.removeEventListener('bos:focus-artifact', handleFocusArtifact);
   }, []);
+
+  useEffect(() => {
+    if (!focusedRunId) return;
+    const timer = window.setTimeout(() => {
+      const node = artifactCardRefs.current.get(focusedRunId);
+      if (node) {
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        window.setTimeout(() => setFocusedRunId(current => current === focusedRunId ? null : current), 1800);
+      }
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [focusedRunId, artifacts.length]);
 
   useEffect(() => {
     let cancelled = false;
@@ -765,6 +810,8 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
                   run={run}
                   brandName={brandLabel}
                   objectiveTitle={objectiveTitle}
+                  focused={focusedRunId === run.run_id}
+                  registerCard={registerArtifactCard}
                   onApproved={r => updateLocalStatus(r, 'approved')}
                   onDismissed={r => updateLocalStatus(r, 'rejected')}
                   onRevised={original => setArtifacts(prev => prev.filter(r => r.run_id !== original.run_id))}

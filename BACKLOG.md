@@ -892,6 +892,7 @@ CYCLE 2 — Intelligence to Optimization
 - [x] BUG: Stream slow-load still hydrates detail for every recent run; add metadata-first run-list previews and fetch full assets only for pending review items.
 - [x] BUG: CMO embedded Stream still shows objective-loop header/update noise and blocks on full pending asset hydration instead of showing lightweight actual artifact feed.
 - [x] BUG: Stream must be the same surface in standalone and CMO split-screen, but load artifact details lazily/staggered as cards enter view instead of blocking first paint.
+- [x] BUG: CMO artifact reference click dispatches focus event but Stream does not scroll to or replace the exact referenced artifact card.
 - [~] Paired output: copy + image as a single `creative_bundle` artifact for ads and social — BITE sample stage active before build
 
 ### 6.2 — Email Campaign Infrastructure
