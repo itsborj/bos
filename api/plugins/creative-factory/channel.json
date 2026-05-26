@@ -9,16 +9,14 @@
   ],
   "specialty": [
     "creative_production",
-    "image_plate",
-    "video_plate",
     "blueprint_assembly",
-    "render_target"
+    "render_target",
+    "specialist_orchestration"
   ],
   "risk_policy": "generate_only",
   "capability_ids": [
     "creative.pack.generate",
     "creative.primitive.generate",
-    "creative.shortform.video",
     "creative.blueprint.assemble",
     "creative.post.image"
   ],

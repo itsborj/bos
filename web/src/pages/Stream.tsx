@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useUI } from '../context/UIContext';
@@ -12,7 +12,7 @@ import { EmailPreview } from '../components/blocks/previews/EmailPreview';
 import { PinterestPreview } from '../components/blocks/previews/PinterestPreview';
 import { TwitterFeedPreview } from '../components/blocks/previews/TwitterFeedPreview';
 import { ApprovalBundle } from '../components/blocks/ApprovalBundle';
-import type { ObjectiveOut, RunResponse, StreamUpdateOut } from '../api/types';
+import type { ObjectiveOut, RunListItem, RunResponse, StreamUpdateOut } from '../api/types';
 
 type ArtifactStatus = 'pending' | 'approved' | 'dismissed' | 'complete';
 
@@ -61,6 +61,36 @@ function artifactStatus(run: RunResponse): ArtifactStatus {
 function runTimestamp(run: Partial<RunResponse>): number {
   const ts = Date.parse(String(run.created_at || ''));
   return Number.isFinite(ts) ? ts : 0;
+}
+
+function runFromListItem(item: RunListItem): RunResponse {
+  return {
+    run_id: item.run_id,
+    module_id: item.module_id,
+    vertical: item.vertical,
+    status: item.status,
+    approval_status: item.approval_status,
+    campaign_id: item.campaign_id,
+    brand_id: item.brand_id,
+    result: item.result || undefined,
+    execution: item.provider ? {
+      provider: item.provider,
+      model: item.model || '',
+      mode: 'preview',
+      attempts: 1,
+      latency_ms: item.latency_ms || 0,
+      tokens_used: item.tokens || undefined,
+      provider_cost: item.cost || undefined,
+    } : undefined,
+    created_at: item.created_at,
+  };
+}
+
+let artifactHydrationQueue: Promise<void> = Promise.resolve();
+
+function enqueueArtifactHydration(task: () => Promise<void>): Promise<void> {
+  artifactHydrationQueue = artifactHydrationQueue.then(task).catch(() => undefined);
+  return artifactHydrationQueue;
 }
 
 function updateBrandRef(update: StreamUpdateOut): string | null {
@@ -230,6 +260,16 @@ function renderNativePreview(run: RunResponse) {
       </div>
     );
   }
+  if (result.block?.type === 'image_asset' && (result.block as any).asset_omitted) {
+    const b = result.block as any;
+    return (
+      <div style={{ padding: 16, textAlign: 'center', color: '#6b7280', fontSize: 13, border: '1px dashed #d1d5db', borderRadius: 10 }}>
+        <div style={{ fontWeight: 700, color: '#374151', marginBottom: 4 }}>Image asset</div>
+        {b.width && b.height && <div style={{ fontSize: 12, marginBottom: 4 }}>{b.width}×{b.height} · {b.mime_type || 'image/png'}</div>}
+        {b.prompt && <div style={{ fontSize: 12, fontStyle: 'italic' }}>{b.prompt}</div>}
+      </div>
+    );
+  }
   if (result.block?.type === 'image_asset' && (result.block as any).status === 'failed') {
     return (
       <div style={{ padding: 20, textAlign: 'center', color: '#ef4444', fontSize: 13 }}>
@@ -261,7 +301,7 @@ function renderNativePreview(run: RunResponse) {
       </div>
     );
   }
-  if (result.block?.type === 'creative_shortform_video') {
+  if (result.block?.type === 'creative_shortform_video' || result.block?.type === 'video_asset') {
     const b = result.block as any;
     if (b.status !== 'succeeded') {
       return (
@@ -271,7 +311,7 @@ function renderNativePreview(run: RunResponse) {
       );
     }
     const filename = (b.video_path || '').split('/').pop();
-    const videoSrc = filename ? `/api/media/video/${filename}` : undefined;
+    const videoSrc = filename ? `/api/media/video/${filename}` : b.video_url;
     return <FacebookFeedPreview pageName={brandName} adCopy={b.hook_text || ''} videoSrc={videoSrc} ctaText={b.cta_text || 'Learn More'} />;
   }
   return <div className="stream-artifact-fallback">{result.content || 'Artifact content unavailable.'}</div>;
@@ -398,12 +438,42 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, onApproved, onDism
   onDismissed: (run: RunResponse) => void;
   onRevised: (original: RunResponse) => void;
 }) {
+  const [hydratedRun, setHydratedRun] = useState<RunResponse | null>(null);
+  const [hydrating, setHydrating] = useState(false);
+  const [hasEnteredView, setHasEnteredView] = useState(false);
+  const cardRef = useRef<HTMLElement | null>(null);
   const status = artifactStatus(run);
+  const displayRun = hydratedRun || run;
   const createdAt = new Date(run.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const source = artifactPlatform(run) + ' · ' + createdAt + ' · ' + timeAgo(run.created_at);
 
+  useEffect(() => {
+    const node = cardRef.current;
+    if (!node || hasEnteredView) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        setHasEnteredView(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '240px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasEnteredView]);
+
+  useEffect(() => {
+    if (!hasEnteredView || hydratedRun || hydrating) return;
+    setHydrating(true);
+    enqueueArtifactHydration(async () => {
+      const fullRun = await api.getRun(run.run_id, { includeAssets: true }).catch(() => null);
+      if (fullRun) {
+        setHydratedRun({ ...fullRun, approval_status: run.approval_status, brand_id: fullRun.brand_id || run.brand_id } as RunResponse);
+      }
+      setHydrating(false);
+    });
+  }, [hasEnteredView, hydratedRun, hydrating, run]);
+
   return (
-    <article className="g2card">
+    <article className="g2card" ref={cardRef}>
       <div className="g2top">
         <span className="g2type pending_artifact">{artifactTitle(run)}</span>
         <span className={`g2conf ${status === 'approved' ? 'green' : 'amber'}`}>{statusText(status)}</span>
@@ -411,17 +481,19 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, onApproved, onDism
       <div className="g2obj">{objectiveTitle || 'Active objective'}</div>
       <div className="g2brand">{brandName}</div>
       <div className="g2src-row"><span className="g2src">{source}</span></div>
-      {status === 'pending' ? (
+      {hydrating && !hydratedRun ? (
+        <div className="stream-artifact-fallback" style={{ marginTop: 10 }}><span className="spinner" /> Loading artifact…</div>
+      ) : status === 'pending' ? (
         <ApprovalBundle
-          run={run}
+          run={displayRun}
           surfaceContext="panel"
-          revisionHistory={[{ role: 'ai', text: run.result?.content || '' }]}
+          revisionHistory={[{ role: 'ai', text: displayRun.result?.content || '' }]}
           onApproved={onApproved}
           onDismissed={onDismissed}
-          onRevision={(_, _revised) => onRevised(run)}
+          onRevision={(_, _revised) => onRevised(displayRun)}
         />
       ) : (
-        <div className="stream-artifact-preview" style={{ marginTop: 10 }}>{renderNativePreview(run)}</div>
+        <div className="stream-artifact-preview" style={{ marginTop: 10 }}>{renderNativePreview(displayRun)}</div>
       )}
     </article>
   );
@@ -478,7 +550,9 @@ function StreamUpdatePanel({ update, onClose }: { update: StreamUpdateOut; onClo
   );
 }
 
-export function Stream() {
+const RUN_PAGE_SIZE = 20;
+
+export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
   const navigate = useNavigate();
   const { pendingRunItems, removePendingRun, activeBrand } = useUI();
   const [artifacts, setArtifacts] = useState<RunResponse[]>([]);
@@ -486,7 +560,11 @@ export function Stream() {
   const [activeObjective, setActiveObjective] = useState<ObjectiveOut | null>(null);
   const [loading, setLoading] = useState(false);
   const [panelItem, setPanelItem] = useState<StreamUpdateOut | null>(null);
+  const [runOffset, setRunOffset] = useState(0);
+  const [hasMoreRuns, setHasMoreRuns] = useState(true);
+  const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
   const knownRunIds = useRef(new Set<string>());
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
   // When CMO chat dispatches a new run, surface it in the feed immediately.
   useEffect(() => {
@@ -507,26 +585,21 @@ export function Stream() {
     const brandId = activeBrand?.id;
     setLoading(true);
     Promise.all([
-      api.getRuns({ limit: 40, brand_id: brandId }).then(async r => {
-        const candidates = r.runs.filter(run =>
-          run.status !== 'failed' &&
-          run.approval_status !== 'rejected' &&
-          (!brandId || run.brand_id === brandId)
-        );
-        const full = await Promise.all(
-          candidates.map(async run => {
-            const fullRun = await api.getRun(run.run_id).catch(() => null);
-            return fullRun ? ({ ...fullRun, approval_status: run.approval_status, brand_id: fullRun.brand_id || run.brand_id } as RunResponse) : null;
-          })
-        );
-        return full.filter((run): run is RunResponse => !!run && (!brandId || run.brand_id === brandId));
+      api.getRuns({ limit: RUN_PAGE_SIZE, offset: 0, brand_id: brandId, include_preview: true }).then(r => {
+        setRunOffset(r.runs.length);
+        setHasMoreRuns(r.runs.length >= RUN_PAGE_SIZE && r.runs.length < r.total);
+        const byId = new Map<string, RunResponse>();
+        r.runs
+          .filter(run => run.status !== 'failed' && run.approval_status !== 'rejected' && (!brandId || run.brand_id === brandId))
+          .forEach(run => { if (!byId.has(run.run_id)) byId.set(run.run_id, runFromListItem(run)); });
+        return Array.from(byId.values());
       }),
       api.refreshStream().catch(() => null).then(() => api.getStream(false).catch(() => ({ updates: [], total: 0 }))),
       api.getActiveObjective(brandId).catch(() => null),
     ])
       .then(([fullRuns, stream, objective]) => {
         if (!cancelled) {
-          fullRuns.forEach(r => knownRunIds.current.add(r.run_id));
+          knownRunIds.current = new Set(fullRuns.map(r => r.run_id));
           setArtifacts(fullRuns);
           setStreamUpdates((stream.updates || []).filter(update =>
             ['outcome', 'decision_brief', 'setup_blocker', 'pending_artifact'].includes(update.type) &&
@@ -540,6 +613,41 @@ export function Stream() {
     return () => { cancelled = true; };
   }, [activeBrand?.id]);
 
+  const loadMoreRuns = useCallback(async () => {
+    if (loadingMoreRuns || !hasMoreRuns) return;
+    const brandId = activeBrand?.id;
+    setLoadingMoreRuns(true);
+    try {
+      const r = await api.getRuns({ limit: RUN_PAGE_SIZE, offset: runOffset, brand_id: brandId, include_preview: true });
+      setRunOffset(prev => prev + r.runs.length);
+      setHasMoreRuns(r.runs.length >= RUN_PAGE_SIZE && runOffset + r.runs.length < r.total);
+      const next = r.runs
+        .filter(run =>
+          run.status !== 'failed' &&
+          run.approval_status !== 'rejected' &&
+          (!brandId || run.brand_id === brandId) &&
+          !knownRunIds.current.has(run.run_id)
+        )
+        .map(runFromListItem);
+      if (next.length > 0) {
+        next.forEach(run => knownRunIds.current.add(run.run_id));
+        setArtifacts(prev => [...prev, ...next]);
+      }
+    } finally {
+      setLoadingMoreRuns(false);
+    }
+  }, [activeBrand?.id, hasMoreRuns, loadingMoreRuns, runOffset]);
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || !hasMoreRuns) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) loadMoreRuns();
+    }, { rootMargin: '600px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMoreRuns, loadMoreRuns]);
+
   // Poll every 15 s for new runs — makes Stream a live TikTok-style feed.
   useEffect(() => {
     if (loading) return;
@@ -547,7 +655,7 @@ export function Stream() {
 
     const poll = async () => {
       try {
-        const r = await api.getRuns({ limit: 10, brand_id: brandId });
+        const r = await api.getRuns({ limit: 10, brand_id: brandId, include_preview: true });
         const newCandidates = r.runs.filter(run =>
           run.status !== 'failed' &&
           run.approval_status !== 'rejected' &&
@@ -555,15 +663,9 @@ export function Stream() {
           !knownRunIds.current.has(run.run_id)
         );
         if (newCandidates.length === 0) return;
-        const fullRuns = await Promise.all(
-          newCandidates.map(async run => {
-            const fullRun = await api.getRun(run.run_id).catch(() => null);
-            return fullRun
-              ? ({ ...fullRun, approval_status: run.approval_status, brand_id: fullRun.brand_id || run.brand_id } as RunResponse)
-              : null;
-          })
-        );
-        const valid = fullRuns.filter((r): r is RunResponse => !!r && (!brandId || r.brand_id === brandId));
+        const byId = new Map<string, RunResponse>();
+        newCandidates.map(runFromListItem).forEach(run => { if (!byId.has(run.run_id)) byId.set(run.run_id, run); });
+        const valid = Array.from(byId.values()).filter((r): r is RunResponse => !!r && (!brandId || r.brand_id === brandId));
         if (valid.length > 0) {
           valid.forEach(r => knownRunIds.current.add(r.run_id));
           setArtifacts(prev => {
@@ -607,7 +709,8 @@ export function Stream() {
 
   function configureFromCard(update: StreamUpdateOut) {
     const target = String(update.data_json?.config_target || 'objective-loop');
-    if (target.includes('connector') || target.includes('gmail')) navigate('/admin/connectors');
+    if (target.includes('connector')) navigate('/admin/modules');
+    else if (target.includes('gmail')) navigate('/admin/brands');
     else navigate('/admin/objective-loop');
   }
 
@@ -621,7 +724,7 @@ export function Stream() {
   const objectiveTitle = activeObjective?.summary || 'Active objective';
 
   return (
-    <div className="stream-fullscreen">
+    <div className={`stream-fullscreen${embedded ? ' stream-embedded' : ''}`}>
       <div className={`stream-feed-col${panelItem ? ' stream-panel-open' : ''}`}>
         <div className="stream-content-inner">
           <div className="stream-header-zone">
@@ -667,6 +770,7 @@ export function Stream() {
                   onRevised={original => setArtifacts(prev => prev.filter(r => r.run_id !== original.run_id))}
                 />
               ))}
+              {hasMoreRuns && <div ref={loadMoreRef} className="stream-load-more">{loadingMoreRuns ? 'Loading more…' : 'Scroll for more'}</div>}
             </div>
           )}
         </div>

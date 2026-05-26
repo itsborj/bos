@@ -30,7 +30,6 @@ const NAV_SECTIONS: AdminNavSection[] = [
   {
     label: 'Settings',
     items: [
-      { to: '/admin/connectors',     label: 'Connectors',     icon: '⇄' },
       { to: '/admin/providers',      label: 'AI Providers',   icon: '⚡' },
       { to: '/admin/objective-loop', label: 'Loop Setup',     icon: '◎' },
       { to: '/admin/watchpoints',    label: 'Watchpoints',    icon: '◈' },

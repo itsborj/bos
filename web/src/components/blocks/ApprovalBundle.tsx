@@ -112,7 +112,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
   const canPublish = hasArtifactAction(run, 'publish');
   const isFbDraft = result.block?.type === 'fb_page_post_draft';
   const isCreativePost = result.block?.type === 'creative_post_asset' && result.block?.status === 'succeeded';
-  const isShortformVideo = result.block?.type === 'creative_shortform_video' && result.block?.status === 'succeeded';
+  const isShortformVideo = (result.block?.type === 'creative_shortform_video' || result.block?.type === 'video_asset') && result.block?.status === 'succeeded';
   const isImageAsset = result.block?.type === 'image_asset' && result.block?.status === 'succeeded';
 
   // Editable state for creative_post_asset review
@@ -734,13 +734,13 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
       );
     }
 
-    if (result.block?.type === 'creative_shortform_video') {
+    if (result.block?.type === 'creative_shortform_video' || result.block?.type === 'video_asset') {
       const b = result.block as any;
       if (b.status !== 'succeeded') {
         return <div style={{ padding: 16, color: '#ef4444', fontSize: 13 }}>{b.message || result.content}</div>;
       }
       const filename = (b.video_path || '').split('/').pop();
-      const videoSrc = filename ? `/api/media/video/${filename}` : undefined;
+      const videoSrc = filename ? `/api/media/video/${filename}` : b.video_url;
       const swappedSrc = swappedVideo
         ? (swappedVideo.thumbnailLink || undefined)
         : undefined;
@@ -872,7 +872,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
                 ) : (() => {
                   const b = result.block as any;
                   const fname = (b?.video_path || '').split('/').pop();
-                  const src = fname ? `/api/media/video/${fname}` : null;
+                  const src = fname ? `/api/media/video/${fname}` : b?.video_url || null;
                   return src
                     ? <video src={src} muted preload="metadata" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid #e5e7eb', flexShrink: 0 }} />
                     : <div style={{ width: 56, height: 56, borderRadius: 6, border: '1px dashed #d1d5db', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 20, flexShrink: 0 }}>🎬</div>;

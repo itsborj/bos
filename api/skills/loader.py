@@ -19,8 +19,19 @@ SkillScope = Literal[
     "atomic_workflow",
     "diagnostic",
     "knowledge",
+    "creative",
+    "media",
 ]
-IntentType = Literal["discussion", "generation", "revision", "approval", "onboarding", "diagnostic"]
+IntentType = Literal[
+    "discussion",
+    "generation",
+    "revision",
+    "approval",
+    "onboarding",
+    "diagnostic",
+    "action",
+    "publish",
+]
 
 
 class SkillManifest(BaseModel):
@@ -70,6 +81,10 @@ def _parse_scalar(value: str) -> Any:
     value = value.strip()
     if value in {"null", "~", ""}:
         return None
+    if value == "[]":
+        return []
+    if value == "{}":
+        return {}
     lowered = value.lower()
     if lowered == "true":
         return True
@@ -115,11 +130,12 @@ def _normalize_frontmatter(data: dict[str, Any], path: Path, root: Path) -> dict
 
 def _parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:
 
-    """Parse the small YAML subset used by BOS SKILL.md frontmatter.
+    """Parse SKILL.md frontmatter.
 
-    Supports top-level scalars, top-level string lists, and one-level maps.
-    This avoids adding a YAML dependency while still accepting common Agent
-    Skills metadata such as `metadata.version` and `related_skills`.
+    Prefer real YAML when available so folded descriptions, inline lists, and
+    nested metadata stay valid. Fall back to the legacy permissive parser for
+    older skill files that contain unquoted values YAML rejects (for example
+    list items beginning with @).
     """
     text = raw.lstrip()
     if not text.startswith("---\n"):
@@ -131,35 +147,97 @@ def _parse_frontmatter(raw: str) -> tuple[dict[str, Any], str]:
 
     header = text[4:end]
     body = text[end + 4 :].lstrip("\n")
+
+    try:
+        import yaml  # type: ignore
+        parsed = yaml.safe_load(header) or {}
+        if isinstance(parsed, dict):
+            return parsed, body
+    except Exception:
+        pass
+
     data: dict[str, Any] = {}
     current_key: Optional[str] = None
+    lines = header.splitlines()
+    i = 0
 
-    for line in header.splitlines():
+    while i < len(lines):
+        line = lines[i]
         stripped = line.strip()
         if not stripped or stripped.startswith("#"):
+            i += 1
             continue
-        if line.startswith((" ", "\t")) and current_key and ":" in stripped and not stripped.startswith("-"):
-            if not isinstance(data.get(current_key), dict):
-                data[current_key] = {}
-            subkey, subvalue = stripped.split(":", 1)
-            data[current_key][subkey.strip()] = _parse_scalar(subvalue.strip())
-            continue
-        if stripped.startswith("-"):
-            if current_key is None:
-                raise ValueError(f"List item without key: {line}")
-            if current_key not in data:
-                data[current_key] = []
-            elif not isinstance(data.get(current_key), list):
-                raise ValueError(f"Cannot add list item to non-list key: {current_key}")
-            data[current_key].append(_parse_scalar(stripped[1:].strip()))
+        if line.startswith((" ", "\t")):
+            # Nested content is consumed by the top-level key handlers below.
+            i += 1
             continue
         if ":" not in line:
             raise ValueError(f"Invalid frontmatter line: {line}")
+
         key, value = line.split(":", 1)
         current_key = key.strip()
-        if value.strip():
-            data[current_key] = _parse_scalar(value)
-        # Don't set empty list here; let the '-' handler create lists when needed
+        raw_value = value.strip()
+
+        if raw_value in {">", "|"}:
+            block_lines: list[str] = []
+            i += 1
+            while i < len(lines) and (not lines[i].strip() or lines[i].startswith((" ", "\t"))):
+                block_lines.append(lines[i].strip())
+                i += 1
+            if raw_value == ">":
+                data[current_key] = " ".join(part for part in block_lines if part)
+            else:
+                data[current_key] = "\n".join(block_lines).strip()
+            continue
+
+        if raw_value:
+            data[current_key] = _parse_scalar(raw_value)
+            i += 1
+            continue
+
+        # Empty top-level key: consume a top-level list or one-level mapping.
+        nested: list[str] = []
+        i += 1
+        while i < len(lines) and (not lines[i].strip() or lines[i].startswith((" ", "\t"))):
+            if lines[i].strip():
+                nested.append(lines[i])
+            i += 1
+
+        if not nested:
+            continue
+
+        first = nested[0].strip()
+        if first.startswith("-"):
+            data[current_key] = [_parse_scalar(n.strip()[1:].strip()) for n in nested if n.strip().startswith("-")]
+            continue
+
+        mapping: dict[str, Any] = {}
+        j = 0
+        while j < len(nested):
+            entry = nested[j]
+            entry_stripped = entry.strip()
+            if not entry_stripped or entry_stripped.startswith("#"):
+                j += 1
+                continue
+            if ":" not in entry_stripped:
+                j += 1
+                continue
+            subkey, subvalue = entry_stripped.split(":", 1)
+            subkey = subkey.strip()
+            subvalue = subvalue.strip()
+            if subvalue:
+                mapping[subkey] = _parse_scalar(subvalue)
+                j += 1
+                continue
+            child_items: list[Any] = []
+            j += 1
+            while j < len(nested) and nested[j].startswith(("    ", "\t\t")):
+                child = nested[j].strip()
+                if child.startswith("-"):
+                    child_items.append(_parse_scalar(child[1:].strip()))
+                j += 1
+            mapping[subkey] = child_items if child_items else None
+        data[current_key] = mapping
 
     return data, body
 

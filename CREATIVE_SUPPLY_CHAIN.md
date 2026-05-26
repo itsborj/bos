@@ -776,6 +776,127 @@ All resolved. See Decisions table below.
 
 ---
 
+## User Experience Flow
+
+### Overview
+The Creative Factory provides a streamlined user experience where business leaders commission creative work through natural conversation, specialists produce assets behind the scenes, and final outputs are reviewed as curated Creative Bundles. The system separates creative production from channel distribution, ensuring each plugin can be optimized independently.
+
+### Setup Once in Admin
+**Admin → Specialists**
+- User sees separate cards for each specialist:
+  - Creative Factory (orchestrator)
+  - Image Generation (media.image)
+  - Video Generation (media.video)
+  - Render / Stitch (composition)
+  - Google Drive (asset library)
+- Each card shows status, provider, credentials, latency, last run, and errors
+- User connects/configures providers as needed
+
+### Provider Configuration
+**Image Generation:** OpenAI / Stability / Ideogram / etc.
+**Video Generation:** Runway / Kling / local FFmpeg / etc.
+**Render/Stitch:** FFmpeg / Shotstack / Creatomate
+**Drive:** Brand asset folder structure
+- If any required provider is missing, Stream shows a setup blocker
+- Provider credentials are stored per workspace, not per brand
+
+### Natural CMO Conversation
+**User:** "Make a creative bundle for Klaroha's launch."
+**CMO Reply:** "I'll produce a reviewable creative bundle. Image, video, and render work will run as separate specialist steps."
+- Chat does not paste final copy/assets inline
+- User experience feels like commissioning a print job to production
+
+### Creative Job Creation
+**Stream Card:** "Creative job started"
+- Brand context
+- Objective
+- Planned outputs: image plates, short video, social post creative, banner, etc.
+- No spinner-lock in chat
+- Job ID and quick status overview
+
+### Specialist Execution (Behind the Scenes)
+Creative Factory orchestrates:
+- `media.image.generate` for image plates
+- `media.video.generate` for video content
+- `media.render.stitch` for composition
+- Drive upload for asset durability
+- Quality compliance checks
+Each plugin runs independently with optimized performance profiles
+
+### User Progress Visibility
+**Stream Shows:**
+- "Generating image plates"
+- "Rendering shortform video"
+- "Uploading assets to Drive"
+- "Curating bundle"
+**User Does NOT See:**
+- Raw primitive outputs
+- Individual provider failures
+- System implementation details
+- Large base64 image payloads
+
+### Creative Bundle Output
+**Stream Card:** One primary review surface
+- Hero image preview
+- Shortform video preview
+- Caption/copy variants
+- Banner/social variants
+- Drive links for assets
+- Self-check notes
+**Actions:**
+- Approve Bundle
+- Request Revision
+- Dismiss
+- Export / Send to Channel
+
+### Revision Workflow
+**User:** "Make the video more direct and less polished."
+**CMO Routes:**
+- Visual issues → image/video plugin
+- Assembly issues → render plugin
+- Concept issues → Creative Factory / Creative Director
+- User doesn't need to know which plugin is called
+
+### Approval and Learning
+**Approved Assets:** Become reusable Drive assets
+**BOS Records:**
+- Approved concepts
+- Rejected variants
+- Provider latency/cost
+- Quality notes
+**Future Improvement:** Creative jobs learn from approved/rejected decisions
+
+### Publishing Separation
+**User:** "Post this to Facebook"
+**Channel Plugin Receives:** Approved Drive asset reference
+**CMO Dispatches:** Appropriate channel capability
+**Distribution:** Platform-specific execution
+
+### Allowed vs Forbidden Outcomes
+**Allowed:**
+- User commissions work through natural conversation
+- Creative Factory orchestrates specialist plugins
+- Stream shows curated Creative Bundle for approval
+- Assets stored in Drive with metadata
+- Publishing is approval-gated and channel-owned
+- Performance optimizations per plugin type
+
+**Forbidden:**
+- Giant base64 image payloads slowing Stream
+- Hidden video rendering inside Creative Factory
+- Channel-specific publish buttons hardwired into creative generation
+- CMO pasting final assets as chat text
+- Failed providers buried inside generic creative errors
+- Creative Factory directly generating or rendering content
+
+### Intended User Feeling
+- **User says what they want**
+- **BOS commissions the right specialists**
+- **Stream shows one clean decision surface**
+- **Assets are stored in Drive**
+- **Publishing is approval-gated and channel-owned**
+- **System learns from decisions**
+
 ## Build Gate — BITE Compliance
 
 **No capability is built until its sample is produced and agreed.**

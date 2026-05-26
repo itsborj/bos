@@ -135,7 +135,7 @@ export async function validateKey(key: string): Promise<{ valid: boolean; messag
   }
 }
 
-function buildQuery(params?: Record<string, string | number | undefined>): string {
+function buildQuery(params?: Record<string, string | number | boolean | undefined>): string {
   if (!params) return '';
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -211,13 +211,16 @@ export const api = {
     brand_id?: string;
     created_after?: string;
     created_before?: string;
+    include_preview?: boolean;
     limit?: number;
     offset?: number;
   }) =>
-    request<RunListResponse>('/runs' + buildQuery(params as Record<string, string | number | undefined>)),
+    request<RunListResponse>('/runs' + buildQuery(params as Record<string, string | number | boolean | undefined>)),
 
-  getRun: (runId: string) =>
-    request<RunResponse>(`/runs/${runId}`),
+  getRun: (runId: string, options?: { includeAssets?: boolean }) =>
+    request<RunResponse>(`/runs/${runId}` + buildQuery({
+      include_assets: options?.includeAssets === false ? 'false' : options?.includeAssets === true ? 'true' : undefined,
+    })),
 
   getAgentState: () =>
     request<AgentStateResponse>('/agent/state'),

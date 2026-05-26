@@ -24,8 +24,21 @@ env/
 # Claude Code local settings (may contain embedded keys)
 .claude/settings.local.json
 
-# TypeScript build info
+# TypeScript / local tooling
 web/.tsbuildinfo/
+node_modules/
+/package.json
+/package-lock.json
+
+# Local agent/debug artifacts
+.claude/worktrees/
+.gemini/
+experiment_results/
+gg_image_test.py
+relay/patch_debug.py
+ffmpeg
+ffmpeg-static
+ffprobe-static
 
 # Docker
 *.log

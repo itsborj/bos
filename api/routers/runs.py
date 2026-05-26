@@ -2,7 +2,7 @@ import logging
 import os
 import tempfile
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -769,6 +769,7 @@ async def list_runs(
     brand_id: Optional[UUID] = Query(None),
     created_after: Optional[datetime] = Query(None),
     created_before: Optional[datetime] = Query(None),
+    include_preview: bool = Query(False, description="Include compact result/block preview metadata with large inline assets stripped."),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -793,23 +794,66 @@ async def list_runs(
         count_stmt = count_stmt.where(*filters)
     total = (await db.execute(count_stmt)).scalar_one()
 
-    stmt = select(Run, RunAttempt, Campaign).join(
-        RunAttempt, RunAttempt.run_id == Run.id, isouter=True
-    ).join(
-        Campaign, Campaign.id == Run.campaign_id, isouter=True
-    ).order_by(Run.created_at.desc()).limit(limit).offset(offset)
+    if include_preview:
+        stmt = select(Run, RunAttempt, Campaign, RunResult, RunTrace).join(
+            RunAttempt, RunAttempt.run_id == Run.id, isouter=True
+        ).join(
+            Campaign, Campaign.id == Run.campaign_id, isouter=True
+        ).join(
+            RunResult, RunResult.run_id == Run.id, isouter=True
+        ).join(
+            RunTrace, RunTrace.run_id == Run.id, isouter=True
+        ).order_by(Run.created_at.desc()).limit(limit).offset(offset)
+    else:
+        stmt = select(Run, RunAttempt, Campaign).join(
+            RunAttempt, RunAttempt.run_id == Run.id, isouter=True
+        ).join(
+            Campaign, Campaign.id == Run.campaign_id, isouter=True
+        ).order_by(Run.created_at.desc()).limit(limit).offset(offset)
     if filters:
         stmt = stmt.where(*filters)
     result = await db.execute(stmt)
     rows_with_attempts = result.all()
+    # Outer joins can produce duplicate run rows when a run has multiple attempts/traces.
+    # The feed contract is one card per run, so dedupe before serialising.
+    seen_run_ids: set[Any] = set()
+    unique_rows = []
+    for row in rows_with_attempts:
+        run_id = row.Run.id
+        if run_id in seen_run_ids:
+            continue
+        seen_run_ids.add(run_id)
+        unique_rows.append(row)
+    rows_with_attempts = unique_rows
 
-    verticals_cache: dict[str, str] = {}
+    module_cache: dict[str, Any] = {}
+
+    def _module_cls(mid: str) -> Any:
+        if mid not in module_cache:
+            module_cache[mid] = get_module(mid)
+        return module_cache[mid]
 
     def _vertical(mid: str) -> str:
-        if mid not in verticals_cache:
-            cls = get_module(mid)
-            verticals_cache[mid] = cls.vertical if cls else mid.split(".")[0]
-        return verticals_cache[mid]
+        cls = _module_cls(mid)
+        return cls.vertical if cls else mid.split(".")[0]
+
+    def _platform(mid: str) -> str | None:
+        cls = _module_cls(mid)
+        return cls.platform_hint if cls else None
+
+    def _preview(row: Any) -> RunResultOut | None:
+        if not include_preview or not getattr(row, "RunResult", None):
+            return None
+        lineage = row.RunTrace.lineage_json if getattr(row, "RunTrace", None) else {}
+        block = (lineage or {}).get("block")
+        if block:
+            block = _strip_large_block_assets(block)
+        return RunResultOut(
+            content=row.RunResult.content,
+            self_check=row.RunResult.self_check_verdict,
+            platform=_platform(row.Run.module_id),
+            block=block,
+        )
 
     return RunListResponse(
         runs=[
@@ -828,6 +872,7 @@ async def list_runs(
                 latency_ms=r.RunAttempt.latency_ms if r.RunAttempt else None,
                 tokens=r.RunAttempt.tokens_output if r.RunAttempt else None,
                 cost=r.RunAttempt.provider_cost if r.RunAttempt else None,
+                result=_preview(r),
             )
             for r in rows_with_attempts
         ],
@@ -839,31 +884,61 @@ async def list_runs(
 
 # ── GET /runs/{run_id} ─────────────────────────────────────────────────────────
 
+_LARGE_BLOCK_FIELDS = {
+    "image_data_b64",
+    "_image_data_b64",
+    "content_b64",
+    "audio_data_b64",
+    "video_data_b64",
+}
+
+
+def _strip_large_block_assets(value: Any) -> Any:
+    """Return a copy of a result block with large inline asset payloads removed.
+
+    Stream and history surfaces need artifact metadata quickly; they do not need
+    multi-MB base64 blobs for every prior image/video run on initial load.
+    """
+    if isinstance(value, dict):
+        stripped = False
+        out = {}
+        for key, child in value.items():
+            if key in _LARGE_BLOCK_FIELDS and isinstance(child, str) and child:
+                stripped = True
+                continue
+            out[key] = _strip_large_block_assets(child)
+        if stripped:
+            out["asset_omitted"] = True
+        return out
+    if isinstance(value, list):
+        return [_strip_large_block_assets(item) for item in value]
+    return value
+
+
 @router.get("/runs/{run_id}", response_model=RunResponse, summary="Get run detail with full trace")
 async def get_run(
     run_id: str,
+    include_assets: bool = Query(True, description="Include large inline asset payloads such as image_data_b64."),
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
     settings=Depends(get_settings),
 ):
-    run_row = await db.execute(select(Run).where(Run.id == run_id))
-    run = run_row.scalar_one_or_none()
-    if not run:
+    detail_row = await db.execute(
+        select(Run, RunAttempt, RunResult, RunTrace)
+        .join(RunAttempt, RunAttempt.run_id == Run.id, isouter=True)
+        .join(RunResult, RunResult.run_id == Run.id, isouter=True)
+        .join(RunTrace, RunTrace.run_id == Run.id, isouter=True)
+        .where(Run.id == run_id)
+        .limit(1)
+    )
+    row = detail_row.one_or_none()
+    if not row:
         raise HTTPException(
             status_code=404,
             detail={"error": {"code": "RUN_NOT_FOUND", "message": f"Run '{run_id}' not found", "details": None}},
         )
 
-    attempt_row = await db.execute(
-        select(RunAttempt).where(RunAttempt.run_id == run.id).limit(1)
-    )
-    attempt = attempt_row.scalar_one_or_none()
-
-    result_row = await db.execute(select(RunResult).where(RunResult.run_id == run.id))
-    result = result_row.scalar_one_or_none()
-
-    trace_row = await db.execute(select(RunTrace).where(RunTrace.run_id == run.id))
-    trace = trace_row.scalar_one_or_none()
+    run, attempt, result, trace = row
 
     cls = get_module(run.module_id)
     vertical = cls.vertical if cls else run.module_id.split(".")[0]
@@ -873,8 +948,10 @@ async def get_run(
     lineage = trace.lineage_json if trace else {}
 
     block = (lineage or {}).get("block")
-    if block and (block.get("video_path") or block.get("drive_file_id")):
+    if block and include_assets and (block.get("video_path") or block.get("drive_file_id")):
         block = await _resolve_drive_video(block, run.brand_id, db, settings)
+    if block and not include_assets:
+        block = _strip_large_block_assets(block)
 
     return RunResponse(
         run_id=str(run.id),

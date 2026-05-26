@@ -94,6 +94,7 @@ class RunListItem(BaseModel):
     latency_ms: Optional[int] = None
     tokens: Optional[int] = None
     cost: Optional[float] = None
+    result: Optional[RunResultOut] = None
 
 
 class RunListResponse(BaseModel):

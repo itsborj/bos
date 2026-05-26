@@ -75,7 +75,7 @@ def _admin_connectors_redirect(frontend: str, **params: str | None) -> RedirectR
     clean = {k: v for k, v in params.items() if v is not None and v != ""}
     qs = urlencode(clean)
     suffix = f"?{qs}" if qs else ""
-    return RedirectResponse(url=f"{frontend}/admin/connectors{suffix}")
+    return RedirectResponse(url=f"{frontend}/admin/modules{suffix}")
 
 
 def _admin_brands_redirect(frontend: str, **params: str | None) -> RedirectResponse:

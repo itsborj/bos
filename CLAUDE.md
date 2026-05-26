@@ -192,7 +192,7 @@ https://hq.klaroha.com/social/google-drive/callback
 
 **After OAuth changes:** `api/` hot-reloads via Watchfiles. `web/` is a static build — run `docker compose build web && docker compose up -d web` after any frontend change.
 
-**Connectors page** (`/admin/connectors`) — read-only overview of all connections. **Brands page** (`/admin/brands`) — per-brand connect/disconnect. Never put per-brand connect buttons on Connectors.
+**Specialists page** (`/admin/modules`) — primary readiness/setup surface for installed specialists and their connector rows (status, description, Implements, Missing vars, Update/Remove/Configure). API-key plugin credentials are edited from the specialist connector row. **Brands page** (`/admin/brands`) — per-brand OAuth connect/disconnect. `/admin/connectors` is only a compatibility alias to Specialists and must not be rebuilt as a standalone page.
 
 ---
 

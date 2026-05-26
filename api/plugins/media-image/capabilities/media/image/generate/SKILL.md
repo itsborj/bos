@@ -70,3 +70,9 @@ Returns an `image_asset` block:
 ```
 
 The underlying provider is configured via `IMAGE_GEN_WORKER_URL` and `IMAGE_GEN_API_KEY` plugin credentials. Swapping providers requires only updating the stored credentials — this module ID and output contract remain stable.
+
+---
+
+## Stream load performance note
+
+Resolved 2026-05-26. `GET /runs/{run_id}` supports `include_assets=false` so bulk Stream hydration can omit large inline fields such as `image_data_b64` while preserving prompt, dimensions, MIME type, and metadata. `Stream.tsx` uses bounded-concurrency hydration and only requests inline assets for explicit pending-review runs.

@@ -11,21 +11,19 @@ function providerLabel(provider: string): string {
   return provider;
 }
 
-function credentialLabel(provider: ProviderInfo): { tone: string; text: string } {
-  if (provider.auth_mode === 'oauth') return { tone: 'success', text: 'Login connected' };
-  if (provider.has_byok_key) return { tone: 'info', text: 'API key stored' };
-  if (provider.has_platform_key) return { tone: 'warning', text: 'Platform fallback' };
-  return { tone: 'muted', text: 'Not connected' };
+function isProviderConnected(provider: ProviderInfo): boolean {
+  return Boolean(provider.connected || provider.has_byok_key || provider.has_platform_key || provider.auth_mode === 'oauth');
 }
 
-function providerStatus(provider: ProviderInfo): { tone: string; text: string } {
-  if (provider.status === 'live') return { tone: 'success', text: 'Live' };
-  if (provider.status === 'error') return { tone: 'danger', text: 'Error' };
-  if (provider.status === 'stored_unverified') return { tone: 'warning', text: 'Stored · unverified' };
-  if (provider.status === 'platform_available') return { tone: 'info', text: 'Platform available' };
-  if (provider.status === 'healthy') return { tone: 'success', text: 'Healthy' };
-  if (provider.status === 'degraded') return { tone: 'warning', text: 'Degraded' };
-  return { tone: 'muted', text: provider.status || 'Unknown' };
+function connectionIcon(provider: ProviderInfo): string {
+  return isProviderConnected(provider) ? '●' : '○';
+}
+
+function connectionTitle(provider: ProviderInfo): string {
+  if (provider.auth_mode === 'oauth') return 'Connected with login';
+  if (provider.has_byok_key) return 'Connected with API key';
+  if (provider.has_platform_key) return 'Platform access available';
+  return 'Not connected';
 }
 
 function fmtDateTime(value?: string | null): string {
@@ -41,6 +39,7 @@ type ProviderNavState = {
   brand_id?: string;
   brand_name?: string;
 };
+
 
 export function AdminProviders() {
   const location = useLocation();
@@ -95,9 +94,8 @@ export function AdminProviders() {
   }, [providers]);
 
   const counts = useMemo(() => ({
-    live: providers.filter((p) => p.status === 'live').length,
-    error: providers.filter((p) => p.status === 'error').length,
-    credentials: providers.filter((p) => p.connected).length,
+    connected: providers.filter(isProviderConnected).length,
+    disconnected: providers.filter((p) => !isProviderConnected(p)).length,
     models: providers.reduce((sum, p) => sum + p.model_count, 0),
   }), [providers]);
 
@@ -216,9 +214,8 @@ export function AdminProviders() {
       {error && <div className="alert alert-error" style={{ marginBottom: 16 }}>{error}</div>}
 
       <div className="admin-stats-grid" style={{ marginBottom: 16 }}>
-        <div className="admin-stat"><span>Checked live</span><strong>{counts.live}</strong></div>
-        <div className="admin-stat"><span>Failing</span><strong>{counts.error}</strong></div>
-        <div className="admin-stat"><span>Saved credentials</span><strong>{counts.credentials}</strong></div>
+        <div className="admin-stat"><span>Connected</span><strong>{counts.connected}</strong></div>
+        <div className="admin-stat"><span>Not connected</span><strong>{counts.disconnected}</strong></div>
         <div className="admin-stat"><span>Routable models</span><strong>{counts.models}</strong></div>
       </div>
 
@@ -227,9 +224,8 @@ export function AdminProviders() {
           <div style={{ display: 'flex', justifyContent: 'space-between', gap: 20, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             <div style={{ flex: '1 1 480px' }}>
               <div className="admin-card-title">Primary CMO Provider</div>
-              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0 10px' }}>
-                <span className={`badge badge-${providerStatus(openai).tone}`}>{providerStatus(openai).text}</span>
-                <span className={`badge badge-${credentialLabel(openai).tone}`}>{credentialLabel(openai).text}</span>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', margin: '8px 0 10px', alignItems: 'center' }}>
+                <span title={connectionTitle(openai)} style={{ color: isProviderConnected(openai) ? 'var(--success)' : 'var(--text2)', fontSize: 18 }}>{connectionIcon(openai)}</span>
                 <span className="badge badge-info">{openai.top_models[0]?.model_id ?? 'model not selected'}</span>
               </div>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10, fontSize: 12, color: 'var(--text2)' }}>
@@ -295,7 +291,7 @@ export function AdminProviders() {
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'center', marginBottom: 12, flexWrap: 'wrap' }}>
           <div>
             <div className="admin-card-title">Provider Health</div>
-            <div style={{ fontSize: 13, color: 'var(--text2)' }}>Connection is based on the latest explicit check when available; older failed runs no longer override a successful check.</div>
+            <div style={{ fontSize: 13, color: 'var(--text2)' }}>A provider is either available to BOS or not. Details stay behind each row.</div>
           </div>
           <button className="btn btn-ghost btn-sm" onClick={() => void load()}>Refresh</button>
         </div>
@@ -304,8 +300,7 @@ export function AdminProviders() {
             <thead>
               <tr>
                 <th>Provider</th>
-                <th>Connection</th>
-                <th>Credential</th>
+                <th style={{ width: 90 }}>Connected</th>
                 <th>Last used</th>
                 <th>Last check</th>
                 <th>Models</th>
@@ -314,8 +309,6 @@ export function AdminProviders() {
             </thead>
             <tbody>
               {sortedProviders.map((provider) => {
-                const status = providerStatus(provider);
-                const credential = credentialLabel(provider);
                 const verified = checkResult[provider.provider];
                 const expanded = expandedProvider === provider.provider;
                 return (
@@ -325,8 +318,15 @@ export function AdminProviders() {
                         <div style={{ fontFamily: 'var(--mono)', fontSize: 12 }}>{providerLabel(provider.provider)}</div>
                         <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 3 }}>{provider.provider}</div>
                       </td>
-                      <td><span className={`badge badge-${status.tone}`}>{status.text}</span></td>
-                      <td><span className={`badge badge-${credential.tone}`}>{credential.text}</span></td>
+                      <td>
+                        <span
+                          aria-label={connectionTitle(provider)}
+                          title={connectionTitle(provider)}
+                          style={{ color: isProviderConnected(provider) ? 'var(--success)' : 'var(--text2)', fontSize: 18 }}
+                        >
+                          {connectionIcon(provider)}
+                        </span>
+                      </td>
                       <td style={{ fontSize: 12, color: 'var(--text2)' }}>{fmtDateTime(provider.last_used_at)}</td>
                       <td style={{ fontSize: 12, color: 'var(--text2)' }}>
                         {fmtDateTime(provider.last_check_at)}
@@ -344,7 +344,7 @@ export function AdminProviders() {
                     </tr>
                     {expanded && (
                       <tr key={`${provider.provider}-details`}>
-                        <td colSpan={7} style={{ background: '#fafafa' }}>
+                        <td colSpan={6} style={{ background: '#fafafa' }}>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: 12 }}>
                             <div>
                               <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>Model options</div>

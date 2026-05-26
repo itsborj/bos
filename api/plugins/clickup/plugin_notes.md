@@ -19,7 +19,7 @@
 
 - Do not reintroduce `CLICKUP_DEFAULT_LIST_ID` as a required credential. Full workspace coverage is the correct model.
 - Do not hardcode a list ID anywhere in the modules. List targeting must come from the brief.
-- Do not add OAuth flow here. Personal API token (`pk_...`) via Admin → Connectors is sufficient for v1. If OAuth is needed later, follow the Gmail OAuth handler pattern in `api/routers/social.py`.
+- Do not add OAuth flow here. Personal API token (`pk_...`) via Admin → Specialists → Project Management → Connectors is sufficient for v1. If OAuth is needed later, follow the Gmail OAuth handler pattern in `api/routers/social.py`.
 - Do not accept `notify_all=true` for bulk task creation — it spams all watchers.
 - Do not import `requests` or any third-party HTTP library. Use `urllib.request` only.
 - Do not add the `Bearer` prefix to the Authorization header. ClickUp personal tokens are sent raw.

@@ -43,10 +43,13 @@ export interface WorkspaceResponse {
 
 export interface ModuleInfo {
   id: string;
+  name?: string;
   vertical: string;
   capability: string;
   platform_hint: string;
   policy_default: string;
+  internal?: boolean;
+  uses_llm?: boolean;
   constraints: {
     max_chars: number;
     must_mention: string[];
@@ -126,6 +129,7 @@ export interface RunListItem {
   latency_ms?: number | null;
   tokens?: number | null;
   cost?: number | null;
+  result?: RunResultOut | null;
 }
 
 export interface RunListResponse {

@@ -97,6 +97,10 @@ class ModuleBase(ABC):
             "policy_default": self.policy_default,
             "internal": self.internal,
             "copywriting_skills": list(self.copywriting_skills),
+            # Host-routed LLM modules use build_prompt() + provider routing in runs.py.
+            # Deterministic/API tool modules implement execute_tool_result() and should
+            # not appear in exact LLM/model assignment controls.
+            "uses_llm": not callable(getattr(self, "execute_tool_result", None)),
             "constraints": {
                 "max_chars": self.max_chars,
                 "must_mention": self.must_mention,

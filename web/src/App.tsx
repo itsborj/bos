@@ -21,7 +21,6 @@ import { AdminWorkspace } from './pages/admin/AdminWorkspace';
 import { AdminProviders } from './pages/admin/AdminProviders';
 import { AdminModules } from './pages/admin/AdminModules';
 import { AdminAgentActivity } from './pages/admin/AdminAgentActivity';
-import { AdminConnectors } from './pages/admin/AdminConnectors';
 import { AdminCampaigns } from './pages/admin/AdminCampaigns';
 import { AdminBilling } from './pages/admin/AdminBilling';
 import { AdminOnboarding } from './pages/admin/AdminOnboarding';
@@ -82,7 +81,7 @@ export default function App() {
             <Route path="billing"         element={<AdminBilling />} />
             <Route path="modules"         element={<AdminModules />} />
             <Route path="agent-activity"  element={<AdminAgentActivity />} />
-            <Route path="connectors"      element={<AdminConnectors />} />
+            <Route path="connectors"      element={<AdminModules />} />
             <Route path="calendar"         element={<AdminCalendar />} />
             <Route path="objective-loop"   element={<AdminObjectiveLoop />} />
             <Route path="loop-flow"        element={<AdminLoopFlow />} />
