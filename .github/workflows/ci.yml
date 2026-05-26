@@ -114,9 +114,10 @@ jobs:
           username: ${{ secrets.VDS_USER }}
           key: ${{ secrets.VDS_DEPLOY_KEY }}
           script: |
-            set -e
+            set -euo pipefail
             cd ${{ secrets.PROD_PATH }}
-            git pull origin main
-            docker compose up --build -d
+            git fetch origin
+            git reset --hard origin/main
+            docker compose up --build -d --force-recreate --remove-orphans
             docker compose exec -T api alembic upgrade head
             echo "Production deploy complete"
