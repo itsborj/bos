@@ -29,6 +29,23 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/social/gmail/callback"
     google_calendar_redirect_uri: str = ""
+    # Browser API key for the Google Picker (folder selection). Separate from the OAuth client.
+    google_picker_api_key: str = ""
+
+    # Meta (Facebook / Instagram) OAuth
+    meta_app_id: str = ""
+    meta_app_secret: str = ""
+    meta_redirect_uri: str = "http://localhost/social/facebook/callback"
+
+    # TikTok OAuth
+    tiktok_client_key: str = ""
+    tiktok_client_secret: str = ""
+    tiktok_redirect_uri: str = "http://localhost/social/tiktok/callback"
+    tiktok_scopes: str = "user.info.basic"
+
+    # Auth relay — empty = dev mode (direct OAuth with local GOOGLE_CLIENT_ID/SECRET)
+    klaroha_relay_url: str = ""
+    klaroha_relay_key: str = ""
 
     # Frontend base URL — used to redirect after OAuth callbacks
     frontend_url: str = "http://localhost"

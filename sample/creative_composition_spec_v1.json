@@ -1,0 +1,124 @@
+{
+  "_sample": "Stage 4 — Blueprint Assembly output. The CompositionSpec IS the edit: a layer-by-layer stitch instruction. BOS builds this JSON; a render provider (FFmpeg / Shotstack / Creatomate) composites the layers. AI-generated plates and brand assets are SEPARATE files referenced by asset_id; brand colors/fonts are referenced by slot and resolved from the Brand Kit at render time. Switching render_provider does not change this document.",
+  "_gates": "creative.blueprint.assemble + creative.render.poster_vertical. Derived from sample/creative_concept_artifact_v1.md (Concept 1) and the asset produced in sample/creative_primitive_request_v1.json.",
+
+  "spec_version": "1.0",
+  "blueprint_id": "bp_vantage_vp_poster_vertical_01",
+  "brand_id": "vantage_001",
+  "campaign_id": "camp_vantage_vp_transition",
+  "concept_ref": "run_vantage_concept_1:concept_1",
+
+  "composition": {
+    "duration": 6,
+    "dimensions": { "width": 1080, "height": 1920 },
+    "fps": 30,
+    "background_color": { "brand_slot": "color_secondary", "fallback": "#E8E0D4" },
+    "tracks": [
+      {
+        "id": "background",
+        "clips": [
+          {
+            "asset_id": "ca_img_plate_workspace_01",
+            "asset_type": "image_plate",
+            "_source": "AI-generated in Stage 3 (creative_primitive_request_v1.json). Resolved to a Drive URL at render time.",
+            "start": 0,
+            "duration": 6,
+            "fit": "cover",
+            "position": "center",
+            "ken_burns": { "from": 1.0, "to": 1.08, "ease": "ease-out" },
+            "transition_in": "fade",
+            "transition_out": null
+          }
+        ]
+      },
+      {
+        "id": "scrim",
+        "clips": [
+          {
+            "type": "gradient",
+            "direction": "bottom-to-top",
+            "from": "rgba(26,43,60,0.55)",
+            "to": "rgba(26,43,60,0.0)",
+            "coverage": "60%",
+            "start": 0,
+            "duration": 6,
+            "_why": "Guarantees the hook text clears 4.5:1 contrast over the photo. A craft.color rule, not a brand choice."
+          }
+        ]
+      },
+      {
+        "id": "hook_text",
+        "clips": [
+          {
+            "type": "text",
+            "value": "You got the title.\nNobody gave you the manual.",
+            "brand_slot": "typography_heading",
+            "color_slot": "color_on_dark",
+            "color_fallback": "#FFFFFF",
+            "size_pt": 64,
+            "line_height": 1.1,
+            "weight": 600,
+            "align": "left",
+            "position": { "x": "6%", "y": "16%" },
+            "max_width": "82%",
+            "start": 0.4,
+            "duration": 5.6,
+            "transition_in": "slide-up-fade"
+          }
+        ]
+      },
+      {
+        "id": "cta",
+        "clips": [
+          {
+            "type": "text",
+            "value": "Book a discovery call",
+            "brand_slot": "typography_body",
+            "cta_style_slot": "cta_style",
+            "size_pt": 30,
+            "weight": 500,
+            "align": "left",
+            "position": "safe-zone-bottom-left",
+            "start": 2.0,
+            "duration": 4.0,
+            "transition_in": "fade"
+          }
+        ]
+      },
+      {
+        "id": "brand_overlay",
+        "clips": [
+          {
+            "asset_id": "ca_brand_logo_white",
+            "asset_type": "brand_overlay",
+            "_source": "Client-uploaded to Brand Assets/Logos/. Resolved via drive.asset.list — never AI-generated.",
+            "start": 0,
+            "duration": 6,
+            "scale": "12%",
+            "position": "safe-zone-bottom-right"
+          }
+        ]
+      }
+    ]
+  },
+
+  "render_targets": [
+    {
+      "target_id": "poster_vertical",
+      "dimensions": { "width": 1080, "height": 1920 },
+      "format": "mp4",
+      "duration": 6,
+      "safe_zone": { "top": "10%", "bottom": "20%", "left": "5%", "right": "5%" }
+    },
+    {
+      "target_id": "story_static",
+      "dimensions": { "width": 1080, "height": 1920 },
+      "format": "png",
+      "freeze_frame_at": 3.0,
+      "_why": "Same blueprint, still-image target — grabs the frame at t=3s. One source, two outputs, zero new creative work."
+    }
+  ],
+
+  "render_provider": "local_ffmpeg",
+  "modifications": {}
+}

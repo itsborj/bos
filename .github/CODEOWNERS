@@ -1,0 +1,14 @@
+# CODEOWNERS — Klaroha BOS
+#
+# Core paths require review from @itsborj before merge.
+# Plugin zone is jointly owned — Dev 2 can merge plugin PRs
+# after CI passes, but core changes still need main dev review.
+
+# Default: everything requires @itsborj review
+*                               @itsborj
+
+# Plugin zone — Dev 2 co-owns; PRs require at least one of the two
+/api/plugins/                   @itsborj @kibanu
+
+# CI/CD — main dev only
+/.github/                       @itsborj

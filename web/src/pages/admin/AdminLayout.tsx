@@ -1,31 +1,54 @@
 import { useState, useEffect } from 'react';
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { api, getApiKey } from '../../api/client';
+import { api, getApiKey, clearApiKey } from '../../api/client';
 
-const NAV_SECTIONS = [
+type AdminNavItem = { to?: string; label: string; icon: string; parked?: boolean };
+type AdminNavSection = { label: string; parked?: boolean; items: AdminNavItem[] };
+
+const NAV_SECTIONS: AdminNavSection[] = [
   {
-    label: 'Business',
+    label: '',
     items: [
-      { to: '/admin/brands',     label: 'Brands / Clients', icon: '⊞' },
-      { to: '/admin/onboarding', label: 'Import Brief',     icon: '✦' },
-      { to: '/admin/campaigns',  label: 'Campaign Plans',   icon: '◷' },
-      { to: '/admin/calendar',   label: 'Scheduling',       icon: '📅' },
+      { to: '/admin/overview', label: 'Dashboard', icon: '⊟' },
     ],
   },
   {
-    label: 'Marketing Ops',
+    label: 'Operate',
     items: [
-      { to: '/admin/modules',     label: 'Specialists', icon: '◎' },
-      { to: '/admin/connectors',  label: 'Connectors',  icon: '⇄' },
-      { to: '/admin/reports',     label: 'Outcomes',    icon: '📊' },
+      { to: '/admin/campaigns', label: 'Campaign Board', icon: '◷' },
+      { to: '/admin/calendar',  label: 'Scheduling',     icon: '📅' },
+      { to: '/admin/reports',   label: 'Outcomes',       icon: '📊' },
     ],
   },
   {
-    label: 'System',
+    label: 'Manage',
     items: [
-      { to: '/admin/providers', label: 'AI Providers', icon: '⚡' },
-      { to: '/admin/billing',   label: 'Billing',      icon: '$' },
-      { to: '/admin/runs',      label: 'Run Logs',     icon: '≡' },
+      { to: '/admin/brands',   label: 'Brands / Clients', icon: '⊞' },
+      { to: '/admin/modules',  label: 'Specialists',      icon: '⊡' },
+    ],
+  },
+  {
+    label: 'Settings',
+    items: [
+      { to: '/admin/connectors',     label: 'Connectors',     icon: '⇄' },
+      { to: '/admin/providers',      label: 'AI Providers',   icon: '⚡' },
+      { to: '/admin/objective-loop', label: 'Loop Setup',     icon: '◎' },
+      { to: '/admin/watchpoints',    label: 'Watchpoints',    icon: '◈' },
+      { to: '/admin/memory-audit',   label: 'Memory & Audit', icon: '◉' },
+    ],
+  },
+  {
+    label: 'Debug',
+    items: [
+      { to: '/admin/runs',      label: 'Run Logs',  icon: '≡' },
+      { to: '/admin/loop-flow', label: 'Loop Flow', icon: '→' },
+    ],
+  },
+  {
+    label: 'Post-Gate 2',
+    parked: true,
+    items: [
+      { to: '/admin/council-seats', label: 'Council Seats', icon: '◇' },
     ],
   },
 ];
@@ -75,6 +98,7 @@ function GettingStartedBanner() {
 }
 
 export function AdminLayout() {
+  const navigate = useNavigate();
   if (!getApiKey()) return <Navigate to="/auth" replace />;
 
   return (
@@ -84,16 +108,27 @@ export function AdminLayout() {
         <nav className="admin-nav">
           {NAV_SECTIONS.map(section => (
             <div key={section.label}>
-              <div className="admin-nav-section">{section.label}</div>
-              {section.items.map(({ to, label, icon }) => (
-                <NavLink
-                  key={to}
-                  to={to}
-                  className={({ isActive }: { isActive: boolean }) => `admin-nav-item${isActive ? ' active' : ''}`}
-                >
-                  <span className="admin-nav-icon">{icon}</span>
-                  <span>{label}</span>
-                </NavLink>
+              {section.label && <div className={`admin-nav-section${section.parked ? ' parked' : ''}`}>{section.label}</div>}
+              {section.items.map(({ to, label, icon, parked }) => (
+                parked || !to ? (
+                  <span
+                    key={label}
+                    className="admin-nav-item parked"
+                    title="Post-Gate 2 — not active in current build"
+                  >
+                    <span className="admin-nav-icon">{icon}</span>
+                    <span>{label}</span>
+                  </span>
+                ) : (
+                  <NavLink
+                    key={to}
+                    to={to}
+                    className={({ isActive }: { isActive: boolean }) => `admin-nav-item${isActive ? ' active' : ''}`}
+                  >
+                    <span className="admin-nav-icon">{icon}</span>
+                    <span>{label}</span>
+                  </NavLink>
+                )
               ))}
             </div>
           ))}
@@ -103,6 +138,12 @@ export function AdminLayout() {
             → Getting Started
           </NavLink>
           <a href="/" className="admin-back-link">← CMO App</a>
+          <button
+            className="admin-back-link admin-signout"
+            onClick={() => { clearApiKey(); navigate('/auth'); }}
+          >
+            Sign out
+          </button>
         </div>
       </aside>
       <main className="admin-content">

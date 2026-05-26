@@ -14,6 +14,7 @@ interface Props {
 }
 
 function artifactLabel(run: RunResponse): string {
+  if (!run?.module_id) return 'Artifact';
   const raw = run.result?.platform || run.module_id.split('.').pop() || 'asset';
   const label = raw.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   if (run.module_id.toLowerCase().includes('marketing.plan')) return 'Marketing plan';

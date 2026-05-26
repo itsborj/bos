@@ -104,6 +104,13 @@ export interface RunResponse {
   created_at: string;
 }
 
+export interface RunActionResponse {
+  source_run_id: string;
+  source_approval_status: string;
+  action: string;
+  action_run: RunResponse;
+}
+
 export interface RunListItem {
   run_id: string;
   module_id: string;
@@ -126,6 +133,43 @@ export interface RunListResponse {
   total: number;
   limit: number;
   offset: number;
+}
+
+export interface AgentBrandState {
+  brand_id: string;
+  name: string;
+  pending_approvals: number;
+  pm_sync_enabled: boolean;
+}
+
+export interface AgentStateResponse {
+  workspace_name: string;
+  brands: AgentBrandState[];
+  total_pending: number;
+}
+
+export interface StreamUpdateOut {
+  id: string;
+  type: string;
+  layout_hint: string;
+  interaction: string;
+  priority: 'urgent' | 'high' | 'normal' | 'low' | string;
+  data_json: any;
+  campaign_id?: string | null;
+  source_key?: string | null;
+  created_at: string;
+  read_at?: string | null;
+  dismissed_at?: string | null;
+}
+
+export interface StreamListResponse {
+  updates: StreamUpdateOut[];
+  total: number;
+}
+
+export interface StreamRefreshOut {
+  created: number;
+  message: string;
 }
 
 export interface CapabilityInfo {
@@ -259,6 +303,127 @@ export interface KlarAction {
   data: Record<string, unknown>;
 }
 
+export interface ObjectiveOut {
+  id: string;
+  workspace_id: string;
+  brand_id: string | null;
+  status: 'draft' | 'active' | 'paused' | 'completed' | 'archived';
+  summary: string;
+  success_metric: string;
+  horizon: string;
+  created_from: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface ObjectiveListResponse {
+  objectives: ObjectiveOut[];
+  total: number;
+}
+
+export interface OutcomeRecordOut {
+  id: string;
+  workspace_id: string;
+  brand_id: string | null;
+  objective_id: string | null;
+  source_ref: string | null;
+  summary: string;
+  metrics_json: Record<string, unknown>;
+  confidence_source: string;
+  full_record: Record<string, unknown>;
+  recorded_at: string;
+  created_at: string;
+}
+
+export interface OutcomeListResponse {
+  outcomes: OutcomeRecordOut[];
+  total: number;
+}
+
+export interface EvaluateOutcomeOut {
+  outcome: OutcomeRecordOut;
+  memory_event_id: string;
+}
+
+export interface MemoryEventOut {
+  id: string;
+  workspace_id: string;
+  brand_id: string | null;
+  objective_id: string | null;
+  event_type: string;
+  topic_tags: string[];
+  summary: string;
+  rationale: string | null;
+  source_ref: string | null;
+  full_record: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface MemoryEventListResponse {
+  events: MemoryEventOut[];
+  total: number;
+}
+
+export interface DecisionBriefOut {
+  id: string;
+  workspace_id: string;
+  brand_id: string | null;
+  objective_id: string | null;
+  status: string;
+  summary: string;
+  objective_affected: string | null;
+  evidence: unknown[];
+  hypothesis_ranking: unknown[];
+  confidence: string;
+  recommended_next: string;
+  do_not_list: unknown[];
+  allowed_actions: unknown[];
+  source_refs: unknown[];
+  full_record: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface DecisionBriefListResponse {
+  decision_briefs: DecisionBriefOut[];
+  total: number;
+}
+
+export interface PendingDecisionOut {
+  id: string;
+  workspace_id: string;
+  brand_id: string | null;
+  objective_id: string | null;
+  status: string;
+  what_is_deferred: string;
+  waiting_for: string;
+  leading_hypothesis: string | null;
+  action_blocked: string;
+  source_ref: string | null;
+  full_record: Record<string, unknown>;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+export interface PendingDecisionListResponse {
+  pending_decisions: PendingDecisionOut[];
+  total: number;
+}
+
+export interface HandoffBriefOut {
+  brand_id: string | null;
+  generated_at: string;
+  active_objectives: Record<string, unknown>[];
+  performance_narrative: Record<string, unknown>;
+  pending_decisions: PendingDecisionOut[];
+  committed_actions: Record<string, unknown>[];
+  known_risks: string[];
+  working: string[];
+  not_working: string[];
+  decided_against: string[];
+  recommended_first_action: string;
+}
+
 export interface ArtifactRef {
   artifact_id: string;
   title: string;
@@ -267,6 +432,13 @@ export interface ArtifactRef {
   renderer: string;
   workspace_url: string;
 }
+
+export type ChatStreamEvent =
+  | { type: 'step'; label: string }
+  | { type: 'module_result'; artifact_ref: ArtifactRef }
+  | { type: 'reply'; text: string; klar_action: KlarAction | null }
+  | { type: 'done' }
+  | { type: 'error'; message: string };
 
 export interface ChatResponse {
   reply: string;

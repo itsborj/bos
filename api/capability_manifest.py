@@ -10,6 +10,12 @@ from dataclasses import dataclass
 from skills.loader import list_skill_manifests
 
 
+def _ensure_plugins_registered() -> None:
+    """Trigger registry scan so plugin SKILL.md roots are registered before manifest is built."""
+    from registry import _ensure
+    _ensure()
+
+
 @dataclass(frozen=True)
 class CapabilityEntry:
     module_id: str
@@ -23,6 +29,7 @@ class CapabilityEntry:
 
 def build_dispatchable_manifest() -> list[CapabilityEntry]:
     """Return all capabilities the CMO LLM is allowed to deploy, ordered by module_id."""
+    _ensure_plugins_registered()
     entries: list[CapabilityEntry] = []
     for skill in sorted(list_skill_manifests(), key=lambda s: s.module_id or ""):
         if not skill.allowed_from_chat or not skill.module_id:

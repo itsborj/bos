@@ -1,0 +1,16 @@
+{
+  "plugin_id": "channel.hello",
+  "name": "Hello Pipeline Test",
+  "version": "0.2.1",
+  "klaroha_min_version": "3.5",
+  "capabilities_root": "capabilities/",
+  "implements": ["marketing.execute"],
+  "specialty": ["test_harness", "plugin_pipeline", "artifact_contract"],
+  "platforms": ["hello"],
+  "connector_protocol": "none",
+  "risk_policy": "test_only_no_external_action",
+  "output_contracts": ["pipeline_test_result"],
+  "requires_social_connection": [],
+  "requires_platform_vars": [],
+  "capability_ids": ["marketing.channel.hello.pipeline_test"]
+}

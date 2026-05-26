@@ -8,6 +8,7 @@ This plugin is native/API-only. It does **not** use Membrane, Rube, Composio, or
 
 | Capability ID | Job | Artifact | Mutates Search Console/site? |
 |---|---|---|---|
+| `marketing.channel.search_console.specialist.overview` | `marketing.optimize` | `search_console_capability_card` | No |
 | `marketing.channel.search_console.properties.list` | `marketing.optimize` | `search_console_property_inventory` | No |
 | `marketing.channel.search_console.performance.query` | `marketing.optimize` | `search_console_performance_report` | No |
 | `marketing.channel.search_console.url.inspect` | `marketing.optimize` | `search_console_url_inspection` | No |

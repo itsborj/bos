@@ -18,6 +18,26 @@ function profileComplete(brand: BrandResponse): boolean {
 
 type SocialConn = { id: string; brand_id: string | null; platform: string; page_id: string; page_name: string | null; page_handle: string | null; status: string };
 
+function loadGapiPicker(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const w = window as unknown as { gapi?: { load: (n: string, o: { callback: () => void }) => void }; google?: { picker?: unknown } };
+    if (w.google?.picker) return resolve();
+    const ready = () => w.gapi!.load('picker', { callback: () => resolve() });
+    const existing = document.getElementById('gapi-script') as HTMLScriptElement | null;
+    if (existing) {
+      if (w.gapi) ready(); else existing.addEventListener('load', ready);
+      return;
+    }
+    const s = document.createElement('script');
+    s.id = 'gapi-script';
+    s.src = 'https://apis.google.com/js/api.js';
+    s.onload = ready;
+    s.onerror = () => reject(new Error('Failed to load Google API script'));
+    document.body.appendChild(s);
+  });
+}
+
+
 export function AdminBrands() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -32,6 +52,7 @@ export function AdminBrands() {
   const [error, setError]               = useState<string | null>(null);
   const [deletingId, setDeletingId]     = useState<string | null>(null);
   const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [driveRoots, setDriveRoots]     = useState<Record<string, { id: string; name: string }>>({});
   const [toast, setToast]               = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -52,6 +73,8 @@ export function AdminBrands() {
       setConnections(conns as SocialConn[]);
     }).finally(() => setLoading(false));
   }, []);
+
+  const [fbPendingSession, setFbPendingSession] = useState<{ sessionId: string; pages: { id: string; name: string }[] } | null>(null);
 
   // Handle OAuth callback params from installed connector redirects.
   useEffect(() => {
@@ -83,6 +106,69 @@ export function AdminBrands() {
       } else {
         const reason = searchParams.get('reason') || 'unknown';
         showToast(`⚠️ Gmail connection failed — ${reason.replace(/_/g, ' ')}`);
+      }
+    }
+    const fb = searchParams.get('facebook');
+    if (fb) {
+      setSearchParams({}, { replace: true });
+      if (fb === 'connected') {
+        const account = searchParams.get('account') || 'Facebook page';
+        showToast(`✅ Facebook "${account}" connected`);
+        api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
+      } else if (fb === 'select_page') {
+        const sessionId = searchParams.get('session_id') || '';
+        if (sessionId) {
+          api.facebookPendingPages(sessionId)
+            .then(res => setFbPendingSession({ sessionId, pages: res.pages }))
+            .catch(() => showToast('⚠️ Could not load Facebook pages — try connecting again'));
+        }
+      } else if (fb === 'denied') {
+        showToast('Facebook connection cancelled');
+      } else {
+        const reason = searchParams.get('reason') || 'unknown';
+        showToast(`⚠️ Facebook connection failed — ${reason.replace(/_/g, ' ')}`);
+      }
+    }
+    const yt = searchParams.get('youtube');
+    if (yt) {
+      setSearchParams({}, { replace: true });
+      if (yt === 'connected') {
+        const account = searchParams.get('account') || 'YouTube channel';
+        showToast(`✅ YouTube "${account}" connected`);
+        api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
+      } else if (yt === 'denied') {
+        showToast('YouTube connection cancelled');
+      } else {
+        const reason = searchParams.get('reason') || 'unknown';
+        showToast(`⚠️ YouTube connection failed — ${reason.replace(/_/g, ' ')}`);
+      }
+    }
+    const tt = searchParams.get('tiktok');
+    if (tt) {
+      setSearchParams({}, { replace: true });
+      if (tt === 'connected') {
+        const account = searchParams.get('account') || 'TikTok account';
+        showToast(`✅ TikTok "${account}" connected`);
+        api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
+      } else if (tt === 'denied') {
+        showToast('TikTok connection cancelled');
+      } else {
+        const reason = searchParams.get('reason') || 'unknown';
+        showToast(`⚠️ TikTok connection failed — ${reason.replace(/_/g, ' ')}`);
+      }
+    }
+    const gd = searchParams.get('google_drive');
+    if (gd) {
+      setSearchParams({}, { replace: true });
+      if (gd === 'connected') {
+        const account = searchParams.get('account') || 'Google Drive';
+        showToast(`✅ Google Drive "${account}" connected`);
+        api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
+      } else if (gd === 'denied') {
+        showToast('Google Drive connection cancelled');
+      } else {
+        const reason = searchParams.get('reason') || 'unknown';
+        showToast(`⚠️ Google Drive connection failed — ${reason.replace(/_/g, ' ')}`);
       }
     }
   }, []);
@@ -128,6 +214,45 @@ export function AdminBrands() {
     }
   }
 
+  async function handleConnectFacebook(brandId: string) {
+    setConnectingId(brandId + '_facebook');
+    try {
+      const res = await api.startSocialConnect(brandId, 'facebook');
+      window.location.href = res.authorize_url;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'check META_APP_ID in settings';
+      showToast(`⚠️ Could not start Facebook connect — ${msg}`);
+    } finally {
+      setConnectingId(null);
+    }
+  }
+
+  async function handleDisconnectFacebook(brandId: string) {
+    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'facebook');
+    if (!conn) return;
+    if (!window.confirm(`Disconnect Facebook page "${conn.page_name}"?`)) return;
+    try {
+      await api.disconnectSocial(conn.id);
+      setConnections(prev => prev.filter(c => c.id !== conn.id));
+      showToast('Facebook page disconnected');
+    } catch {
+      showToast('⚠️ Could not disconnect — try again');
+    }
+  }
+
+  async function handleSelectFacebookPage(pageId: string) {
+    if (!fbPendingSession) return;
+    try {
+      await api.facebookSelectPage(fbPendingSession.sessionId, pageId);
+      const page = fbPendingSession.pages.find(p => p.id === pageId);
+      setFbPendingSession(null);
+      showToast(`✅ Facebook "${page?.name || pageId}" connected`);
+      api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
+    } catch {
+      showToast('⚠️ Could not connect page — try again');
+    }
+  }
+
   async function handleConnectGmail(brandId: string) {
     setConnectingId(brandId + '_gmail');
     try {
@@ -138,6 +263,122 @@ export function AdminBrands() {
       showToast(`⚠️ Could not start Gmail connect — ${msg}`);
     } finally {
       setConnectingId(null);
+    }
+  }
+
+  async function handleConnectYouTube(brandId: string) {
+    setConnectingId(brandId + '_youtube');
+    try {
+      const res = await api.startSocialConnect(brandId, 'youtube');
+      window.location.href = res.authorize_url;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'check Google OAuth settings';
+      showToast(`⚠️ Could not start YouTube connect — ${msg}`);
+    } finally {
+      setConnectingId(null);
+    }
+  }
+
+  async function handleDisconnectYouTube(brandId: string) {
+    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'youtube');
+    if (!conn) return;
+    if (!window.confirm(`Disconnect YouTube channel "${conn.page_name}"?`)) return;
+    try {
+      await api.disconnectSocial(conn.id);
+      setConnections(prev => prev.filter(c => c.id !== conn.id));
+      showToast('YouTube channel disconnected');
+    } catch {
+      showToast('⚠️ Could not disconnect — try again');
+    }
+  }
+
+  async function handleConnectTikTok(brandId: string) {
+    setConnectingId(brandId + '_tiktok');
+    try {
+      const res = await api.startSocialConnect(brandId, 'tiktok');
+      window.location.href = res.authorize_url;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'check TikTok OAuth settings';
+      showToast(`⚠️ Could not start TikTok connect — ${msg}`);
+    } finally {
+      setConnectingId(null);
+    }
+  }
+
+  async function handleConnectDrive(brandId: string) {
+    setConnectingId(brandId + '_google_drive');
+    try {
+      const res = await api.startSocialConnect(brandId, 'google_drive');
+      window.location.href = res.authorize_url;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'check Google OAuth settings';
+      showToast(`⚠️ Could not start Google Drive connect — ${msg}`);
+    } finally {
+      setConnectingId(null);
+    }
+  }
+
+  async function handleDisconnectTikTok(brandId: string) {
+    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'tiktok');
+    if (!conn) return;
+    if (!window.confirm(`Disconnect TikTok account "${conn.page_name}"?`)) return;
+    try {
+      await api.disconnectSocial(conn.id);
+      setConnections(prev => prev.filter(c => c.id !== conn.id));
+      showToast('TikTok account disconnected');
+    } catch {
+      showToast('⚠️ Could not disconnect — try again');
+    }
+  }
+
+  async function handleDisconnectDrive(brandId: string) {
+    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'google_drive');
+    if (!conn) return;
+    if (!window.confirm(`Disconnect Google Drive "${conn.page_name}"?`)) return;
+    try {
+      await api.disconnectSocial(conn.id);
+      setConnections(prev => prev.filter(c => c.id !== conn.id));
+      setDriveRoots(prev => { const next = { ...prev }; delete next[brandId]; return next; });
+      showToast('Google Drive disconnected');
+    } catch {
+      showToast('⚠️ Could not disconnect — try again');
+    }
+  }
+
+  async function handleChooseDriveFolder(brandId: string) {
+    try {
+      const cfg = await api.getDrivePickerConfig(brandId);
+      await loadGapiPicker();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const g = (window as any).google;
+      const view = new g.picker.DocsView(g.picker.ViewId.FOLDERS)
+        .setSelectFolderEnabled(true)
+        .setMimeTypes('application/vnd.google-apps.folder');
+      const picker = new g.picker.PickerBuilder()
+        .setOAuthToken(cfg.access_token)
+        .setDeveloperKey(cfg.api_key)
+        .setAppId(cfg.app_id)
+        .addView(view)
+        .enableFeature(g.picker.Feature.SUPPORT_DRIVES)
+        .setTitle("Choose the root folder for this brand's assets")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .setCallback(async (data: any) => {
+          if (data.action !== g.picker.Action.PICKED) return;
+          const doc = data.docs?.[0];
+          if (!doc) return;
+          try {
+            await api.setDriveRoot(brandId, doc.id, doc.name, doc.url || undefined);
+            setDriveRoots(prev => ({ ...prev, [brandId]: { id: doc.id, name: doc.name } }));
+            showToast(`✅ Asset root set to "${doc.name}"`);
+          } catch {
+            showToast('⚠️ Could not save folder selection — try again');
+          }
+        })
+        .build();
+      picker.setVisible(true);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'check GOOGLE_PICKER_API_KEY + Picker API enabled';
+      showToast(`⚠️ Could not open folder picker — ${msg}`);
     }
   }
 
@@ -242,6 +483,30 @@ export function AdminBrands() {
         </div>
       )}
 
+      {fbPendingSession && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div className="admin-card" style={{ width: 360, margin: 0, padding: 24 }}>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 6 }}>Select a Facebook Page</div>
+            <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>
+              Your account manages multiple pages. Choose which one to connect to this brand.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {fbPendingSession.pages.map(p => (
+                <button
+                  key={p.id}
+                  className="btn btn-secondary"
+                  style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+                  onClick={() => handleSelectFacebookPage(p.id)}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+            <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => setFbPendingSession(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
       {brands.length === 0 && !adding ? (
         <div className="admin-card" style={{ textAlign: 'center', padding: '48px 24px' }}>
           <div style={{ fontSize: 32, marginBottom: 12 }}>⊞</div>
@@ -326,8 +591,105 @@ export function AdminBrands() {
                 {(() => {
                   const gmConn = connections.find(c => c.brand_id === brand.id && c.platform === 'gmail');
                   const gcConn = connections.find(c => c.brand_id === brand.id && c.platform === 'google_calendar');
+                  const fbConn = connections.find(c => c.brand_id === brand.id && c.platform === 'facebook');
+                  const ytConn = connections.find(c => c.brand_id === brand.id && c.platform === 'youtube');
+                  const ttConn = connections.find(c => c.brand_id === brand.id && c.platform === 'tiktok');
+                  const gdConn = connections.find(c => c.brand_id === brand.id && c.platform === 'google_drive');
                   return (
                     <>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <span style={{ fontSize: 13 }}>📘</span>
+                        {fbConn ? (
+                          <>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{fbConn.page_name || fbConn.page_id}</span>
+                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectFacebook(brand.id)}>Disconnect</button>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>Facebook Page</span>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: 11, padding: '3px 10px' }}
+                              onClick={() => handleConnectFacebook(brand.id)}
+                              disabled={connectingId === brand.id + '_facebook'}
+                            >
+                              {connectingId === brand.id + '_facebook' ? 'Redirecting…' : 'Connect'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <span style={{ fontSize: 13 }}>▶️</span>
+                        {ytConn ? (
+                          <>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{ytConn.page_name || ytConn.page_id}</span>
+                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectYouTube(brand.id)}>Disconnect</button>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>YouTube</span>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: 11, padding: '3px 10px' }}
+                              onClick={() => handleConnectYouTube(brand.id)}
+                              disabled={connectingId === brand.id + '_youtube'}
+                            >
+                              {connectingId === brand.id + '_youtube' ? 'Redirecting…' : 'Connect'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <span style={{ fontSize: 13 }}>🎵</span>
+                        {ttConn ? (
+                          <>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{ttConn.page_name || ttConn.page_id}</span>
+                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectTikTok(brand.id)}>Disconnect</button>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>TikTok</span>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: 11, padding: '3px 10px' }}
+                              onClick={() => handleConnectTikTok(brand.id)}
+                              disabled={connectingId === brand.id + '_tiktok'}
+                            >
+                              {connectingId === brand.id + '_tiktok' ? 'Redirecting…' : 'Connect'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <span style={{ fontSize: 13 }}>🗂️</span>
+                        {gdConn ? (
+                          <>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>
+                              {driveRoots[brand.id]?.name ? `Root: ${driveRoots[brand.id].name}` : (gdConn.page_name || gdConn.page_id)}
+                            </span>
+                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <button className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleChooseDriveFolder(brand.id)}>
+                              {driveRoots[brand.id] ? 'Change folder' : 'Choose folder'}
+                            </button>
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectDrive(brand.id)}>Disconnect</button>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>Google Drive</span>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: 11, padding: '3px 10px' }}
+                              onClick={() => handleConnectDrive(brand.id)}
+                              disabled={connectingId === brand.id + '_google_drive'}
+                            >
+                              {connectingId === brand.id + '_google_drive' ? 'Redirecting…' : 'Connect'}
+                            </button>
+                          </>
+                        )}
+                      </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
                         <span style={{ fontSize: 13 }}>✉️</span>
                         {gmConn ? (

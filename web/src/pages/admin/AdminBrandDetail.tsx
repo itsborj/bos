@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { AudienceOut, BrandResponse, PmConfig, ProductOut, WorkspaceDocument, WorkspaceResponse } from '../../api/types';
 
-type Tab = 'profile' | 'products' | 'audiences' | 'guidelines' | 'brand-kit' | 'project-management';
+type Tab = 'profile' | 'products' | 'audiences' | 'guidelines' | 'brand-kit' | 'project-management' | 'integrations';
 
 // ── Profile tab ───────────────────────────────────────────────────────────────
 
@@ -565,6 +565,243 @@ function ProjectManagementTab({ brand, onUpdate }: { brand: BrandResponse; onUpd
   );
 }
 
+// ── Integrations tab ──────────────────────────────────────────────────────────
+
+type SocialConn = {
+  id: string;
+  brand_id: string | null;
+  platform: string;
+  page_id: string;
+  page_name: string | null;
+  page_handle: string | null;
+  status: string;
+};
+
+const INTEGRATION_PLATFORMS = [
+  { id: 'facebook',        label: 'Facebook Page',   icon: '📘', twoStep: true },
+  { id: 'youtube',         label: 'YouTube',          icon: '▶️' },
+  { id: 'tiktok',          label: 'TikTok',           icon: '🎵' },
+  { id: 'google_drive',    label: 'Google Drive',     icon: '🗂️', hasFolderPicker: true },
+  { id: 'gmail',           label: 'Gmail',            icon: '✉️' },
+  { id: 'google_calendar', label: 'Google Calendar',  icon: '📅' },
+] as const;
+
+function loadGapiPicker(): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const w = window as unknown as { gapi?: { load: (n: string, o: { callback: () => void }) => void }; google?: { picker?: unknown } };
+    if (w.google?.picker) return resolve();
+    const ready = () => w.gapi!.load('picker', { callback: () => resolve() });
+    const existing = document.getElementById('gapi-script') as HTMLScriptElement | null;
+    if (existing) {
+      if (w.gapi) ready(); else existing.addEventListener('load', ready);
+      return;
+    }
+    const s = document.createElement('script');
+    s.id = 'gapi-script';
+    s.src = 'https://apis.google.com/js/api.js';
+    s.onload = ready;
+    s.onerror = () => reject(new Error('Failed to load Google API script'));
+    document.body.appendChild(s);
+  });
+}
+
+function IntegrationsTab({ brandId }: { brandId: string }) {
+  const [conns, setConns]           = useState<SocialConn[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [connectingId, setConnectingId] = useState<string | null>(null);
+  const [fbModal, setFbModal]       = useState<{ sessionId: string; pages: { id: string; name: string }[] } | null>(null);
+  const [driveRoot, setDriveRoot]   = useState<{ id: string; name: string } | null>(null);
+  const [toast, setToast]           = useState<string | null>(null);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showToast(msg: string) {
+    setToast(msg);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 4500);
+  }
+
+  useEffect(() => {
+    api.listSocialConnections(brandId)
+      .then(c => setConns(c as SocialConn[]))
+      .catch(() => {})
+      .finally(() => setLoading(false));
+  }, [brandId]);
+
+  function conn(platform: string): SocialConn | null {
+    return conns.find(c => c.platform === platform) ?? null;
+  }
+
+  async function handleConnect(platform: string) {
+    setConnectingId(platform);
+    // Store return path so the brands list can redirect back here after OAuth
+    sessionStorage.setItem('bos_connect_return', window.location.pathname);
+    try {
+      const res = await api.startSocialConnect(brandId, platform);
+      window.location.href = res.authorize_url;
+    } catch (e: unknown) {
+      showToast(`⚠️ Could not start ${platform} — ${e instanceof Error ? e.message : 'unknown error'}`);
+      setConnectingId(null);
+    }
+  }
+
+  async function handleDisconnect(platform: string, label: string) {
+    const c = conn(platform);
+    if (!c) return;
+    if (!window.confirm(`Disconnect ${label} "${c.page_name || c.page_id}"?`)) return;
+    try {
+      await api.disconnectSocial(c.id);
+      setConns(prev => prev.filter(x => x.id !== c.id));
+      if (platform === 'google_drive') setDriveRoot(null);
+      showToast(`${label} disconnected`);
+    } catch {
+      showToast('⚠️ Could not disconnect — try again');
+    }
+  }
+
+  async function handleSelectFbPage(pageId: string) {
+    if (!fbModal) return;
+    try {
+      await api.facebookSelectPage(fbModal.sessionId, pageId);
+      const page = fbModal.pages.find(p => p.id === pageId);
+      setFbModal(null);
+      showToast(`✅ Facebook "${page?.name || pageId}" connected`);
+      const updated = await api.listSocialConnections(brandId).catch(() => conns);
+      setConns(updated as SocialConn[]);
+    } catch {
+      showToast('⚠️ Could not select page — try again');
+    }
+  }
+
+  async function handleChooseDriveFolder() {
+    try {
+      const cfg = await api.getDrivePickerConfig(brandId);
+      await loadGapiPicker();
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const g = (window as any).google;
+      const view = new g.picker.DocsView(g.picker.ViewId.FOLDERS)
+        .setSelectFolderEnabled(true)
+        .setMimeTypes('application/vnd.google-apps.folder');
+      const picker = new g.picker.PickerBuilder()
+        .setOAuthToken(cfg.access_token)
+        .setDeveloperKey(cfg.api_key)
+        .setAppId(cfg.app_id)
+        .addView(view)
+        .enableFeature(g.picker.Feature.SUPPORT_DRIVES)
+        .setTitle("Choose the root folder for this brand's assets")
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        .setCallback(async (data: any) => {
+          if (data.action !== g.picker.Action.PICKED) return;
+          const doc = data.docs?.[0];
+          if (!doc) return;
+          try {
+            await api.setDriveRoot(brandId, doc.id, doc.name, doc.url || undefined);
+            setDriveRoot({ id: doc.id, name: doc.name });
+            showToast(`✅ Asset root set to "${doc.name}"`);
+          } catch {
+            showToast('⚠️ Could not save folder — try again');
+          }
+        })
+        .build();
+      picker.setVisible(true);
+    } catch (e: unknown) {
+      showToast(`⚠️ Could not open picker — ${e instanceof Error ? e.message : 'check GOOGLE_PICKER_API_KEY'}`);
+    }
+  }
+
+  if (loading) return <div className="loading-full"><span className="spinner" /></div>;
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      {toast && (
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--fg)', color: 'var(--bg)', padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 9999, boxShadow: '0 4px 20px rgba(0,0,0,.2)' }}>
+          {toast}
+        </div>
+      )}
+
+      {fbModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div className="admin-card" style={{ width: 360, margin: 0, padding: 24 }}>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 6 }}>Select a Facebook Page</div>
+            <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>
+              Your account manages multiple pages. Choose which one to connect to this brand.
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {fbModal.pages.map(p => (
+                <button
+                  key={p.id}
+                  className="btn btn-secondary"
+                  style={{ justifyContent: 'flex-start', textAlign: 'left' }}
+                  onClick={() => handleSelectFbPage(p.id)}
+                >
+                  {p.name}
+                </button>
+              ))}
+            </div>
+            <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => setFbModal(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 20 }}>
+        Connect social and data platforms for this brand. After OAuth, you'll return to the Brands page — navigate back here to see the updated status.
+      </div>
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+        {INTEGRATION_PLATFORMS.map(({ id, label, icon, ...flags }) => {
+          const c = conn(id);
+          const busy = connectingId === id;
+          const hasFolderPicker = 'hasFolderPicker' in flags && flags.hasFolderPicker;
+          return (
+            <div
+              key={id}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 0', borderBottom: '1px solid var(--border)' }}
+            >
+              <span style={{ fontSize: 18, width: 28, textAlign: 'center', flexShrink: 0 }}>{icon}</span>
+              <div style={{ flex: 1 }}>
+                <div style={{ fontSize: 13, fontWeight: c ? 700 : 400, color: c ? 'var(--fg)' : 'var(--text2)' }}>
+                  {c ? (c.page_name || c.page_id) : label}
+                </div>
+                {c && (
+                  <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 1 }}>{label}</div>
+                )}
+                {id === 'google_drive' && c && driveRoot && (
+                  <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 1 }}>Root: {driveRoot.name}</div>
+                )}
+              </div>
+              {c ? (
+                <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                  <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                  {hasFolderPicker && (
+                    <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={handleChooseDriveFolder}>
+                      {driveRoot ? 'Change folder' : 'Choose folder'}
+                    </button>
+                  )}
+                  <button
+                    className="btn btn-ghost btn-sm"
+                    style={{ fontSize: 11, color: '#dc2626' }}
+                    onClick={() => handleDisconnect(id, label)}
+                  >
+                    Disconnect
+                  </button>
+                </div>
+              ) : (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  style={{ fontSize: 12, flexShrink: 0 }}
+                  onClick={() => handleConnect(id)}
+                  disabled={busy}
+                >
+                  {busy ? 'Redirecting…' : 'Connect'}
+                </button>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export function AdminBrandDetail() {
@@ -604,11 +841,12 @@ export function AdminBrandDetail() {
   }
 
   const TABS: { id: Tab; label: string }[] = [
-    { id: 'profile',   label: 'Profile' },
-    { id: 'products',  label: 'Products' },
-    { id: 'audiences', label: 'Audiences' },
-    { id: 'guidelines', label: 'Guidelines' },
-    { id: 'brand-kit', label: 'Brand Kit' },
+    { id: 'profile',            label: 'Profile' },
+    { id: 'integrations',       label: 'Integrations' },
+    { id: 'products',           label: 'Products' },
+    { id: 'audiences',          label: 'Audiences' },
+    { id: 'guidelines',         label: 'Guidelines' },
+    { id: 'brand-kit',          label: 'Brand Kit' },
     { id: 'project-management', label: 'Project Mgmt' },
   ];
 
@@ -629,7 +867,7 @@ export function AdminBrandDetail() {
           </div>
           <div className="admin-page-title">{brand.name}</div>
           <div className="admin-page-subtitle">
-            Brand profile, products, audiences, and documents.
+            Brand profile, integrations, products, audiences, and documents.
             {brand.domain && <> · {brand.domain}</>}
           </div>
         </div>
@@ -664,6 +902,9 @@ export function AdminBrandDetail() {
         <div style={{ padding: 24 }}>
           {activeTab === 'profile' && (
             <ProfileTab brand={brand} onUpdate={setBrand} />
+          )}
+          {activeTab === 'integrations' && brandId && (
+            <IntegrationsTab brandId={brandId} />
           )}
           {activeTab === 'products' && workspace && (
             <ProductsTab products={workspace.products} brandId={brand.id} brandName={brand.name} />

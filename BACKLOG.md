@@ -1,7 +1,7 @@
 # BOS — Backlog
 
-**Last updated:** 2026-05-13
-**Active phase:** Phase 3 — Frontend / CMO Command Hub refinement / Skill Contract preparation
+**Last updated:** 2026-05-25
+**Active phase:** Phase 6 — Gate 2 Gmail-only objective loop
 ---
 ## How to Use This
 - Pick the topmost `[ ]` item in the current phase and work it.
@@ -16,6 +16,50 @@
 [x]  Done
 [!]  Blocked (note reason)
 [-]  Deferred (moved out of scope for this phase)
+
+---
+
+## ⚑ Quick Nav
+
+**Active Phase:** Phase 6 — Full-Stack Marketing Automation (`Gate 2 passed 2026-05-20`)
+
+Phases 0–5 are complete. All active `[ ]` items are in Phase 6 and Council sections below.
+
+Quick jumps:
+- Phase 6 — Full-Stack Marketing Automation → search `## Phase 6`
+- Council — Deliberation Layer → search `## Council`
+- Parking Lot → search `## Parking Lot`
+- Decisions Log → search `## Decisions Log`
+
+---
+
+## ⚑ Locked Architecture (Do Not Revert)
+
+These decisions are final. Any change requires explicit architectural review and an update to `PROJECT_BRIEF.md`.
+
+| # | Rule | Locked in | Regression signal |
+|---|---|---|---|
+| 1 | **Channels in plugins only.** `api/capabilities/marketing/channel/` is deleted and must never be recreated. All channel Transform nodes live in `api/plugins/{channel}/`. | v3.7–3.8 (2026-05-12) | Finding channel Transform nodes in `api/capabilities/` |
+| 2 | **No hardcoded routing in `chat.py` / `skills/router.py`.** LLM reads `capability_manifest.py` only. No `_explicit_platforms()`, `_is_broad_sample_ads_request()`, `_has_generation_intent()`, or manual module ID lists. | v3.8 (2026-05-12) | Any `if "facebook" in message`, platform-matching function, or hardcoded module ID in router files |
+| 3 | **Brand active → `_brand_scoped_brief()`**, never `_resolve_brief()`. `_brand_scoped_brief()` must build from overrides + Brand rows only — not call `_resolve_brief()` first. | v3.16 (2026-05-13) | Cross-brand context bleed (e.g., MotorMoto copy in a Klaroha session) |
+| 4 | **`hydrate_memory_slots()` with `brand=active_brand`** when brand is active. Filters products, audiences, docs, and run memory by `brand_id`. No workspace fallback inside active-brand turns. | v3.17 (2026-05-15) | Wrong brand products/docs appearing in active-brand CMO replies |
+| 5 | **Brand switching via hidden `SCOPE:` directive** and `workspace.scope_resolution` SKILL.md. No phrase-matching or hardlock in `chat.py`. | v3.19 (2026-05-15) | Brand-name detection or hardlock code in `routers/chat.py` |
+| 6 | **CMO chat returns artifact refs only.** No inline copy, Subject/Body, Headline/Description, budgets, targeting, or fake proof. Workspace + Stream own native preview and approval. | v3.10 (2026-05-13) | Inline platform-native content in CMO reply text |
+| 7 | **Mobile-first CMO replies:** 1–4 lines, one idea per line, bullets for choices, max one question. Ref: `sample/mobile_cmo_reply_style_v1.md`. | v3.12 (2026-05-13) | Long dense CMO paragraphs in default (non-plan, non-report) chat replies |
+| 8 | **Plugin credentials via `inject_channel_credentials()` only.** Plugins read `brief["_channel_credentials"]`. They never call `get_settings()` or query the DB. | v3.5 (2026-05-10) | Plugin `module.py` querying `social_connections` or env vars directly |
+| 9 | **`capability_manifest.py` is the CMO capability single source of truth.** Adding a capability = add `SKILL.md` with `allowed_from_chat: true` + `module_id:`. No manifest code edits needed. | v3.8 (2026-05-12) | Manual edits to capability_manifest.py; hardcoded module IDs in `_build_system_prompt()` |
+| 10 | **Revise endpoint resolves Brand from `original_run.brand_id`** before building the execution brief. Same `_brand_scoped_brief()` path as dispatch. | v3.16–3.17 (2026-05-13) | Revision runs receiving workspace context instead of the original brand context |
+| 11 | **Artifact dispatch blocked when no Brand resolved** in multi-brand workspace. Returns a one-question brand clarification instead. | v3.18 (2026-05-15) | `brand_id=NULL` artifact creation in multi-brand workspaces |
+| 12 | **Backlog → ClickUp sync required** after every session with task status changes or new task additions. Script is idempotent. | v3.26 (2026-05-18) | See CLAUDE.md for the sync command and credentials |
+| 13 | **Stream artifact cards are inline approval surfaces.** Pending `StreamArtifactCard` embeds `ApprovalBundle` directly — full platform preview, editable copy, attachment controls, Dismiss/Revise/Approve inline. No `StreamRunPanel`. No `requiresReview → onOpenPanel`. `bos:focus-artifact` injects runs into the feed; it does not call `setPanelItem` with a run. `stream-side-panel` is reserved exclusively for `StreamUpdateOut` types (decision_brief, outcome, setup_blocker). | v3.42 (2026-05-25) | Re-added `StreamRunPanel`; `onOpenPanel` prop on `StreamArtifactCard`; `panelItem` typed as `RunResponse`; `bos:focus-artifact` opening a side panel instead of injecting into feed |
+| 14 | **Creative assets are channel-agnostic. Distribution is never hardwired.** BOS is omni-channel, multi-location, multi-brand. A generated image or video is a Drive artifact — not a Facebook post, not a YouTube video. Creative modules must not hardwire channel publish actions. Channel distribution is a separate CMO-driven dispatch: the CMO invokes the appropriate channel capability with the asset reference (`drive_file_id` / `run_id`). Available channels at runtime = installed plugins × connected accounts for the active brand. The current `publish_facebook` / `publish_youtube` / `publish` action buttons on creative cards are Phase 6 pragmatic shortcuts — they do not set precedent. Native channel settings (page selection, ad account, playlist) stay native inside each channel plugin; they are never cross-injected into creative modules. The same approved creative can reach any connected channel without changing the creative module or the card. | v3.43 (2026-05-26) | Hardwired `allowed_actions` list coupling a creative type to specific channels; channel-specific UI controls inside a creative card; any creative module that imports or calls a channel module directly |
+
+---
+
+## Archive — Completed Phases 0–5
+
+> Historical work record only. Do not pick tasks from this section for active development unless a human explicitly reopens one. Current work starts at **Phase 6 — Full-Stack Marketing Automation** below.
+
 ## Phase 0 — Foundation ✓
 ### Reference & Planning
 - [x] POC learnings extracted from cl_dm_os
@@ -705,8 +749,134 @@ Deferred to Phase 4.
 - [x] DOC: Updated PROJECT_BRIEF.md to v3.8 — channel table, CMO Capability Registry section, version/status, decision log
 - [x] DOC: Updated BACKLOG.md with all 2026-05-12 architectural changes
 
+### Meta Plugin — Phase 1: Facebook Page + Posts (2026-05-18)
+**Architecture:** Plugin-native Meta integration. `api/plugins/meta/` follows same channel plugin pattern as ClickUp/Gmail. OAuth uses `FacebookOAuthHandler` in provider_auth.py. Credentials injected via `inject_channel_credentials` from `social_connections` table. No providers/facebook.py — all API calls are in module.py files using urllib.request only.
+- [x] Migration 026: widen `provider_login_sessions.verifier_encrypted` from VARCHAR(1024) to Text (needed for multi-page JSON storage in OAuth session)
+- [x] `api/config.py`: add `meta_app_id`, `meta_app_secret`, `meta_redirect_uri` settings
+- [x] `api/provider_auth.py`: `FacebookOAuthHandler` — step 1: exchange code → short-lived token; step 2: exchange → long-lived user token (60d); step 3: GET /me/accounts for pages + IG account IDs; registered as "facebook" in _OAUTH_HANDLERS
+- [x] `api/routers/social.py`: `_admin_brands_redirect()` helper; `GET /social/facebook/callback` — auto-selects if 1 page, stores pages in session if multiple; `GET /social/facebook/pending-pages` — returns page list for session; `POST /social/facebook/select-page` — completes connection for selected page
+- [x] `api/plugins/meta/channel.json`: plugin manifest v0.1.0, `requires_social_connection: ["facebook"]`, 4 capability IDs
+- [x] `api/plugins/meta/capabilities/.../pages/read/`: `module.py` + `SKILL.md` — read-only page inventory via GET /{page_id}?fields=name,category,fan_count,...
+- [x] `api/plugins/meta/capabilities/.../posts/read/`: `module.py` + `SKILL.md` — GET /{page_id}/posts, last 25 posts with engagement metrics
+- [x] `api/plugins/meta/capabilities/.../posts/draft/`: `module.py` + `SKILL.md` + `template.j2` — LLM drafts post copy using brand voice/tone; returns `fb_page_post_draft` via `_build_block`
+- [x] `api/plugins/meta/capabilities/.../posts/publish/`: `module.py` + `SKILL.md` — approval-gated POST /{page_id}/feed; returns `fb_page_post_result`
+- [x] `.env.example`: Meta OAuth vars documented with setup instructions and redirect URI examples
+- [x] `web/src/pages/admin/AdminBrands.tsx`: Facebook connect/disconnect row per brand card; multi-page picker modal; callback param handling (`facebook=connected/denied/error/select_page`)
+- [x] `web/src/api/client.ts`: `facebookPendingPages()`, `facebookSelectPage()` methods
+- [x] SETUP REQUIRED: Create Meta Developer App at developers.facebook.com → add Facebook Login → register redirect URI → add META_APP_ID + META_APP_SECRET to .env; go through App Review for production publish scope (`pages_manage_posts`)
+- [x] Migration 026 run on staging: `cd api && alembic upgrade head`
+- [x] BUG RESOLVED: "Invalid Scopes: pages_read_engagement" — root cause was permission not enabled in Meta Developer App use case (not deprecated). Fix: enable `pages_read_engagement` + `pages_read_user_content` in Manage Pages use case. Correct scope: `pages_show_list,pages_read_engagement,pages_manage_posts`. All 3 Graph API endpoints verified in Graph API Explorer: /me/accounts ✅, /{page_id}?fields=... ✅, POST /{page_id}/feed ✅
+- [x] TEST: connect a brand's Facebook page end-to-end — OAuth → page selection → SocialConnection row stored
+- [x] TEST: CMO chat → "show my facebook page" → `meta_page_inventory` artifact ✅ Klarohahq page returned
+- [x] TEST: CMO chat → "say hi from mactan group" → pages/read + posts/read + posts/draft all dispatched correctly ✅
+- [x] TEST: CMO direct publish → `fb_page_post_result` artifact, post live on page — confirmed on staging.klaroha.com: "post this to facebook now: CMO direct publish test" → run success → post_id `1172728675913055_122106576015295887` → https://www.facebook.com/1172728675913055/posts/122106576015295887 ✅
+- [x] BUG RESOLVED: CMO chat posted to Facebook failed with "brief must include message" — root cause: LLM omitted `message:` inline param because capability manifest description never mentioned it was required. Fix 1: updated `posts/publish` SKILL.md `description` to say `REQUIRED inline param: always append 'message: <exact text to post>' on the line immediately after the RUN: directive`. Fix 2: added `conversation_context` fallback in `_message_from_brief()` to extract text from "post/publish/send ... to/on facebook: <text>" pattern in user's last message. Commits `19769f5` and `8378699` on `origin/staging`.
+- [x] BUG RESOLVED: `posts/draft` and `posts/publish` SKILL.md used invalid `requires_intent` values (`"sample"`, `"action"`) not in `IntentType` Literal — Pydantic validation silently dropped both skills from the manifest; neither appeared in `allowed_module_ids` or the CMO capability list. Fix: changed to valid values `[discussion, generation]` for draft, `[discussion, generation]` for publish. Also added `post in facebook` trigger to cover "in" vs "on" preposition variation.
+- [x] BUG RESOLVED: `posts/read` and `posts/draft` rendered as ad creative (`FacebookFeedPreview`) because `channel.includes('facebook')` matched all Meta platform hints. Fix: added block-type-specific renderers for `fb_page_post_draft` (organic post preview, no "Creative Placeholder"), `meta_page_posts` (posts list or failure card), `meta_page_inventory` (pages list). Also fixed `self_check` in `posts/read` to return "fail" when execution failed ("failed to" in content).
+- [x] BUG RESOLVED: `artifactTitle` didn't recognise Meta module IDs — showed "Facebook Posts Read Draft" instead of "Facebook Posts". Fix: added explicit cases for `meta.pages.read`, `meta.posts.draft`, `meta.posts.publish`, `meta.posts.read`.
+- [x] BUG RESOLVED: Image generation returns HTTP 401 on staging — `IMAGE_GEN_API_KEY` and `IMAGE_GEN_WORKER_URL` plugin vars set in Admin → Plugins → media.image on staging. Image gen now working.
+- [ ] ARCH GAP (documented, not building yet): Multi-plugin image→Facebook post handoff — CMO dispatches each `RUN:` independently with isolated briefs; no inter-module data handoff exists. image gen outputs `image_data_b64` in block; Facebook `posts/publish` posts to `/feed` (text+link only) — no base64 upload path. Full path requires two-step: (1) `POST /{page_id}/photos?published=false` with image binary → `media_fbid`; (2) `POST /{page_id}/feed` with `attached_media=[{media_fbid}]`. Design options: (A) `posts/draft` block carries `image_prompt`; `posts/publish` calls image gen + photo upload inline; (B) a future pipeline/handoff mechanism threads artifacts between modules. Option A is simpler for Phase 1. Option B is the right agentic architecture but requires pipeline primitives not yet built. Defer to Phase 6 pipeline work.
+- [ ] ARCH GAP (documented, not building yet): CMO dispatches Meta capabilities without checking if brand has a Facebook connection. When brand has no Facebook connection, modules fail at execution time with "Facebook page token not connected" rather than being blocked at dispatch. Fix options: (A) surface connected channels per brand in CMO system prompt so LLM self-selects; (B) pre-dispatch credential gate in the orchestrator that returns a clear user-facing message before running the module. Option A is lower friction and follows the LLM-first architecture. Defer with option A as the planned approach.
+- [x] BUG RESOLVED: `localStorage` quota crash — `image_data_b64` (multi-MB base64 PNG) stored in pending run blocks exhausted the 5 MB quota. Fix: `writePendingRuns()` strips `image_data_b64` and other large fields before writing; caps stored runs at 50; catches `QuotaExceededError` and falls back to trimming to 10 entries. `readPendingRuns()` validates each entry has `module_id: string` and `run_id: string` to prevent stale corrupt entries from crashing `undefined.toLowerCase()` calls.
+- [x] BUG RESOLVED: `undefined.toLowerCase()` random crash — stale localStorage runs without `module_id` passed to `artifactTitle` and friends. Fix: `if (!run?.module_id) return 'Artifact'` guard added in `ApprovalBundle.tsx`, `artifacts.ts`, `WorkspacePanel.tsx`, `Stream.tsx`, and `Layout.tsx`.
+- [x] BUG RESOLVED: `capability_manifest.py` never included plugin SKILL.md files — `build_dispatchable_manifest()` called `list_skill_manifests()` before the registry scan ran, so `_extra_skill_roots` was empty and plugin capabilities were invisible to the CMO. Fix: `build_dispatchable_manifest()` now calls `_ensure_plugins_registered()` (wraps `registry._ensure()`) before reading skills, guaranteeing registry scan runs first. All 4 Meta skills + all other plugin skills now appear in the CMO system prompt.
+- [x] BUG RESOLVED: Inline RUN params not extracted — CMO outputs `task_name:` / `message:` on lines after `RUN: <module_id>` but the dispatch loop only parsed the `RUN:` directive and ignored those lines. Fix: added `_RUN_PARAMS_RE` regex + `_parse_run_inline_params()` in `chat.py`; dispatch loop now merges per-module params into each brief. Also fixed regex with negative lookahead `(?![ \t]*RUN\s*:)` to prevent the next `RUN:` directive from being absorbed as a param of the previous module.
+- [x] META PUBLISH WIRING: Added plugin-declared `action_modules.publish`, generic `POST /runs/{run_id}/actions/{action}` approved-action endpoint, and Stream/Workspace `Approve & Publish` controls so Meta publish does not depend on CMO chat seeing hidden artifact body text.
+- [x] TEST: Verify staging BOS can connect to a Facebook Page — staging has Facebook SocialConnection rows; `marketing.channel.meta.pages.read` live Graph API read succeeded for Klarohahq page (runs `88fb33d5-35f1-4cf0-a254-aa01ad78ec9c`, `00f67890-f4ae-4081-aefa-0f1e1a6ffe4f`); OAuth start uses staging callback + Manage Pages scopes (`pages_show_list,pages_read_engagement,pages_manage_posts`); `marketing.channel.meta.posts.read` also succeeded (run `edce97f1-4ce1-4116-94f9-9caf68cf605b`). Local remains blocked by Facebook HTTPS redirect requirement.
+- [ ] BUG: Meta pages/read missing-credentials path returns a successful/pending run with failed block content; should surface as non-pending failure or clear setup-required artifact.
+- [!] DEPLOY: Push current localhost/staging-branch worktree to staging before continuing Meta integration — pushed commit `d75b76f` to `origin/staging` and local staging compose is updated, but public `https://staging.klaroha.com` is still serving the older module set; investigate CI/edge routing before relying on public staging.
+- [ ] BUG: Public staging domain does not reflect latest `origin/staging` deploy after push; YouTube validation modules appear on local staging compose but not through `https://staging.klaroha.com/api/verticals/marketing/modules`.
+- [x] BUG RESOLVED: Facebook OAuth callback cross-stack mismatch — production plugin vars had `META_REDIRECT_URI = https://staging.klaroha.com/social/facebook/callback`; connect sessions created in production DB but callback landed on staging API which had no matching session → connection never stored. Fix: `FacebookOAuthHandler._redirect_uri()` now checks if stored redirect URI's domain matches `FRONTEND_URL`; if they differ, ignores the stored URI and auto-derives `{FRONTEND_URL}/social/facebook/callback`. Prevents one stack's plugin config from silently poisoning the other stack's OAuth flow.
+- [x] FEATURE: Added `POST /social/facebook/direct-connect` (api_key required) — stores a Facebook page token directly without OAuth for admin/dev use when OAuth redirect is misconfigured or a valid token exists from terminal testing. Input: `brand_id`, `page_id`, `page_name`, `page_token`. Same storage path as OAuth callback.
+- [x] UX FIX: Approval gate now dispatches declared next action automatically — `Approve` on any artifact with `action_modules.publish` declared now calls `executeRunAction(run_id, 'publish', {confirm: true})` instead of just `approveRun`. Applies to chat stream card (CmoPage), Stream page card, and Workspace ApprovalBundle. Single "Approve & Publish" primary button replaces the confusing "Approve & Publish" / "Approve only" split. Consistent across all three surfaces.
+- [x] FEATURE: Operator image attachment workflow — before publishing a Facebook post draft, operator can attach an image from the brand's connected Google Drive folder. `GET /social/drive/images?brand_id=` lists images from the brand's drive_root_folder_id. `PATCH /runs/{run_id}/attach-image` stores `drive_file_id/name/mime` in RunTrace.lineage_json.block. On publish, the module downloads the binary from Drive via DriveClient and uploads as multipart to Facebook Photos API (`source` param). "Attach image" button in ApprovalBundle opens a Drive picker modal for `fb_page_post_draft` artifacts. Confirmed end-to-end: draft → attach (Garden Lot Flyers.jpg from Drive) → publish → post_id `1172728675913055_122106610131295887` live on Facebook page ✅
+- [x] UX: Stream properly renders all new artifact types — `creative_post_asset` now shows `FacebookFeedPreview` with base64 image; `fb_page_post_result` shows success/fail UI with permalink; `creative.post.image` title corrected to "Facebook Post Creative". `StreamArtifactCard` now has `onOpenPanel` prop; creative post cards show "Review & Publish" that opens the `ApprovalBundle` panel (required for caption entry) instead of one-click publish that would fail with missing_message.
+- [x] ARCH: Drive attachment resolution moved to orchestrator layer — `_resolve_drive_attachment()` added to `runs.py`; called in `_execute_module` for any module receiving `drive_file_id` in the brief. Downloads Drive file and injects `_image_data_b64`/`_image_mime` before dispatch so ALL channel publish modules receive pre-resolved bytes. Meta publish module simplified (Drive branch removed, `google_drive` dropped from `channel.json` requires_social_connection). New channel plugins (YouTube, TikTok, Instagram) only need to handle `_image_data_b64` — no Drive code required.
+
+## Active Work
+
 ## Phase 6 — Full-Stack Marketing Automation
 > Goal: replace every role in a marketing department. CMO orchestrates. Plugins are the specialists. Owner approves decisions. BOS remembers what worked.
+
+### UX Samples
+- [x] FRONTEND: `AdminObjectiveLoop.tsx` — `/admin/objective-loop` — loop readiness (Gmail/brand kit/objective), active objective detail, decision briefs, pending decisions, outcome records, memory ledger, generate brief button. Gate 2 API types + client methods added for all 7 Gate 2 endpoints.
+- [x] UX PROTOTYPE: `wireframes/bos-stream-first.html` is the canonical Gate 2 prototype — all three surfaces (Stream, CMO, Admin) merged. `bos-gate2-prototype.html` and `bos-gate2-prototype-agent-a.html` superseded. `bos-council-prototype.html` is a post-Gate 2 council UX sample only. Open design questions: council card color identity (amber vs purple), Watchpoints admin needs design pass, Council Seats section should move out of Gate 2 admin group.
+- [x] GATE 1 SAMPLE: Produce agreed Stream attention-card sample contract for six card families — `sample/bos_stream_sample.md`.
+
+### Gate 2 — Gmail-only Objective Loop
+- [x] GATE 2.1: Add minimal Objective anchor. Fields: `objective_id`, `brand_ref`, `status` (draft|active|paused|completed|archived), `summary`, `success_metric`, `horizon`, `created_from`.
+- [x] GATE 2.2: Add MemoryEvent append-only ledger. Event types: `artifact_created`, `artifact_approved`, `artifact_dismissed`, `artifact_revised`, `run_failed`, `decision_made`, `decision_not_to_act`, `outcome_recorded`, `constraint_flag`. Fields: `brand_ref`, `objective_ref`, `topic_tags`, `summary`, `rationale` (required on `decision_made`/`decision_not_to_act`; optional on passive lifecycle), `source_ref`, `timestamp`, `full_record`. Two write paths: passive (lifecycle hooks) and active (CMO conversation writes rationale explicitly).
+- [x] GATE 2.3: Add manual `evaluate_outcome` v0. Creates OutcomeRecord + MemoryEvent(`type=outcome_recorded`). `confidence_source` starts as `manually_reported`.
+- [x] GATE 2.4: Add DecisionBrief v0 analyst artifact. Inputs: active objective, brand context, run/artifact history, MemoryEvents, manual OutcomeRecords, Gmail context/signals if available. Output contract: `summary`, `objective_affected`, `evidence`, `hypothesis_ranking`, `confidence`, `recommended_next`, `do_not_list`, `allowed_actions`. STREAM SURFACE REQUIREMENT: decision_brief card must be visible and actionable in Stream. OutcomeRecord must surface as outcome card in Stream. topic_tags are the memory retrieval index: `creative_fatigue | tracking | attribution | offer | objection | commitment | outcome`.
+- [x] GATE 2.5: Add Handoff Brief + PendingDecision object. PendingDecision fields: `objective_ref`, `brand_ref`, `what_is_deferred`, `waiting_for`, `leading_hypothesis`, `action_blocked`, `created_at`, `resolved_at`. Brief covers: active objectives + state, performance narrative with confidence levels, pending decisions, committed actions/deadlines, known risks, what is working/not, what was decided against, recommended first action. Pass condition: new CMO operational in <15 minutes from brief alone.
+- [x] GATE 2.6: Prove one Gmail-only objective loop end-to-end. Loop: Objective → Artifact → approved send → Signal → OutcomeRecord → MemoryEvent → better next DecisionBrief. Pass condition: one objective completes a full primitive loop, decision_brief and outcome cards are visible and actionable in Stream, and memory demonstrably improves the next recommendation.
+
+Gate 2 pass condition: all six steps complete, the full primitive loop closes on a real Gmail-scoped objective, and the Stream surfaces the result. Passed 2026-05-20 via `api/scripts/prove_gate2_gmail_loop.py` with proof objective `0feb55a6-e430-420f-baa6-4d8bde820015`: Gmail draft run `5508783c-5835-49e3-bb08-a370562554ca` approved, OutcomeRecord `b0f17311-2309-4dba-a84b-47ae76a4b124`, MemoryEvent `415caee9-46b3-4955-be3a-3054045e5881`, DecisionBrief `b6f78179-cf24-457f-936f-683281e2e28c`, Stream cards `outcome` + `decision_brief` visible.
+
+### Two-Cycle System Architecture
+
+BOS operates in two cycles that form a flywheel. Every client starts at Cycle 1. Once metrics exist, Cycle 2 begins and feeds back into Cycle 1 indefinitely.
+
+```
+CYCLE 1 — Setup to Market
+  Brand Brief
+    → GTM Plan generated (marketing angles, channels, omni-channel stack)
+    → BL selects which channels to invest in
+    → Per-plugin onboarding checklists generated and dumped to PM
+    → Agentic loop handles automatable setup; manual tasks go to human via ClickUp
+    → Once onboarding complete: each channel generates first artifacts
+    → Artifacts surface on Stream for BL review and approval
+    → Approved artifacts deployed; plugins update their own PM tasks
+
+CYCLE 2 — Intelligence to Optimization
+  Channel metrics flood in on cadence (EOD / EOW / EOM)
+    → Each channel plugin runs its own analyst capability
+    → Channel reports submitted to CMO
+    → CMO synthesizes marketing snapshot and reports to BL
+    → BL approves optimization plan
+    → New campaign brief issued across all active channels
+    → Cycle 1 execution restarts for new campaign
+```
+
+**Business Leader's day:**
+- Morning: checks Stream on phone — pending reviews, needs attention, newly published
+- Issues campaign brief or approves pending artifacts from Stream
+- Midday: published asset status visible in Stream
+- On cadence: CMO surfaces marketing snapshot → BL approves optimization plan
+- CMO dispatches approved plan to all specialists → drafts surface → BL approves → deployed
+
+**Key architectural pieces needed (sections 6.10–6.15 below):**
+- GTM Plan capability — strategic output from brand brief, BL selects channels
+- Plugin onboarding manifest — `channel.json` declares onboarding checklist per plugin
+- Onboarding orchestrator — aggregates manifests, creates PM tasks, auto-completes what it can
+- Campaign brief cascade — approved plan dispatches to all active channels simultaneously
+- Per-channel analyst capabilities — each plugin's `*.analyze` module, runs on cadence
+- CMO snapshot aggregator — synthesizes channel reports into one executive summary
+- Stream panel upgrade — BL decision surface: priority-sorted, approve-in-place, digest mode
+- Digest notification — loop sends summary to BL after each run (email or Slack)
+
+---
+
+### Stream + CMO Unified Surface (2026-05-21)
+- [x] UX: Unified Stream + CMO split-screen — CMO chat (40%) left column, decision feed (60%) right column; Stream replaces the workspace slide-over as the artifact review surface; artifact links in CMO dispatch `bos:focus-artifact` event to focus the run in Stream's side panel without navigation
+- [x] UX: Mobile full-screen panel mode — screens ≤900px show one panel at a time; CMO chat is default; Stream slides in from the right when an artifact is focused; `← Chat` back button returns to CMO; CSS uses `transform: translateX` slide transition (250ms ease)
+- [x] UX: Removed duplicate bottom nav — old Stream/Workspace mobile nav (`MOBILE_NAV`) removed from Layout.tsx; prototype Stream/Admin tab bar (`PROTOTYPE_NAV`) is the single bottom navigation on all screen sizes
+- [x] BUG FIX: Stream artifact count inflation and styling flip — `streamArtifacts` merged `artifacts` (API) with ALL `pendingRunItems` (localStorage), including stale rejected/failed runs never cleaned up; localStorage items were spread *after* API items in the Map, silently overwriting live `approval_status` and causing green→blue styling flip on refresh; fix: API data is authoritative; localStorage items are only included if absent from the API response AND created within the last hour
+- [x] BUG FIX: CMO/Stream render crash on stale run objects — fixed sample: no `Cannot read properties of undefined (reading 'localeCompare')`; stale localStorage/API run records without `created_at` are ignored or sorted safely.
+- [x] UX: Manual brand dropdown filter in CMO surface — fixed sample: topbar brand selector is clickable; choosing a Brand scopes CMO chat requests, active objective, run artifacts, and Stream discussion cards to that Brand; choosing All Brands restores cross-brand Stream view.
+- [x] FEATURE: Stream live feed — artifacts from CMO chat appear in Stream without page reload. Two paths: (1) instant — `CmoChatContext` calls `addPendingRun(run)` on every `module_result` SSE event so `streamArtifacts` updates immediately via UIContext; (2) poll — Stream polls `GET /runs?limit=10` every 15 s, deduplicates via `knownRunIds` ref (seeded on mount), and prepends genuinely new runs. New renderers added: `creative_post_asset`, `meta_page_posts`, `meta_page_inventory`, `marketing_plan`, `image_asset`, `clickup_task_status`, improved `fb_page_post_result`.
+
+### 6.0 — CMO Agent Harness (pi model)
+> Direct execution surface for agents — read, execute, write. No LLM routing. Agents call capabilities directly; result always lands at pending_review for human approval.
+- [x] `api/routers/agent.py` — 5-endpoint harness: GET /agent/state, GET /agent/context/{brand_id}, GET /agent/capabilities, POST /agent/execute, PATCH /agent/review/{run_id}
+- [x] POST /agent/execute calls existing `_execute_module()` in runs.py — same code path as CMO chat, no duplicate execution logic
+- [x] PATCH /agent/review triggers PM (ClickUp) sync on approve/reject
+- [x] Frontend: Agent Activity panel in Admin — live view of agent-initiated runs and their review queue
+- [x] Agent loop script: `api/agents/cmo_loop.py` — monitor → prioritize → delegate → surface (runs on cron or webhook trigger)
+- [x] PIPELINE TEST: Add deterministic `api/plugins/hello/` smoke plugin + sample to validate multi-dev plugin discovery, manifest, execution, and artifact block without external credentials
+- [x] PIPELINE TEST: Bump hello smoke plugin marker for staging deployment verification
+- [x] INFRA: Multi-dev simultaneous workflow verified end-to-end — @kibanu pushed hello plugin v0.2.1, GitHub Actions CI #56 auto-deployed to staging.klaroha.com, both devs confirmed live via shared staging key `bos_a24e46...`; `marketing.channel` capability gap fixed via migration 027
+- [x] DOCS: Organize PROJECT_BRIEF.md/BACKLOG.md to prevent AI reversion — locked architecture tables added at top, historical changelog moved to Appendix A, completed Phases 0–5 labeled as archive while preserving all original phase items
 
 ### 6.1 — Visual Production (image gen)
 > Force multiplier. Feeds every channel. Build before social.
@@ -717,9 +887,9 @@ Deferred to Phase 4.
 - [x] Frontend renders `image_asset` block inline in artifact card (base64 PNG with prompt caption)
 - [x] CMO dispatches via `RUN: media.image.generate`; skill manifest includes Google Ads image ads, display ads, social creatives, hero images as triggers
 - [x] Image Generation card on Specialists page with Configure button
-- [ ] Reads Campaign Brand Kit for style constraints (colors, tone, visual identity) before generating — brief-driven today, brand kit injection planned
-- [ ] Quality gate: brand compliance check (color palette, no banned elements) before surfacing
-- [ ] Paired output: copy + image as a single `creative_bundle` artifact for ads and social
+- [x] Reads Campaign Brand Kit for style constraints (colors, tone, visual identity) before generating — brief-driven today, brand kit injection planned
+- [x] Quality gate: brand compliance check (color palette, no banned elements) before surfacing
+- [~] Paired output: copy + image as a single `creative_bundle` artifact for ads and social — BITE sample stage active before build
 
 ### 6.2 — Email Campaign Infrastructure
 > Moves email from placeholder to full marketing.execute + marketing.optimize channel.
@@ -777,6 +947,210 @@ Deferred to Phase 4.
 - [ ] `Outcomes` section in Admin surfaces approved learnings, measured results, and trend signals per brand
 - [ ] Next campaign `marketing.plan` call loads prior outcomes as a memory slot automatically
 
+---
+
+### 6.10 — GTM Plan Capability (Cycle 1 entry point)
+> First thing generated after brand brief is submitted. BL uses this to decide which channels to activate. All downstream work — onboarding, artifacts, deployment — flows from the channels the BL selects here.
+- [ ] `api/capabilities/marketing/planning/gtm_plan/` — `marketing.planning.gtm_plan` capability
+- [ ] Reads brand brief (voice, tone, values, products, audiences, domain) and generates full omni-channel GTM plan: recommended channels, marketing angles per channel, messaging priorities, suggested budget allocation ranges, rationale per channel
+- [ ] Output is a structured `gtm_plan` artifact: channel list with BL toggle (invest / skip / defer) + narrative summary
+- [ ] BL approves plan from Stream; selected channels become the active channel set for this brand
+- [ ] Approved channel selection stored in `brand_json["active_channels"]` — all downstream orchestration reads from this
+- [ ] CMO can regenerate plan when brand brief is updated (new product, new market, new budget)
+- [ ] Rejected channel stays in plan as `deferred` — BL can activate later without regenerating
+
+### 6.11 — Plugin Onboarding Manifest + Orchestrator
+> Each plugin declares what it needs to go live. The system aggregates all requirements, automates what it can, and sends the rest to the PM for human coordination. Onboarding is complete when all tasks are marked done.
+- [ ] Add `onboarding` block to `channel.json` manifest schema — each plugin declares its checklist: `{task, description, auto: true|false, requires_credential: bool}`
+- [ ] Example: Google Ads plugin declares `[{task: "Link MCC account", auto: false}, {task: "Create conversion action", auto: true, module: "google_ads.setup.conversion"}]`
+- [ ] `api/capabilities/onboarding/channel_onboarding/` — `onboarding.channel_onboarding` capability: reads all active channel manifests for a brand, generates unified onboarding task list
+- [ ] Automated tasks dispatched immediately via agent harness; manual tasks created in ClickUp under a dedicated onboarding list per brand
+- [ ] Onboarding status tracked per channel: `not_started / in_progress / complete / blocked`
+- [ ] Admin UI: onboarding progress view per brand — channel rows with completion status
+- [ ] Agent loop checks onboarding status on each run; once all channels complete, triggers first-artifact generation automatically
+
+### 6.12 — Campaign Brief Cascade
+> When BL approves a campaign plan, the loop dispatches briefs to all active channels simultaneously. No manual trigger per channel. The CMO calls its army of specialists in one action.
+- [ ] `api/capabilities/marketing/planning/campaign_brief/` — `marketing.planning.campaign_brief` capability: generates a structured brief per channel from the campaign objective + GTM plan + brand context
+- [ ] Brief cascade: when BL approves a campaign plan artifact, agent loop reads `brand_json["active_channels"]` and dispatches `campaign_brief.generate` for each active channel in parallel
+- [ ] Each channel brief becomes a `pending_review` artifact in Stream — BL or brand manager reviews per-channel brief before execution begins
+- [ ] Approved channel brief triggers the channel's draft capability automatically (e.g., approved Google Ads brief → dispatches `google_ads.draft`)
+- [ ] ClickUp task created per channel at cascade time: tracks brief → draft → approved → deployed lifecycle
+- [ ] Cascade summary artifact shows BL which channels were briefed, which are awaiting brief approval, which are blocked
+
+### 6.12b — Channel-Sovereign Campaign Execution
+> Plan approved → all enabled channel plugins fire simultaneously with the campaign brief. Strategy is channel-agnostic. Each plugin owns its own tactical execution and image generation.
+
+**Architecture rule:** `marketing.plan` produces positioning + message frame + market segment + offer. No channel logic lives here. On approval, dispatch fires to all enabled channels in parallel via `RUN:` directives. Each channel plugin reads its own `channel.json` to know which sub-capabilities are enabled, handles its own image gen call with channel-correct dimensions, and returns channel-native artifacts for Stream review.
+
+**Image gen contract:** channel modules include `image_format: {width, height, channel}` in brief → `media.image.generate` (already installed) respects dimensions. No sequential loop needed — copy and image both derive from the shared campaign brief independently.
+
+- [ ] Campaign execution SKILL.md (`marketing.execute.campaign`) — activated when approved plan brief is present; dispatches `RUN:` to all enabled channel plugins; zero channel-specific logic in the SKILL itself
+- [ ] Plan approval trigger — when a plan artifact is approved, fire the campaign execution dispatch; currently approval updates status only; needs `on_approve` hook that fires the execution cascade
+- [ ] Google Ads plugin: campaign execution mode — on campaign brief, dispatch search ads (always), display banners (if `display` in enabled sub-caps, calls image gen at 300×250 + 728×90), video brief (if `video` enabled)
+- [ ] Meta plugin: campaign execution mode — on campaign brief, dispatch post copy + square image (1080×1080) if post enabled; carousel copy + per-item images (1080×1080 × N) if carousel enabled; each calls `media.image.generate` with format spec
+- [ ] Email plugin: campaign execution mode — email copy + header image (600×200); calls image gen for header
+- [ ] Image gen format field — add `image_format: {width: int, height: int, channel: str}` to `media.image.generate` brief contract; plugin uses dimensions when generating
+- [ ] Creative bundle artifact — paired copy + image as single `creative_bundle` block per channel; both surface in one Stream card for approval instead of separate copy and image cards
+- [ ] ARCH GAP (Option A — planned): `posts/draft` block carries `image_prompt`; `posts/publish` calls image gen + `POST /{page_id}/photos` (unpublished) → `media_fbid` → `POST /{page_id}/feed` with `attached_media`; defers Option B pipeline primitives to Phase 7
+- [ ] ARCH GAP credential pre-check (Option A — planned): surface `brand_json["active_channels"]` with connection status in CMO system prompt; LLM self-selects only connected channels before dispatching
+
+### 6.13 — Per-Channel Intelligence (Analyst Capabilities)
+> Each channel plugin owns its own analyst. Reports are submitted to the CMO, not to the BL directly. BL sees the synthesized snapshot, not raw channel data.
+- [ ] Analyst module pattern: each plugin adds a `*.analyze` capability alongside its `*.execute` and `*.optimize` modules
+- [ ] `google_ads.analyze` — pulls campaign metrics (impressions, clicks, CTR, CPA, ROAS), produces structured `performance_report` artifact
+- [ ] `meta.analyze` — Facebook/Instagram reach, engagement, cost-per-result
+- [ ] `email.analyze` (Listmonk) — open rate, click rate, unsubscribe rate, revenue per send
+- [ ] `ga4.analyze` — sessions, conversions, channel attribution, goal completions
+- [ ] Each analyst capability runs on cadence: EOD for active campaigns, EOW for always-on channels, EOM for full-funnel review
+- [ ] Cadence stored per brand per channel in `brand_json["channel_cadence"]`
+- [ ] Agent loop checks cadence on each run and dispatches the right analyst capabilities
+
+### 6.14 — CMO Snapshot + Optimization Plan
+> The CMO's report to the BL. Not raw data — synthesized signal. One artifact per cadence period that tells the BL what happened, what's working, and what to do next.
+- [ ] `api/capabilities/marketing/planning/cmo_snapshot/` — `marketing.planning.cmo_snapshot` capability
+- [ ] Reads all channel `performance_report` artifacts for a brand within the cadence window
+- [ ] Produces: executive summary (3-5 bullets), channel performance comparison, top-performing creative, underperforming channels flagged, recommended optimization actions with rationale
+- [ ] BL reviews snapshot artifact from Stream — not individual channel reports
+- [ ] BL can approve, reject, or annotate optimization recommendations inline
+- [ ] Approved optimization plan triggers brief cascade for affected channels (Cycle 2 → Cycle 1)
+- [ ] CMO snapshot stored as workspace document — feeds Optimization Memory Loop (6.9)
+
+### 6.15 — Stream Panel: BL Decision Surface
+> Stream is the only interface the BL needs. Everything else is for the CMO and team. Stream must work on mobile and surface the right things at the right time.
+- [ ] Priority sort: needs-attention items first (overdue, flagged, blocked), then pending review, then published
+- [ ] Digest mode: artifacts grouped by brand and campaign — not one card per artifact
+- [ ] Approve / reject / flag in-place from Stream card — no navigation to workspace required
+- [ ] Campaign thread view: all artifacts for a campaign in one expandable thread
+- [ ] Status indicators: onboarding progress, active campaigns, pending approvals count per brand
+- [ ] Mobile-first layout: thumb-reachable approve/reject actions, single-column card stack
+- [ ] Digest notification: loop sends summary to BL after each run — email or Slack with direct approve links (see 6.16)
+
+### 6.16 — Digest Notification
+> BL should not have to open BOS to know something needs their attention. The loop pushes to them; they pull only when they want detail.
+- [ ] `api/plugins/notify/` — lightweight notification plugin: email (SMTP) and/or Slack (webhook)
+- [ ] `notify.digest` capability: formats pending review items as a digest and sends to configured recipient
+- [ ] cmo_loop.py calls `notify.digest` at end of each run if any items are pending review
+- [ ] Email digest: brand-grouped list of pending artifacts with direct approve/reject links (token-authenticated, no login required for single-action approvals)
+- [ ] Slack digest: one message per brand with artifact count and link to Stream
+- [ ] Notification preferences stored per workspace: channel (email/Slack), cadence (immediate/batched), recipient list
+
+### 6.17 — Shortform Video Production + Publishing Infrastructure
+> High-volume GTM content engine for Klaroha/clients. Fast path is template-rendered vertical video assets, not cinematic text-to-video. BOS generates reviewable assets first; platform publishing stays approval-gated and plugin-owned.
+
+**Core generation pipeline**
+- [ ] BITE sample: `shortform_video_asset` Stream card + Workspace detail for one CMO Ascension short (script, voiceover, captions, MP4 preview, platform metadata, approval boundary, export/publish actions)
+- [ ] `api/plugins/media-shortform/` — non-channel specialist plugin implementing `media.shortform.generate` (`marketing.execute`) with output contract `shortform_video_asset`
+- [ ] Content atom schema: pillar, format, audience, core idea, hook, lesson, CTA, source references, risk notes, platform targets, variant count
+- [ ] Script generator path: content atom → structured shortform script JSON (`hook`, `voiceover`, `scene_breaks`, `on_screen_text`, `caption`, `hashtags`, `title`, `CTA`, `quality_gates`)
+- [ ] Brand template library: 8–12 vertical templates for CMO vocabulary, CMO vs Marketer, growth diagnosis, book lesson, ascension ladder, myth/reality, checklist, quote/mental-model, Klaroha workflow showcase
+- [ ] Renderer service: Remotion/FFmpeg/HTML template render path that takes script JSON + brand template + audio and outputs 9:16 MP4 without GPU dependency
+- [ ] Voiceover layer: local/free TTS option for volume, premium TTS credential slot for flagship pieces, optional real-voice upload path; no required paid dependency for baseline generation
+- [ ] Caption timing: generate captions from script/TTS timestamps where possible; avoid paid transcription when the script is already known
+- [ ] Asset storage: store MP4, thumbnail, audio, subtitle/caption files, and metadata in object storage (Cloudflare R2 preferred) or local storage fallback for localhost
+- [ ] Background queue/worker for batch generation and rendering jobs; batch status visible in Agent Activity/Stream
+- [ ] Brand compliance/self-check: Campaign Brand Kit constraints applied to colors, typography, tone, claims, banned phrases, CTA style, and visual motifs before artifact is reviewable
+- [ ] Stream/Workspace renderer for `shortform_video_asset`: MP4 preview, transcript, caption/hashtags, platform targets, self-check, approval/revision/export/publish actions
+- [ ] Batch generation mode: create 25/50/100 shortform artifacts from approved content atoms with per-item review state, not one giant unreviewable blob
+- [ ] Export pack: ZIP/CSV containing MP4 file URLs, captions, hashtags, titles, platform targets, suggested publish dates, and UTM/link fields for manual upload or scheduler import
+- [ ] Localhost proof harness: generate one shortform MP4 end-to-end from a hardcoded content atom with no external platform credentials
+
+**Publishing integrations**
+- [x] YOUTUBE PIPELINE VALIDATION: validate plugin discovery, OAuth callback, credential injection, and API smoke path before expanding publisher features (local/mock validated; live OAuth token still required for external proof)
+- [x] LIVE YOUTUBE OAUTH PROOF: connect a brand YouTube account and run `marketing.channel.youtube.connection.validate` against the real YouTube Data API
+- [x] BUG: YouTube CMO chat publish loses inline `video_url/title/description/privacy` fields before module execution
+- [x] BUG: YouTube publish extracts stale `video_url` from prior chat history instead of latest CMO message
+- [x] YOUTUBE CMO CHAT LIVE POST PROOF: user confirmed CMO chat posted a private video to the connected YouTube channel
+- [ ] `api/plugins/youtube/` — YouTube Shorts publisher plugin (`youtube.shorts.publish`) using Google OAuth/API; approved `shortform_video_asset` → upload vertical video with title/description/tags/privacy/schedule fields
+- [ ] YouTube quota guard: detect upload quota exhaustion, surface setup/blocker artifact, and preserve export fallback
+- [ ] Extend `api/plugins/meta/` with Instagram/Facebook Reels publishing modules (`meta.instagram.reels.publish`, `meta.facebook.reels.publish`) using hosted MP4 URL from asset storage; approval-gated action result with platform IDs/URLs
+- [ ] Meta/Instagram setup gate: linked IG Business account + required permissions + app review state surfaced as connector readiness; staging/prod OAuth only unless Cloudflare Tunnel local dev is configured
+- [x] `api/plugins/tiktok/` planning/sample first — manual export remains default until TikTok Content Posting API access/review is approved; no build blocked on TikTok approval
+- [ ] Scheduler handoff integration: export compatible CSV fields for Buffer/Later/Metricool/manual uploader before native platform scheduling exists
+- [ ] Publish audit trail: every native publish writes `action_result` artifact with changed_resources, platform post ID, URL, timestamp, publishing account, and source video asset ID
+- [ ] Platform analytics follow-up backlog: YouTube/Meta/TikTok performance read modules should become `marketing.optimize` analyst capabilities after publish proof, not before
+
+### 6.18 — Creative Supply Chain
+> Channel-agnostic creative manufacturing layer between campaign strategy and channel distribution. BOS is a routing/orchestration system — all generation and rendering is third-party; BOS builds the JSON request, captures the result, stitches via render provider, stores in Drive. Full architecture: `CREATIVE_SUPPLY_CHAIN.md`.
+
+**Phase A — Foundation**
+- [x] DB migration `034_creative_supply_chain`: `creative_jobs`, `creative_assets`, `creative_blueprints` tables + models registered. Validated: migration `033→034 head`, all 3 tables/indexes/FKs in Postgres, ORM insert/read round-trip (JSONB + server defaults), 63 tests pass.
+- [x] BUG: app startup crash `'CreativeBlueprintAssembleModule' object has no attribute 'platform_hint'` — three scaffolded creative-factory modules missing required `platform_hint` ClassVar read by `module_info()` at startup. Fixed: added to all three. Captured in `api/plugins/creative-factory/plugin_notes.md`.
+- [x] BUG: `tests/test_youtube_plugin_smoke.py` broke pytest collection (and CI) — imported `api.plugins.youtube...` but CI/tests run from `api/`, so the prefix must be `plugins.youtube...`. The youtube plugin DOES exist; fixed the 3 import lines. All 12 youtube tests pass. CI test step (`pytest tests/ plugins/google-ads/tests/`) now green.
+- [x] Google Drive OAuth connection layer: `GoogleDriveOAuthHandler` (drive.file + drive.readonly scopes), registered as `google_drive`, `/social/google-drive/callback` (per-brand, redirects to Brands page), token auto-refresh via existing `get_page_token()`. Validated: handler registered, route present, `start_login` produces correct authorize URL (derived redirect, PKCE, offline/consent), app healthy, 63 tests pass. USER ACTION: register Drive callback URIs in Google Cloud Console.
+- [x] Drive root folder selection via Google Picker: operator picks an existing folder (matches agency Drive layout); `GET /social/drive/picker-config` (fresh token + browser key + app id) + `POST /social/drive/root` (stores `drive_root_folder_id`/name/path on connection without clobbering refresh token); AdminBrands "Choose folder" button loads gapi Picker. Validated: endpoints work (picker-config 412 until key set; root store + persist verified), web builds, 63 tests pass. USER ACTION: enable Google Picker API + create browser API key → set `GOOGLE_PICKER_API_KEY`.
+- [x] `api/plugins/google-drive/` plugin: `drive_client.py` (sync Drive REST v3) + 4 capabilities (`drive.folder.setup`/`asset.upload`/`asset.list`/`asset.get`) reading injected `google_drive` token. VALIDATED LIVE against connected brand: generate→upload→list→download byte-identical round-trip; `POST /runs drive.folder.setup` created full subtree in operator's real Drive. Gotcha fixed: `attempt` dict needs `tokens_output` or `runs.py` 500s. Notes: `api/plugins/google-drive/plugin_notes.md`.
+- [ ] SKILL.md for the 4 drive capabilities (deferred — infra/orchestration, allowed_from_chat:false; add when a capability becomes CMO-facing for Scenario B)
+- [x] BUG: `creative.post.image` failure (e.g. Drive not connected for the brand) rendered as an approvable "Self-check passed · Needs review" draft. Added `self_check` returning "fail" when content indicates failure → run marked `partial`, not an approvable draft. (Per-brand isolation itself was correct: Mactan/MotorMoto have no Drive; only Klaroha does — module correctly fails closed, never falls back to another brand's Drive.) Validated: Mactan→partial/fail, Klaroha→success. 63 tests pass.
+- [ ] FOLLOWUP: missing-connection failures should surface as a distinct `setup_blocker` artifact (per brief), not just a failed draft — improve Stream rendering for connection-blocked runs.
+- [x] WORKFLOW FIX (agency model — BL sees one curated proof, not factory parts): (1) active-brand connected-channel awareness injected into CMO prompt — only dispatch a channel's publish/store capabilities when connected; kills failed-publish cards. (2) `creative.post.image` is now the single business-named "Facebook Post" bundle (caption + image + Drive), `platform_hint=facebook post` → feed-preview rendering; SKILL.md makes it THE default for "make a post" (draft narrowed to explicit copy-only). (3) System prompt now documents RUN key:value params (caption/image_prompt) + reconciles with Rule 1. (4) BUG fixed: `_strip_control_directives` stripped the RUN line but not its param lines → caption/image_prompt leaked into visible reply; now strips the full RUN block via `_RUN_PARAMS_RE`. (5) ApprovalBundle renders `creative_post_asset` as a Facebook feed proof (image + caption). VALIDATED via /chat on Klaroha: one "Facebook Post" artifact = caption + image, clean visible reply, no sprawl, no failed publish. Routing tests updated; 64 pass.
+- [x] CMO CHAT → CREATIVE → DRIVE: `creative.post.image` capability (allowed_from_chat) generates a Meta post creative and stores it in the brand's Drive (`Creative Assets/Meta Posts/`). Declarative `requires_generated_image` ClassVar on ModuleBase + generic runs.py hook (no capability hardcoded in core); `inject_channel_credentials` now surfaces `drive_root_folder_id` for google_drive. VALIDATED LIVE via `/chat` with brand active → 2 creatives confirmed in operator's real Drive. 63 tests pass. Does NOT publish (scoped out per request).
+- [ ] WAREHOUSE LOOP PROVEN end-to-end: image AI → Drive store → Drive read-back works with real code against the operator's picked folder. Connective tissue (factory writes / reader reads) is live.
+- [x] META PUBLISH APPROVAL LOOP: End-to-end Generate → Review → Approve → Publish workflow for Facebook creative posts. `creative.post.image` output block includes `action_modules: {"publish": "marketing.channel.meta.posts.publish"}` and `allowed_actions: ["publish"]`; generic `execute_declared_run_action()` endpoint dispatches the publish module from the approved block without any re-dispatch from CMO. Approval gate is mandatory — no direct-publish bypass.
+- [x] BUG: Double dispatch — CMO fired both `creative.post.image` AND `posts.publish` from same message; caused by overlapping triggers ("this is a test" matching "test post"). Fixed: removed ambiguous triggers from `posts.publish`, added to `excluded_triggers`.
+- [x] BUG: `<exact text to post>` angle-bracket placeholder published verbatim — SKILL.md example used placeholder syntax; replaced with concrete example copy.
+- [x] BUG: `posts.publish` not routing for direct publish commands — `requires_intent: [generation]` blocked `discussion`-classified phrases like "post this to facebook"; added `discussion` to `requires_intent`.
+- [x] BUG: WorkspacePanel slide-over reopening on `bos:focus-artifact` events — Layout.tsx handler called `setWorkspaceOpen(true)`; Stream's own side panel handles the event. Removed erroneous open call.
+- [x] UX: Creative post review card — BITE Stage 2 sample agreed and implemented: Facebook Feed Preview (live-updating), editable Copy textarea, Attachment section (thumbnail + Swap·Drive), three-button action bar `[ Dismiss ] [ Revise ] [ Approve ]`; no "Save draft" for creative posts. Button label is "Approve" (publish is implied by action).
+- [x] BUG: 413 Request Entity Too Large on CMO revision requests — `buildRevisionContext()` serialised full block JSON including `image_data_b64` (500KB+ base64); now strips large binary fields before serialising. nginx `client_max_body_size` raised to `20m`.
+- [x] UX: Drive image picker shows thumbnails — `list_children` in `drive_client.py` now fetches `thumbnailLink`; picker renders `<img>` thumbnails per file; attachment section shows thumbnail of swapped file; Facebook Feed Preview updates to swapped image thumbnail immediately after selection.
+- [x] UX: Graph API failure details exposed — `fb_page_post_result` failure card has expandable `<details>` showing the raw Graph API response body so operator can diagnose the root cause without digging into logs.
+- [x] BUG: "brief must include message" on Approve — `_message_from_brief` checked `message/post_text/text/approved_post_text` but not `caption`; `creative_post_asset` stores copy in `caption`; frontend sent `message: ''` empty-string override which matched and returned falsy. Fixed: added `caption` to lookup chain; frontend validates non-empty before calling API; empty caption shows inline error "Post copy is required before publishing."
+- [x] BITE sample: `sample/google_drive_setup_v1.md` — per-brand folder structure, OAuth scope, 4 capability contracts, both acceptance scenarios mapped (produced, pending approval)
+- [x] BUG: Drive root folder picker (Google Picker) did not show shared-with-me folders or Shared Drives — root cause was `drive.file` scope limiting browser-side Picker visibility. Fixed: new `GET /social/drive/folders` backend endpoint uses `DriveClient` to fetch My Drive root folders, `sharedWithMe=true` folders, and Shared Drives in one call; `AdminBrandDetail` and `AdminBrands` pickers now call this endpoint for folder data. `DriveClient` extended with `list_shared_with_me_folders()`, `list_shared_drives()`, and `all_drives` param on `list_children()`. Google Picker UI restored with `SUPPORT_DRIVES` feature flag.
+- [ ] ACCEPTANCE Scenario A: one brand asset + background → stitched banner (300×250, 728×90), IG carousel (1080×1080 ×3), shortform (1080×1920 MP4) from one CompositionSpec via render target params
+- [ ] ACCEPTANCE Scenario B: attach existing Drive creative → single approved social post (no generation, no stitch — `drive.asset.get` → channel plugin → publish)
+- [ ] Admin provider configuration: Specialists panel for image gen, video gen, stitch/render, design providers; extend `inject_channel_credentials()` to resolve creative-factory provider keys; readiness blocker for missing providers
+
+**Phase B — Core pipeline (request-build-and-route)**
+- [x] BITE sample: `sample/creative_concept_artifact_v1.md` — Creative Director concept output (produced, pending BL approval)
+- [x] BITE sample: `sample/creative_composition_spec_v1.json` — CompositionSpec (Stage 4) for Vantage poster vertical; valid JSON
+- [x] BITE sample: `sample/creative_primitive_request_v1.json` — Stage 3 image-gen request + captured asset; valid JSON
+- [x] PROOF: image-gen engine works live — `POST /runs media.image.generate` returned a real 981KB PNG via the Cloudflare Workers AI worker (creds configured in DB plugin vars). "BOS builds JSON request → 3rd-party AI returns pixels" validated end-to-end.
+- [ ] ARCH FINDING: `creative.primitive.generate` must be a worker/orchestrator, NOT a pure ChannelModule — it calls image gen N times AND must persist `creative_assets` rows (needs DB access modules don't have) and store binaries to Drive. Build as the plugin-local async worker (Phase C), gated on the google-drive plugin for storage.
+- [ ] `api/capabilities/marketing/creative/concept/` — `creative.concept` first-party capability; single extended-thinking call; outputs `creative_concept` artifact
+- [ ] `api/capabilities/marketing/creative/craft/` — shared design discipline rules (typography, color, anti-ai-slop, safe-zones, motion)
+- [ ] `creative.pack.generate` — create `creative_job` row, return job artifact immediately, start async job
+- [ ] `creative.primitive.generate` — build prompt per primitive → call configured provider → upload to Drive → write `creative_assets` row; production CD auto-validation
+- [ ] `creative.blueprint.assemble` — fill template CompositionSpec skeleton with approved primitives + brand slots → write `creative_blueprints` row
+- [ ] BRAND.md injection: extend `_inject_campaign_brand_kit_style()` in `runs.py` to emit structured Brand Kit for capabilities declaring `bos.brand_slots`
+
+**Phase C — Stitch and surface**
+- [ ] BITE sample: render `example.html` files for `poster_vertical`, `video_frames`, `email_html`
+- [ ] `creative.render` FFmpeg adapter: CompositionSpec → resolve asset_ids/brand_slots → FFmpeg filter_complex → output → Drive → Export Package
+- [ ] Brand validation gate (Stage 5): P0 craft checks against BRAND.md before render
+- [ ] Plugin-local worker: poll `creative_jobs`, run the production loop, update progress
+- [ ] Creative Bundle assembly: curate top Export Packages → `creative_bundle` artifact
+- [ ] BITE sample: `sample/creative_bundle_v2.md` (revise existing `creative_bundle_artifact_v1.md`)
+- [ ] Stream card for `creative_bundle`: render target previews, concept ref, compliance status, approve/revise actions
+
+**Phase D — Design outputs**
+- [ ] Huashu concept deck: activate Huashu SKILL.md → interactive device-mockup HTML + PPTX export
+- [ ] BITE sample: `sample/creative_concept_deck_v1.html` — Vantage 3-concept review with device mockups
+
+**Phase E — Scale (V2, deferred)**
+- [x] `creative.shortform.video` specialist module (creative-factory plugin): CMO dispatches hook_text/cta_text/aspect_ratio/duration/brand_colors → FFmpeg renders text-on-color video → returns `creative_shortform_video` artifact with local video_path. Follows `creative.post.image` pattern — generation is internal to the specialist. FFmpeg installed in api/Dockerfile (apt-get + fonts-liberation); FFMPEG_PATH env override for non-Docker dev. No external service dependency. video_path is consumed directly by youtube.video.publish for test 2.
+- [ ] Shotstack render provider adapter (formal): abstraction layer so any render-capable module routes to Shotstack/Creatomate without direct API calls in module.py
+- [ ] Creatomate render provider adapter
+- [ ] Batch modifications loop (N renders from one template)
+- [ ] Per-brand provider overrides in Admin
+
+### CMO Chat Coordination
+- [x] DOCS: Establish shared CMO chat coordination hub in existing `api/routers/chat_notes.md` for multi-agent discussion, samples, invariants, and handoffs.
+- [x] DOCS: Distill Phase 6 CMO/Council loop marching orders into `PROJECT_BRIEF.md` summary + detailed `api/routers/chat_notes.md` code-dev stack.
+- [x] BITE SAMPLE: Produce Stage 2 sample for pi.dev-style Klaroha CMO agentic loop UX — fixed loop, streamed specialist steps, steering/follow-up queue, branchable session ledger, artifact review in Stream, and handoff/compaction summary. Sample updated: `sample/creative_bundle_artifact_v1.md`.
+- [x] BITE SAMPLE: Produce Stage 2 `council_brief` artifact sample — `@council` invocation, 5 strategist seats, final brief, parked decisions, expandable transcript detail, Stream artifact boundary. Sample added: `sample/council_brief_artifact_v1.md`.
+- [x] CODE PREP: After approved samples, implement CMO synthesis-after-results Path A as a generic loop primitive; no platform routing, no inline artifact content, no unscoped brand dispatch. Implemented generic `_continue_cmo_loop_after_results()` in `api/routers/chat.py`.
+- [x] BUG: Specific Facebook post + matching visual request routed to Campaign Plan + Image instead of Facebook Post Draft + Image; fixed in SKILL.md activation contracts only, no chat.py routing.
+- [x] BUG: Facebook Post Draft specialist starts but fails with `No healthy model options` because module capability points at non-seeded `marketing.execute` instead of routed channel capability; changed draft module capability to `marketing.channel`.
+- [x] BUG: Failed specialist dispatch can disappear from chat/Stream because `_run_modules_streaming()` logs exceptions but yields no failed artifact/result; failed persisted Run rows are now yielded as module_result events.
+- [x] BUG: Direct Facebook publish instruction can dispatch publish without `message` param; CMO visible reply contains the intended post text but module brief does not receive it. Fixed by passing `cmo_directive_text` into briefs and extracting quoted direct-publish text in Meta publish module.
+- [x] LIVE META TERMINAL POST PROOF: public staging `/api/runs` executed `marketing.channel.meta.posts.publish` against connected Klarohahq Facebook Page; Graph API returned post ID `1172728675913055_122106319191295887` and permalink.
+- [x] BUG: Explicit direct Facebook post instructions route to draft instead of publish; operator wording grants approval for low-risk text-only test posts. Fixed Meta SKILL.md contracts and added routing tests.
+- [x] CORE ACTION LOOP: Add generic direct-action payload handoff in CMO core so SKILL.md-declared publish/send/upload modules receive text payloads without channel-specific chat routing. Implemented generic `ACTION: <run_id> <action>` handoff for persisted artifact actions and shared `execute_declared_run_action()` primitive.
+- [!] INFRA BUG: Public `staging.klaroha.com` is not serving the staging compose stack; fixed local compose nginx exposure from 8082 → 8080, but public Cloudflare route still returns a different long-running API instance. Blocked on Cloudflare/origin route access.
+- [x] BUG: CI runs pytest from `api/`, so tests importing `api.plugins...` fail collection; add a generic test path shim instead of editing channel plugin code.
+
 ## Phase 5 — Hardening + Second Vertical
 ### Hardening
 - [ ] Retry with structured feedback (BITE failure-feedback loop)
@@ -798,6 +1172,32 @@ Deferred to Phase 4.
 - [ ] .env.example fully documented
 - [ ] SSL via nginx + certbot
 - [ ] PostgreSQL backup strategy
+## Council — Deliberation Layer
+
+### Infrastructure (complete)
+- [x] Council seat structure: `api/capabilities/workspace/council/seats/c1–c5/SKILL.md`
+- [x] Seat schema: seat id, display_name, status (vacant/active), model (provider + model_id configurable), ideology, tools
+- [x] Council capability SKILL.md + template.j2
+- [x] Council orchestrator module.py: parallel seat calls, agentic loop, convergence check, settlement synthesis
+- [x] CouncilSession DB model + migration 028
+- [x] `@council <question>` routing in CMO chat (chat.py)
+- [x] Council router: POST /council/convene, GET /council/sessions, GET /council/sessions/{id}
+- [x] Output format: C1: C2: C3: C4: C5: labelled per round, marching orders, parked decisions
+
+### Next — Recruitment
+- [ ] Recruit C1: set display_name, status: active, model_id, ideology in seats/c1/SKILL.md
+- [ ] Recruit C2–C5 same
+- [ ] Run migration 028 on staging
+- [ ] Smoke test @council with 1 active seat (vacant seats skipped gracefully)
+- [ ] Full 5-seat council test with real OpenRouter key
+
+### Future
+- [ ] Human injection between rounds (POST /council/{id}/inject mid-session)
+- [ ] Streaming output: emit each round as SSE so operator sees C1/C2/C3 appear in real-time
+- [ ] council_brief artifact in Stream (card type: council_brief)
+- [ ] Access gate: operator flag `council_access: true` per workspace/brand
+- [ ] Tool grants per seat (data access, plugin calls)
+
 ## Parking Lot
 - Multi-tenancy (SaaS mode)
 - Workflow chaining between modules
@@ -810,9 +1210,13 @@ Deferred to Phase 4.
 - **klaroha.com public marketing site (Astro):** Static site at klaroha.com built with Astro. BOS generates copy/landing pages as approved artifacts; a `api/plugins/klaroha-site/` plugin commits markdown content to the Astro repo and triggers a GitHub Actions rebuild. Design and aesthetics live in the Astro repo; BOS only touches content. Prerequisite: hq.klaroha.com move complete, multi-dev CI/branch setup done.
 - **CMS publish plugins (WordPress, Webflow, Shopify, etc.):** Each client CMS is a plugin publish target — same model as Gmail/Google Ads. WordPress uses Application Passwords (built-in since WP 5.6); credentials stored per brand in `social_connections` table. BOS generates and approves content artifacts; plugin pushes via CMS REST API. One plugin per CMS type, serves all clients on that platform. Prerequisite: plugin dev workflow and staging environment live first.
 - Email campaign infrastructure: Listmonk (self-hosted, Go + PostgreSQL) for list management, campaign orchestration, unsubscribe compliance, and open/click tracking; Listmonk (self-hosted, Go + PostgreSQL) for list management, campaign orchestration, unsubscribe compliance, and open/click tracking; Amazon SES or Mailgun as SMTP relay (Contabo IPs are untrusted by Gmail/Outlook — never send directly from VDS). BOS plugin: `api/plugins/listmonk/` implementing `marketing.execute` (push approved campaign) and `marketing.optimize` (pull performance data back as workspace document). Closes the "BOS remembers what worked" loop for email. Prerequisite: Email Specialist MVP (v3.12 decision) must be complete first.
+- **Meta Ads CLI (Phase 4 dev tool):** Meta released a Python CLI (`pip install meta-ads-cli`, Python 3.12+) that wraps the Marketing API — auth, pagination, error handling — for campaigns, ad sets, creatives, performance metrics, catalogs, and pixels. JSON output, automation-ready. **Not for production plugin code** (subprocess in Docker + version drift + Python 3.12+ vs our 3.11+ = bad fit). Use it during Phase 4 development for manual API testing and debugging before writing `ads/campaigns/read` + `ads/performance/read` module.py calls. Install: `pip install meta-ads-cli`. Docs: developers.facebook.com/blog/post/2026/04/29/introducing-ads-cli
+- **Cloudflare Tunnel for local Facebook OAuth:** Facebook enforces HTTPS-only redirect URIs — `http://localhost` is rejected. This means Facebook OAuth (connect, token refresh) can only happen on staging or production, making local dev a staging-dependent workflow for all Facebook-touching features. Fix: set up a named Cloudflare Tunnel (`dev.klaroha.com` → localhost:80), register `https://dev.klaroha.com/social/facebook/callback` as a third redirect URI in the Meta Developer App, and store it as `META_REDIRECT_URI` in local `.env`. Once done, Facebook can be connected locally and local dev becomes fully self-contained for Meta plugin work. Steps: (1) `cloudflared tunnel create bos-dev` in Cloudflare dashboard; (2) point `dev.klaroha.com` CNAME at the tunnel; (3) add redirect URI to Meta App; (4) add `META_APP_ID`, `META_APP_SECRET`, `META_REDIRECT_URI=https://dev.klaroha.com/social/facebook/callback` to local `.env`; (5) connect Facebook at `http://localhost/admin/brands`.
+- **True omni-channel asset distribution (post Phase 6):** Creative assets (images, videos) are channel-agnostic Drive artifacts. Long-term architecture: remove hardwired `publish_facebook` / `publish_youtube` / `publish` action buttons from `StreamArtifactCard`. Instead, the CMO dispatches the appropriate channel capability with the asset reference — "post that image to Facebook" triggers `marketing.channel.meta.posts.publish` with `drive_file_id` from the approved run; "attach to the email" triggers `marketing.channel.email.outreach.cold` with `attachment_drive_file_id`; "upload to YouTube" triggers `marketing.channel.youtube.video.publish`. Available channels are determined at runtime by installed plugins × connected accounts for the active brand. This makes distribution omni-channel by default: the same approved creative can reach Facebook, Instagram, email list, YouTube, TikTok, or any future channel without changing the creative card or the creative module. Prerequisite: CMO asset-reference retrieval (CMO must be able to reference a prior run's `drive_file_id` or `run_id` when dispatching a channel capability).
 ## Decisions Log
 | Date | Decision | Rationale |
 |---|---|---|
+| 2026-05-21 | Shortform video scale uses template rendering first; native platform posting comes after asset generation/export proof | Hundreds/thousands of shortform videos are fastest and cheapest as structured script → TTS → branded motion template → MP4 artifacts. Cinematic text-to-video is too slow/costly/inconsistent for volume. BOS should first generate reviewable `shortform_video_asset` artifacts with export packs, then add approval-gated platform plugins in order: YouTube Shorts, Meta/Instagram Reels, TikTok after API access. |
 | 2026-05-15 | Self-contained HTML is the portable artifact format for landing pages and campaigns | Works on every host (S3, Cloudflare Pages, Netlify, bare VPS) with no build step. Injects into WordPress via a blank/no-theme page template without touching page builders. Drops into `public/` on an Astro site as a static file. BOS owns the edit workflow; clients do not edit the HTML directly — they revise in Klaroha, approve, and republish. |
 | 2026-05-15 | BOS generates content artifacts; CMS publish plugins deploy them — separation is non-negotiable | BOS must never become a CMS. The artifact record (content, approval state, publish audit) lives in BOS. The platform-specific deploy step lives in a plugin. Same plugin contract as channel plugins: `channel.json` + `ChannelModule` + `SKILL.md`. The approval gate sits between generation and publish; no artifact reaches a live site without an approved status. |
 | 2026-05-15 | WordPress is the first CMS publish plugin target | Most clients are on WordPress with custom themes and page builders (Elementor, Divi, Beaver). Safe path: create/update a page using a blank/no-theme template via WP REST API (`POST /wp-json/wp/v2/pages`), inject the self-contained HTML, tag managed pages with `_klaroha_managed: true` meta. Application Passwords (native WP 5.6+) make auth straightforward; no OAuth dance. Plugin must never touch the theme, other pages, or plugins. |
@@ -828,6 +1232,14 @@ Deferred to Phase 4.
 | 2026-05-15 | BOS Command Hub lives at hq.klaroha.com; klaroha.com is reserved for the public Astro marketing site | Keeps internal tooling off the marketing domain; allows klaroha.com to be a standalone static site later without disrupting the running BOS instance; subdomain separation also simplifies SSL and Cloudflare routing |
 | 2026-05-15 | CMS platforms (WordPress, Webflow, Shopify) are plugin publish targets, not BOS core integrations | Same model as Gmail/Google Ads: credentials per brand in social_connections, content pushed via CMS REST API on artifact approval, one plugin per CMS type serves all clients on that platform; parked until multi-dev workflow and staging are live |
 | 2026-05-15 | Per-capability dev notes (`*_notes.md`) are the regression prevention system | Co-located with the file they cover (e.g. api/routers/chat_notes.md, api/plugins/google-ads/plugin_notes.md); capture invariants, fixed bug patterns, do-nots, and a local backlog; master BACKLOG.md stays core BOS only; plugin regressions stay in their plugin's notes file |
+| 2026-05-19 | Meta Ads CLI is a dev/debug tool for Phase 4, not a production plugin dependency | CLI wraps Marketing API (auth, pagination, error handling) with JSON output — useful for manually probing ad account data during Phase 4 development. Not wrapped in plugin code: subprocess in Docker + Python 3.12+ requirement + CLI version drift are all bad fits for server-side module.py. Phase 4 ads modules write direct urllib.request calls like all other plugins. |
+| 2026-05-25 | Stream pending artifact cards render full ApprovalBundle inline — no side panel for artifacts | Side panel split the decision surface: compact preview card in the feed + separate drawer for the actual review work. Inline means the card IS the complete review surface: Stream context (objective, brand, source timestamp) at top; full native platform preview + editable copy + Drive attachment + approve/revise/dismiss inline below. Side panel is now reserved exclusively for decision_brief and outcome StreamUpdateOut cards that need expanded narrative. |
+| 2026-05-19 | Meta AI Business Assistant is a closed competitor, no BOS integration needed | Meta's own AI chat assistant (in Business Suite, Ad Center, Instagram Boost) handles ad performance Q&A, recommendations, and account issue resolution inside Meta's UI. No public API — can't integrate. BOS differentiation is cross-channel intelligence and brand workspace context that Meta's assistant can't access. No action required. |
+| 2026-05-19 | CMO streaming uses SSE not WebSocket; nginx requires dedicated location block or X-Accel-Buffering response header | WebSocket requires connection upgrade and bi-directional protocol — overkill for a server-push-only stream. SSE is HTTP/1.1, works through nginx reverse proxy with `proxy_buffering off` on the location block (belt) and `X-Accel-Buffering: no` response header (suspenders). Both are required: nginx config alone doesn't survive container restarts without reload; response header alone doesn't override global buffering config on some nginx builds. |
+| 2026-05-19 | `_run_modules_streaming()` is the single source of truth for module dispatch; both /chat and /chat/stream use it | Eliminated copy-paste divergence between the legacy `/chat` endpoint's dispatch loop and the new streaming endpoint. Any dispatch logic change goes in one place. `_run_modules_streaming()` yields typed dicts (`module_start`, `module_result`); callers consume the generator and decide what to do with results. |
+| 2026-05-19 | Multi-dev simultaneous workflow operational — both devs push to staging branch independently; GitHub Actions CI auto-deploys to VDS staging on every push; shared staging key scoped to `bos_staging` DB; `marketing.channel` capability added via migration 027 (was missing from all DBs); each dev maintains own local stack with independent keys | Production (hq.klaroha.com) deploy remains gated to `main` branch, controlled by lead dev only; staging is open to all plugin specialists with Write access |
+| 2026-05-19 | Step log persists as completed (greyed ✓) after reply arrives — not removed | Removing the step log when the reply arrived made the experience look like the old mechanical single-response pattern. The step log is the agentic loop trace — it shows what ran and in what order. Keeping it (faded, complete) proves the pipeline executed. This is the agreed sample: [step_log(✓ all)] → [artifact_card] → [reply_text]. |
+| 2026-05-26 | Staging nginx port is 8091; 8090=local dev; 8080 is permanently reserved for open-webui and must never be used by any BOS service | `open-webui` runs `network_mode: host` with `PORT=8080` on this VDS, blocking `staging-nginx-1` from binding on every deploy. Port assignments: 8090=local/prod nginx (`bos-nginx-1`), 8091=staging nginx (`staging-nginx-1`). `nginx.host.conf` routes `staging.klaroha.com` → 8091. See DEPLOY.md § Host Proxy & Port Topology. |
 | 2026-05-14 | Staging lives at staging.klaroha.com on the same VDS as production | Separate Docker stack on different ports, separate database; plugin dev PRs target staging branch first, reviewed by main dev before merging to main/production; keeps costs low while maintaining isolation |
 | 2026-05-14 | Plugin dev (Dev 2) has GitHub repo access only — no server SSH | Internal junior dev scoped to api/plugins/ via branch protection; pushes to plugin/* branches, PRs to staging; main dev reviews before any code reaches production; server deploy is webhook-triggered on merge, not manual |
 | 2026-05-14 | Database is not in the git repo — each server deployment is a clean install | postgres_data Docker volume stays on the server across restarts; only docker compose down -v wipes it; this makes each new client/server deployment a clean isolated instance by default |
@@ -842,6 +1254,7 @@ Deferred to Phase 4.
 | 2026-05-12 | Lean hierarchy is `Org → Brand/Client → Market Unit → Campaign`; no Portfolio layer | Keeps architecture lean while supporting agencies, ecommerce multi-brand, multi-location services, and broker/agent networks. The Org acts as portfolio/control plane; Market Unit handles location/agent/territory/marketplace/SKU/service-line scope only when needed |
 | 2026-05-12 | CMO-facing marketing surface collapses to `marketing.plan`, `marketing.execute`, and `marketing.optimize` | Prevents BOS from exposing a thousand-entry channel/task catalog; preserves the promise that a small business owner gets a CMO in their pocket, whose specialists use tools and produce artifacts while the owner approves decisions and BOS remembers what worked |
 | 2026-05-12 | `BITE.md` elevated to BOS architecture constitution | Keeps governing policy in one mandatory-read file; codifies pi-inspired minimal core, package/plugin extensibility, SKILL.md ownership, live capability manifests, MCP-as-connector, lifecycle hooks, and command registration so new capabilities do not require chat/pipeline edits |
+| 2026-05-26 | Creative assets are channel-agnostic source artifacts; distribution is a separate CMO-driven dispatch | BOS is omni-channel, multi-location, multi-brand. A generated image or video is an asset — it can flow to Facebook, be attached to an email, appear in a YouTube post, or land in any other connected channel. Nothing in the creative artifact itself should hardwire it to a specific channel. The correct model: (1) generate creative → asset stored in Drive, artifact on Stream with `approved` or `pending` status; (2) CMO dispatches channel capabilities independently, each referencing the asset by Drive file ID or run ID — "post the image to Facebook", "attach the video to the email campaign", "upload to YouTube" are separate capability invocations; (3) what channels are available is determined by installed plugins × connected accounts for the active brand, not by hardcoded action buttons on the card. The current `publish_facebook` / `publish_youtube` inline action buttons are a convenience shortcut (Phase 6 pragmatism), not the target architecture. Long-term: remove hardwired publish actions from creative cards; CMO handles all distribution via chat by dispatching the appropriate channel capability with the asset reference. |
 | 2026-05-01 | PostgreSQL from day one, no SQLite | Avoid migration cost; per-VPS deployment makes this feasible |
 | 2026-05-01 | Frontend is first-class, not a dashboard HTML file | User needs to test the product, not just the API |
 | 2026-05-01 | BYOK alongside platform routing | Lowers barrier; users with own keys shouldn't pay markup |
@@ -983,6 +1396,11 @@ Deferred to Phase 4.
 | 2026-05-17 | SKILL.md must include explicit `module_id:` field matching the module's `id` attribute | `capability_manifest.py` filters on `skill.module_id`; skills without it are discovered but never dispatched by CMO — silent routing failure |
 | 2026-05-17 | CMO system prompt hard rule 9: RUN lines must use ONLY exact module IDs from the manifest | Llama 3.3 70B hallucinated `marketing.channel.google_ads.image_ad.draft` repeatedly; explicit prohibition added to HARD RULES block in `_build_system_prompt` |
 | 2026-05-17 | Cloudflare Workers AI blocks Python-urllib user-agent from Docker (error 1010) | Add `User-Agent: Mozilla/5.0 (compatible; BOS/1.0)` header to all requests from the media-image module; curl from host works but Docker outbound IP triggers CF bot detection |
+| 2026-05-18 | CMO agent harness uses pi model: read/execute/write primitives only; everything else is plugins | Claude Code and multi-agent frameworks are over-engineered for bounded CMO tasks; agents that know what to run don't need LLM routing. `GET /agent/state`, `GET /agent/context`, `GET /agent/capabilities`, `POST /agent/execute`, `PATCH /agent/review` |
+| 2026-05-18 | BOS operates in two cycles: Setup-to-Market (Cycle 1) and Intelligence-to-Optimization (Cycle 2) | Cycle 1 runs once per client onboarding; Cycle 2 runs on cadence after metrics exist. Both cycles use the same agent harness. The flywheel: deploy → measure → optimize → redeploy. BL is the only human approver; CMO coordinates; plugins are the specialists. Stream is the BL's only interface. |
+| 2026-05-25 | Video render v0 uses Shotstack directly inside creative-factory plugin, not a formal provider adapter | Fastest path to a working video artifact without adding new hooks to runs.py or plugin_loader.py. SHOTSTACK_API_KEY injected via existing requires_platform_vars credential path. Synchronous poll (3s × 90s). Formal provider adapter (Phase E) deferred until a second render provider is needed. |
+| 2026-05-26 | Staging nginx port is 8091; 8090=local dev; 8080 permanently reserved for open-webui | open-webui uses network_mode:host and binds 8080 unconditionally; assigning any BOS service to 8080 causes silent port conflict on every staging deploy |
+| 2026-05-26 | Artifact cards are channel-agnostic; publish channels come from `action_modules` in the block | Both image and video cards read `action_modules` dict to render per-channel publish buttons; adding a new publish target = one backend key, no frontend changes; matches locked architecture rule #14 (creative assets are channel-agnostic) |
 
 ## BITE Methodology (Phase 3)
 
@@ -1024,6 +1442,10 @@ Deferred to Phase 4.
 - [x] FEATURE: @klar plan — full CMO strategic planner skill (workspace.plan_mode v1.0.0); consumes brand_guidelines, campaign_brand_kit, product_catalog, audience_profiles, marketing_reports, campaign_reports, competitor_profiles, industry_data; omnichannel output contract; extended thinking enabled; expandable resource drop-in for competitors and industry reports
 - [x] BUG: Brand isolation — CMO chat dispatched modules with workspace-scoped brief even when an active Brand was set; `_resolve_brief(db, ws)` always pulls `ws.name`, `ws.brand_json`, and `Product/Audience` rows by `workspace_id`; fixed: CMO module dispatch (chat.py:820) and revise endpoint (chat.py:924+898) now use `_brand_scoped_brief(db, ws, active_brand)` so products, audiences, documents, and identity are scoped to the correct brand
 - [x] BUG: CMO LLM compliance failures — three violations observed in live MotorMoto session: (1) "what can you do" returned product list instead of CMO capability card; (2) "lets make a marketing plan" asked 6 clarifying questions instead of dispatching `RUN: marketing.plan.campaign_strategy`; (3) "give me sample ad copies" generated inline Headline/Description blocks violating Rule 6. Root cause: `_build_system_prompt` placed brand/product/audience context before skill rules, causing the LLM to weight brand context over artifact boundary constraints. Fixed: added HARD RULES block (5 rules: no inline native content, dispatch-first, ambiguous→one question, one question max, capability card format) at top of system prompt before brand context in `api/routers/chat.py:_build_system_prompt`.
+- [x] FEATURE: Streaming agentic loop — CMO pipeline now streams via SSE; steps appear live as modules run, artifact refs land one at a time before the reply, step log persists as completed (greyed ✓) so the user sees the full execution trace. Backend: `POST /chat/stream` StreamingResponse endpoint + `_generate_chat_stream()` async generator + `_run_modules_streaming()` as single dispatch source of truth. Frontend: `api.chatStream()` async generator in client.ts consumes SSE; `CmoChat.tsx` renders step labels with pulse animation during execution and ✓ on completion. Nginx: dedicated `/api/chat/stream` location block with `proxy_buffering off` + `X-Accel-Buffering: no` response header.
+- [x] BUG: CMO mass-dispatched all 25 capabilities on "trigger all your capability" test command — LLM followed user instruction literally; no system-level protection against blanket dispatch. Fix: added hard rule #10 to CMO system prompt: never emit more than 3 RUN lines per turn unless user explicitly named each capability; "trigger all / test all / showcase all" commands must respond with capability summary + clarifying question instead of dispatching.
+- [x] BUG: "For which brand is this?" follow-up question triggered a new Campaign-Strategy-Planner run — SKILL.md excluded_triggers did not cover follow-up question patterns. Fix: added `for which brand`, `which brand`, `what brand`, `update?`, `which one`, `trigger`, `test all`, `showcase` to campaign_strategy excluded_triggers.
+- [x] BUG: posts/publish dispatched without approved message text during mass-dispatch test — module code already guards against empty message (returns failure artifact), but the module still ran and created a failure artifact. Fix: added pre-dispatch guard in `_run_modules_streaming()`: if module_id is `marketing.channel.meta.posts.publish` and no `message` param is present in inline params, skip dispatch entirely with a warning log.
 
 ### Production Deployment — hq.klaroha.com (2026-05-14)
 
@@ -1042,10 +1464,50 @@ Deferred to Phase 4.
 - [x] INFRA: staging.klaroha.com — docker-compose.staging.yml created (ports 8080/8001/5174, separate DB bos_staging); .env.staging live on server; first deploy confirmed working
 - [x] BUG FIX: staging ENCRYPTION_KEY not picked up — staging uses `env_file: .env.staging` (not `.env`); `docker compose restart` does not re-read env_file, must use `--force-recreate`; fixed by writing clean .env.staging and running `docker compose -p staging -f docker-compose.staging.yml up -d --force-recreate api`
 - [x] INFRA: GitHub Actions CI — .github/workflows/ci.yml created; runs pytest + banned-pattern guardrails on PR; deploys to staging on staging branch push, production on main branch push
-- [x] INFRA: CODEOWNERS — created; api/plugins/ owned by @itsborj + @dev2-handle; core paths owned by @itsborj only
+- [x] INFRA: CODEOWNERS — created; api/plugins/ owned by @itsborj + @kibanu; core paths owned by @itsborj only
 - [ ] INFRA: GitHub secrets — add VDS_HOST, VDS_USER, VDS_DEPLOY_KEY, STAGING_PATH, PROD_PATH to repo secrets before CI deploy steps work; generate a deploy SSH key pair (ssh-keygen -t ed25519), add public key to server authorized_keys, private key to GitHub secret VDS_DEPLOY_KEY
 - [ ] INFRA: Branch protection — configure in GitHub repo settings: `main` require CI green + 1 review; `staging` require CI green only
-- [ ] INFRA: Plugin dev access — replace @dev2-handle in CODEOWNERS with actual GitHub username; add as repo collaborator; push plugin/* branch access
+- [x] INFRA: Plugin dev access — @kibanu added as repo collaborator (Write); CODEOWNERS updated with real handle; SSH key added to GitHub; local stack fully operational on staging branch
+- [x] INFRA: Agent harness — GET /agent/state, /context, /capabilities, POST /agent/execute, PATCH /agent/review; pi model (read/execute/write), no LLM routing; scripts/validate_connection.sh for connection testing
+- [x] INFRA: Dev 2 pipeline verified — hello world plugin built, discovered, executed, approved end-to-end; `module_id` confirmed required in SKILL.md for capability manifest registration
 - [ ] INFRA: Demo API key — separate named key for walkthrough sessions
 - [ ] INFRA: SSL via nginx + certbot (currently Cloudflare proxy handles TLS; needed if Cloudflare proxy ever bypassed)
 - [ ] INFRA: PostgreSQL backup strategy
+
+### Gate 2 UX — Stream + CMO split (2026-05-22)
+
+- [x] UX: Stream page split into two distinct surfaces — `/stream` = full-screen artifact feed only; `/cmo` = 40/60 split with CmoChat on left + artifact feed on right
+- [x] UX: CMO tab restored to bottom nav (Stream | CMO | Admin)
+- [x] UX: Removed "Always available" chip tray from CmoChat (Record outcome, Generate handoff brief, View Reports) — cleaned up dead handlers and viewMode state
+- [x] BUG: Artifact card Dismiss button now optimistic — card disappears immediately, API call fires in background
+- [x] BUG: ApprovalBundle Dismiss in side panel now calls api.rejectRun() and propagates onDismissed callback to close the panel and remove the card from the stream list
+- [x] ADMIN: Added four missing admin sections from wireframe gap analysis:
+  - `/admin/memory-audit` — outcome records, decision events, generate handoff brief
+  - `/admin/watchpoints` — add/edit/delete objective-bound attention rules (local state, no backend yet)
+  - `/admin/loop-flow` — 8-step annotated loop flow diagram
+  - `/admin/council-seats` — 5-seat LLM assignment form (local state, no backend yet)
+- [x] ADMIN: Nav restructured to Gate 2 / Investigate / Business / System / Post-Gate 2 grouping matching wireframe
+- [x] ADMIN: CSS for settings-group, hb-card, wp-form, flow-node, seat-card shared admin components added to index.css
+- [x] FEATURE: `AdminBrandDetail.tsx` Integrations tab — full per-brand OAuth connection management (Facebook, YouTube, TikTok, Google Drive, Gmail, Google Calendar); connect/disconnect per platform; Facebook multi-page picker modal; Google Drive Picker folder selection; toast notifications; `sessionStorage` return-path so OAuth callbacks redirect back to the brand detail page. Tab order: Profile → Integrations → Products → Audiences → Guidelines → Brand Kit → Project Mgmt.
+- [x] BUG: `AdminConnectors.tsx` — Facebook missing from `OAUTH_PLATFORMS` map; added `facebook: { label: 'Facebook', icon: '📘' }` so Facebook connections display correctly in the read-only Connectors overview.
+- [x] INFRA: Auth relay server built (`relay/`) — FastAPI service that holds Klaroha's Google OAuth client credentials centrally; all BOS deployments delegate Google OAuth (Gmail, Drive, Calendar, YouTube) to the relay via `KLAROHA_RELAY_URL` + `KLAROHA_RELAY_KEY`; no Google credentials needed in client `.env` files. Relay endpoints: `GET /relay/{platform}/start` (PKCE + Redis session), `GET /relay/google/callback` (code exchange + handoff), `POST /relay/claim` (one-time token pickup), `POST /relay/refresh` (delegated token refresh). Added Redis service to both docker-compose files. `social.py` start flow delegates to relay when `KLAROHA_RELAY_URL` is set. Nginx routes `/relay/` to relay container. One Google redirect URI per environment replaces per-environment callback registrations.
+
+### Creative Asset Pipeline — Drive Picker + Publish Fixes (2026-05-26)
+
+- [x] BUG FIX: Drive image/video picker returned empty results — `list_drive_images` endpoint called `list_children(root_folder, mime_type=...)` which only searched direct children of the brand root folder; generated creatives stored in subfolders (`Creative Assets/Meta Posts/`, `Creative Assets/Shortform Video/`) were invisible to the picker. Fixed: added `DriveClient.search_files(mime_types)` method (Drive-wide MIME query, no parent folder constraint, `supportsAllDrives=true`) in `api/plugins/google-drive/drive_client.py` and switched `GET /social/drive/images` endpoint in `api/routers/social.py` to use it. Result: all images and videos across Drive returned, including generated `meta_post_*.png` and shortform video files in nested folders.
+- [x] BUG FIX: Shortform video runs auto-approved immediately — `_needs_publish` gate in `api/routers/runs.py` used `"publish" in allowed_actions` (exact element membership); `"publish_youtube"` and `"publish_facebook"` never matched the literal string `"publish"`, so all shortform video runs bypassed the pending state and were auto-approved. Fixed: changed to `any(str(a).startswith("publish") for a in _allowed_actions)`. Shortform video runs now remain `approval_status: pending` on Stream as intended.
+- [x] BUG FIX: Video swap silently ignored at publish time — `_resolve_drive_video` in `api/routers/runs.py` returned early (`return brief`) when the original local temp file still existed on disk, ignoring any Drive file the user selected in the swap picker. Fixed: frontend (`ApprovalBundle.tsx`) now sends `_video_swapped: true` in overrides when a swap video is selected; backend skips the early-exit path when this flag is present, forcing a fresh Drive download. Gate also extended: `_resolve_drive_video` now triggers when `drive_file_id` is present even if no `video_path` exists (handles the case where the temp file has been cleaned up between generation and publish).
+- [x] BUG FIX: `_resolve_drive_attachment` ran on video publish briefs — the attachment resolver downloaded the video Drive file and injected it as `_image_data_b64` before `_resolve_drive_video` could handle it, causing double-download and wrong data type in the brief. Fixed: guard in `api/routers/runs.py` now skips `_resolve_drive_attachment` when `drive_file_mime` starts with `video/`; frontend already sends `drive_file_mime: 'video/mp4'` in video publish overrides.
+- [x] TEST: Facebook video publish end-to-end confirmed — shortform video (original temp file cleaned up) → Drive re-download via `_resolve_drive_video` → `MetaVideoPublishModule` POST to Graph API → `video_id: 3883837005259483` returned ✓
+
+### Infra: Staging Deploy Pipeline Fixes (2026-05-26)
+
+- [x] INFRA: Staging nginx moved from port 8080 → 8091 — open-webui (network_mode: host) permanently holds 8080; `docker-compose.proxy.yml` removed in favour of system nginx on VDS; host `nginx.conf` and `sites-available/bos` updated to proxy `staging.klaroha.com` → 8091. Rule: 8090=local dev, 8091=staging, 8080=open-webui (never reassign).
+- [x] BUG FIX: CI deploy silently succeeded while VDS ran stale code (14+ hrs) — three compounding root causes: (1) `deploy-staging.sh` ran `git reset` inside itself but the old script on VDS errored before reaching that line, creating a bootstrapping loop; (2) `appleboy/ssh-action` without `script_stop` reports CI green even when the remote script exits non-zero; (3) `docker compose up --build` without `--force-recreate` skips container recreation when the Dockerfile hasn't changed (Python file edits are invisible to the image hash). Fixed: CI now does `git fetch + git reset --hard origin/staging` before calling `bash deploy-staging.sh`; added `--force-recreate` to the compose up command; added `--remove-orphans` to clear stale container references.
+- [x] BUG FIX: `check-staging.sh` smoke test checked port 8080 — every CI deploy passed tests then failed smoke check, leaving VDS unreachable. Fixed: updated all three port references in `check-staging.sh` (port grep, web curl, API curl) from 8080 → 8091.
+- [x] BUG FIX: CI deploy job had invalid `script_stop` parameter for `appleboy/ssh-action@v1` — the parameter doesn't exist in that action's schema; caused every deploy job to fail immediately with "Unexpected input". Removed; `set -euo pipefail` in the script already propagates remote exit codes correctly.
+
+### Image Artifact Publish (2026-05-26)
+
+- [x] FEATURE: Image artifact card now has publish buttons — `media.image.generate` module block now includes `action_modules: {publish_facebook: "marketing.channel.meta.posts.publish"}` and `allowed_actions` updated to include `publish_facebook`. Frontend `ApprovalBundle.tsx`: added `isImageAsset` flag, `imageCaption` state, `handleImagePublish` handler (passes `_image_data_b64` inline or `drive_file_id` when swapped), Caption textarea, Attachment section with Drive swap picker. Both image and video cards now use the same `action_modules` pattern — adding a new publish channel = one key in `action_modules`, no frontend changes needed.
+- [x] TEST: Image artifact card confirmed showing Caption + Attachment (Swap · Drive) + Publish to Facebook on localhost ✓

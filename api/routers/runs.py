@@ -1,9 +1,11 @@
 import logging
+import os
+import tempfile
 from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
@@ -15,9 +17,11 @@ from plugin_loader import inject_channel_credentials
 from db import get_db
 from errors import BosError
 from executor import execute_live, execute_mock, get_platform_key
+from memory_events import write_memory_event
 from model_overrides import effective_strict, get_module_model_override, reorder_candidates_for_model_override
 from provider_auth import resolve_stored_provider_credential
 from routers.backend_settings import resolve_backend_override
+from models.document import WorkspaceDocument
 from models.run import Run, RunAttempt, RunResult, RunTrace
 from models.workspace import Audience, Brand, Campaign, Product, Workspace
 from registry import get_module
@@ -92,6 +96,66 @@ async def _resolve_brief(db: AsyncSession, ws: Workspace, brief: dict) -> dict:
 
 # ── Image pre-generation (injected into brief before channel module dispatch) ──
 
+async def _inject_campaign_brand_kit_style(
+    brief: dict,
+    ws: Workspace,
+    brand_id,
+    db: AsyncSession,
+) -> dict:
+    """Attach approved Campaign Brand Kit excerpt/style constraints for image generation."""
+    if brief.get("campaign_brand_kit_excerpt") or brief.get("brand_visual_constraints"):
+        return brief
+
+    filters = [
+        WorkspaceDocument.workspace_id == ws.id,
+        WorkspaceDocument.doc_type == "campaign_brand_kit",
+        WorkspaceDocument.status == "approved",
+    ]
+    if brand_id:
+        filters.append(WorkspaceDocument.brand_id == brand_id)
+    else:
+        filters.append(WorkspaceDocument.brand_id.is_(None))
+
+    doc = (
+        await db.execute(
+            select(WorkspaceDocument)
+            .where(*filters)
+            .order_by(WorkspaceDocument.approved_at.desc().nullslast(), WorkspaceDocument.updated_at.desc())
+            .limit(1)
+        )
+    ).scalar_one_or_none()
+    if not doc:
+        return brief
+
+    excerpt = (doc.content_markdown or "")[:2500]
+    if not excerpt:
+        return brief
+    return {
+        **brief,
+        "campaign_brand_kit_excerpt": excerpt,
+        "brand_visual_constraints": _extract_visual_constraints(excerpt),
+    }
+
+
+def _extract_visual_constraints(markdown: str) -> str:
+    """Small heuristic extractor for image prompt style constraints."""
+    keep: list[str] = []
+    keywords = (
+        "color", "colour", "palette", "visual", "style", "tone", "logo",
+        "typography", "font", "imagery", "photography", "brand voice", "avoid",
+    )
+    for raw in markdown.splitlines():
+        line = raw.strip(" -#\t")
+        if not line:
+            continue
+        lowered = line.lower()
+        if any(k in lowered for k in keywords):
+            keep.append(line)
+        if len("; ".join(keep)) > 700:
+            break
+    return "; ".join(keep)[:900]
+
+
 async def _inject_generated_image(
     brief: dict,
     brand_id,
@@ -122,6 +186,113 @@ async def _inject_generated_image(
     except Exception:
         logger.exception("Image pre-generation failed — continuing without image")
     return brief
+
+
+async def _resolve_drive_attachment(
+    brief: dict,
+    brand_id,
+    db: AsyncSession,
+    settings,
+) -> dict:
+    """If brief contains drive_file_id, download the file from Google Drive and
+    inject it as _image_data_b64 / _image_mime so every channel module receives
+    pre-resolved bytes without needing Drive-specific code."""
+    drive_file_id = str(brief.get("drive_file_id") or "").strip()
+    if not drive_file_id:
+        return brief
+    # Image bytes may be present under either key:
+    #   _image_data_b64 — set by _inject_generated_image (underscore-prefixed pipeline key)
+    #   image_data_b64  — copied from the artifact block by _brief_from_action_artifact
+    #                     (block fields without underscore prefix are preserved)
+    # Normalise to _image_data_b64 so publish modules find the bytes regardless of path.
+    existing_b64 = brief.get("_image_data_b64") or brief.get("image_data_b64")
+    if existing_b64:
+        mime = str(
+            brief.get("_image_mime") or brief.get("mime_type") or brief.get("drive_file_mime") or "image/png"
+        ).strip()
+        return {**brief, "_image_data_b64": existing_b64, "_image_mime": mime}
+    try:
+        from routers.social import get_page_token
+        brand_id_str = str(brand_id) if brand_id else None
+        if not brand_id_str:
+            return brief
+        token, _ = await get_page_token(db, brand_id_str, "google_drive", settings)
+        if not token:
+            logger.warning("Drive attachment present but no google_drive token for brand %s", brand_id_str)
+            return brief
+        import base64
+        import importlib.util
+        import pathlib
+        _drive_dir = str(pathlib.Path(__file__).parent.parent / "plugins" / "google-drive")
+        spec = importlib.util.spec_from_file_location(
+            "_bos_drive_client", pathlib.Path(_drive_dir) / "drive_client.py"
+        )
+        _dc_mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(_dc_mod)  # type: ignore[union-attr]
+        DriveClient = _dc_mod.DriveClient
+        with DriveClient(token) as drive:
+            image_data = drive.download_file(drive_file_id)
+        mime = str(brief.get("drive_file_mime") or "image/jpeg").strip()
+        return {
+            **brief,
+            "_image_data_b64": base64.b64encode(image_data).decode(),
+            "_image_mime": mime,
+        }
+    except Exception:
+        logger.exception("Drive attachment resolution failed for file %s — continuing without image", drive_file_id)
+        return brief
+
+
+async def _resolve_drive_video(
+    brief: dict,
+    brand_id,
+    db: AsyncSession,
+    settings,
+) -> dict:
+    """If video_path is absent, the file has been cleaned up, or a swap was requested,
+    download the video from Google Drive into a fresh temp file.
+
+    Swap detection: the frontend sets _video_swapped=True in overrides when the user
+    picks a different Drive file. Without this marker the resolver would return early
+    when the original local file still exists on disk.
+    """
+    video_path = str(brief.get("video_path") or "").strip()
+    drive_file_id = str(brief.get("drive_file_id") or "").strip()
+    video_swapped = bool(brief.get("_video_swapped"))
+
+    if not drive_file_id:
+        return brief
+    if not video_swapped and video_path and os.path.exists(video_path):
+        return brief  # local copy present, no swap requested — use it
+
+    try:
+        from routers.social import get_page_token
+        brand_id_str = str(brand_id) if brand_id else None
+        if not brand_id_str:
+            return brief
+        token, _ = await get_page_token(db, brand_id_str, "google_drive", settings)
+        if not token:
+            return brief
+
+        import pathlib
+        import importlib.util as _iutil
+        _drive_dir = str(pathlib.Path(__file__).parent.parent / "plugins" / "google-drive")
+        spec = _iutil.spec_from_file_location("_bos_drive_client_video", pathlib.Path(_drive_dir) / "drive_client.py")
+        _dc_mod = _iutil.module_from_spec(spec)  # type: ignore[arg-type]
+        spec.loader.exec_module(_dc_mod)  # type: ignore[union-attr]
+        DriveClient = _dc_mod.DriveClient
+        with DriveClient(token) as drive:
+            video_data = drive.download_file(drive_file_id)
+
+        fd, new_path = tempfile.mkstemp(prefix="bos_video_", suffix=".mp4")
+        os.close(fd)
+        with open(new_path, "wb") as fh:
+            fh.write(video_data)
+        logger.info("Drive video re-downloaded for file %s → %s", drive_file_id, new_path)
+        return {**brief, "video_path": new_path}
+    except Exception:
+        logger.exception("Drive video re-download failed for file %s — continuing without re-download", drive_file_id)
+        return brief
 
 
 # ── PM plugin run sync helpers ────────────────────────────────────────────────
@@ -203,8 +374,20 @@ async def _execute_module(
 
     brief = await inject_channel_credentials(module_id, brief, brand_id, db, settings)
 
-    if module_id != "media.image.generate" and brief.get("image_prompt"):
+    if module_id == "media.image.generate" or brief.get("image_prompt"):
+        brief = await _inject_campaign_brand_kit_style(brief, ws, brand_id, db)
+
+    if module_id != "media.image.generate" and (brief.get("image_prompt") or getattr(module, "requires_generated_image", False)):
         brief = await _inject_generated_image(brief, brand_id, db, settings)
+
+    _drive_mime = str(brief.get("drive_file_mime") or "").lower()
+    if (module_id != "media.image.generate"
+            and brief.get("drive_file_id")
+            and not _drive_mime.startswith("video/")):
+        brief = await _resolve_drive_attachment(brief, brand_id, db, settings)
+
+    if brief.get("video_path") or brief.get("drive_file_id"):
+        brief = await _resolve_drive_video(brief, brand_id, db, settings)
 
     tool_executor = getattr(module, "execute_tool_result", None)
     if callable(tool_executor):
@@ -254,6 +437,29 @@ async def _execute_module(
         ))
 
         run.status = "success" if verdict == "pass" else "partial"
+        block_data = result_data.get("block") or {}
+        # Don't auto-approve artifacts that still require a human publish action.
+        # These arrive on Stream as 'pending' so the operator can review and publish.
+        _allowed_actions = block_data.get("allowed_actions") or []
+        _needs_publish = any(str(a).startswith("publish") for a in _allowed_actions)
+        if run.status == "success" and block_data.get("status") == "succeeded" and not _needs_publish:
+            run.approval_status = "approved"
+        await write_memory_event(
+            db,
+            workspace_id=ws.id,
+            brand_id=brand_id,
+            event_type="artifact_created",
+            topic_tags=[],
+            summary=f"Artifact created by {module_id}",
+            source_ref=f"run:{run.id}",
+            full_record={
+                "run_id": str(run.id),
+                "module_id": module_id,
+                "status": run.status,
+                "approval_status": run.approval_status,
+                "campaign_id": str(campaign_id) if campaign_id else None,
+            },
+        )
         await db.commit()
 
         if brand_id:
@@ -334,6 +540,16 @@ async def _execute_module(
         db.add(failed_run)
         await db.flush()
         db.add(RunTrace(run_id=failed_run.id, routing_json=routing_meta, lineage_json=None))
+        await write_memory_event(
+            db,
+            workspace_id=ws.id,
+            brand_id=brand_id,
+            event_type="run_failed",
+            topic_tags=[],
+            summary=f"Run failed for {module_id}: no eligible candidates",
+            source_ref=f"run:{failed_run.id}",
+            full_record={"run_id": str(failed_run.id), "module_id": module_id, "routing": routing_meta},
+        )
         await db.commit()
         raise BosError(503, "NO_ELIGIBLE_CANDIDATES", "No healthy model options for this capability and policy", routing_meta)
 
@@ -385,6 +601,21 @@ async def _execute_module(
             db.add(RunTrace(run_id=run.id, routing_json=routing_meta,
                             lineage_json={"failed_attempts": failed_attempts}))
             run.status = "failed"
+            await write_memory_event(
+                db,
+                workspace_id=ws.id,
+                brand_id=brand_id,
+                event_type="run_failed",
+                topic_tags=[],
+                summary=f"Run failed for {module_id}: all provider candidates failed",
+                source_ref=f"run:{run.id}",
+                full_record={
+                    "run_id": str(run.id),
+                    "module_id": module_id,
+                    "failed_attempts": failed_attempts,
+                    "last_error": last_error,
+                },
+            )
             await db.commit()
             raise BosError(500, "EXECUTION_FAILED", "All provider candidates failed", {"error": last_error})
         else:
@@ -429,6 +660,24 @@ async def _execute_module(
     ))
 
     run.status = "success" if verdict == "pass" else "partial"
+
+    await write_memory_event(
+        db,
+        workspace_id=ws.id,
+        brand_id=brand_id,
+        event_type="artifact_created",
+        topic_tags=[],
+        summary=f"Artifact created by {module_id}",
+        source_ref=f"run:{run.id}",
+        full_record={
+            "run_id": str(run.id),
+            "module_id": module_id,
+            "status": run.status,
+            "approval_status": run.approval_status,
+            "campaign_id": str(campaign_id) if campaign_id else None,
+            "self_check": verdict,
+        },
+    )
 
     await db.commit()
 
@@ -516,6 +765,8 @@ async def post_run(
 async def list_runs(
     module_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    approval_status: Optional[str] = Query(None),
+    brand_id: Optional[UUID] = Query(None),
     created_after: Optional[datetime] = Query(None),
     created_before: Optional[datetime] = Query(None),
     limit: int = Query(20, ge=1, le=100),
@@ -528,6 +779,10 @@ async def list_runs(
         filters.append(Run.module_id == module_id)
     if status:
         filters.append(Run.status == status)
+    if approval_status:
+        filters.append(Run.approval_status == approval_status)
+    if brand_id:
+        filters.append(Run.brand_id == brand_id)
     if created_after:
         filters.append(Run.created_at >= created_after)
     if created_before:
@@ -589,6 +844,7 @@ async def get_run(
     run_id: str,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
+    settings=Depends(get_settings),
 ):
     run_row = await db.execute(select(Run).where(Run.id == run_id))
     run = run_row.scalar_one_or_none()
@@ -616,6 +872,10 @@ async def get_run(
     routing = trace.routing_json if trace else {}
     lineage = trace.lineage_json if trace else {}
 
+    block = (lineage or {}).get("block")
+    if block and (block.get("video_path") or block.get("drive_file_id")):
+        block = await _resolve_drive_video(block, run.brand_id, db, settings)
+
     return RunResponse(
         run_id=str(run.id),
         module_id=run.module_id,
@@ -628,7 +888,7 @@ async def get_run(
             content=result.content,
             self_check=result.self_check_verdict,
             platform=platform,
-            block=(lineage or {}).get("block"),
+            block=block,
         ) if result else None,
         execution=RunExecutionOut(
             provider=attempt.provider,
@@ -657,6 +917,48 @@ class ApprovalRequest(BaseModel):
     feedback: Optional[str] = None
 
 
+class RunActionRequest(BaseModel):
+    confirm: bool = False
+    overrides: dict = Field(default_factory=dict)
+
+
+class RunActionResponse(BaseModel):
+    source_run_id: str
+    source_approval_status: str
+    action: str
+    action_run: RunResponse
+
+
+def _action_module_from_block(block: dict, action: str) -> str | None:
+    """Resolve an approved artifact action to a module using plugin-provided block metadata."""
+    allowed = block.get("allowed_actions") if isinstance(block, dict) else []
+    action_modules = block.get("action_modules") if isinstance(block, dict) else {}
+    if not isinstance(allowed, list) or action not in allowed:
+        return None
+    if not isinstance(action_modules, dict):
+        return None
+    module_id = action_modules.get(action)
+    return module_id if isinstance(module_id, str) and module_id else None
+
+
+def _brief_from_action_artifact(run: Run, result: RunResult, block: dict, overrides: dict | None = None) -> dict:
+    """Build a minimal action brief from a reviewed artifact block."""
+    brief = {
+        k: v for k, v in (block or {}).items()
+        if k not in {"allowed_actions", "action_modules"} and not k.startswith("_")
+    }
+    brief.update({
+        "source_run_id": str(run.id),
+        "source_module_id": run.module_id,
+        "approved_artifact_type": (block or {}).get("type"),
+    })
+    if not brief.get("message"):
+        brief["message"] = (block or {}).get("message") or result.content
+    if overrides:
+        brief.update(overrides)
+    return brief
+
+
 @router.patch("/runs/{run_id}/approve", status_code=200, summary="Approve a run")
 async def approve_run(
     run_id: str,
@@ -677,6 +979,16 @@ async def approve_run(
     
     run.approval_status = "approved"
     run.feedback = None
+    await write_memory_event(
+        db,
+        workspace_id=run.workspace_id,
+        brand_id=run.brand_id,
+        event_type="artifact_approved",
+        topic_tags=[],
+        summary=f"Artifact approved for {run.module_id}",
+        source_ref=f"run:{run.id}",
+        full_record={"run_id": str(run.id), "module_id": run.module_id, "approval_status": "approved"},
+    )
     await db.commit()
 
     if run.brand_id:
@@ -685,6 +997,159 @@ async def approve_run(
             await _update_pm_task_status(run, "approved", _brand, db, get_settings())
 
     return {"run_id": run_id, "approval_status": "approved"}
+
+
+class AttachImageRequest(BaseModel):
+    drive_file_id: str
+    drive_file_name: str = ""
+    drive_file_mime: str = "image/jpeg"
+
+
+@router.patch("/runs/{run_id}/attach-image", status_code=200, summary="Attach a Drive image to a pending artifact")
+async def attach_image_to_run(
+    run_id: str,
+    body: AttachImageRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Store Drive image metadata in RunTrace.lineage_json.block so the publish
+    action can resolve it at execution time."""
+    try:
+        run_uuid = UUID(run_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid run ID format")
+
+    row = (await db.execute(
+        select(RunTrace).join(Run, Run.id == RunTrace.run_id).where(Run.id == run_uuid)
+    )).scalar_one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Run trace not found")
+
+    lineage = dict(row.lineage_json or {})
+    block = dict(lineage.get("block") or {})
+    block["drive_file_id"] = body.drive_file_id
+    block["drive_file_name"] = body.drive_file_name
+    block["drive_file_mime"] = body.drive_file_mime
+    # Clear any previously set direct image_url so the drive path takes precedence
+    block.pop("image_url", None)
+    lineage["block"] = block
+    row.lineage_json = lineage
+    await db.commit()
+
+    return {"run_id": run_id, "drive_file_id": body.drive_file_id, "drive_file_name": body.drive_file_name}
+
+
+async def execute_declared_run_action(
+    db: AsyncSession,
+    run_id: str,
+    action: str,
+    settings,
+    overrides: dict | None = None,
+) -> RunActionResponse:
+    """Execute an action declared by a persisted artifact block.
+
+    Generic core primitive used by Stream/Workspace and CMO chat. The action
+    target comes from plugin/capability output metadata, not platform routing.
+    """
+    try:
+        run_uuid = UUID(run_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid run ID format")
+
+    row = (await db.execute(
+        select(Run, RunResult, RunTrace)
+        .join(RunResult, RunResult.run_id == Run.id, isouter=True)
+        .join(RunTrace, RunTrace.run_id == Run.id, isouter=True)
+        .where(Run.id == run_uuid)
+    )).one_or_none()
+    if not row:
+        raise HTTPException(status_code=404, detail="Run not found")
+
+    source_run, source_result, source_trace = row
+    if not source_result:
+        raise HTTPException(status_code=404, detail="Run result not found")
+
+    block = ((source_trace.lineage_json or {}).get("block") if source_trace else None) or {}
+    if not isinstance(block, dict):
+        block = {}
+
+    action_module_id = _action_module_from_block(block, action)
+    if not action_module_id:
+        raise HTTPException(status_code=400, detail={"error": {"code": "ACTION_NOT_AVAILABLE", "message": f"Artifact does not declare action '{action}'", "details": {"run_id": run_id}}})
+    if not get_module(action_module_id):
+        raise HTTPException(status_code=404, detail={"error": {"code": "ACTION_MODULE_NOT_FOUND", "message": f"Action module '{action_module_id}' is not installed", "details": None}})
+
+    ws = await get_singleton(db)
+    if not ws:
+        raise HTTPException(status_code=412, detail="Workspace not initialized")
+
+    brand_count = (await db.execute(select(func.count()).select_from(Brand).where(Brand.workspace_id == ws.id))).scalar_one()
+    if brand_count > 0 and not source_run.brand_id:
+        raise HTTPException(status_code=400, detail={"error": {"code": "BRAND_REQUIRED", "message": "Approved external actions require a brand-scoped artifact", "details": {"run_id": run_id}}})
+
+    if source_run.approval_status != "approved":
+        source_run.approval_status = "approved"
+        source_run.feedback = None
+        await write_memory_event(
+            db,
+            workspace_id=source_run.workspace_id,
+            brand_id=source_run.brand_id,
+            event_type="artifact_approved",
+            topic_tags=[],
+            summary=f"Artifact approved for {source_run.module_id}",
+            source_ref=f"run:{source_run.id}",
+            full_record={"run_id": str(source_run.id), "module_id": source_run.module_id, "approval_status": "approved", "action": action},
+        )
+        await db.commit()
+
+    if source_run.brand_id:
+        _brand = (await db.execute(select(Brand).where(Brand.id == source_run.brand_id))).scalar_one_or_none()
+        if _brand:
+            await _update_pm_task_status(source_run, "approved", _brand, db, settings)
+
+    action_brief = _brief_from_action_artifact(source_run, source_result, block, overrides)
+    action_run = await _execute_module(
+        db,
+        ws,
+        action_module_id,
+        action_brief,
+        settings,
+        campaign_id=source_run.campaign_id,
+        brand_id=source_run.brand_id,
+    )
+
+    try:
+        action_uuid = UUID(action_run.run_id)
+        action_row = (await db.execute(select(Run).where(Run.id == action_uuid))).scalar_one_or_none()
+        action_block = action_run.result.block if action_run.result and isinstance(action_run.result.block, dict) else {}
+        action_succeeded = action_block.get("status") == "succeeded" or (action_run.status == "success" and action_block.get("status") != "failed")
+        if action_row and action_succeeded:
+            action_row.approval_status = "approved"
+            await db.commit()
+            action_run.approval_status = "approved"
+    except Exception:
+        logger.exception("Could not mark action run approved for source run %s", source_run.id)
+
+    return RunActionResponse(
+        source_run_id=run_id,
+        source_approval_status="approved",
+        action=action,
+        action_run=action_run,
+    )
+
+
+@router.post("/runs/{run_id}/actions/{action}", response_model=RunActionResponse, summary="Execute an approved artifact action")
+async def execute_run_action(
+    run_id: str,
+    action: str,
+    body: RunActionRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """HTTP wrapper for executing a plugin-declared artifact action."""
+    if not body.confirm:
+        raise HTTPException(status_code=400, detail={"error": {"code": "CONFIRM_REQUIRED", "message": "Set confirm=true to execute an external action", "details": {"action": action}}})
+    return await execute_declared_run_action(db, run_id, action, get_settings(), body.overrides)
 
 
 @router.patch("/runs/{run_id}/reject", status_code=200, summary="Reject a run with feedback")
@@ -708,6 +1173,22 @@ async def reject_run(
     
     run.approval_status = "rejected"
     run.feedback = body.feedback
+    await write_memory_event(
+        db,
+        workspace_id=run.workspace_id,
+        brand_id=run.brand_id,
+        event_type="artifact_dismissed",
+        topic_tags=[],
+        summary=f"Artifact rejected for {run.module_id}",
+        rationale=body.feedback,
+        source_ref=f"run:{run.id}",
+        full_record={
+            "run_id": str(run.id),
+            "module_id": run.module_id,
+            "approval_status": "rejected",
+            "feedback": body.feedback,
+        },
+    )
     await db.commit()
 
     if run.brand_id:
@@ -779,6 +1260,22 @@ async def revise_run(
     new_run = new_run_result.scalar_one_or_none()
     if new_run:
         new_run.parent_run_id = run.id
+        await write_memory_event(
+            db,
+            workspace_id=run.workspace_id,
+            brand_id=run.brand_id,
+            event_type="artifact_revised",
+            topic_tags=[],
+            summary=f"Artifact revised for {run.module_id}",
+            rationale=feedback,
+            source_ref=f"run:{new_run.id}",
+            full_record={
+                "original_run_id": str(run.id),
+                "revised_run_id": str(new_run.id),
+                "module_id": run.module_id,
+                "feedback": feedback,
+            },
+        )
         await db.commit()
     
     return response

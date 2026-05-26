@@ -10,6 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config import get_settings
 from db import get_db
+from memory_events import write_memory_event
 from models.run import Run
 from plugin_loader import get_plugin_vars
 
@@ -66,6 +67,22 @@ async def _handle_clickup(request: Request, body: bytes, db: AsyncSession) -> di
             run = (await db.execute(select(Run).where(Run.pm_task_id == task_id))).scalar_one_or_none()
             if run and run.approval_status != bos_status:
                 run.approval_status = bos_status
+                await write_memory_event(
+                    db,
+                    workspace_id=run.workspace_id,
+                    brand_id=run.brand_id,
+                    event_type="artifact_approved" if bos_status == "approved" else "artifact_dismissed",
+                    topic_tags=[],
+                    summary=f"PM webhook marked {run.module_id} as {bos_status}",
+                    source_ref=f"run:{run.id}",
+                    full_record={
+                        "run_id": str(run.id),
+                        "module_id": run.module_id,
+                        "pm_task_id": task_id,
+                        "webhook_status": new_status_raw,
+                        "approval_status": bos_status,
+                    },
+                )
                 await db.commit()
                 logger.info("Webhook clickup: run %s → approval_status=%s (ClickUp: %s)", run.id, bos_status, new_status_raw)
         else:

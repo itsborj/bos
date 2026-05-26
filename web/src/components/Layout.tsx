@@ -1,15 +1,17 @@
 import { useEffect, useState, useCallback } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { api, clearApiKey } from '../api/client';
 import { UIContext } from '../context/UIContext';
+import { CmoChatProvider } from '../context/CmoChatContext';
 import { WorkspacePanel } from './WorkspacePanel';
 import { SettingsModal } from './SettingsModal';
 import type { ActiveBrand, ActiveCampaign, SettingsTab, WorkspaceTab } from '../context/UIContext';
-import type { RunResponse } from '../api/types';
+import type { BrandResponse, RunResponse } from '../api/types';
 
-const MOBILE_NAV = [
-  { to: '/stream',    label: 'Stream',    icon: '◈' },
-  { to: '/cmo',       label: 'CMO',       icon: '◎' },
-  { to: '/workspace', label: 'Workspace', icon: '⊞' },
+const PROTOTYPE_NAV = [
+  { to: '/stream', label: 'Stream', icon: '▶' },
+  { to: '/cmo', label: 'CMO', icon: '◎' },
+  { to: '/admin/objective-loop', label: 'Admin', icon: '⚙' },
 ];
 
 const CHAT_MESSAGES_KEY = 'bos_chat_messages';
@@ -56,12 +58,52 @@ function readActiveBrand(): ActiveBrand | null {
   return null;
 }
 
+function stripLargeFields(block: unknown): unknown {
+  if (!block || typeof block !== 'object' || Array.isArray(block)) return block;
+  const { image_data_b64: _dropped, ...rest } = block as Record<string, unknown>;
+  return rest;
+}
+
+function sanitizeRunForStorage(run: RunResponse): RunResponse {
+  if (!run.result?.block) return run;
+  return { ...run, result: { ...run.result, block: stripLargeFields(run.result.block) } };
+}
+
+function writePendingRuns(items: Record<string, RunResponse>): void {
+  const sanitized = Object.fromEntries(
+    Object.entries(items)
+      .sort(([, a], [, b]) => +new Date(b.created_at) - +new Date(a.created_at))
+      .slice(0, 50)
+      .map(([k, v]) => [k, sanitizeRunForStorage(v)])
+  );
+  try {
+    localStorage.setItem(PENDING_RUNS_KEY, JSON.stringify(sanitized));
+  } catch {
+    // Still over quota after stripping — clear rather than crash
+    localStorage.removeItem(PENDING_RUNS_KEY);
+  }
+}
+
 function readPendingRuns(): Record<string, RunResponse> {
   try {
     const raw = localStorage.getItem(PENDING_RUNS_KEY);
     if (raw !== null) {
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed as Record<string, RunResponse>;
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+        const valid: Record<string, RunResponse> = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          const createdAt = typeof (v as any)?.created_at === 'string' ? Date.parse((v as any).created_at) : NaN;
+          if (
+            v &&
+            typeof (v as any).module_id === 'string' &&
+            typeof (v as any).run_id === 'string' &&
+            Number.isFinite(createdAt)
+          ) {
+            valid[k] = v as RunResponse;
+          }
+        }
+        return valid;
+      }
       return {};
     }
   } catch {
@@ -81,6 +123,7 @@ function readPendingRuns(): Record<string, RunResponse> {
 }
 
 export function Layout() {
+  const navigate = useNavigate();
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceTab, setWorkspaceTab]   = useState<WorkspaceTab>('campaigns');
   const [selectedRun, setSelectedRun]     = useState<RunResponse | null>(null);
@@ -89,6 +132,7 @@ export function Layout() {
   const [pendingRunItems, setPendingRunItems] = useState<Record<string, RunResponse>>(() => readPendingRuns());
   const [conversations, setConversations] = useState<SavedConversation[]>([]);
   const [activeBrand, setActiveBrand] = useState<ActiveBrand | null>(() => readActiveBrand());
+  const [brands, setBrands] = useState<BrandResponse[]>([]);
   const [activeCampaign, setActiveCampaign] = useState<ActiveCampaign | null>(null);
 
   const refreshConversations = useCallback(() => {
@@ -110,7 +154,19 @@ export function Layout() {
   }, [refreshConversations]);
 
   useEffect(() => {
-    localStorage.setItem(PENDING_RUNS_KEY, JSON.stringify(pendingRunItems));
+    const handle = (e: Event) => {
+      const run = (e as CustomEvent).detail;
+      if (!run?.run_id) return;
+      setPendingRunItems(prev => ({ ...prev, [run.run_id]: run }));
+      // Stream's own side panel handles bos:focus-artifact. Do not open the
+      // WorkspacePanel slide-over here — that surface was retired.
+    };
+    window.addEventListener('bos:focus-artifact', handle);
+    return () => window.removeEventListener('bos:focus-artifact', handle);
+  }, []);
+
+  useEffect(() => {
+    writePendingRuns(pendingRunItems);
   }, [pendingRunItems]);
 
   useEffect(() => {
@@ -120,6 +176,14 @@ export function Layout() {
       localStorage.removeItem(ACTIVE_BRAND_KEY);
     }
   }, [activeBrand]);
+
+  useEffect(() => {
+    let cancelled = false;
+    api.getBrands()
+      .then(res => { if (!cancelled) setBrands(res.brands || []); })
+      .catch(() => { if (!cancelled) setBrands([]); });
+    return () => { cancelled = true; };
+  }, []);
 
   const addPendingRun = useCallback((run: RunResponse) => {
     setPendingRunItems(prev => ({ ...prev, [run.run_id]: run }));
@@ -176,17 +240,9 @@ export function Layout() {
     window.dispatchEvent(new CustomEvent('bos:load-chat', { detail: convo.messages }));
   };
 
-  const deleteConversation = (convo: SavedConversation) => {
-    if (convo.id === 'current') {
-      localStorage.removeItem(CHAT_MESSAGES_KEY);
-      window.dispatchEvent(new CustomEvent('bos:new-chat'));
-    } else {
-      const archived = (readJsonArray(CHAT_CONVERSATIONS_KEY) as SavedConversation[])
-        .filter(item => item.id !== convo.id);
-      localStorage.setItem(CHAT_CONVERSATIONS_KEY, JSON.stringify(archived));
-    }
-    refreshConversations();
-  };
+  void conversations;
+  void startNewChat;
+  void loadConversation;
 
   return (
     <UIContext.Provider value={{
@@ -197,67 +253,40 @@ export function Layout() {
       activeBrand, setActiveBrand,
       activeCampaign, setActiveCampaign,
     }}>
-      <div className="bos-shell">
-
-        {/* ── Sidebar (desktop) ── */}
-        <aside className="bos-sidebar">
-          <div className="bos-sidebar-top">
-            <NavLink to="/cmo" className="bos-logo-link"><span className="bos-logo">Klaroha</span></NavLink>
-            <button className="bos-new-btn" onClick={startNewChat}>New Chat</button>
+      <CmoChatProvider>
+      <div className="bos-proto-shell">
+        <div className="bos-proto-topbar">
+          <NavLink to="/stream" className="bos-proto-logo">Klaroha</NavLink>
+          <label className="bos-proto-brand-chip bos-proto-brand-select" title="Filter CMO and Stream by brand">
+            <span>Brand</span>
+            <select
+              aria-label="Filter by brand"
+              value={activeBrand?.id ?? ''}
+              onChange={e => {
+                const selected = brands.find(brand => brand.id === e.target.value);
+                setActiveBrand(selected ? { id: selected.id, name: selected.name } : null);
+              }}
+            >
+              <option value="">All brands</option>
+              {brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+            </select>
+          </label>
+          <div className="bos-proto-topbar-right">
+            <span className="bos-proto-date">May 20</span>
+            <button
+              className="bos-proto-signout"
+              title="Sign out"
+              onClick={() => { clearApiKey(); navigate('/auth'); }}
+            >
+              Sign out
+            </button>
           </div>
+        </div>
 
-          {activeBrand && (
-            <div className="bos-brand-indicator">
-              <span className="bos-brand-dot" />
-              <span className="bos-brand-name">{activeBrand.name}</span>
-              <button className="bos-brand-clear" onClick={() => setActiveBrand(null)} title="Clear brand context">✕</button>
-            </div>
-          )}
-          {activeCampaign && (
-            <div className="bos-brand-indicator" style={{ background: 'var(--ivory-mid)', border: '1px solid var(--border-light)' }}>
-              <span className="bos-brand-dot" style={{ background: 'var(--warm-gold)' }} />
-              <span className="bos-brand-name" style={{ fontSize: 11, color: 'var(--stone-deep)' }}>{activeCampaign.name}</span>
-              <button className="bos-brand-clear" onClick={() => setActiveCampaign(null)} title="Clear campaign context">✕</button>
-            </div>
-          )}
-
-
-          <div className="bos-sidebar-history">
-            <div className="bos-section-label">This Week</div>
-            {conversations.length === 0 ? (
-              <div className="bos-convo-empty">No saved chats yet.</div>
-            ) : conversations.map(convo => (
-              <div key={convo.id} className={`bos-convo-row ${convo.id === 'current' ? 'active' : ''}`}>
-                <button className="bos-convo-item" onClick={() => loadConversation(convo)} title={convo.label}>
-                  <span className="bos-convo-label">{convo.label}</span>
-                  <span className="bos-convo-date">{convo.date}</span>
-                </button>
-                <button
-                  className="bos-convo-delete"
-                  onClick={() => deleteConversation(convo)}
-                  title="Delete chat"
-                  aria-label={`Delete chat: ${convo.label}`}
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-
-          <NavLink to="/cmo" className={({ isActive }) => `bos-sidebar-link bos-sidebar-chat-link ${isActive ? 'active' : ''}`}>💬 Chat</NavLink>
-
-          <div className="bos-sidebar-bottom">
-            <button className="bos-sidebar-link" onClick={() => openSettings()}>⚙ Settings</button>
-            <button className="bos-sidebar-link" onClick={() => openWorkspace()}>Workspace</button>
-          </div>
-        </aside>
-
-        {/* ── CMO Center ── */}
-        <div className={`bos-center ${workspaceOpen ? 'bos-center-ws-open' : ''}`}>
+        <div className={`bos-proto-page-area ${workspaceOpen ? 'bos-proto-page-area-ws-open' : ''}`}>
           <Outlet />
         </div>
 
-        {/* ── Workspace Panel (fixed right) ── */}
         <WorkspacePanel
           open={workspaceOpen}
           tab={workspaceTab}
@@ -267,7 +296,6 @@ export function Layout() {
           onCloseRun={() => setSelectedRun(null)}
         />
 
-        {/* ── Settings Modal ── */}
         <SettingsModal
           open={settingsOpen}
           tab={settingsTab}
@@ -275,20 +303,24 @@ export function Layout() {
           onClose={() => setSettingsOpen(false)}
         />
 
-        {/* ── Bottom Nav (mobile) ── */}
-        <nav className="bottom-nav">
-          {MOBILE_NAV.map(({ to, label, icon }) => (
-            <NavLink
-              key={to}
-              to={to}
-              className={({ isActive }) => `nav-tab${isActive ? ' active' : ''}`}
-            >
-              <span className="nav-tab-icon">{icon}</span>
-              <span className="nav-tab-label">{label}</span>
-            </NavLink>
-          ))}
-        </nav>
+        <div className="bos-proto-bottom-tabs">
+          <div className="bos-proto-tab-group">
+            {PROTOTYPE_NAV.map(({ to, label, icon }) => (
+              <NavLink
+                key={to}
+                to={to}
+                className={({ isActive }) => `bos-proto-tab${isActive ? ' active' : ''}`}
+              >
+                <span>{icon}</span>
+                <span>{label}</span>
+                {label === 'Stream' && pendingRunList.length > 0 && <span className="bos-proto-tab-badge">{pendingRunList.length}</span>}
+              </NavLink>
+            ))}
+          </div>
+        </div>
+
       </div>
+      </CmoChatProvider>
     </UIContext.Provider>
   );
 }

@@ -1,0 +1,835 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BOS Gate 2 Prototype — Agent A</title>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --panel: #121821;
+      --panel-2: #171f2b;
+      --card: #f7f4ed;
+      --card-2: #fffaf1;
+      --ink: #17202b;
+      --muted: #667085;
+      --line: rgba(23, 32, 43, .12);
+      --cream: #fbf5e8;
+      --green: #25a46a;
+      --green-soft: #ddf8ec;
+      --amber: #c77700;
+      --amber-soft: #fff2cf;
+      --red: #d64f42;
+      --red-soft: #ffe0dc;
+      --blue: #4077ff;
+      --blue-soft: #e5edff;
+      --purple: #7e57c2;
+      --purple-soft: #eee7ff;
+      --shadow: 0 24px 70px rgba(0,0,0,.28);
+      --radius: 26px;
+      --font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: var(--font);
+      background:
+        radial-gradient(circle at top left, rgba(64,119,255,.20), transparent 28rem),
+        radial-gradient(circle at 85% 10%, rgba(37,164,106,.16), transparent 22rem),
+        linear-gradient(140deg, #090d13, #111823 54%, #0d1117);
+      color: white;
+    }
+
+    button { font: inherit; }
+    .app {
+      display: grid;
+      grid-template-columns: 78px 1fr;
+      min-height: 100vh;
+    }
+
+    .rail {
+      padding: 20px 12px;
+      background: rgba(8, 12, 18, .74);
+      border-right: 1px solid rgba(255,255,255,.08);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+    }
+    .logo {
+      width: 46px;
+      height: 46px;
+      display: grid;
+      place-items: center;
+      border-radius: 17px;
+      background: linear-gradient(145deg, #fff5da, #aef4c9);
+      color: #101820;
+      font-weight: 900;
+      letter-spacing: -.05em;
+      box-shadow: 0 14px 35px rgba(37,164,106,.25);
+    }
+    .navBtn {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border: 0;
+      border-radius: 18px;
+      background: transparent;
+      color: rgba(255,255,255,.55);
+      cursor: pointer;
+      transition: .18s ease;
+    }
+    .navBtn.active, .navBtn:hover {
+      color: white;
+      background: rgba(255,255,255,.10);
+    }
+    .rail .spacer { flex: 1; }
+    .buildTag {
+      writing-mode: vertical-rl;
+      transform: rotate(180deg);
+      color: rgba(255,255,255,.42);
+      font-size: 11px;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+
+    .shell {
+      padding: 26px;
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 22px;
+    }
+    .topbar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    .eyebrow {
+      color: rgba(255,255,255,.58);
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: .12em;
+      text-transform: uppercase;
+    }
+    h1 {
+      margin: 4px 0 0;
+      font-size: clamp(28px, 4vw, 48px);
+      letter-spacing: -.055em;
+      line-height: 1;
+    }
+    .topActions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; justify-content: flex-end; }
+    .pill {
+      display: inline-flex;
+      gap: 8px;
+      align-items: center;
+      padding: 10px 13px;
+      border: 1px solid rgba(255,255,255,.12);
+      background: rgba(255,255,255,.07);
+      border-radius: 999px;
+      color: rgba(255,255,255,.80);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: var(--green);
+      box-shadow: 0 0 0 4px rgba(37,164,106,.16);
+    }
+
+    .workspace {
+      display: grid;
+      grid-template-columns: minmax(420px, 1fr) 430px;
+      gap: 22px;
+      align-items: start;
+    }
+
+    .streamBoard, .sidePanel {
+      border-radius: 34px;
+      background: rgba(247,244,237,.98);
+      color: var(--ink);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      border: 1px solid rgba(255,255,255,.65);
+    }
+    .streamHeader {
+      padding: 24px 24px 18px;
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 16px;
+      align-items: start;
+      border-bottom: 1px solid var(--line);
+      background: linear-gradient(160deg, #fffaf0, #f1fff8);
+    }
+    .streamTitle { margin: 0; font-size: 24px; letter-spacing: -.04em; }
+    .streamSubtitle { margin: 7px 0 0; color: var(--muted); line-height: 1.45; max-width: 720px; }
+    .objectiveChip {
+      min-width: 248px;
+      padding: 14px;
+      border-radius: 22px;
+      background: #101820;
+      color: white;
+    }
+    .objectiveChip small { display: block; color: rgba(255,255,255,.55); font-weight: 800; text-transform: uppercase; letter-spacing: .1em; font-size: 10px; }
+    .objectiveChip strong { display: block; margin-top: 5px; line-height: 1.25; font-size: 15px; }
+    .progressBar { margin-top: 12px; height: 8px; background: rgba(255,255,255,.12); border-radius: 999px; overflow: hidden; }
+    .progressBar span { display: block; height: 100%; width: 45%; background: linear-gradient(90deg, #25a46a, #b5f5d0); border-radius: 999px; }
+
+    .filters {
+      display: flex;
+      gap: 10px;
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--line);
+      overflow-x: auto;
+    }
+    .filter {
+      border: 1px solid var(--line);
+      background: white;
+      color: #344054;
+      border-radius: 999px;
+      padding: 9px 12px;
+      font-size: 13px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+    .filter.active { background: #101820; color: white; border-color: #101820; }
+
+    .cards { padding: 20px; display: grid; gap: 16px; }
+    .card {
+      border: 1px solid var(--line);
+      background: var(--card-2);
+      border-radius: var(--radius);
+      padding: 18px;
+      display: grid;
+      gap: 14px;
+      position: relative;
+      cursor: pointer;
+      transition: transform .16s ease, box-shadow .16s ease, border-color .16s ease;
+    }
+    .card:hover, .card.selected {
+      transform: translateY(-2px);
+      box-shadow: 0 18px 38px rgba(16,24,40,.12);
+      border-color: rgba(64,119,255,.32);
+    }
+    .cardTop { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+    .typeRow { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .typeBadge {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      border-radius: 999px;
+      padding: 7px 10px;
+      font-size: 11px;
+      font-weight: 900;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .blocked { background: var(--red-soft); color: #9d2218; }
+    .approval { background: var(--amber-soft); color: #8c4d00; }
+    .judgment { background: var(--blue-soft); color: #254bb5; }
+    .learning { background: var(--green-soft); color: #137a4b; }
+    .planned { background: var(--purple-soft); color: #613ca4; }
+    .sourceState { font-size: 12px; color: var(--muted); font-weight: 800; }
+    .priority { text-align: right; color: #98a2b3; font-size: 12px; font-weight: 900; text-transform: uppercase; letter-spacing: .08em; }
+    .card h2 { margin: 0; font-size: 22px; letter-spacing: -.04em; }
+    .why { margin: 0; color: #475467; line-height: 1.46; font-size: 15px; }
+    .evidence {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+    }
+    .metric {
+      padding: 12px;
+      border-radius: 18px;
+      background: rgba(16,24,40,.045);
+      border: 1px solid rgba(16,24,40,.06);
+    }
+    .metric small { display: block; color: var(--muted); font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .05em; }
+    .metric strong { display: block; margin-top: 4px; font-size: 17px; letter-spacing: -.03em; }
+    .next {
+      padding: 13px 14px;
+      border-radius: 19px;
+      background: white;
+      border: 1px solid var(--line);
+      color: #344054;
+      line-height: 1.42;
+    }
+    .next b { color: var(--ink); }
+    .actions { display: flex; gap: 9px; flex-wrap: wrap; align-items: center; }
+    .action {
+      border: 0;
+      border-radius: 14px;
+      padding: 10px 12px;
+      font-weight: 900;
+      cursor: pointer;
+      background: #101820;
+      color: white;
+      transition: .14s ease;
+    }
+    .action:hover { transform: translateY(-1px); }
+    .action.secondary { background: white; color: #344054; border: 1px solid var(--line); }
+    .action.green { background: var(--green); }
+    .action.amber { background: #d98a16; }
+    .action.red { background: #d64f42; }
+    .approvalBoundary {
+      color: #667085;
+      font-size: 12px;
+      line-height: 1.4;
+      padding-top: 2px;
+    }
+
+    .sidePanel {
+      position: sticky;
+      top: 26px;
+      max-height: calc(100vh - 52px);
+      display: flex;
+      flex-direction: column;
+    }
+    .tabs {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      padding: 10px;
+      gap: 8px;
+      background: #111820;
+    }
+    .tab {
+      border: 0;
+      border-radius: 16px;
+      padding: 11px 8px;
+      background: transparent;
+      color: rgba(255,255,255,.56);
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .tab.active { background: white; color: #101820; }
+    .panelBody { padding: 20px; overflow: auto; }
+    .panelSection { display: none; }
+    .panelSection.active { display: block; }
+    .panelKicker { color: var(--muted); font-size: 12px; font-weight: 900; letter-spacing: .10em; text-transform: uppercase; }
+    .panelTitle { margin: 8px 0 8px; font-size: 25px; letter-spacing: -.05em; }
+    .panelText { color: #475467; line-height: 1.5; margin: 0 0 14px; }
+    .contextBox {
+      border: 1px solid var(--line);
+      background: white;
+      border-radius: 22px;
+      padding: 15px;
+      margin: 13px 0;
+    }
+    .contextBox h3 { margin: 0 0 8px; font-size: 15px; letter-spacing: -.02em; }
+    .bullets { margin: 0; padding-left: 18px; color: #475467; line-height: 1.5; }
+    .bullets li { margin: 5px 0; }
+    .chatStack { display: grid; gap: 11px; margin: 14px 0; }
+    .bubble {
+      padding: 13px 14px;
+      border-radius: 19px;
+      max-width: 96%;
+      line-height: 1.45;
+      font-size: 14px;
+    }
+    .bubble.cmo { background: #101820; color: white; border-bottom-left-radius: 7px; }
+    .bubble.operator { background: #e9f1ff; color: #18346b; justify-self: end; border-bottom-right-radius: 7px; }
+    .quickGrid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; margin-top: 12px; }
+    .quickGrid .action { width: 100%; }
+
+    .setupList { display: grid; gap: 10px; margin-top: 14px; }
+    .setupItem {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      gap: 11px;
+      align-items: center;
+      padding: 13px;
+      border-radius: 18px;
+      background: white;
+      border: 1px solid var(--line);
+    }
+    .statusDot { width: 12px; height: 12px; border-radius: 50%; background: var(--green); }
+    .statusDot.warn { background: var(--amber); }
+    .statusDot.miss { background: var(--red); }
+    .setupItem strong { display: block; font-size: 14px; }
+    .setupItem small { color: var(--muted); display: block; margin-top: 2px; }
+    .miniBtn { border: 1px solid var(--line); background: white; border-radius: 12px; padding: 8px 9px; font-size: 12px; font-weight: 900; cursor: pointer; }
+
+    .flowStrip {
+      margin-top: 16px;
+      border-radius: 28px;
+      padding: 18px;
+      background: rgba(255,255,255,.08);
+      border: 1px solid rgba(255,255,255,.10);
+      color: rgba(255,255,255,.84);
+    }
+    .flowStrip h3 { margin: 0 0 12px; font-size: 16px; }
+    .flowSteps { display: flex; gap: 8px; flex-wrap: wrap; }
+    .flowStep { padding: 9px 11px; border-radius: 999px; background: rgba(255,255,255,.10); font-size: 12px; font-weight: 900; }
+    .flowStep.live { background: rgba(37,164,106,.22); color: #c9f8de; }
+
+    .modalBack {
+      position: fixed;
+      inset: 0;
+      background: rgba(6,9,13,.62);
+      display: none;
+      place-items: center;
+      z-index: 50;
+      padding: 20px;
+    }
+    .modalBack.active { display: grid; }
+    .modal {
+      width: min(620px, 100%);
+      border-radius: 30px;
+      background: var(--cream);
+      color: var(--ink);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .modalHead { padding: 21px 22px; border-bottom: 1px solid var(--line); background: white; display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+    .modalHead h2 { margin: 0; letter-spacing: -.04em; }
+    .close { border: 0; width: 36px; height: 36px; border-radius: 13px; background: #f2f4f7; cursor: pointer; font-weight: 900; }
+    .modalBody { padding: 22px; display: grid; gap: 12px; }
+    textarea, input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 16px;
+      padding: 12px;
+      font: inherit;
+      background: white;
+      color: var(--ink);
+    }
+    textarea { min-height: 96px; resize: vertical; }
+    label { font-weight: 900; font-size: 13px; color: #344054; }
+
+    .toast {
+      position: fixed;
+      right: 24px;
+      bottom: 24px;
+      background: #101820;
+      color: white;
+      border-radius: 20px;
+      padding: 14px 16px;
+      box-shadow: var(--shadow);
+      display: none;
+      z-index: 60;
+      max-width: 360px;
+      line-height: 1.35;
+    }
+    .toast.active { display: block; animation: pop .2s ease; }
+    @keyframes pop { from { transform: translateY(8px); opacity: .4; } to { transform: translateY(0); opacity: 1; } }
+
+    @media (max-width: 1080px) {
+      .app { grid-template-columns: 1fr; }
+      .rail { position: static; height: auto; flex-direction: row; justify-content: space-between; padding: 12px 16px; }
+      .rail .spacer, .buildTag { display: none; }
+      .workspace { grid-template-columns: 1fr; }
+      .sidePanel { position: static; max-height: none; }
+      .objectiveChip { min-width: 0; }
+    }
+    @media (max-width: 680px) {
+      .shell { padding: 14px; }
+      .topbar, .streamHeader { grid-template-columns: 1fr; display: grid; }
+      .evidence { grid-template-columns: 1fr; }
+      .quickGrid { grid-template-columns: 1fr; }
+      .card h2 { font-size: 19px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="rail" aria-label="Primary navigation">
+      <div class="logo">K</div>
+      <button class="navBtn active" title="Stream">◈</button>
+      <button class="navBtn" title="CMO">✦</button>
+      <button class="navBtn" title="Admin">⚙</button>
+      <div class="spacer"></div>
+      <div class="buildTag">Gate 2 UX</div>
+    </aside>
+
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <div class="eyebrow">BOS / Gate 2 / Gmail-only loop</div>
+          <h1>Today’s judgment queue</h1>
+        </div>
+        <div class="topActions">
+          <div class="pill"><span class="dot"></span> Gmail connected</div>
+          <div class="pill">Klaroha active</div>
+          <div class="pill">Objective: active</div>
+        </div>
+      </header>
+
+      <section class="workspace">
+        <div>
+          <section class="streamBoard" aria-label="Gate 2 Stream">
+            <div class="streamHeader">
+              <div>
+                <h2 class="streamTitle">Stream is not an inbox. It is the attention layer.</h2>
+                <p class="streamSubtitle">Cards are ranked by business decision readiness: blocked → approval → judgment → learning. This prototype only proves the Gmail objective loop.</p>
+              </div>
+              <div class="objectiveChip">
+                <small>Active objective</small>
+                <strong>Generate $40k pipeline from dormant prospects this quarter</strong>
+                <div class="progressBar"><span></span></div>
+                <small style="margin-top:8px;">$18k proposal / $40k target</small>
+              </div>
+            </div>
+
+            <div class="filters">
+              <button class="filter active">Needs attention</button>
+              <button class="filter">Klaroha</button>
+              <button class="filter">Gmail</button>
+              <button class="filter">Memory-backed</button>
+              <button class="filter">Gate 2 only</button>
+            </div>
+
+            <div class="cards">
+              <article class="card selected" data-card="artifact" tabindex="0">
+                <div class="cardTop">
+                  <div class="typeRow">
+                    <span class="typeBadge approval">pending_artifact</span>
+                    <span class="sourceState">Gmail — live connector</span>
+                  </div>
+                  <div class="priority">Needs approval</div>
+                </div>
+                <h2>Reactivation sequence v2 is ready for review</h2>
+                <p class="why">BOS rebuilt the dormant-prospect sequence around the April learning: case-study lead outperformed feature-benefit lead by 13 points.</p>
+                <div class="evidence">
+                  <div class="metric"><small>Memory</small><strong>21% reply rate</strong></div>
+                  <div class="metric"><small>Audience</small><strong>47 dormant contacts</strong></div>
+                  <div class="metric"><small>Schedule</small><strong>Tue 9 AM default</strong></div>
+                </div>
+                <div class="next"><b>Recommended next:</b> Review the subject-line preview, then approve or revise. BOS cannot send until approval.</div>
+                <div class="actions">
+                  <button class="action green" data-act="approve">Approve</button>
+                  <button class="action secondary" data-act="revise">Revise</button>
+                  <button class="action secondary" data-act="ask">Ask CMO</button>
+                  <button class="action secondary" data-act="dismiss">Dismiss</button>
+                </div>
+                <div class="approvalBoundary">Approval boundary: BOS may prepare and monitor. BOS may not send or alter approved copy without explicit approval.</div>
+              </article>
+
+              <article class="card" data-card="decision" tabindex="0">
+                <div class="cardTop">
+                  <div class="typeRow">
+                    <span class="typeBadge judgment">decision_brief</span>
+                    <span class="sourceState">Memory + manual outcomes + Gmail context</span>
+                  </div>
+                  <div class="priority">Needs judgment</div>
+                </div>
+                <h2>Next best action: send smaller proof-led batch</h2>
+                <p class="why">The first campaign created pipeline, but no-shows clustered among older contacts. A smaller proof-led batch lets BOS test timing before scaling the whole list.</p>
+                <div class="evidence">
+                  <div class="metric"><small>Outcome</small><strong>4 calls booked</strong></div>
+                  <div class="metric"><small>Risk</small><strong>2 no-shows</strong></div>
+                  <div class="metric"><small>Confidence</small><strong>Directional .68</strong></div>
+                </div>
+                <div class="next"><b>Recommended next:</b> Approve a 15-contact send first. If replies hold above 18%, send the remaining 32 contacts.</div>
+                <div class="actions">
+                  <button class="action" data-act="investigate">Investigate</button>
+                  <button class="action secondary" data-act="ask">Ask CMO</button>
+                  <button class="action secondary" data-act="dismiss">Dismiss</button>
+                </div>
+                <div class="approvalBoundary">Approval boundary: BOS can recommend and prepare a batch. BOS cannot change send size or schedule without approval.</div>
+              </article>
+
+              <article class="card" data-card="outcome" tabindex="0">
+                <div class="cardTop">
+                  <div class="typeRow">
+                    <span class="typeBadge learning">outcome</span>
+                    <span class="sourceState">manual — operator reported</span>
+                  </div>
+                  <div class="priority">Learning confirmed</div>
+                </div>
+                <h2>April reactivation outcome recorded; memory updated</h2>
+                <p class="why">The operator registered the closed result. BOS wrote the outcome to memory and used it to change the current recommendation.</p>
+                <div class="evidence">
+                  <div class="metric"><small>Replies</small><strong>10 / 47</strong></div>
+                  <div class="metric"><small>Booked</small><strong>4 calls</strong></div>
+                  <div class="metric"><small>Pipeline</small><strong>$18k proposal</strong></div>
+                </div>
+                <div class="next"><b>Recommended next:</b> None on this card. Sequence v2 already incorporates the learning.</div>
+                <div class="actions">
+                  <button class="action secondary" data-act="ask">Ask CMO</button>
+                  <button class="action secondary" data-act="dismiss">Dismiss</button>
+                </div>
+                <div class="approvalBoundary">Memory update: case-study angle promoted; feature-benefit angle deprioritized; no-show timing variant flagged.</div>
+              </article>
+
+              <article class="card" data-card="blocker" tabindex="0">
+                <div class="cardTop">
+                  <div class="typeRow">
+                    <span class="typeBadge blocked">setup_blocker</span>
+                    <span class="sourceState">list source — requires setup</span>
+                  </div>
+                  <div class="priority">Blocked if scaling</div>
+                </div>
+                <h2>Dormant list import is stale for the next batch</h2>
+                <p class="why">Gmail is connected, but the dormant-prospect source has not been refreshed since April 24. Scaling the next send without refresh risks contacting converted or disqualified prospects.</p>
+                <div class="evidence">
+                  <div class="metric"><small>Gmail</small><strong>Connected</strong></div>
+                  <div class="metric"><small>List age</small><strong>26 days</strong></div>
+                  <div class="metric"><small>Blocked action</small><strong>Full-list send</strong></div>
+                </div>
+                <div class="next"><b>Recommended next:</b> Refresh or confirm the list before approving the remaining 32 contacts.</div>
+                <div class="actions">
+                  <button class="action amber" data-act="configure">Configure</button>
+                  <button class="action secondary" data-act="ask">Ask CMO</button>
+                  <button class="action secondary" data-act="dismiss">Dismiss</button>
+                </div>
+                <div class="approvalBoundary">BOS can flag stale setup. BOS cannot infer list freshness or skip the blocker silently.</div>
+              </article>
+            </div>
+          </section>
+
+          <section class="flowStrip" aria-label="Gate 2 flow">
+            <h3>Gate 2 flow stitch</h3>
+            <div class="flowSteps">
+              <span class="flowStep live">Objective</span>
+              <span class="flowStep live">Gmail artifact</span>
+              <span class="flowStep">Approval</span>
+              <span class="flowStep">Send/register</span>
+              <span class="flowStep">Outcome</span>
+              <span class="flowStep">Memory</span>
+              <span class="flowStep">Better brief</span>
+            </div>
+          </section>
+        </div>
+
+        <aside class="sidePanel" aria-label="Context panel">
+          <div class="tabs">
+            <button class="tab active" data-tab="cmo">CMO</button>
+            <button class="tab" data-tab="admin">Admin</button>
+            <button class="tab" data-tab="contract">Contract</button>
+          </div>
+          <div class="panelBody">
+            <section class="panelSection active" id="cmoPanel">
+              <div class="panelKicker">Contextual CMO</div>
+              <h2 class="panelTitle" id="cmoTitle">Reactivation sequence v2</h2>
+              <p class="panelText" id="cmoIntro">Opened from the selected Stream card. The CMO starts with objective, evidence, memory, and approval boundary already loaded.</p>
+              <div class="contextBox">
+                <h3>Loaded context</h3>
+                <ul class="bullets" id="contextList">
+                  <li>Objective: generate $40k pipeline from dormant prospects.</li>
+                  <li>Memory: case-study lead beat feature-benefit lead.</li>
+                  <li>Boundary: approval required before Gmail send.</li>
+                </ul>
+              </div>
+              <div class="chatStack" id="chatStack">
+                <div class="bubble cmo">I’d review this now.<br><br>The sequence uses the April winning angle, and the next send window is Tuesday morning.</div>
+                <div class="bubble operator">Why not send the whole list?</div>
+                <div class="bubble cmo">Because the list source is stale.<br><br>Approve the 15-contact proof batch first. Refresh the remaining 32 before scale.</div>
+              </div>
+              <div class="quickGrid">
+                <button class="action secondary" data-act="why">Explain why</button>
+                <button class="action secondary" data-act="revise">Revise artifact</button>
+                <button class="action secondary" data-act="record">Record outcome</button>
+                <button class="action secondary" data-act="handoff">Handoff brief</button>
+              </div>
+            </section>
+
+            <section class="panelSection" id="adminPanel">
+              <div class="panelKicker">Admin / Setup only</div>
+              <h2 class="panelTitle">Loop readiness</h2>
+              <p class="panelText">Admin is not a campaign dashboard. It only appears when setup/configuration blocks the Gmail loop.</p>
+              <div class="setupList">
+                <div class="setupItem"><span class="statusDot"></span><div><strong>Gmail OAuth</strong><small>Connected for Klaroha</small></div><button class="miniBtn">View</button></div>
+                <div class="setupItem"><span class="statusDot"></span><div><strong>Brand context</strong><small>Ready: offer, ICP, proof points</small></div><button class="miniBtn">Audit</button></div>
+                <div class="setupItem"><span class="statusDot warn"></span><div><strong>Dormant prospect source</strong><small>Stale by 26 days</small></div><button class="miniBtn">Refresh</button></div>
+                <div class="setupItem"><span class="statusDot"></span><div><strong>Active objective</strong><small>$40k pipeline, Q2</small></div><button class="miniBtn">Edit</button></div>
+                <div class="setupItem"><span class="statusDot"></span><div><strong>Memory / handoff audit</strong><small>Recent outcome and rationale available</small></div><button class="miniBtn">Open</button></div>
+              </div>
+            </section>
+
+            <section class="panelSection" id="contractPanel">
+              <div class="panelKicker">Allowed / forbidden</div>
+              <h2 class="panelTitle">Gate 2 guardrails</h2>
+              <div class="contextBox">
+                <h3>Allowed in this prototype</h3>
+                <ul class="bullets">
+                  <li>Visible decision_brief and outcome Stream cards.</li>
+                  <li>CMO explanation from selected card context.</li>
+                  <li>Manual outcome recording with memory confirmation.</li>
+                  <li>Admin only for blocked Gmail/list/brand setup.</li>
+                </ul>
+              </div>
+              <div class="contextBox">
+                <h3>Forbidden in Gate 2 UX</h3>
+                <ul class="bullets">
+                  <li>No second connector or omnichannel tabs.</li>
+                  <li>No Watchpoints, Council, or analytics cockpit.</li>
+                  <li>No inbox-style Stream.</li>
+                  <li>No auto-send affordance without approval boundary.</li>
+                  <li>No full email body pasted into Stream cards.</li>
+                </ul>
+              </div>
+            </section>
+          </div>
+        </aside>
+      </section>
+    </main>
+  </div>
+
+  <div class="modalBack" id="outcomeModal" role="dialog" aria-modal="true" aria-label="Record outcome">
+    <div class="modal">
+      <div class="modalHead">
+        <div>
+          <div class="panelKicker">Manual evaluate_outcome v0</div>
+          <h2>Record outcome</h2>
+        </div>
+        <button class="close" data-close>×</button>
+      </div>
+      <div class="modalBody">
+        <label>Outcome summary</label>
+        <input value="3 replies, 1 booked call from 15-contact proof batch" />
+        <label>What should BOS remember?</label>
+        <textarea>Proof-led subject line produced faster replies. Keep case-study lead. Test Tuesday 9 AM timing again before scaling full list.</textarea>
+        <label>Confidence source</label>
+        <input value="manually_reported" />
+        <div class="actions">
+          <button class="action green" data-save-outcome>Save outcome + write memory</button>
+          <button class="action secondary" data-close>Cancel</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast">Saved.</div>
+
+  <script>
+    const cardData = {
+      artifact: {
+        title: 'Reactivation sequence v2',
+        intro: 'Opened from the pending artifact. CMO has the objective, artifact preview, memory rationale, and approval boundary loaded.',
+        context: [
+          'Objective: generate $40k pipeline from dormant prospects.',
+          'Artifact: 3-email Gmail reactivation sequence.',
+          'Memory: case-study lead produced 21% reply rate in April.',
+          'Boundary: BOS cannot send until explicit approval.'
+        ],
+        cmo: 'I’d review this now.<br><br>The sequence uses the April winning angle, and the next send window is Tuesday morning.'
+      },
+      decision: {
+        title: 'Decision brief: proof batch first',
+        intro: 'Opened from the analyst card. CMO explains the hypothesis ranking, confidence, and do-not list without exposing system internals.',
+        context: [
+          'Top hypothesis: proof-led batch reduces stale-list risk.',
+          'Evidence: 4 calls booked, but 2 no-shows from older contacts.',
+          'Confidence: directional .68; manual outcomes are useful but incomplete.',
+          'Do-not: do not scale full list until source freshness is confirmed.'
+        ],
+        cmo: 'The recommendation is not “send less.”<br><br>It is “learn before scaling.” The first batch protects deliverability and tells us if timing still works.'
+      },
+      outcome: {
+        title: 'Outcome: memory updated',
+        intro: 'Opened from the learning card. CMO can show what changed in memory and why the next recommendation is different.',
+        context: [
+          'Outcome: 10 replies, 4 calls, $18k proposal-stage pipeline.',
+          'Memory promoted: case-study angle.',
+          'Memory demoted: generic feature-benefit lead.',
+          'Next recommendation changed: smaller proof batch before scale.'
+        ],
+        cmo: 'This is the learning loop working.<br><br>The next recommendation changed because BOS now knows which angle created pipeline and where no-show risk appeared.'
+      },
+      blocker: {
+        title: 'Setup blocker: stale list source',
+        intro: 'Opened from a setup blocker. CMO should route to Admin configuration instead of pretending it can solve missing setup in chat.',
+        context: [
+          'Gmail: connected and ready.',
+          'Brand context: ready.',
+          'Dormant list: stale by 26 days.',
+          'Blocked action: full-list send to remaining 32 contacts.'
+        ],
+        cmo: 'This is a setup issue, not a strategy issue.<br><br>Refresh or confirm the list before scaling the remaining contacts.'
+      }
+    };
+
+    const cards = document.querySelectorAll('.card');
+    const cmoTitle = document.getElementById('cmoTitle');
+    const cmoIntro = document.getElementById('cmoIntro');
+    const contextList = document.getElementById('contextList');
+    const chatStack = document.getElementById('chatStack');
+    const toast = document.getElementById('toast');
+    const modal = document.getElementById('outcomeModal');
+
+    function showToast(text) {
+      toast.textContent = text;
+      toast.classList.add('active');
+      setTimeout(() => toast.classList.remove('active'), 2600);
+    }
+
+    function selectCard(key) {
+      cards.forEach(c => c.classList.toggle('selected', c.dataset.card === key));
+      const data = cardData[key];
+      cmoTitle.textContent = data.title;
+      cmoIntro.textContent = data.intro;
+      contextList.innerHTML = data.context.map(item => `<li>${item}</li>`).join('');
+      chatStack.innerHTML = `<div class="bubble cmo">${data.cmo}</div>`;
+      activateTab('cmo');
+    }
+
+    function activateTab(name) {
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === name));
+      document.querySelectorAll('.panelSection').forEach(p => p.classList.remove('active'));
+      document.getElementById(name + 'Panel').classList.add('active');
+    }
+
+    cards.forEach(card => {
+      card.addEventListener('click', event => {
+        if (event.target.closest('button')) return;
+        selectCard(card.dataset.card);
+      });
+      card.addEventListener('keydown', event => {
+        if (event.key === 'Enter') selectCard(card.dataset.card);
+      });
+    });
+
+    document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => activateTab(tab.dataset.tab)));
+
+    document.body.addEventListener('click', event => {
+      const action = event.target.closest('[data-act]');
+      if (!action) return;
+      const act = action.dataset.act;
+      if (act === 'ask' || act === 'why') {
+        activateTab('cmo');
+        showToast('CMO opened with selected card context.');
+      }
+      if (act === 'configure') {
+        activateTab('admin');
+        showToast('Admin opened at the blocked setup target.');
+      }
+      if (act === 'record') {
+        modal.classList.add('active');
+      }
+      if (act === 'approve') {
+        showToast('Approved for Gmail send. Approval boundary recorded in memory.');
+        document.querySelectorAll('.flowStep')[2].classList.add('live');
+      }
+      if (act === 'revise') {
+        activateTab('cmo');
+        chatStack.insertAdjacentHTML('beforeend', '<div class="bubble operator">Revise this to be more direct and less case-study heavy.</div><div class="bubble cmo">Got it.<br><br>I’ll keep the proven proof angle, but make the opener shorter and remove the heavy setup.</div>');
+      }
+      if (act === 'handoff') {
+        activateTab('cmo');
+        chatStack.insertAdjacentHTML('beforeend', '<div class="bubble operator">Generate handoff brief.</div><div class="bubble cmo">Current state:<br>• Objective active: $40k dormant pipeline<br>• $18k in proposal-stage pipeline recorded<br>• Next decision: approve 15-contact proof batch<br>• Blocker: stale remaining list<br>• First action: approve proof batch or refresh list</div>');
+      }
+      if (act === 'investigate') showToast('Investigation would open evidence detail. No automatic action taken.');
+      if (act === 'dismiss') showToast('Dismissed from attention. Memory can record decision_not_to_act when rationale is provided.');
+    });
+
+    document.querySelectorAll('[data-close]').forEach(btn => btn.addEventListener('click', () => modal.classList.remove('active')));
+    document.querySelector('[data-save-outcome]').addEventListener('click', () => {
+      modal.classList.remove('active');
+      document.querySelectorAll('.flowStep')[4].classList.add('live');
+      document.querySelectorAll('.flowStep')[5].classList.add('live');
+      document.querySelectorAll('.flowStep')[6].classList.add('live');
+      selectCard('outcome');
+      showToast('OutcomeRecord created. MemoryEvent(type=outcome_recorded) written.');
+    });
+    modal.addEventListener('click', event => { if (event.target === modal) modal.classList.remove('active'); });
+  </script>
+</body>
+</html>

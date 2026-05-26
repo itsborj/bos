@@ -75,17 +75,29 @@ jobs:
     steps:
       - name: SSH deploy to staging.klaroha.com
         uses: appleboy/ssh-action@v1
+        env:
+          STAGING_ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
         with:
           host: ${{ secrets.VDS_HOST }}
           username: ${{ secrets.VDS_USER }}
           key: ${{ secrets.VDS_DEPLOY_KEY }}
+          envs: STAGING_ENV_FILE
           script: |
-            set -e
-            cd ${{ secrets.STAGING_PATH }}
-            git pull origin staging
-            docker compose -p staging -f docker-compose.staging.yml up --build -d
-            docker compose -p staging -f docker-compose.staging.yml exec -T api alembic upgrade head
-            echo "Staging deploy complete at $(date)"
+            set -euo pipefail
+            STAGING_PATH=${{ secrets.STAGING_PATH }}
+            if [ ! -d "$STAGING_PATH/.git" ]; then
+              echo "Repo missing — cloning fresh"
+              rm -rf "$STAGING_PATH"
+              git clone https://github.com/itsborj/bos.git "$STAGING_PATH"
+            fi
+            if [ ! -f "$STAGING_PATH/.env.staging" ]; then
+              echo "Writing .env.staging from secret"
+              printf '%s' "$STAGING_ENV_FILE" > "$STAGING_PATH/.env.staging"
+            fi
+            cd "$STAGING_PATH"
+            git fetch origin
+            git reset --hard origin/staging
+            bash deploy-staging.sh
 
   # ── Deploy to production ─────────────────────────────────────────────────
   deploy-production:

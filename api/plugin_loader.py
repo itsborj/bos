@@ -226,6 +226,24 @@ async def inject_channel_credentials(
                         credentials["access_token"] = token
                         first = False
 
+            # Google Drive: surface the operator-picked root folder so storage
+            # capabilities know where to write. Stored on the connection's token_meta.
+            if "google_drive" in manifest.requires_social_connection:
+                from models.social import SocialConnection
+                from sqlalchemy import select as _select
+
+                drive_row = (await db.execute(
+                    _select(SocialConnection).where(
+                        SocialConnection.brand_id == resolved_brand_id,
+                        SocialConnection.platform == "google_drive",
+                        SocialConnection.status == "connected",
+                    ).order_by(SocialConnection.created_at.desc()).limit(1)
+                )).scalar_one_or_none()
+                meta = (drive_row.token_meta_json or {}) if drive_row else {}
+                if meta.get("drive_root_folder_id"):
+                    credentials["drive_root_folder_id"] = meta["drive_root_folder_id"]
+                    credentials["drive_root_name"] = meta.get("drive_root_name")
+
     if manifest.requires_platform_vars or True:
         db_vars = await _load_db_plugin_vars(db, manifest.plugin_id, settings)
         # Inject all stored DB vars (required + extras like CLICKUP_TEAM_ID saved alongside token)

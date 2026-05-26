@@ -1,45 +1,35 @@
 import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useUI } from '../context/UIContext';
+import { useCmoChat } from '../context/CmoChatContext';
 import { BlockRenderer } from '../components/blocks/BlockRenderer';
-import { ReportsView } from '../pages/ReportsView';
 import { SurfaceProvider } from '../surfaces/SurfaceContext';
 import type { ArtifactRef } from '../utils/artifacts';
 import { artifactStatusLabel, buildArtifactRef } from '../utils/artifacts';
-import type { ChatHistoryItem, RunResponse } from '../api/types';
+import type { HandoffBriefOut, ObjectiveOut } from '../api/types';
 import type { BriefingBlock } from '../types/stream';
 
-type MsgRole = 'ai' | 'user';
-type ViewMode = 'chat' | 'reports';
+const CARD_TYPE_LABELS: Record<string, string> = {
+  decision_brief: 'Decision Brief',
+  pending_artifact: 'Pending Artifact',
+  outcome: 'Outcome',
+  setup_blocker: 'Setup Blocker',
+};
 
-interface Msg {
-  id: string;
-  role: MsgRole;
-  text?: string;
-  artifactRef?: ArtifactRef;
-  runResult?: RunResponse; // legacy persisted chat messages; rendered as artifact refs only
-  time: Date;
-}
+const OUTCOME_TYPES = [
+  { value: 'reply_received', label: 'Reply received' },
+  { value: 'meeting_booked', label: 'Meeting booked' },
+  { value: 'deal_opened', label: 'Deal opened' },
+  { value: 'no_response', label: 'No response' },
+  { value: 'unsubscribed', label: 'Unsubscribed' },
+  { value: 'other', label: 'Other' },
+];
 
-const STORAGE_KEY = 'bos_chat_messages';
-
-function uid() { return Math.random().toString(36).slice(2); }
 function fmtTime(d: Date) { return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
-
-function normalizeStoredMessage(m: any): Msg {
-  const artifactRef = m.artifactRef || (m.runResult ? buildArtifactRef(m.runResult as RunResponse) : undefined);
-  return { ...m, artifactRef, runResult: undefined, time: new Date(m.time) };
-}
-
-function buildHistory(msgs: Msg[]): ChatHistoryItem[] {
-  return msgs
-    .filter(m => m.text && m.text !== '__typing__')
-    .map(m => ({ role: m.role, text: m.text! }));
-}
 
 function textToBlock(text: string): BriefingBlock {
   return {
-    id: uid(),
+    id: Math.random().toString(36).slice(2),
     timestamp: new Date().toISOString(),
     priority: 'normal',
     category: 'status',
@@ -66,122 +56,192 @@ function ArtifactReferenceCard({ refData, onOpen }: { refData: ArtifactRef; onOp
   );
 }
 
+function OutcomeFormMessage({
+  msgId,
+  objective,
+  onConfirm,
+  onCancel,
+}: {
+  msgId: string;
+  objective: ObjectiveOut | null;
+  onConfirm: (msgId: string, outcomeType: string, value: string, notes: string, objectiveSummary?: string) => Promise<void>;
+  onCancel: (msgId: string) => void;
+}) {
+  const [outcomeType, setOutcomeType] = useState('reply_received');
+  const [value, setValue] = useState('');
+  const [notes, setNotes] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit() {
+    setSubmitting(true);
+    await onConfirm(msgId, outcomeType, value, notes, objective?.summary);
+  }
+
+  return (
+    <div className="bos-outcome-form">
+      {objective && (
+        <div className="bos-outcome-form-obj">
+          <span className="bos-outcome-form-obj-label">Objective</span>
+          <span className="bos-outcome-form-obj-title">{objective.summary}</span>
+        </div>
+      )}
+      <div className="bos-outcome-form-field">
+        <div className="bos-outcome-form-label">Outcome type</div>
+        <select
+          className="bos-outcome-form-select"
+          value={outcomeType}
+          onChange={e => setOutcomeType(e.target.value)}
+          disabled={submitting}
+        >
+          {OUTCOME_TYPES.map(t => (
+            <option key={t.value} value={t.value}>{t.label}</option>
+          ))}
+        </select>
+      </div>
+      <div className="bos-outcome-form-field">
+        <div className="bos-outcome-form-label">Metric / value</div>
+        <input
+          className="bos-outcome-form-input"
+          type="text"
+          placeholder="e.g. 35% open rate, 2 replies"
+          value={value}
+          onChange={e => setValue(e.target.value)}
+          disabled={submitting}
+        />
+      </div>
+      <div className="bos-outcome-form-field">
+        <div className="bos-outcome-form-label">Notes for memory <span style={{ opacity: 0.55 }}>(optional)</span></div>
+        <textarea
+          className="bos-outcome-form-textarea"
+          placeholder="Anything BOS should remember about this result..."
+          value={notes}
+          onChange={e => setNotes(e.target.value)}
+          rows={2}
+          disabled={submitting}
+        />
+      </div>
+      <div className="bos-outcome-form-actions">
+        <button
+          className="btn btn-primary"
+          style={{ fontSize: 12 }}
+          onClick={handleSubmit}
+          disabled={submitting || !value.trim()}
+        >
+          {submitting ? 'Recording…' : 'Record & update memory'}
+        </button>
+        <button
+          className="btn btn-ghost"
+          style={{ fontSize: 12 }}
+          onClick={() => onCancel(msgId)}
+          disabled={submitting}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function HandoffBriefMessage({ brief }: { brief: HandoffBriefOut }) {
+  const generatedAt = new Date(brief.generated_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' });
+  const firstObj = brief.active_objectives[0] as Record<string, unknown> | undefined;
+
+  function plainText() {
+    const lines: string[] = ['=== HANDOFF BRIEF ===', `Generated: ${generatedAt}`];
+    if (firstObj) lines.push(`Objective: ${String(firstObj.summary ?? firstObj.title ?? '')}`);
+    lines.push('');
+    if (brief.working?.length) { lines.push('Active state:'); brief.working.forEach(w => lines.push(`  + ${w}`)); lines.push(''); }
+    if (brief.not_working?.length) { lines.push('Not working:'); brief.not_working.forEach(w => lines.push(`  - ${w}`)); lines.push(''); }
+    if (brief.pending_decisions?.length) { lines.push('Pending decisions:'); brief.pending_decisions.forEach(d => lines.push(`  • ${d.what_is_deferred}`)); lines.push(''); }
+    if (brief.committed_actions?.length) { lines.push('Committed actions:'); (brief.committed_actions as Record<string, unknown>[]).forEach(a => lines.push(`  • ${String(a.action ?? a.summary ?? JSON.stringify(a))}`)); lines.push(''); }
+    if (brief.known_risks?.length) { lines.push('Known risks:'); brief.known_risks.forEach(r => lines.push(`  ⚠ ${r}`)); lines.push(''); }
+    if (brief.decided_against?.length) { lines.push('Decided against:'); brief.decided_against.forEach(d => lines.push(`  — ${d}`)); lines.push(''); }
+    if (brief.recommended_first_action) lines.push(`Recommended first action: ${brief.recommended_first_action}`);
+    lines.push('', 'Pass condition: A new CMO should be operational from this brief alone.');
+    return lines.join('\n');
+  }
+
+  return (
+    <div className="cmo-hb">
+      <div className="cmo-hb-header">
+        <div>
+          <div className="cmo-hb-header-title">Handoff Brief</div>
+          <div className="cmo-hb-header-obj">{firstObj ? String(firstObj.summary ?? firstObj.title ?? 'Active objective') : 'Active objective'}</div>
+          {firstObj && <div className="cmo-hb-header-meta">Active objective</div>}
+        </div>
+        <div className="cmo-hb-header-ts">{generatedAt}</div>
+      </div>
+      <div className="cmo-hb-sections">
+        {brief.working?.length > 0 && (
+          <div className="cmo-hb-section">
+            <div className="cmo-hb-label">Active state</div>
+            <div className="cmo-hb-body">{brief.working.map((w, i) => <div key={i}>✓ {w}</div>)}</div>
+          </div>
+        )}
+        {brief.not_working?.length > 0 && (
+          <div className="cmo-hb-section">
+            <div className="cmo-hb-label">Recent performance</div>
+            <div className="cmo-hb-body">{brief.not_working.map((w, i) => <div key={i}>✗ {w}</div>)}</div>
+          </div>
+        )}
+        {brief.pending_decisions?.length > 0 && (
+          <div className="cmo-hb-section">
+            <div className="cmo-hb-label">Pending decisions</div>
+            <div className="cmo-hb-body">{brief.pending_decisions.map((d, i) => <div key={i}>{d.what_is_deferred}</div>)}</div>
+          </div>
+        )}
+        {brief.committed_actions?.length > 0 && (
+          <div className="cmo-hb-section">
+            <div className="cmo-hb-label">Committed actions</div>
+            <div className="cmo-hb-body">
+              {(brief.committed_actions as Record<string, unknown>[]).map((a, i) => (
+                <div key={i}>{String(a.action ?? a.summary ?? JSON.stringify(a))}</div>
+              ))}
+            </div>
+          </div>
+        )}
+        {brief.known_risks?.length > 0 && (
+          <div className="cmo-hb-section">
+            <div className="cmo-hb-label">Known risks</div>
+            <div className="cmo-hb-body">{brief.known_risks.map((r, i) => <div key={i}>⚠ {r}</div>)}</div>
+          </div>
+        )}
+        {brief.decided_against?.length > 0 && (
+          <div className="cmo-hb-section">
+            <div className="cmo-hb-label">Decided against</div>
+            <div className="cmo-hb-body">{brief.decided_against.map((d, i) => <div key={i}>— {d}</div>)}</div>
+          </div>
+        )}
+        {brief.recommended_first_action && (
+          <div className="cmo-hb-section cmo-hb-action">
+            <div className="cmo-hb-label">Recommended first action</div>
+            <div className="cmo-hb-body">{brief.recommended_first_action}</div>
+          </div>
+        )}
+      </div>
+      <div className="cmo-hb-footer">
+        <span className="cmo-hb-pass">Pass condition: A new CMO should be operational from this brief alone.</span>
+        <button className="btn-hb-copy" onClick={() => navigator.clipboard.writeText(plainText())}>Copy brief</button>
+      </div>
+    </div>
+  );
+}
+
 export function CmoChat() {
-  const { openWorkspace, openSettings, openRun, addPendingRun, activeBrand, setActiveBrand, activeCampaign, setActiveCampaign, pendingRunItems } = useUI();
-  const [viewMode, setViewMode] = useState<ViewMode>('chat');
-  const [pendingPlan, setPendingPlan] = useState<boolean>(false);
-  const [msgs, setMsgs] = useState<Msg[]>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed.map(normalizeStoredMessage);
-        }
-      }
-    } catch (e) {
-      console.error('Failed to load chat history', e);
-    }
-    return [];
-  });
+  const { openSettings, activeBrand } = useUI();
+  const {
+    msgs, busy, pendingPlan, streamCardCtx, activeObjective,
+    setPendingPlan, send, handleOutcomeConfirm, handleOutcomeCancel,
+  } = useCmoChat();
+
   const [input, setInput] = useState('');
-  const [busy, setBusy] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  useEffect(() => {
-    const toSave = msgs.filter(m => m.text !== '__typing__');
-    if (toSave.length > 0) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
-    } else {
-      localStorage.removeItem(STORAGE_KEY);
-    }
-    window.dispatchEvent(new CustomEvent('bos:chat-updated'));
-  }, [msgs]);
-
-  useEffect(() => {
-    const handleNew = () => setMsgs([]);
-    const handleLoad = (event: Event) => {
-      const messages = (event as CustomEvent).detail;
-      if (Array.isArray(messages)) {
-        setMsgs(messages.map(normalizeStoredMessage));
-      }
-    };
-    window.addEventListener('bos:new-chat', handleNew);
-    window.addEventListener('bos:load-chat', handleLoad);
-    return () => {
-      window.removeEventListener('bos:new-chat', handleNew);
-      window.removeEventListener('bos:load-chat', handleLoad);
-    };
-  }, []);
-
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
 
-  async function send(text: string, { skipUserMessage = false } = {}) {
-    if (busy) return;
-    const trimmed = text.trim();
-    if (!trimmed) return;
-
-    const history = buildHistory(msgs);
-
-    if (!skipUserMessage) {
-      setMsgs(m => [...m, { id: uid(), role: 'user', text: trimmed, time: new Date() }]);
-    }
-    setInput('');
-    if (textareaRef.current) textareaRef.current.style.height = 'auto';
-    setBusy(true);
-
-    const typingId = uid();
-    setMsgs(m => [...m, { id: typingId, role: 'ai', text: '__typing__', time: new Date() }]);
-
-    try {
-      const resp = await api.chat(trimmed, history, activeBrand?.id ?? null, activeCampaign?.id ?? null);
-
-      // Handle @klar actions
-      if (resp.klar_action?.action === 'brand_switch') {
-        const d = resp.klar_action.data as { brand_id: string; brand_name: string };
-        setActiveBrand({ id: d.brand_id, name: d.brand_name });
-      } else if (resp.klar_action?.action === 'brand_clear') {
-        setActiveBrand(null);
-      } else if (resp.klar_action?.action === 'plan_draft') {
-        setPendingPlan(true);
-        const pd = resp.klar_action.data as { brand_id?: string; brand_name?: string };
-        if (pd?.brand_id && pd?.brand_name) {
-          setActiveBrand({ id: pd.brand_id, name: pd.brand_name });
-        }
-      } else if (resp.klar_action?.action === 'plan_confirmed') {
-        const d = resp.klar_action.data as { campaign_id: string; campaign_name: string };
-        setActiveCampaign({ id: d.campaign_id, name: d.campaign_name });
-        setPendingPlan(false);
-      }
-
-      const newMsgs: Msg[] = [];
-      if (resp.reply) newMsgs.push({ id: uid(), role: 'ai', text: resp.reply, time: new Date() });
-      const runs = resp.runs?.length ? resp.runs : resp.run ? [resp.run] : [];
-      const refs = resp.artifact_refs?.length ? resp.artifact_refs : runs.map(buildArtifactRef);
-      for (const run of runs) {
-        if ((run.approval_status ?? 'pending') === 'pending') addPendingRun(run);
-      }
-      for (const refData of refs) {
-        newMsgs.push({ id: uid(), role: 'ai', artifactRef: refData, time: new Date() });
-      }
-
-      setMsgs(m => m.filter(x => x.id !== typingId).concat(newMsgs));
-    } catch (e: unknown) {
-      setMsgs(m =>
-        m.filter(x => x.id !== typingId).concat({
-          id: uid(), role: 'ai',
-          text: `Error: ${e instanceof Error ? e.message : 'Something went wrong.'}`,
-          time: new Date(),
-        })
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input).then(() => {}); setInput(''); }
   }
 
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -191,118 +251,166 @@ export function CmoChat() {
   }
 
   async function handleOpenArtifact(artifactId: string) {
-    const run = await api.getRun(artifactId);
-    openRun(run);
+    try {
+      const run = await api.getRun(artifactId);
+      window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: run }));
+    } catch {
+      // artifact may not be loaded yet
+    }
   }
 
-  const contextParts = [
-    activeBrand?.name ? `Brand: ${activeBrand.name}` : 'No brand selected',
-    activeCampaign?.name ? `Campaign: ${activeCampaign.name}` : 'No campaign selected',
-    `${pendingRunItems.length} need attention`,
-  ];
+  function doSend() {
+    const text = input;
+    setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    send(text);
+  }
 
-  const quickActions = [
-    'What can you do?',
-    'Plan a campaign',
-  ];
+  const contextChips = [
+    activeBrand?.name ? `Brand · ${activeBrand.name}` : null,
+    activeObjective ? (activeObjective.summary.length > 40 ? `${activeObjective.summary.slice(0, 40)}…` : activeObjective.summary) : null,
+    streamCardCtx ? `${CARD_TYPE_LABELS[streamCardCtx.type] ?? streamCardCtx.type}` : null,
+  ].filter(Boolean) as string[];
 
   return (
-    <div className="bos-cmo">
-      {/* ── Header ── */}
-      <div className="bos-cmo-header">
-        <div className="bos-cmo-header-left">
-          <div className="bos-cmo-avatar">CMO</div>
-          <div>
-            <div className="bos-cmo-name">Chief Marketing Officer</div>
-            <div className="bos-cmo-status">{contextParts.join(' · ')}</div>
-          </div>
+    <div className="cmo-pane">
+      {contextChips.length > 0 && (
+        <div className="cmo-ctx">
+          {contextChips.map(chip => (
+            <span key={chip} className="g2src" style={{ fontSize: 11 }}>{chip}</span>
+          ))}
         </div>
-        <div className="bos-cmo-header-actions">
-          <button 
-            className={`bos-header-btn ${viewMode === 'reports' ? 'primary' : ''}`} 
-            onClick={() => setViewMode(v => v === 'reports' ? 'chat' : 'reports')}
-          >
-            {viewMode === 'reports' ? 'Back to Chat' : 'View Reports'}
-          </button>
-          <button className="bos-header-btn" onClick={() => openWorkspace()}>Workspace →</button>
-        </div>
-      </div>
+      )}
 
-      {/* ── Messages ── */}
-      <div className="bos-cmo-messages">
-        {viewMode === 'reports' ? (
-          <ReportsView />
-        ) : msgs.map((msg, idx) => {
-          const showSender = idx === 0 || msgs[idx - 1].role !== msg.role;
+      <div className="cmo-msgs">
+        <div className="cmo-msgs-body">
+          {msgs.map((msg, idx) => {
+            const showSender = idx === 0 || msgs[idx - 1].role !== msg.role;
 
-          if (msg.text === '__typing__') {
-            return (
-              <div key={msg.id} className="bos-msg">
-                <div className="bos-msg-avatar">CMO</div>
-                <div className="bos-msg-body">
-                  <div className="bos-cmo-typing">
-                    <div className="bos-typing-dot" />
-                    <div className="bos-typing-dot" />
-                    <div className="bos-typing-dot" />
+            if (msg.text === '__typing__') {
+              const steps = msg.steps ?? [];
+              const complete = msg.stepsComplete ?? false;
+              return (
+                <div key={msg.id}>
+                  {showSender && <div className="msg-label">CMO</div>}
+                  <div className="msg-ai">
+                    {steps.length > 0 ? (
+                      <div className={`cmo-steps${complete ? ' cmo-steps-done' : ''}`}>
+                        {steps.map((label, i) => {
+                          const done = complete || i < steps.length - 1;
+                          return (
+                            <div key={i} className={`cmo-step ${done ? 'cmo-step-done' : 'cmo-step-active'}`}>
+                              <span className="cmo-step-icon">{done ? '✓' : '●'}</span>
+                              <span className="cmo-step-label">{label}</span>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="cmo-typing">
+                        <div className="cmo-typing-dot" />
+                        <div className="cmo-typing-dot" />
+                        <div className="cmo-typing-dot" />
+                      </div>
+                    )}
                   </div>
                 </div>
-              </div>
-            );
-          }
+              );
+            }
 
-          const artifactRef = msg.artifactRef || (msg.runResult ? buildArtifactRef(msg.runResult) : null);
-          if (artifactRef) {
+            const artifactRef = msg.artifactRef || (msg.runResult ? buildArtifactRef(msg.runResult) : null);
+            if (artifactRef) {
+              return (
+                <div key={msg.id}>
+                  {showSender && <div className="msg-label">CMO</div>}
+                  <div className="msg-ai">
+                    <ArtifactReferenceCard refData={artifactRef} onOpen={handleOpenArtifact} />
+                  </div>
+                </div>
+              );
+            }
+
+            if (msg.outcomeForm && !msg.outcomeConfirm) {
+              return (
+                <div key={msg.id}>
+                  <div className="msg-label">CMO</div>
+                  <div className="msg-ai">
+                    <OutcomeFormMessage
+                      msgId={msg.id}
+                      objective={activeObjective}
+                      onConfirm={handleOutcomeConfirm}
+                      onCancel={handleOutcomeCancel}
+                    />
+                  </div>
+                </div>
+              );
+            }
+
+            if (msg.outcomeConfirm) {
+              const c = msg.outcomeConfirm;
+              const typeLabel = OUTCOME_TYPES.find(t => t.value === c.outcomeType)?.label ?? c.outcomeType;
+              return (
+                <div key={msg.id}>
+                  <div className="msg-label">CMO</div>
+                  <div className="msg-ai">
+                    <div className="bos-outcome-confirm">
+                      <div className="bos-outcome-confirm-tags">
+                        <span className="bos-outcome-confirm-tag">{typeLabel}</span>
+                        {c.objectiveSummary && <span className="bos-outcome-confirm-tag obj">{c.objectiveSummary}</span>}
+                      </div>
+                      <div className="bos-outcome-confirm-value">{c.value}</div>
+                      <div className="bos-outcome-confirm-note">Next recommendation will incorporate this result.</div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
+            if (msg.handoffBrief) {
+              return (
+                <div key={msg.id}>
+                  <div className="msg-label">CMO · handoff brief · {fmtTime(msg.time)}</div>
+                  <HandoffBriefMessage brief={msg.handoffBrief} />
+                </div>
+              );
+            }
+
+            if (msg.role === 'user') {
+              return (
+                <div key={msg.id} className="msg-user">{msg.text}</div>
+              );
+            }
+
             return (
-              <div key={msg.id} className="bos-msg">
-                <div className="bos-msg-avatar">CMO</div>
-                <div className="bos-msg-body">
-                  <ArtifactReferenceCard refData={artifactRef} onOpen={handleOpenArtifact} />
+              <div key={msg.id}>
+                {showSender && <div className="msg-label">CMO · {fmtTime(msg.time)}</div>}
+                <div className="msg-ai">
+                  <SurfaceProvider type="chat-inline">
+                    <BlockRenderer block={textToBlock(msg.text!)} />
+                  </SurfaceProvider>
                 </div>
               </div>
             );
-          }
-
-          if (msg.role === 'user') {
-            return (
-              <div key={msg.id} className="bos-msg bos-msg-user">
-                <div className="bos-msg-avatar">YOU</div>
-                <div className="bos-msg-body">
-                  {showSender && <span className="bos-msg-sender" style={{ textAlign: 'right' }}>You · {fmtTime(msg.time)}</span>}
-                  <div className="bos-msg-text bos-msg-text-user">{msg.text}</div>
-                </div>
-              </div>
-            );
-          }
-
-          return (
-            <div key={msg.id} className="bos-msg">
-              <div className="bos-msg-avatar">CMO</div>
-              <div className="bos-msg-body">
-                {showSender && <span className="bos-msg-sender">CMO · {fmtTime(msg.time)}</span>}
-                <SurfaceProvider type="chat-inline">
-                  <BlockRenderer block={textToBlock(msg.text!)} />
-                </SurfaceProvider>
-              </div>
-            </div>
-          );
-        })}
-        {viewMode !== 'reports' && <div ref={bottomRef} />}
+          })}
+          <div ref={bottomRef} />
+        </div>
       </div>
 
-      {/* ── Input ── */}
-      <div className="bos-cmo-input-area">
+      <div className="cmo-input-wrap">
         {pendingPlan && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10, padding: '10px 14px', background: 'var(--soft-ivory)', borderRadius: 8, border: '1px solid var(--warm-gold)', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, color: 'var(--stone-deep)', flex: 1 }}>Plan drafted — confirm to create the campaign and tag all runs to it.</span>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, padding: '10px 14px', background: 'var(--green-bg)', borderRadius: 8, border: '1px solid var(--green-border)', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: 'var(--green-mid)', flex: 1 }}>Plan drafted — confirm to create the campaign and tag all runs to it.</span>
             <button
-              className="btn btn-dark btn-sm"
+              className="btn btn-primary"
+              style={{ fontSize: 12 }}
               onClick={() => send('@klar confirm', { skipUserMessage: false })}
               disabled={busy}
             >
               Confirm Plan
             </button>
             <button
-              className="btn btn-ghost btn-sm"
+              className="btn btn-ghost"
+              style={{ fontSize: 12 }}
               onClick={() => setPendingPlan(false)}
               disabled={busy}
             >
@@ -310,20 +418,25 @@ export function CmoChat() {
             </button>
           </div>
         )}
-        <div className="bos-quick-actions" aria-label="Suggested CMO actions">
-          <button type="button" onClick={() => window.dispatchEvent(new CustomEvent('bos:new-chat'))} disabled={busy}>
-            New Chat
-          </button>
-          {quickActions.map(action => (
-            <button key={action} type="button" onClick={() => send(action)} disabled={busy}>
-              {action}
-            </button>
-          ))}
-        </div>
-        <div className="bos-input-row">
+
+        {streamCardCtx && (
+          <div style={{ marginBottom: 10 }}>
+            <div className="msg-label" style={{ marginBottom: 6 }}>Context actions</div>
+            <div className="cmo-chips">
+              <button type="button" className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => send('Why this angle?')} disabled={busy}>
+                Why this angle?
+              </button>
+              <button type="button" className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => send('What happens after approval?')} disabled={busy}>
+                What happens after approval?
+              </button>
+            </div>
+          </div>
+        )}
+
+        <div className="cmo-composer">
           <textarea
             ref={textareaRef}
-            className="bos-cmo-textarea"
+            className="cmo-ta"
             rows={1}
             placeholder="Direct your CMO — brief a campaign, request a revision, or ask for a report..."
             value={input}
@@ -331,19 +444,19 @@ export function CmoChat() {
             onKeyDown={handleKeyDown}
             disabled={busy}
           />
-          <button
-            className="bos-cmo-send"
-            onClick={() => send(input)}
-            disabled={busy || !input.trim()}
-          >
-            Send
-          </button>
-        </div>
-        <div className="bos-input-hint">
-          Shift+Enter for new line ·{' '}
-          <span className="bos-input-hint-link" onClick={() => openSettings('history')}>Run history</span>
-          {' '}·{' '}
-          <span className="bos-input-hint-link" onClick={() => { window.location.href = '/admin/workspace'; }}>Admin Workspace</span>
+          <div className="cmo-composer-foot">
+            <span className="cmo-hint">
+              Shift+Enter for new line ·{' '}
+              <span className="cmo-hint-link" onClick={() => openSettings('history')}>History</span>
+            </span>
+            <button
+              className="btn-send"
+              onClick={doSend}
+              disabled={busy || !input.trim()}
+            >
+              ↑
+            </button>
+          </div>
         </div>
       </div>
     </div>

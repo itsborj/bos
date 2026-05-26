@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import os
 import secrets
 import uuid
 from dataclasses import dataclass
@@ -149,6 +150,38 @@ _GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 _GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v1/userinfo"
 _GOOGLE_SCOPES = "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly openid email"
+_YOUTUBE_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl openid email"
+_TIKTOK_AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/"
+_TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
+_TIKTOK_USERINFO_URL = "https://open.tiktokapis.com/v2/user/info/"
+_TIKTOK_SCOPES = "user.info.basic"
+_GOOGLE_DRIVE_SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly openid email"
+
+# Paths for each Google OAuth callback — derived from FRONTEND_URL so no per-env redirect URI config is needed.
+_GOOGLE_CALLBACK_PATHS: dict[str, str] = {
+    "gmail": "/social/gmail/callback",
+    "google_calendar": "/social/google-calendar/callback",
+    "youtube": "/social/youtube/callback",
+    "google_drive": "/social/google-drive/callback",
+}
+
+
+def _google_redirect_uri(platform: str, settings) -> str:
+    """Return the Google OAuth redirect URI.
+
+    Relay mode: all Google platforms share one registered URI on the relay
+    (https://auth.klaroha.com/relay/google/callback). The relay handles the
+    code exchange and redirects back to the instance with a handoff_token.
+
+    Dev mode: URI derived from FRONTEND_URL — the same OAuth client works across
+    all environments as long as all callback URIs are registered in Google Console.
+    """
+    if getattr(settings, "klaroha_relay_url", ""):
+        relay = settings.klaroha_relay_url.rstrip("/")
+        return f"{relay}/relay/google/callback"
+    base = (settings.frontend_url or "http://localhost").rstrip("/")
+    path = _GOOGLE_CALLBACK_PATHS.get(platform, f"/social/{platform}/callback")
+    return f"{base}{path}"
 
 
 class GmailOAuthHandler:
@@ -160,13 +193,12 @@ class GmailOAuthHandler:
             raise ValueError("GOOGLE_CLIENT_ID is not configured")
         if not settings.google_client_secret:
             raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
-        if not settings.google_redirect_uri:
-            raise ValueError("GOOGLE_REDIRECT_URI is not configured")
+        redirect_uri = _google_redirect_uri("gmail", settings)
         verifier, challenge = _generate_pkce()
         state = secrets.token_hex(16)
         params = {
             "client_id": settings.google_client_id,
-            "redirect_uri": settings.google_redirect_uri,
+            "redirect_uri": redirect_uri,
             "response_type": "code",
             "scope": _GOOGLE_SCOPES,
             "access_type": "offline",
@@ -180,7 +212,7 @@ class GmailOAuthHandler:
             authorize_url=f"{_GOOGLE_AUTHORIZE_URL}?{urlencode(params)}",
             state=state,
             verifier=verifier,
-            redirect_uri=settings.google_redirect_uri,
+            redirect_uri=redirect_uri,
         )
 
     async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str) -> OAuthCredential:
@@ -256,9 +288,7 @@ class GoogleCalendarOAuthHandler:
             raise ValueError("GOOGLE_CLIENT_ID is not configured")
         if not settings.google_client_secret:
             raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
-        redirect_uri = settings.google_calendar_redirect_uri or (
-            settings.google_redirect_uri.replace("/social/gmail/callback", "/social/google-calendar/callback")
-        )
+        redirect_uri = _google_redirect_uri("google_calendar", settings)
         verifier, challenge = _generate_pkce()
         state = secrets.token_hex(16)
         params = {
@@ -341,10 +371,478 @@ class GoogleCalendarOAuthHandler:
         )
 
 
+class YouTubeOAuthHandler:
+    provider = "youtube"
+    display_name = "YouTube"
+
+    async def start_login(self, settings) -> LoginStart:
+        if not settings.google_client_id:
+            raise ValueError("GOOGLE_CLIENT_ID is not configured")
+        if not settings.google_client_secret:
+            raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
+        redirect_uri = _google_redirect_uri("youtube", settings)
+             
+        verifier, challenge = _generate_pkce()
+        state = secrets.token_hex(16)
+        params = {
+            "client_id": settings.google_client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": _YOUTUBE_SCOPES,
+            "access_type": "offline",
+            "prompt": "consent",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": state,
+        }
+        return LoginStart(
+            login_type="browser",
+            authorize_url=f"{_GOOGLE_AUTHORIZE_URL}?{urlencode(params)}",
+            state=state,
+            verifier=verifier,
+            redirect_uri=redirect_uri,
+        )
+
+    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                    "code_verifier": verifier,
+                },
+            )
+            r.raise_for_status()
+            token_data = r.json()
+
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise ValueError("YouTube token exchange failed — no access_token in response")
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                _GOOGLE_USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            r.raise_for_status()
+            userinfo = r.json()
+
+        channel_id = None
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://www.googleapis.com/youtube/v3/channels",
+                params={"part": "id", "mine": "true"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if r.status_code == 200:
+                data = r.json()
+                items = data.get("items", [])
+                if items:
+                    channel_id = items[0].get("id")
+
+        expires_in = token_data.get("expires_in", 3600)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=token_data.get("refresh_token"),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+            metadata={
+                "email": userinfo.get("email"),
+                "name": userinfo.get("name"),
+                "channel_id": channel_id,
+            },
+        )
+
+    async def refresh_auth(self, refresh_token: str, settings) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "refresh_token": refresh_token,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+
+        access_token = data.get("access_token")
+        if not access_token:
+            raise ValueError("YouTube token refresh failed — no access_token in response")
+        expires_in = data.get("expires_in", 3600)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+        )
+
+
+class GoogleDriveOAuthHandler:
+    provider = "google_drive"
+    display_name = "Google Drive"
+
+    async def start_login(self, settings) -> LoginStart:
+        if not settings.google_client_id:
+            raise ValueError("GOOGLE_CLIENT_ID is not configured")
+        if not settings.google_client_secret:
+            raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
+        redirect_uri = _google_redirect_uri("google_drive", settings)
+
+        verifier, challenge = _generate_pkce()
+        state = secrets.token_hex(16)
+        params = {
+            "client_id": settings.google_client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": _GOOGLE_DRIVE_SCOPES,
+            "access_type": "offline",
+            "prompt": "consent",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": state,
+        }
+        return LoginStart(
+            login_type="browser",
+            authorize_url=f"{_GOOGLE_AUTHORIZE_URL}?{urlencode(params)}",
+            state=state,
+            verifier=verifier,
+            redirect_uri=redirect_uri,
+        )
+
+    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                    "code_verifier": verifier,
+                },
+            )
+            r.raise_for_status()
+            token_data = r.json()
+
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise ValueError("Google Drive token exchange failed — no access_token in response")
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                _GOOGLE_USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            r.raise_for_status()
+            userinfo = r.json()
+
+        expires_in = token_data.get("expires_in", 3600)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=token_data.get("refresh_token"),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+            metadata={
+                "email": userinfo.get("email"),
+                "name": userinfo.get("name"),
+            },
+        )
+
+    async def refresh_auth(self, refresh_token: str, settings) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "refresh_token": refresh_token,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+
+        access_token = data.get("access_token")
+        if not access_token:
+            raise ValueError("Google Drive token refresh failed — no access_token in response")
+        expires_in = data.get("expires_in", 3600)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+        )
+
+
+_FACEBOOK_AUTHORIZE_URL = "https://www.facebook.com/dialog/oauth"
+_FACEBOOK_TOKEN_URL = "https://graph.facebook.com/oauth/access_token"
+_FACEBOOK_GRAPH_URL = "https://graph.facebook.com/v21.0"
+_FACEBOOK_SCOPES = "pages_show_list,pages_read_engagement,pages_manage_posts"
+
+
+class TikTokOAuthHandler:
+    provider = "tiktok"
+    display_name = "TikTok"
+
+    def _client_key(self, settings, overrides: dict) -> str:
+        v = overrides.get("tiktok_client_key") or overrides.get("TIKTOK_CLIENT_KEY") or settings.tiktok_client_key or os.getenv("TIKTOK_CLIENT_KEY", "")
+        if not v:
+            raise ValueError("TIKTOK_CLIENT_KEY is not configured")
+        return v
+
+    def _client_secret(self, settings, overrides: dict) -> str:
+        v = overrides.get("tiktok_client_secret") or overrides.get("TIKTOK_CLIENT_SECRET") or settings.tiktok_client_secret or os.getenv("TIKTOK_CLIENT_SECRET", "")
+        if not v:
+            raise ValueError("TIKTOK_CLIENT_SECRET is not configured")
+        return v
+
+    def _redirect_uri(self, settings, overrides: dict) -> str:
+        v = overrides.get("tiktok_redirect_uri") or overrides.get("TIKTOK_REDIRECT_URI") or settings.tiktok_redirect_uri or os.getenv("TIKTOK_REDIRECT_URI", "")
+        if not v:
+            raise ValueError("TIKTOK_REDIRECT_URI is not configured")
+        return v
+
+    def _scopes(self, settings, overrides: dict) -> str:
+        return overrides.get("tiktok_scopes") or overrides.get("TIKTOK_SCOPES") or settings.tiktok_scopes or os.getenv("TIKTOK_SCOPES", "") or _TIKTOK_SCOPES
+
+    async def start_login(self, settings, overrides: dict | None = None) -> LoginStart:
+        overrides = overrides or {}
+        client_key = self._client_key(settings, overrides)
+        redirect_uri = self._redirect_uri(settings, overrides)
+        verifier, challenge = _generate_pkce()
+        state = secrets.token_hex(16)
+        params = {
+            "client_key": client_key,
+            "response_type": "code",
+            "scope": self._scopes(settings, overrides),
+            "redirect_uri": redirect_uri,
+            "state": state,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+        }
+        return LoginStart(
+            login_type="browser",
+            authorize_url=f"{_TIKTOK_AUTHORIZE_URL}?{urlencode(params)}",
+            state=state,
+            verifier=verifier,
+            redirect_uri=redirect_uri,
+        )
+
+    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str, overrides: dict | None = None) -> OAuthCredential:
+        overrides = overrides or {}
+        client_key = self._client_key(settings, overrides)
+        client_secret = self._client_secret(settings, overrides)
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _TIKTOK_TOKEN_URL,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data={
+                    "client_key": client_key,
+                    "client_secret": client_secret,
+                    "code": code,
+                    "grant_type": "authorization_code",
+                    "redirect_uri": redirect_uri,
+                    "code_verifier": verifier,
+                },
+            )
+            r.raise_for_status()
+            token_data = r.json()
+
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise ValueError("TikTok token exchange failed — no access_token in response")
+
+        metadata: dict = {}
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                _TIKTOK_USERINFO_URL,
+                params={"fields": "open_id,union_id,avatar_url,display_name,profile_deep_link"},
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if r.status_code == 200:
+                user = (r.json().get("data") or {}).get("user") or {}
+                metadata = {
+                    "open_id": user.get("open_id"),
+                    "display_name": user.get("display_name"),
+                    "profile_deep_link": user.get("profile_deep_link"),
+                    "avatar_url": user.get("avatar_url"),
+                }
+
+        expires_in = token_data.get("expires_in", 86400)
+        refresh_expires_in = token_data.get("refresh_expires_in")
+        if refresh_expires_in:
+            metadata["refresh_expires_at"] = (datetime.now(timezone.utc) + timedelta(seconds=int(refresh_expires_in))).isoformat()
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=token_data.get("refresh_token"),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+            metadata=metadata,
+        )
+
+    async def refresh_auth(self, refresh_token: str, settings, overrides: dict | None = None) -> OAuthCredential:
+        overrides = overrides or {}
+        client_key = self._client_key(settings, overrides)
+        client_secret = self._client_secret(settings, overrides)
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _TIKTOK_TOKEN_URL,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data={
+                    "client_key": client_key,
+                    "client_secret": client_secret,
+                    "grant_type": "refresh_token",
+                    "refresh_token": refresh_token,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+
+        access_token = data.get("access_token")
+        if not access_token:
+            raise ValueError("TikTok token refresh failed — no access_token in response")
+        expires_in = data.get("expires_in", 86400)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=data.get("refresh_token") or refresh_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+        )
+
+
+class FacebookOAuthHandler:
+    provider = "facebook"
+    display_name = "Facebook"
+
+    def _app_id(self, settings, overrides: dict) -> str:
+        v = overrides.get("meta_app_id") or overrides.get("META_APP_ID") or settings.meta_app_id
+        if not v:
+            raise ValueError("META_APP_ID not configured — add it via Admin → Plugins → Meta Channel")
+        return v
+
+    def _app_secret(self, settings, overrides: dict) -> str:
+        v = overrides.get("meta_app_secret") or overrides.get("META_APP_SECRET") or settings.meta_app_secret
+        if not v:
+            raise ValueError("META_APP_SECRET not configured — add it via Admin → Plugins → Meta Channel")
+        return v
+
+    def _redirect_uri(self, settings, overrides: dict) -> str:
+        from urllib.parse import urlparse
+        stored = overrides.get("meta_redirect_uri") or overrides.get("META_REDIRECT_URI")
+        if stored:
+            stored_host = urlparse(stored).netloc
+            frontend_host = urlparse(settings.frontend_url or "").netloc
+            if stored_host and frontend_host and stored_host != frontend_host:
+                stored = None
+        if stored:
+            return stored
+        if settings.meta_redirect_uri and settings.meta_redirect_uri != "http://localhost/social/facebook/callback":
+            return settings.meta_redirect_uri
+        base = (settings.frontend_url or "http://localhost").rstrip("/")
+        return f"{base}/social/facebook/callback"
+
+    async def start_login(self, settings, overrides: dict | None = None) -> LoginStart:
+        overrides = overrides or {}
+        app_id = self._app_id(settings, overrides)
+        redirect_uri = self._redirect_uri(settings, overrides)
+        state = secrets.token_hex(16)
+        params = {
+            "client_id": app_id,
+            "redirect_uri": redirect_uri,
+            "scope": _FACEBOOK_SCOPES,
+            "state": state,
+            "response_type": "code",
+        }
+        return LoginStart(
+            login_type="browser",
+            authorize_url=f"{_FACEBOOK_AUTHORIZE_URL}?{urlencode(params)}",
+            state=state,
+            verifier=state,
+            redirect_uri=redirect_uri,
+        )
+
+    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str, overrides: dict | None = None) -> OAuthCredential:
+        overrides = overrides or {}
+        app_id = self._app_id(settings, overrides)
+        app_secret = self._app_secret(settings, overrides)
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(
+                _FACEBOOK_TOKEN_URL,
+                params={
+                    "client_id": app_id,
+                    "client_secret": app_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                },
+            )
+            r.raise_for_status()
+            short_data = r.json()
+
+        short_token = short_data.get("access_token")
+        if not short_token:
+            raise ValueError("Facebook token exchange failed — no access_token")
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(
+                _FACEBOOK_TOKEN_URL,
+                params={
+                    "grant_type": "fb_exchange_token",
+                    "client_id": app_id,
+                    "client_secret": app_secret,
+                    "fb_exchange_token": short_token,
+                },
+            )
+            r.raise_for_status()
+            long_data = r.json()
+
+        long_token = long_data.get("access_token")
+        if not long_token:
+            raise ValueError("Facebook long-lived token exchange failed")
+
+        expires_in = long_data.get("expires_in", 5184000)
+
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.get(
+                f"{_FACEBOOK_GRAPH_URL}/me/accounts",
+                params={
+                    "fields": "id,name,access_token,instagram_business_account",
+                    "access_token": long_token,
+                },
+            )
+            r.raise_for_status()
+            accounts = r.json()
+
+        pages = [
+            {
+                "id": p["id"],
+                "name": p.get("name", p["id"]),
+                "access_token": p.get("access_token", ""),
+                "ig_account_id": (p.get("instagram_business_account") or {}).get("id"),
+            }
+            for p in accounts.get("data", [])
+        ]
+
+        return OAuthCredential(
+            access_token=long_token,
+            refresh_token=None,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+            metadata={"pages": pages},
+        )
+
+    async def refresh_auth(self, refresh_token: str, settings) -> OAuthCredential:
+        raise NotImplementedError("Facebook Page Access Tokens do not expire — refresh is not supported")
+
+
 _OAUTH_HANDLERS: dict[str, OAuthProviderHandler] = {
     "openai": OpenAICodexOAuthHandler(),
     "gmail": GmailOAuthHandler(),
     "google_calendar": GoogleCalendarOAuthHandler(),
+    "youtube": YouTubeOAuthHandler(),
+    "tiktok": TikTokOAuthHandler(),
+    "google_drive": GoogleDriveOAuthHandler(),
+    "facebook": FacebookOAuthHandler(),
 }
 
 
@@ -451,6 +949,52 @@ async def resolve_stored_provider_credential(
         return token, "oauth"
 
     return decrypt_secret(row.key_encrypted, settings), "api_key"
+
+
+# ── Auth relay helpers ────────────────────────────────────────────────────────
+
+# Google platforms that can use the central relay for token refresh.
+GOOGLE_RELAY_PLATFORMS: frozenset[str] = frozenset({"gmail", "google_calendar", "youtube", "google_drive"})
+
+
+async def relay_claim_handoff(handoff_token: str, settings) -> dict:
+    """Claim a one-time handoff token from the central auth relay.
+
+    Returns the token payload: platform, brand_id, access_token, refresh_token,
+    expires_at, metadata. Token is deleted from relay Redis on first claim.
+    """
+    relay = settings.klaroha_relay_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.post(
+            f"{relay}/relay/claim",
+            json={"handoff_token": handoff_token, "relay_key": settings.klaroha_relay_key},
+        )
+        r.raise_for_status()
+        return r.json()
+
+
+async def relay_refresh_token(platform: str, refresh_token: str, settings) -> OAuthCredential:
+    """Delegate a Google token refresh to the central auth relay.
+
+    The relay holds the client_secret so it never ships in the BOS Docker image.
+    `refresh_token` must be the plaintext (already decrypted) refresh token.
+    """
+    relay = settings.klaroha_relay_url.rstrip("/")
+    async with httpx.AsyncClient(timeout=20.0) as client:
+        r = await client.post(
+            f"{relay}/relay/refresh",
+            json={"platform": platform, "refresh_token": refresh_token, "relay_key": settings.klaroha_relay_key},
+        )
+        r.raise_for_status()
+        data = r.json()
+    expires_at = datetime.fromisoformat(data["expires_at"]) if data.get("expires_at") else None
+    if expires_at and expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    return OAuthCredential(
+        access_token=data["access_token"],
+        refresh_token=None,
+        expires_at=expires_at,
+    )
 
 
 def _generate_pkce() -> tuple[str, str]:

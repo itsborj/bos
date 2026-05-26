@@ -1,56 +1,64 @@
 # BOS — Business Operating System
 ## Unified Project Brief
 
-**Date:** 2026-05-18  
-**Status:** Phase 3 in progress — Workspace artifact plane hardening, CMO-in-pocket operating model, plugin-owned channel specialists, LLM-driven capability dispatch; multi-dev pipeline fully operational (CI/CD, staging, prod isolation, Dev 2 onboarded); domain structure live (hq.klaroha.com = Command Hub, staging.klaroha.com = staging, klaroha.com = public marketing/investor pages); Google Calendar Booking plugin live  
-**Version:** 3.26 (Backlog → ClickUp sync documented as build process)  
+**Date:** 2026-05-22  
+**Status:** Phase 6 in progress — Plugin documentation strategy implemented  
+**Version:** 3.41 (CMO chat → creative → Drive working; google-drive plugin live)  
 
 > **MANDATORY READING:** Before any new system update, feature build, or architectural change, read `BITE.md`. It is both the Business Implementation by Example methodology and the BOS architecture constitution for minimal core, plugin/package extensibility, SKILL.md ownership, live manifests, MCP boundaries, lifecycle hooks, and command registration.
 ---
 
-## Changelog
+## ⚑ Current State & Locked Architecture
 
-| Version | Date | Changes |
-|---|---|---|
-| 1.0-1.7 | 2026-05-01..06 | Foundation, Core API, Provider Layer (BYOK), Frontend Shell, and CMO Chat. |
-| 1.8-1.9 | 2026-05-06 | Admin UX refresh to setup-first flow; OpenAI login auth enabled. |
-| 1.10 | 2026-05-06 | Fixed OpenAI runtime routing and token storage limits. |
-| 2.0 | 2026-05-06 | **Architectural Pivot:** Transitioned from single-workspace to Org $\to$ Brand $\to$ Campaign hierarchy to support multi-business management by a single CMO. |
-| 2.1 | 2026-05-07 | Required onboarding now includes an approved Campaign Brand Kit, stored as a tagged PostgreSQL document rather than hard-coded brand/design columns. |
-| 2.2 | 2026-05-08 | CMO chat refined into a context-aware executive interface: no scripted new-chat greetings, discussion questions do not trigger modules, brand brief/product/audience/Brand Kit context is loaded into CMO responses, generated module results become persistent pending approval decisions, and modification flows use LLM-backed revision threads. |
-| 2.3 | 2026-05-08 | Adopted `SKILL.md` principles for BOS: expertise is modular, explicit, triggerable, source-linked, and workflow-bound. Skills become the CMO's intent/memory/workflow contracts around modules and workspace resources. |
-| 2.4 | 2026-05-08 | Added atomic need-to-know skill resource model and SOP ingestion governance: SOPs produce versioned change proposals across skills, resources, modules, memory, and config rather than blindly overwriting operational contracts. |
-| 2.5 | 2026-05-08 | Modeled BOS skill support principles from Agent Skills client implementation: discover by `SKILL.md`, catalog metadata first, activate full instructions only when needed, list resources without eager loading, preserve/deduplicate activated skills, and enforce BOS governance before model exposure. |
-| 2.6 | 2026-05-08 | Reverse-engineered canonical BOS skill shape from SEO, email-sequence, and analytics-tracking samples: descriptions act as activation policy, related skills define routing boundaries, required context drives intake, resources remain lazy, caveats become quality gates, and output format becomes evaluation contract. |
-| 2.7 | 2026-05-08 | Added executable `marketing.email.sequence` module linked to the atomic email sequence skill; SEO audit and analytics tracking remain skill-only until their data/tool requirements are defined. |
-| 2.8 | 2026-05-08 | Expanded BOS beyond marketing by adding nested internal service-delivery modules. Module discovery now recurses under verticals, enabling structures like `api/modules/internal/client_onboarding/google_business_profile.py` for provider-specific operating capabilities. |
-| 2.9 | 2026-05-08 | Added Google Business Profile post ideas as a marketing skill/module using the 50-tactic checklist resource; distinguished organic GBP posts from internal GBP client onboarding and paid Google ads. |
-| 3.0 | 2026-05-08 | Reframed the external product brand as Klaroha: marketing, engineered for clarity. BOS remains the internal architecture; Klaroha is the customer-facing promise of collapsing marketing signal complexity into a transparent command center. |
-| 3.1 | 2026-05-08 | Added long-form Brand Guidelines as the Brand-plane source of truth. Campaign Brand Kit is now the shorter campaign execution summary derived from Brand Guidelines. Admin Workspace exposes both documents. |
-| 3.2 | 2026-05-09 | Added Meta MCP sidecar direction: read-only Meta paid ads performance and Page/comment monitoring can use a local MCP-compatible connector first, while BOS keeps stable capability contracts so native Meta API write/spend actions can replace or extend it later. |
-| 3.3 | 2026-05-10 | Adopted capability-centric directory layout (`api/capabilities/`) compatible with Claude Code skills discovery and MCP tool/resource/prompt registration. Each capability is a self-contained directory: `SKILL.md` + `module.py` + `template.j2` + resources. Internal client onboarding becomes a `workflows/` checklist system, not a capability module. GBP is a marketing channel only. |
-| 3.4 | 2026-05-10 | Added @klar Plan Mode strategic planning capability (`workspace.plan_mode`): skill-activated, extended thinking, mobile-first card-stack output format. Added Facebook Page Management social layer: agency app model (one platform Meta Developer App, brands authorize via OAuth, system holds long-lived page tokens per brand). New: `social_connections` table, `SocialConnection` model, `/social` router, `providers/facebook.py`, `FacebookPageOAuthHandler`. New document types for plan memory slots: `marketing_report`, `campaign_report`, `competitor_profile`, `industry_report`. |
-| 3.5 | 2026-05-10 | **Channel Plugin Architecture:** Third-party channels install into `api/plugins/` and integrate via `klaroha_sdk` — one stable import, no internal access. Plugin contract: `channel.json` manifest + `ChannelModule` subclass + SKILL.md. Host scans plugins at startup identically to first-party capabilities. Credentials injected at execution time via `inject_channel_credentials()` in runs.py. Facebook page management is the first validation plugin built externally. |
-| 3.6 | 2026-05-11 | **Gmail Channel Integration:** Gmail OAuth added as a first-class social connection (`GmailOAuthHandler`, PKCE OAuth2, Google token endpoint). Gmail accounts connect per-brand identically to Facebook. Token auto-refresh implemented in `get_page_token()` — expired access tokens are refreshed transparently using stored `refresh_token_encrypted` from `token_meta_json`. Plugin skill discovery gap fixed: `register_skill_root()` in `skills/loader.py` now called by `registry._scan()` so plugin SKILL.md files are fully discoverable from CMO chat routing. Bug fixed: `inject_channel_credentials()` was only in the LLM execution path — moved before `execute_tool_result` so plugin tool modules receive credentials. Gmail send and receive now dispatchable from CMO chat with distinct platform hints (`gmail send` / `gmail inbox`). |
-| 3.7 | 2026-05-12 | **Strict Plugin Model + Facebook Page Management Pipeline:** All channel Transform nodes removed from `api/capabilities/marketing/channel/` — this directory is deleted. All channel capabilities are now third-party plugins in `api/plugins/`. Legacy `api/skills/marketing/` channel skill files removed. System prompt module ID examples replaced with dynamic registry-driven references. Broad sample ads fallback made registry-driven — no hardcoded module IDs anywhere. `api/plugins/facebook/` built as the first production plugin: organic page post (copy gen), organic page publish (execute_tool_result → Graph API), paid ads copy. Build direction: pipeline first — the draft → approve → publish sequence is the primary target before adding more channel capabilities. |
-| 3.8 | 2026-05-12 | **Gmail-Only + LLM-Driven CMO Capability Registry:** At this checkpoint, Facebook, Twitter, Meta, and Google Ads channel capabilities/plugins were removed to reset around Gmail-only focus and eliminate hardcoded routing. Created `api/capability_manifest.py` as the single source of truth for CMO-dispatchable capabilities — generated at runtime from installed SKILL.md files, injected into CMO system prompt. CMO LLM reads the manifest and uses its own judgment to invoke capabilities; no platform-specific routing, phrase-matching, or module dispatch rules exist in `routers/chat.py` or `skills/router.py`. `_build_system_prompt()` no longer accepts a `modules` list parameter — capability list is fully self-contained via `format_manifest_for_prompt()`. Superseded for Google Ads scope by v3.11, which reintroduces Google Ads as a plugin-owned specialist only. |
-| 3.9 | 2026-05-12 | **CMO-in-Pocket Marketing Operating Model:** BOS product architecture is now anchored on the promise that a small business owner gets the leverage of an enterprise marketing department without managing 27 SaaS dashboards. CMO-facing marketing work collapses to three durable jobs — `marketing.plan`, `marketing.execute`, and `marketing.optimize`. Channel/vendor/plugin specifics such as Google Ads, Gmail, Meta, Search Console, or GTM are specialist/tool implementations behind those jobs, not the primary product language or a thousand-entry capability catalog. |
-| 3.10 | 2026-05-13 | **Workspace Artifacts Canonical Plane:** CMO chat no longer renders platform-native artifacts inline. Chat returns concise narrative plus artifact references; Workspace owns artifact review/native previews; Stream surfaces the same persisted artifact records for mobile. Plugins/capabilities continue to return typed artifact blocks, but chat stores/links references rather than duplicating native content in conversation history. |
-| 3.11 | 2026-05-13 | **Google Ads Full-Control Direction:** Google Ads is back in scope as a plugin-owned specialist, not BOS core behavior. Approved sample `sample/google_ads_full_control_v1.md` and reverse-spec `api/plugins/google-ads/FULL_CONTROL_SPEC.md` define the control ladder: read diagnostics, draft recommendations, approved selected mutations, destructive second-confirmation actions, and mandatory audit/rollback metadata. Current installed Google Ads capabilities remain read/draft only until approval-gated action capabilities are added. |
-| 3.12 | 2026-05-13 | **Mobile-First CMO Replies:** Approved `sample/mobile_cmo_reply_style_v1.md` as the CMO chat style contract. Normal CMO replies should read like short mobile operator messages: 1–4 short lines, one idea per line, bullets for choices, one question max, no dense paragraphs, while preserving Workspace artifact boundaries. |
-| 3.13 | 2026-05-13 | **Native Marketing Planning Specialist:** Approved `sample/marketing_planning_specialist_v1.md` and added `marketing.plan.campaign_strategy` as a first-party planning Transform. `@klar plan` now resolves brand context and creates a reviewable Workspace plan artifact instead of pasting long markdown plans into mobile chat. |
-| 3.14 | 2026-05-13 | **Search Console Plugin Next:** Google Search Console is the next plugin target after Google Ads read expansion. It must follow the same plugin-only/BITE sequence: produce and approve a sample first, reverse-spec from that sample, then build read-only `marketing.optimize` artifacts for properties, queries, pages, CTR, impressions, clicks, position, indexing/coverage signals, and SEO opportunity recommendations. The Search Console plugin must be custom-built for BOS against native Google Search Console APIs only — no Membrane, Rube, Composio, or arbitrary MCP sidecar. No Search Console behavior belongs in CMO chat routing or BOS core. |
-| 3.15 | 2026-05-13 | **Search Console Plugin v1:** Added custom native Google Search Console plugin under `api/plugins/search-console/` with five read-only `marketing.optimize` capabilities: properties list, performance query, URL inspection, sitemaps read, and SEO opportunity plan. Added plugin manifest, contracts, spec, docs, tests, and `.env.example` variables. V1 remains read-only: no sitemap submit/delete, add/delete site, indexing request, website edit, Membrane, Rube, Composio, MCP sidecar, or BOS core/chat-router logic. |
-| 3.16 | 2026-05-13 | **Brand isolation fix:** CMO module dispatch and revise endpoint were using `_resolve_brief(db, ws)` — always workspace-scoped — even when an active Brand was set. Fixed: `chat.py` module dispatch now calls `_brand_scoped_brief(db, ws, active_brand, overrides)`; revise endpoint resolves brand from `original_run.brand_id` and uses the same path for both system prompt and execution brief. `_resolve_brief` is workspace-only and must not be used for module dispatch when an active brand is set. |
-| 3.17 | 2026-05-15 | **Active-brand CMO context isolation:** Found remaining bleed paths after v3.16: `hydrate_memory_slots()` still loaded workspace-wide memory into active-brand chat prompts, and `_brand_scoped_brief()` called workspace fallback before overlaying Brand rows. Fixed: active-brand memory now filters products, audiences, docs, and run memory by `brand_id`; `_brand_scoped_brief()` builds from overrides + Brand rows only; CMO prompt now includes an active-brand isolation rule and trace logs expose scoped counts without content. |
-| 3.18 | 2026-05-15 | **Unscoped artifact dispatch guard:** Found remaining path where frontend activeBrand state was lost after reload, causing normal chat artifact runs to execute with `brand_id=NULL` and legacy workspace context (MotorMoto) even when the operator expected Klaroha. Fixed: frontend persists activeBrand; backend recovers Brand scope when the user names a Brand; org-level prompts with Brand rows list available Brands but do not load workspace brand/products/docs; artifact dispatch is blocked with a one-question brand clarification when no Brand can be resolved. |
-| 3.19 | 2026-05-15 | **SKILL-owned Brand scope resolution:** Replaced mechanical brand hardlock/phrase switching with `workspace.scope_resolution` SKILL.md. The CMO now emits a hidden `SCOPE:` directive separating `conversation_brand`, `execution_brand`, and comparison mode. Chat code only validates the directive, resolves Brand names to IDs, blocks RUNs without an execution Brand in multi-brand workspaces, and passes the resolved `brand_id` into module execution. |
-| 3.20 | 2026-05-15 | **Per-capability dev notes + bug sweep:** Introduced co-located `*_notes.md` files as the regression prevention system for each capability/plugin. Each notes file captures invariants, fixed bugs with the pattern that caused them, do-nots, and a short local backlog. Master `BACKLOG.md` remains core BOS only; plugin regressions stay in their plugin's notes file. Bug fixes this session: (1) named-brand mention in chat no longer overrides a persisted brand_id without explicit switch intent (`_BRAND_SWITCH_INTENT_RE`); (2) revision runs now carry `brand_id` into `_execute_module()` (were getting `brand_id=NULL`); (3) Google Ads RSA headlines no longer cut mid-word — `_clip()` now truncates at word boundary. `api/routers/chat_notes.md` and `api/plugins/google-ads/plugin_notes.md` are the first two notes files. |
-| 3.21 | 2026-05-15 | **Multi-dev workflow + domain structure:** Established full multi-dev engineering workflow. Domain structure: `hq.klaroha.com` = BOS Command Hub (internal); `staging.klaroha.com` = staging stack; `klaroha.com` = reserved for public Astro marketing site (Parking Lot). Infrastructure created: `.github/workflows/ci.yml` (pytest + banned-pattern guardrails on PR, SSH auto-deploy to staging on staging branch push, production on main push); `CODEOWNERS` (api/plugins/ scoped to Dev 2 + main dev, core paths main dev only); `docker-compose.staging.yml` (ports 8080/8001/5174, isolated bos_staging DB). CMS platforms (WordPress, Webflow, Shopify) parked as plugin publish targets following same model as Gmail/Google Ads. Pending server-side: Cloudflare DNS records, SSH deploy key setup, GitHub secrets, branch protection rules, non-root SSH lockdown. |
-| 3.23 | 2026-05-16 | **Multi-dev pipeline operational:** All server-side infrastructure live. Host nginx deployed as edge router — `hq.klaroha.com` → prod stack (port 8090), `staging.klaroha.com` → staging stack (port 8080), unknown hosts rejected. CI/CD fully verified end-to-end: 33/33 tests pass, push to `staging` branch auto-deploys to staging.klaroha.com. Dev 2 (@kibanu) onboarded as plugin specialist with Write access scoped to `api/plugins/` via CODEOWNERS. GitHub secrets and branch protection pending GitHub Team upgrade for enforcement. Plugin architecture documented as WordPress/VS Code model — separate `bos-plugins` repo pattern identified for contractor access without core exposure. |
-| 3.24 | 2026-05-16 | **Google Calendar Booking plugin:** First scheduling plugin added (`api/plugins/google-calendar/`). OAuth uses same Google app as Gmail — no new env vars for deploying orgs; calendar redirect URI auto-derives from `GOOGLE_REDIRECT_URI`. New models: `CalendarPage` (booking page settings per brand) + `CalendarBooking` (appointments). New router `/calendar/`: 5 authenticated endpoints (page CRUD, bookings list/cancel) + 3 public endpoints (availability, booking form, embeddable HTML widget). Availability engine checks existing bookings + Google Calendar FreeBusy API; creates Google Calendar events and sends Gmail confirmation on booking. Widget served at `/api/calendar/book/{slug}` — clients embed as an iframe. `FRONTEND_URL` local dev bug fixed: was `http://localhost` (port 80, nothing listening); corrected to `http://localhost:8090`. |
-| 3.26 | 2026-05-18 | **Backlog → ClickUp sync as build process:** `BACKLOG.md` is the source of truth; `Klaroha BOS` ClickUp list mirrors it for team visibility. Sync script at `api/plugins/clickup/scripts/sync_backlog.py` — idempotent, creates missing tasks, updates changed statuses, rate-limited to stay under ClickUp's 100 req/min cap. Documented in Section 9 (Technical Reference). Distinct from the product-level ClickUp plugin (`tasks.create`/`tasks.read` for client org workflows — app users never touch the backlog sync). |
-| 3.25 | 2026-05-17 | **Import Brief scope gate + Getting Started banner:** AdminOnboarding now requires a scope selection step before the form — first-time users choose org vs brand; returning users pick from existing brands or create new. New brand imports create the Brand row first, then pass `brand_id` to ingest — workspace-level slot (`brand_id=NULL`) is never touched. Scope lock badge shown in update mode. Getting Started banner added to all admin pages; uses `workspace_configured && campaign_brand_kit_approved` instead of `all_ready` (which also checks module routing). `brand_profile_configured` in onboarding status now accepts `brand_json` on any Brand row, not only `ws.brand_json`. Deployment ops documented: two stacks (`bos` + `staging`) run from `~/bos/` using `docker-compose.yml` and `docker-compose.staging.yml`; correct deploy commands and known pitfalls captured in `git.md`. |
+> **Read this before making any change.** These decisions are final. Reversing any item requires an explicit architectural review and update to this table. The historical changelog now lives in Appendix A; it is a record, not the active architecture source.
+
+### Active Phase (as of 2026-05-21)
+- **Phase:** Phase 6 — Full-Stack Marketing Automation
+- **Gate 2:** Passed 2026-05-20 (Gmail-only objective loop end-to-end proved via `api/scripts/prove_gate2_gmail_loop.py`)
+- **Current UI surface:** Stream (60%) + CMO chat (40%) split-screen. Mobile = single-panel with `translateX` slide transition. Reference: `wireframes/bos-stream-first.html` (read-only design spec — do not modify).
+- **Next active work:** Phase 6 subsections (6.1 paired creative bundle, 6.17 shortform video production/publishing infrastructure, 6.3 social publishing, Council recruitment) plus CMO loop synthesis-after-results after BITE samples are approved.
+
+### Phase 6 Loop Direction — Summary
+
+Klaroha is not becoming a generic chat agent or coding harness. Phase 6 applies pi-style agent loop mechanics inside BOS's business/marketing operating system for an overloaded business leader or marketing operator managing multi-brand, omni-channel work.
+
+Two loops are distinct:
+- **CMO execution loop:** fast plan/execute/optimize steering; specialists create Stream artifacts; CMO synthesizes only after specialist results return; operator approves/revises/dismisses; memory closes the optimization loop.
+- **Council deliberation loop:** explicit `@council` invocation for high-stakes judgment such as GTM strategy, brand redesign, quarterly budget/resource allocation, major positioning shifts, or persistent disagreement. The final product is a `council_brief` artifact; the full transcript may be supporting detail, not primary chat output.
+
+Default creative production should run in parallel from a shared campaign brief for speed, with sequential chaining reserved for brand risk, compliance, high-ticket/long-sales-cycle dependency, failed self-checks, or Council recommendation. Details and code-dev marching orders live in `api/routers/chat_notes.md`.
+
+### Locked Rules — Topic by Topic
+
+| # | Topic | ✓ Current (locked) | ✗ Do Not Revert To |
+|---|---|---|---|
+| 1 | **CMO routing** | LLM reads `capability_manifest.py`; zero routing logic in `chat.py` | `_explicit_platforms()`, `_is_broad_sample_ads_request()`, `_has_generation_intent()`, `_requested_module_ids()`, phrase-matching — all removed 2026-05-12 |
+| 2 | **Channel capabilities** | `api/plugins/{channel}/` only | `api/capabilities/marketing/channel/` — deleted; must never be recreated |
+| 3 | **CMO artifact output** | Chat returns artifact refs/links only; Workspace + Stream own native preview, approval, revision | Inline Subject/Body, Headline/Description, copy, targeting, budgets, fake proof in CMO chat replies |
+| 4 | **Brand dispatch** | `_brand_scoped_brief(db, ws, active_brand, overrides)` when `brand_id` is set | `_resolve_brief(db, ws, overrides)` in an active-brand context (causes cross-brand bleed) |
+| 5 | **Brand memory hydration** | `hydrate_memory_slots(brand=active_brand)` — filters products, audiences, docs, run memory by `brand_id` | Workspace-wide memory in active-brand turns |
+| 6 | **Brand switching** | Hidden `SCOPE:` directive + `workspace.scope_resolution` SKILL.md | Phrase-matching, hardlock, or brand-name detection in `chat.py` |
+| 7 | **Artifact dispatch guard** | Blocks `RUN:` with brand clarification when no Brand can be resolved in multi-brand workspace | `brand_id=NULL` artifact creation in multi-brand workspaces |
+| 8 | **CMO product surface** | `marketing.plan`, `marketing.execute`, `marketing.optimize` — collapsed job model | Channel/vendor names (Google Ads, Gmail, Meta, etc.) as primary product nav or capability catalog |
+| 9 | **CMO reply style** | Mobile-first: 1–4 short lines, one idea per line, bullets for choices, max one question. Ref: `sample/mobile_cmo_reply_style_v1.md` | Dense paragraphs, pasting full plans or platform content inline |
+| 10 | **Capability gate** | `SKILL.md` fields `allowed_from_chat: true`, `triggers`, `excluded_triggers`, `module_id` own activation policy | Hardcoded module ID lists or intent classifiers in `chat.py` / `skills/router.py` |
+| 11 | **Plugin credentials** | `inject_channel_credentials()` in `runs.py`; plugins read `brief["_channel_credentials"]` only | Plugins calling `get_settings()` or querying `social_connections` / DB directly |
+| 12 | **Capability manifest** | `api/capability_manifest.py` auto-generates from SKILL.md files at runtime | Manual manifest edits; hardcoded module IDs in `_build_system_prompt()` |
+| 13 | **`_brand_scoped_brief()` contract** | Builds from overrides + Brand rows only; must not call `_resolve_brief()` first | Calling `_resolve_brief()` as a fallback inside `_brand_scoped_brief()` |
+| 14 | **Revise endpoint brand** | Resolves Brand from `original_run.brand_id` before building execution brief | Using workspace context for revision runs |
+
+### Key File Ownership
+| File | Owns |
+|---|---|
+| `api/capability_manifest.py` | CMO-dispatchable capability list — generated at runtime from SKILL.md |
+| `api/routers/chat.py` | 7-step pipeline only: receive → context → LLM → strip directives → dispatch → persist → return |
+| `api/routers/chat_notes.md` | Regression patterns, architecture direction, do-nots for `chat.py` |
+| `BITE.md` | Architecture constitution — overrides all conflicting code patterns or stale docs |
+| `api/plugins/PLUGIN_SDK.md` | Complete plugin developer contract |
+| `api/capabilities/workspace/council/` | CMO Council deliberation layer (post-Gate 2) |
+| `CREATIVE_SUPPLY_CHAIN.md` | Creative supply chain mini project brief — concept → primitives → blueprints → render targets → Drive; all detail lives there |
+
+---
 
 ---
 
@@ -98,6 +106,7 @@ Developer documentation: `api/plugins/PLUGIN_SDK.md` is the complete guide.
 - `build_dispatchable_manifest()` returns typed `CapabilityEntry` objects for API use.
 - **No hardcoded module IDs, platform names, phrase triggers, or dispatch conditions exist anywhere in `routers/chat.py` or `skills/router.py`.** The LLM reads the manifest and uses its own judgment. Each module's SKILL.md owns its activation policy.
 - Adding a new dispatchable capability = add a plugin or capability directory with a valid SKILL.md (`allowed_from_chat: true`, `module_id: <id>`). The manifest and CMO system prompt update automatically on next restart.
+- **Target architecture (Phase 4+):** `chat.py` should be a fixed 7-step contract (~100 lines); all cross-cutting concerns (brand-scoping, memory hydration, connector context, `@klar` commands) move into packages subscribing to `bridge.before_transform` and other lifecycle hooks. This eliminates the regression pattern caused by the current monolithic chat endpoint. Full model and BITE mapping: `api/routers/chat_notes.md` § *Architecture Direction — Pi-Pattern Target*.
 
 ### First-party capability shape (non-channel only)
 
@@ -189,6 +198,37 @@ A plugin may initially be read-and-draft only. Approval should save or authorize
 - Exposing connector/API/tool jargon to the owner
 
 All of the above come after the collapsed job model and approval loop are validated.
+
+### Shortform Video Production + Publishing Pipeline
+
+Shortform is a Phase 6 production pipeline, not a CMO chat feature and not a reason to add platform routing logic.
+
+**Fastest path to volume:** BOS should generate **template-rendered vertical video assets**, not rely on cinematic text-to-video models for hundreds/thousands of posts. The scalable path is:
+
+```text
+content atom
+  → script
+  → voiceover
+  → branded motion template / captions
+  → MP4 asset + metadata
+  → shortform_video_asset artifact in Stream
+  → human approval
+  → export pack / scheduler handoff
+  → later: approval-gated native publishing plugin
+```
+
+**Generation owner:** a non-channel specialist plugin such as `api/plugins/media-shortform/` should implement `media.shortform.generate` and output a reviewable `shortform_video_asset`. It may use local/free TTS for volume, premium TTS for flagship pieces, Remotion/FFmpeg/HTML template rendering, Cloudflare R2 or equivalent object storage, generated captions from the known script, and brand-compliance checks from Campaign Brand Kit.
+
+**Publishing owners:** platform mutation remains channel-plugin owned. The initial integration order is:
+
+1. **Export/scheduler handoff first** — MP4 + caption + hashtags + title + publish date CSV/ZIP; no platform API dependency.
+2. **YouTube Shorts plugin** — likely first native publisher because Google OAuth/API patterns already exist in BOS; quota constraints must be handled.
+3. **Meta/Instagram Reels** — use the existing Meta plugin path; requires linked IG Business account, hosted video URL, and relevant Meta permissions/app review for non-admin/client use.
+4. **TikTok** — keep manual/scheduler export until Content Posting API access and review are clear.
+
+**Approval boundary:** generating a video asset is safe; publishing to any external platform is an approved external action. Native publish modules must produce `action_result` artifacts with platform IDs/URLs and changed resources. Bulk publishing without approval is forbidden.
+
+**Creative supply chain (manufacturing layer):** The full architecture for the layer between campaign strategy and channel distribution — Creative Director concept capability, primitive generation, blueprint assembly, render targets, BRAND.md injection, Google Drive as the asset library, and agency role mapping — lives in **`CREATIVE_SUPPLY_CHAIN.md`**. Do not duplicate that detail here.
 
 ---
 
@@ -447,7 +487,7 @@ The interface is designed for a CMO managing one or many brands/clients, with op
 - **The Aggregated Stream:** A consolidated decision queue. The CMO sees "Pending Decisions" (e.g., Approvals) from *all* brands in one priority list.
 - **Workspace Panel:** A sliding right panel (420px) focused on high-frequency CMO work: active campaigns, pinned assets, past campaigns, and pending generated assets. Reference/administrative views do not live here.
 - **Workspace Artifacts:** Workspace is the canonical artifact plane. Generated capability/plugin outputs are stored as run-backed artifact records with IDs, status, renderer hints, and approval state. CMO chat only links to these artifact records; it does not render platform-native previews inline.
-- **Pending Decisions:** Generated artifacts surface in Stream as timestamped native previews until approved, revised, or dismissed. Draft Campaign Brand Kit review is linked from onboarding/Admin flows rather than normal CMO chat.
+- **Pending Decisions:** Pending artifact cards in Stream are full inline review surfaces — native platform preview, editable copy textarea, Drive image attachment, and Dismiss/Revise/Approve actions all render directly inside the Stream card (via embedded `ApprovalBundle`). There is no separate side panel for artifact review. The side panel is reserved only for `StreamUpdateOut` cards (decision_brief, outcome, setup_blocker) that need expanded narrative context. Draft Campaign Brand Kit review is linked from onboarding/Admin flows rather than normal CMO chat.
 - **Admin:** Setup, memory, connectors, specialists, outcomes, and system/debug. Admin is not the daily marketing dashboard; it configures the company brain and specialist access.
 
 **Key UX Principles:**
@@ -698,6 +738,21 @@ The platform supports two execution modes. A user may use either, or mix by prov
 ### Login/OAuth Mode (provider auth)
 - Interactive browser login (e.g., OpenAI Chat). BOS manages encrypted refresh tokens.
 
+### Platform OAuth Broker — customer self-host model (decided 2026-05-24)
+
+**Deployment model:** BOS is a product Klaroha makes; customers **self-host** it in their own cloud on their own domains. But the *system* — its identity and third-party integrations — is **Klaroha's**. The analogy: a company installs Windows on its own machines, but when a user signs into their Microsoft account / OneDrive, they authenticate against Microsoft's identity service — they never register their own Azure app. Microsoft runs the central auth; the install just talks to it.
+
+**Therefore: third-party OAuth (Google Drive/Gmail/Calendar/YouTube, Meta, etc.) must NOT require any per-customer or per-deployment provider setup.** A customer must never create a Google Cloud project, OAuth client, consent screen, or API key. Requiring that is wrong and is explicitly rejected.
+
+**The mechanism — a central Klaroha-run OAuth broker:**
+- Klaroha runs one always-on auth service (e.g. `connect.klaroha.com`) holding **one verified** Google app (all Google scopes) + the Picker API key, and the platform Meta app. Verified once, by Klaroha.
+- A self-hosted BOS instance never holds `GOOGLE_CLIENT_SECRET` (or any platform client secret). It holds only a **broker URL + a deployment identity credential**.
+- Connect flow: BOS instance → redirect to broker → broker runs consent on Klaroha's verified app → provider calls back to **one stable redirect URI** at the broker → broker hands the token back to the originating instance via a signed one-time exchange → instance stores it locally in its own `social_connections`. One verified app covers every install; no per-domain redirect registration.
+
+**Critical scoping note — this only changes token *acquisition*.** Everything downstream — `get_page_token()` and its auto-refresh, the per-brand `social_connections` model, all channel plugins, the creative factory — reads tokens from the connection row and is unaffected by whether they arrived via env-var app (today's single dev box) or the broker (productization). So feature work that consumes connections does **not** block on the broker, and the broker slots in behind the existing connection model with no downstream rework.
+
+**Status:** Decision locked; broker is its own platform-level mini-project (spans all integrations, needs Google app verification + CASA assessment for restricted scopes, secure signed token handoff, and a Klaroha-hosted Picker page for cross-domain referrer constraints). The current single Klaroha deployment continues on env-var platform credentials (`GOOGLE_CLIENT_ID/SECRET/REDIRECT_URI/PICKER_API_KEY`) until the broker is built. Per-deployment BYO-Google-app setup is **not** the model and must not be documented as a customer step.
+
 ---
 
 ## 8. UI Component Architecture
@@ -774,3 +829,213 @@ Run this sync whenever a significant batch of tasks is completed or added. The s
 - `GET /social/connections?brand_id=X`: List all external/social connections for a brand or workspace.
 - `DELETE /social/connections/{id}`: Disconnect an external/social connection.
 - Future plugin OAuth/connect endpoints must be registered through generic connector/plugin contracts where possible; CMO chat must not gain platform-specific routing or publish branches.
+
+---
+
+## Appendix A — Historical Changelog
+
+> Historical record only. The **Current State & Locked Architecture** section at the top of this brief is the active source of truth. If an older changelog row conflicts with a locked rule, the locked rule wins.
+
+| Version | Date | Changes |
+|---|---|---|
+| 3.41 | 2026-05-24 | **CMO chat → creative → Drive (live):** `google-drive` plugin built (`drive_client.py` Drive REST v3 + `drive.folder.setup`/`asset.upload`/`asset.list`/`asset.get`); Google Drive OAuth connection (per-brand) + Google Picker root-folder selection. New `creative.post.image` capability (creative-factory, `allowed_from_chat`) generates a Meta-post visual via the image hook and stores it in the brand's Drive under `Creative Assets/Meta Posts/` — does NOT publish. Declarative `requires_generated_image` ClassVar on `ModuleBase` + generic `runs.py` hook (no capability hardcoded in core); `inject_channel_credentials` now surfaces `drive_root_folder_id` for google_drive. Validated live via `/chat` on the Klaroha brand. Per-brand isolation confirmed: a brand without a Drive connection correctly fails closed (no fallback to another brand's Drive). Detail: `CREATIVE_SUPPLY_CHAIN.md`. |
+| 3.40 | 2026-05-24 | **Platform OAuth Broker — customer self-host model:** Locked the deployment model — BOS is self-hosted by customers in their own cloud, but the system/integrations are Klaroha's (Windows-install analogy: customers run the OS, auth against Microsoft's identity, never register their own app). Third-party OAuth (Google Drive/Gmail/Calendar/YouTube, Meta) must require ZERO per-customer provider setup; BYO-Google-app per deployment is explicitly rejected. Mechanism: one Klaroha-run central OAuth broker holding one verified app + Picker key, one stable redirect URI, signed one-time token handoff back to each self-hosted instance. Critical scope: broker only changes token *acquisition* — `get_page_token()`, `social_connections`, channel plugins, and the creative factory are unaffected, so feature work does not block on it. Broker is its own platform mini-project (needs Google verification + CASA, Klaroha-hosted Picker page). Current single Klaroha dev box continues on env-var platform credentials until the broker is built. See Section 7 → Platform OAuth Broker. |
+| 3.39 | 2026-05-24 | **Creative Supply Chain mini-project:** Channel-agnostic creative manufacturing layer (concept → primitives → blueprint CompositionSpec → stitch/render → export) between campaign strategy and channel distribution. BOS is routing/orchestration only — all generation/rendering is third-party (image/video AI, Shotstack/Creatomate/FFmpeg, Huashu); BOS builds the JSON request and captures the result. Per-brand Google Drive as asset library (operator picks existing root folder via Google Picker). Full detail in `CREATIVE_SUPPLY_CHAIN.md`. Phase A foundation built: `creative_jobs`/`creative_assets`/`creative_blueprints` tables, Google Drive OAuth connection layer + Picker folder selection. |
+| 3.37 | 2026-05-22 | **CMO/Council Loop Marching Orders:** Distilled Phase 6 agentic direction after pi.dev comparison and agency-process discussion. Klaroha applies pi-style loop mechanics inside a business/marketing operating system for overloaded multi-brand operators. Two loops are distinct: the CMO execution loop shortens idea → artifact → approval → memory, while the Council deliberation loop is explicit `@council` escalation for high-stakes GTM, brand, budget, resource, and positioning judgment. Council's final product is a `council_brief` artifact; transcript may be supporting detail. Creative production defaults to parallel specialists from a shared brief, with sequential chaining reserved for risk/dependency. Full details live in `api/routers/chat_notes.md`. |
+| 3.36 | 2026-05-21 | **Shortform Video Production + Publishing Pipeline Direction:** Added Phase 6 build direction for high-volume shortform content. The fastest path is not cinematic text-to-video generation; it is template-rendered vertical assets: content atom → script → voiceover → motion text/branded template → captions/metadata → `shortform_video_asset` artifact → Stream approval → export/manual scheduler handoff first, then approval-gated native publishing plugins. A new non-channel `media-shortform` specialist should own generation/rendering/storage/QA. Platform publishing remains plugin-owned: YouTube Shorts first (Google OAuth/API pattern already familiar), Meta/Instagram Reels second (existing Meta plugin/OAuth path), TikTok later/manual export until Content Posting API approval is clear. No shortform platform behavior belongs in CMO chat routing or BOS core. |
+| 1.0-1.7 | 2026-05-01..06 | Foundation, Core API, Provider Layer (BYOK), Frontend Shell, and CMO Chat. |
+| 1.8-1.9 | 2026-05-06 | Admin UX refresh to setup-first flow; OpenAI login auth enabled. |
+| 1.10 | 2026-05-06 | Fixed OpenAI runtime routing and token storage limits. |
+| 2.0 | 2026-05-06 | **Architectural Pivot:** Transitioned from single-workspace to Org $\to$ Brand $\to$ Campaign hierarchy to support multi-business management by a single CMO. |
+| 2.1 | 2026-05-07 | Required onboarding now includes an approved Campaign Brand Kit, stored as a tagged PostgreSQL document rather than hard-coded brand/design columns. |
+| 2.2 | 2026-05-08 | CMO chat refined into a context-aware executive interface: no scripted new-chat greetings, discussion questions do not trigger modules, brand brief/product/audience/Brand Kit context is loaded into CMO responses, generated module results become persistent pending approval decisions, and modification flows use LLM-backed revision threads. |
+| 2.3 | 2026-05-08 | Adopted `SKILL.md` principles for BOS: expertise is modular, explicit, triggerable, source-linked, and workflow-bound. Skills become the CMO's intent/memory/workflow contracts around modules and workspace resources. |
+| 2.4 | 2026-05-08 | Added atomic need-to-know skill resource model and SOP ingestion governance: SOPs produce versioned change proposals across skills, resources, modules, memory, and config rather than blindly overwriting operational contracts. |
+| 2.5 | 2026-05-08 | Modeled BOS skill support principles from Agent Skills client implementation: discover by `SKILL.md`, catalog metadata first, activate full instructions only when needed, list resources without eager loading, preserve/deduplicate activated skills, and enforce BOS governance before model exposure. |
+| 2.6 | 2026-05-08 | Reverse-engineered canonical BOS skill shape from SEO, email-sequence, and analytics-tracking samples: descriptions act as activation policy, related skills define routing boundaries, required context drives intake, resources remain lazy, caveats become quality gates, and output format becomes evaluation contract. |
+| 2.7 | 2026-05-08 | Added executable `marketing.email.sequence` module linked to the atomic email sequence skill; SEO audit and analytics tracking remain skill-only until their data/tool requirements are defined. |
+| 2.8 | 2026-05-08 | Expanded BOS beyond marketing by adding nested internal service-delivery modules. Module discovery now recurses under verticals, enabling structures like `api/modules/internal/client_onboarding/google_business_profile.py` for provider-specific operating capabilities. |
+| 2.9 | 2026-05-08 | Added Google Business Profile post ideas as a marketing skill/module using the 50-tactic checklist resource; distinguished organic GBP posts from internal GBP client onboarding and paid Google ads. |
+| 3.0 | 2026-05-08 | Reframed the external product brand as Klaroha: marketing, engineered for clarity. BOS remains the internal architecture; Klaroha is the customer-facing promise of collapsing marketing signal complexity into a transparent command center. |
+| 3.1 | 2026-05-08 | Added long-form Brand Guidelines as the Brand-plane source of truth. Campaign Brand Kit is now the shorter campaign execution summary derived from Brand Guidelines. Admin Workspace exposes both documents. |
+| 3.2 | 2026-05-09 | Added Meta MCP sidecar direction: read-only Meta paid ads performance and Page/comment monitoring can use a local MCP-compatible connector first, while BOS keeps stable capability contracts so native Meta API write/spend actions can replace or extend it later. |
+| 3.3 | 2026-05-10 | Adopted capability-centric directory layout (`api/capabilities/`) compatible with Claude Code skills discovery and MCP tool/resource/prompt registration. Each capability is a self-contained directory: `SKILL.md` + `module.py` + `template.j2` + resources. Internal client onboarding becomes a `workflows/` checklist system, not a capability module. GBP is a marketing channel only. |
+| 3.4 | 2026-05-10 | Added @klar Plan Mode strategic planning capability (`workspace.plan_mode`): skill-activated, extended thinking, mobile-first card-stack output format. Added Facebook Page Management social layer: agency app model (one platform Meta Developer App, brands authorize via OAuth, system holds long-lived page tokens per brand). New: `social_connections` table, `SocialConnection` model, `/social` router, `providers/facebook.py`, `FacebookPageOAuthHandler`. New document types for plan memory slots: `marketing_report`, `campaign_report`, `competitor_profile`, `industry_report`. |
+| 3.5 | 2026-05-10 | **Channel Plugin Architecture:** Third-party channels install into `api/plugins/` and integrate via `klaroha_sdk` — one stable import, no internal access. Plugin contract: `channel.json` manifest + `ChannelModule` subclass + SKILL.md. Host scans plugins at startup identically to first-party capabilities. Credentials injected at execution time via `inject_channel_credentials()` in runs.py. Facebook page management is the first validation plugin built externally. |
+| 3.6 | 2026-05-11 | **Gmail Channel Integration:** Gmail OAuth added as a first-class social connection (`GmailOAuthHandler`, PKCE OAuth2, Google token endpoint). Gmail accounts connect per-brand identically to Facebook. Token auto-refresh implemented in `get_page_token()` — expired access tokens are refreshed transparently using stored `refresh_token_encrypted` from `token_meta_json`. Plugin skill discovery gap fixed: `register_skill_root()` in `skills/loader.py` now called by `registry._scan()` so plugin SKILL.md files are fully discoverable from CMO chat routing. Bug fixed: `inject_channel_credentials()` was only in the LLM execution path — moved before `execute_tool_result` so plugin tool modules receive credentials. Gmail send and receive now dispatchable from CMO chat with distinct platform hints (`gmail send` / `gmail inbox`). |
+| 3.7 | 2026-05-12 | **Strict Plugin Model + Facebook Page Management Pipeline:** All channel Transform nodes removed from `api/capabilities/marketing/channel/` — this directory is deleted. All channel capabilities are now third-party plugins in `api/plugins/`. Legacy `api/skills/marketing/` channel skill files removed. System prompt module ID examples replaced with dynamic registry-driven references. Broad sample ads fallback made registry-driven — no hardcoded module IDs anywhere. `api/plugins/facebook/` built as the first production plugin: organic page post (copy gen), organic page publish (execute_tool_result → Graph API), paid ads copy. Build direction: pipeline first — the draft → approve → publish sequence is the primary target before adding more channel capabilities. |
+| 3.8 | 2026-05-12 | **Gmail-Only + LLM-Driven CMO Capability Registry:** At this checkpoint, Facebook, Twitter, Meta, and Google Ads channel capabilities/plugins were removed to reset around Gmail-only focus and eliminate hardcoded routing. Created `api/capability_manifest.py` as the single source of truth for CMO-dispatchable capabilities — generated at runtime from installed SKILL.md files, injected into CMO system prompt. CMO LLM reads the manifest and uses its own judgment to invoke capabilities; no platform-specific routing, phrase-matching, or module dispatch rules exist in `routers/chat.py` or `skills/router.py`. `_build_system_prompt()` no longer accepts a `modules` list parameter — capability list is fully self-contained via `format_manifest_for_prompt()`. Superseded for Google Ads scope by v3.11, which reintroduces Google Ads as a plugin-owned specialist only. |
+| 3.9 | 2026-05-12 | **CMO-in-Pocket Marketing Operating Model:** BOS product architecture is now anchored on the promise that a small business owner gets the leverage of an enterprise marketing department without managing 27 SaaS dashboards. CMO-facing marketing work collapses to three durable jobs — `marketing.plan`, `marketing.execute`, and `marketing.optimize`. Channel/vendor/plugin specifics such as Google Ads, Gmail, Meta, Search Console, or GTM are specialist/tool implementations behind those jobs, not the primary product language or a thousand-entry capability catalog. |
+| 3.10 | 2026-05-13 | **Workspace Artifacts Canonical Plane:** CMO chat no longer renders platform-native artifacts inline. Chat returns concise narrative plus artifact references; Workspace owns artifact review/native previews; Stream surfaces the same persisted artifact records for mobile. Plugins/capabilities continue to return typed artifact blocks, but chat stores/links references rather than duplicating native content in conversation history. |
+| 3.11 | 2026-05-13 | **Google Ads Full-Control Direction:** Google Ads is back in scope as a plugin-owned specialist, not BOS core behavior. Approved sample `sample/google_ads_full_control_v1.md` and reverse-spec `api/plugins/google-ads/FULL_CONTROL_SPEC.md` define the control ladder: read diagnostics, draft recommendations, approved selected mutations, destructive second-confirmation actions, and mandatory audit/rollback metadata. Current installed Google Ads capabilities remain read/draft only until approval-gated action capabilities are added. |
+| 3.12 | 2026-05-13 | **Mobile-First CMO Replies:** Approved `sample/mobile_cmo_reply_style_v1.md` as the CMO chat style contract. Normal CMO replies should read like short mobile operator messages: 1–4 short lines, one idea per line, bullets for choices, one question max, no dense paragraphs, while preserving Workspace artifact boundaries. |
+| 3.13 | 2026-05-13 | **Native Marketing Planning Specialist:** Approved `sample/marketing_planning_specialist_v1.md` and added `marketing.plan.campaign_strategy` as a first-party planning Transform. `@klar plan` now resolves brand context and creates a reviewable Workspace plan artifact instead of pasting long markdown plans into mobile chat. |
+| 3.14 | 2026-05-13 | **Search Console Plugin Next:** Google Search Console is the next plugin target after Google Ads read expansion. It must follow the same plugin-only/BITE sequence: produce and approve a sample first, reverse-spec from that sample, then build read-only `marketing.optimize` artifacts for properties, queries, pages, CTR, impressions, clicks, position, indexing/coverage signals, and SEO opportunity recommendations. The Search Console plugin must be custom-built for BOS against native Google Search Console APIs only — no Membrane, Rube, Composio, or arbitrary MCP sidecar. No Search Console behavior belongs in CMO chat routing or BOS core. |
+| 3.15 | 2026-05-13 | **Search Console Plugin v1:** Added custom native Google Search Console plugin under `api/plugins/search-console/` with five read-only `marketing.optimize` capabilities: properties list, performance query, URL inspection, sitemaps read, and SEO opportunity plan. Added plugin manifest, contracts, spec, docs, tests, and `.env.example` variables. V1 remains read-only: no sitemap submit/delete, add/delete site, indexing request, website edit, Membrane, Rube, Composio, MCP sidecar, or BOS core/chat-router logic. |
+| 3.16 | 2026-05-13 | **Brand isolation fix:** CMO module dispatch and revise endpoint were using `_resolve_brief(db, ws)` — always workspace-scoped — even when an active Brand was set. Fixed: `chat.py` module dispatch now calls `_brand_scoped_brief(db, ws, active_brand, overrides)`; revise endpoint resolves brand from `original_run.brand_id` and uses the same path for both system prompt and execution brief. `_resolve_brief` is workspace-only and must not be used for module dispatch when an active brand is set. |
+| 3.17 | 2026-05-15 | **Active-brand CMO context isolation:** Found remaining bleed paths after v3.16: `hydrate_memory_slots()` still loaded workspace-wide memory into active-brand chat prompts, and `_brand_scoped_brief()` called workspace fallback before overlaying Brand rows. Fixed: active-brand memory now filters products, audiences, docs, and run memory by `brand_id`; `_brand_scoped_brief()` builds from overrides + Brand rows only; CMO prompt now includes an active-brand isolation rule and trace logs expose scoped counts without content. |
+| 3.18 | 2026-05-15 | **Unscoped artifact dispatch guard:** Found remaining path where frontend activeBrand state was lost after reload, causing normal chat artifact runs to execute with `brand_id=NULL` and legacy workspace context (MotorMoto) even when the operator expected Klaroha. Fixed: frontend persists activeBrand; backend recovers Brand scope when the user names a Brand; org-level prompts with Brand rows list available Brands but do not load workspace brand/products/docs; artifact dispatch is blocked with a one-question brand clarification when no Brand can be resolved. |
+| 3.19 | 2026-05-15 | **SKILL-owned Brand scope resolution:** Replaced mechanical brand hardlock/phrase switching with `workspace.scope_resolution` SKILL.md. The CMO now emits a hidden `SCOPE:` directive separating `conversation_brand`, `execution_brand`, and comparison mode. Chat code only validates the directive, resolves Brand names to IDs, blocks RUNs without an execution Brand in multi-brand workspaces, and passes the resolved `brand_id` into module execution. |
+| 3.20 | 2026-05-15 | **Per-capability dev notes + bug sweep:** Introduced co-located `*_notes.md` files as the regression prevention system for each capability/plugin. Each notes file captures invariants, fixed bugs with the pattern that caused them, do-nots, and a short local backlog. Master `BACKLOG.md` remains core BOS only; plugin regressions stay in their plugin's notes file. Bug fixes this session: (1) named-brand mention in chat no longer overrides a persisted brand_id without explicit switch intent (`_BRAND_SWITCH_INTENT_RE`); (2) revision runs now carry `brand_id` into `_execute_module()` (were getting `brand_id=NULL`); (3) Google Ads RSA headlines no longer cut mid-word — `_clip()` now truncates at word boundary. `api/routers/chat_notes.md` and `api/plugins/google-ads/plugin_notes.md` are the first two notes files. |
+| 3.21 | 2026-05-15 | **Multi-dev workflow + domain structure:** Established full multi-dev engineering workflow. Domain structure: `hq.klaroha.com` = BOS Command Hub (internal); `staging.klaroha.com` = staging stack; `klaroha.com` = reserved for public Astro marketing site (Parking Lot). Infrastructure created: `.github/workflows/ci.yml` (pytest + banned-pattern guardrails on PR, SSH auto-deploy to staging on staging branch push, production on main push); `CODEOWNERS` (api/plugins/ scoped to Dev 2 + main dev, core paths main dev only); `docker-compose.staging.yml` (ports 8080/8001/5174, isolated bos_staging DB). CMS platforms (WordPress, Webflow, Shopify) parked as plugin publish targets following same model as Gmail/Google Ads. Pending server-side: Cloudflare DNS records, SSH deploy key setup, GitHub secrets, branch protection rules, non-root SSH lockdown. |
+| 3.23 | 2026-05-16 | **Multi-dev pipeline operational:** All server-side infrastructure live. Host nginx deployed as edge router — `hq.klaroha.com` → prod stack (port 8090), `staging.klaroha.com` → staging stack (port 8080), unknown hosts rejected. CI/CD fully verified end-to-end: 33/33 tests pass, push to `staging` branch auto-deploys to staging.klaroha.com. Dev 2 (@kibanu) onboarded as plugin specialist with Write access scoped to `api/plugins/` via CODEOWNERS. GitHub secrets and branch protection pending GitHub Team upgrade for enforcement. Plugin architecture documented as WordPress/VS Code model — separate `bos-plugins` repo pattern identified for contractor access without core exposure. |
+| 3.24 | 2026-05-16 | **Google Calendar Booking plugin:** First scheduling plugin added (`api/plugins/google-calendar/`). OAuth uses same Google app as Gmail — no new env vars for deploying orgs; calendar redirect URI auto-derives from `GOOGLE_REDIRECT_URI`. New models: `CalendarPage` (booking page settings per brand) + `CalendarBooking` (appointments). New router `/calendar/`: 5 authenticated endpoints (page CRUD, bookings list/cancel) + 3 public endpoints (availability, booking form, embeddable HTML widget). Availability engine checks existing bookings + Google Calendar FreeBusy API; creates Google Calendar events and sends Gmail confirmation on booking. Widget served at `/api/calendar/book/{slug}` — clients embed as an iframe. `FRONTEND_URL` local dev bug fixed: was `http://localhost` (port 80, nothing listening); corrected to `http://localhost:8090`. |
+| 3.27 | 2026-05-19 | **Pi-pattern architecture insight documented:** Studied pi.dev (minimal terminal coding harness) to diagnose why `chat.py` regressions keep recurring. Root cause: the current chat endpoint is a 1,144-line monolith that owns routing, brand-scoping, prompt-building, directive parsing, dispatch, and command logic in one place — every bug fix can break the previous one. Pi avoids this with three mechanisms: (1) a fixed ~50-line core loop that never changes; (2) capabilities as filesystem objects (SKILL.md), not code branches; (3) extensions that subscribe to lifecycle hooks rather than modifying the pipeline. The target for BOS is a fixed 7-step chat contract (receive → context → LLM → strip directives → dispatch → persist → return) with all cross-cutting concerns (brand-scoping, memory hydration, connector context, `@klar` commands) moved into packages that subscribe to `bridge.before_transform` and other hooks. BITE mapping and full hook model documented in `api/routers/chat_notes.md`. |
+| 3.28 | 2026-05-19 | **Streaming agentic loop:** CMO pipeline now streams via SSE (`POST /chat/stream`). Steps appear live as modules run; artifact refs land one at a time before the reply; step log persists as greyed ✓ so the operator sees the full execution trace. Backend: `StreamingResponse` endpoint + `_generate_chat_stream()` async generator + `_run_modules_streaming()` as single dispatch source of truth for both `/chat` and `/chat/stream`. Frontend: `api.chatStream()` async generator consumes SSE; `CmoChat.tsx` renders step labels with pulse animation during execution and ✓ on completion; step log is never removed if it accumulated steps. Nginx: dedicated `/api/chat/stream` location block with `proxy_buffering off` + `X-Accel-Buffering: no` response header (belt + suspenders — both required). |
+| 3.29 | 2026-05-19 | **Campaign execution cascade architecture:** Defined the channel-sovereign execution model. Strategy layer (`marketing.plan`) produces positioning, message framing, and market segment — fully channel-agnostic. On plan approval, all enabled channel plugins receive the campaign brief simultaneously via parallel `RUN:` dispatch. Each channel plugin is self-sovereign: it knows its own enabled sub-capabilities (Google Ads: search ads, display banners, video; Meta: square post, carousel) and calls image gen (`media.image.generate`, already installed) with its own format specs. No sequential agentic loop is needed for V1 — copy and image both derive from the shared campaign brief in parallel dispatch. Two documented arch gaps define the build path: (A) image→publish handoff: `posts/draft` block carries `image_prompt`; `posts/publish` calls image gen + photo upload inline; (B) credential pre-check: surface connected channels in CMO system prompt so LLM self-selects before dispatching modules that will fail at execution. Phase 6 section 6.11 tracks the build. |
+| 3.35 | 2026-05-21 | **Stream + CMO Unified Surface:** Stream page redesigned as a split-screen — CMO chat occupies the left column (40%) and the decision feed occupies the right (60%). Artifact links in CMO chat dispatch a `bos:focus-artifact` event that opens the run in Stream's side panel instead of the workspace slide-over; no navigation required. Mobile screens (≤900px) switch to full-screen single-panel mode: CMO chat is the default view; Stream slides in from the right when an artifact is focused; a `← Chat` button returns to CMO. The old Stream/Workspace mobile nav was removed; the prototype Stream/Admin tab bar is now the single bottom navigation on all screen sizes. Stream data bug fixed: `pendingRunItems` in localStorage accumulated stale rejected/failed runs, causing artifact count to jump between sessions (e.g. 41 vs 27) and stale localStorage data to overwrite live API `approval_status` (causing styling inconsistencies). Fix: API data is authoritative; localStorage items are only included if absent from the API response and created within the last hour. |
+| 3.36 | 2026-05-22 | **Plugin Documentation Strategy:** Established plugin-specific documentation structure where each plugin maintains its own documentation directory under `api/plugins/{plugin-name}/docs/` to maintain separation of concerns and avoid documentation sprawl across the entire codebase. Each plugin maintains its own documentation structure with implementation guides, API endpoints, architecture changes, and a README hub. This approach ensures plugin-specific issues are documented in isolation, documentation doesn't need to be pulled up across all code changes, and each plugin maintains its own project brief and implementation logs. |
+| 3.34 | 2026-05-21 | **Implementation note — prototype-to-localhost task failure:** Claude Code misunderstood the task for implementing `wireframes/bos-stream-first.html` into the local React app. The prototype is a UX/UI redesign spec — implementing it means translating its design patterns, component structure, layout, and interactions into working React components while preserving all existing functional capabilities (CMO chat, artifact pipeline, brand management, connectors, admin sections, etc.). What Claude Code actually did was copy-paste the HTML prototype into the working app at a route (`/cmo/prototype`) and mark the 13-item implementation queue complete. The existing React app capabilities were not visually updated to match the prototype. Any future implementation pass must treat `bos-stream-first.html` as a design reference only (do not modify it), identify the delta between prototype visual design and the current React component output, and implement those deltas per-component in `web/src/` without breaking existing API integrations. |
+| 3.33 | 2026-05-20 | **Gate 2 Gmail-only objective loop proof passed:** Ran `api/scripts/prove_gate2_gmail_loop.py` successfully through the full primitive loop: Objective → Gmail draft artifact → approval → manual OutcomeRecord → MemoryEvent → DecisionBrief → Stream cards. Proof IDs: objective `0feb55a6-e430-420f-baa6-4d8bde820015`, Gmail draft run `5508783c-5835-49e3-bb08-a370562554ca`, OutcomeRecord `b0f17311-2309-4dba-a84b-47ae76a4b124`, MemoryEvent `415caee9-46b3-4955-be3a-3054045e5881`, DecisionBrief `b6f78179-cf24-457f-936f-683281e2e28c`. Verified Stream returns both `outcome` and `decision_brief` cards scoped to the proof objective, and the DecisionBrief uses recorded outcome memory to recommend the next Gmail artifact with approval boundary intact. Also added Admin → Agent Activity panel over `/agent/state` and pending run review queue, Campaign Brand Kit style injection for image generation prompts, and image-generation brand-compliance gate metadata/self-check. Started BITE sample for `creative_bundle` paired copy+image artifact at `sample/creative_bundle_artifact_v1.md`; no build until approved. |
+| 3.32 | 2026-05-20 | **Gate 2 Handoff Brief + PendingDecision implementation:** Added `PendingDecision` object and API (`GET/POST /pending-decisions`, `POST /pending-decisions/{id}/resolve`) plus on-demand Handoff Brief endpoint (`GET /handoff/brief`). Pending decisions write structured `MemoryEvent` entries (`decision_not_to_act` when opened, `decision_made` when resolved). Handoff brief returns active objectives, performance narrative, pending decisions, committed actions, known risks, what is working/not, decided-against items, and recommended first action. Started Gate 2.6 proof harness at `api/scripts/prove_gate2_gmail_loop.py` to verify Objective → Gmail artifact → approval → outcome → memory → DecisionBrief → Stream cards. Gate 2.6 Gmail-only loop proof is now the active target. |
+| 3.31 | 2026-05-20 | **Gate 2 primitives implementation:** Added live backend primitives for the Gmail-only objective loop: `Objective` anchor (`/objectives`), append-only `MemoryEvent` ledger (`/memory/events`) with passive run/artifact lifecycle writes, manual `evaluate_outcome` v0 (`/outcomes/evaluate`) creating `OutcomeRecord + MemoryEvent(type=outcome_recorded)`, and `DecisionBrief` v0 (`/decision-briefs/generate`). Stream builder now emits `outcome` and `decision_brief` StreamUpdate cards, and the web Stream renders backend StreamUpdate cards alongside persisted artifact cards. Next active target is Gate 2.5 Handoff Brief + PendingDecision. |
+| 3.30 | 2026-05-20 | **Architecture alignment — judgment system, Gate 2 marching order:** BOS repositioned as a judgment system — competitive advantage is judgment quality, not production speed. Three layers formalized: Attention (eyes), Memory (intelligence), Execution (hands). Three surfaces: Stream (attention queue), CMO (steering), Admin (configuration). Six primitives mapped to layers: `read_signal`, `write_memory`, `create_artifact`, `request_approval`, `execute_approved_action`, `evaluate_outcome`. Six Stream card families frozen: `pending_artifact`, `decision_brief`, `setup_blocker`, `signal_update`, `outcome`, `council_brief`. Stream card contract defined: `objective_ref`, `card_type`, `why_now`, `confidence`, `primary_evidence`, `recommended_next`, `approval_boundary`, `allowed_actions`, `source_state`. CMO Council specified: 5 members (Strategist, Analyst, Creative, Channel Specialist, Devil's Advocate), two triggers (`strategic_complexity`, `persistent_dismissal`). Key data objects defined: `MemoryEvent` (append-only ledger, two write paths — passive lifecycle + active CMO rationale), `Objective`, `DecisionBrief`, `OutcomeRecord`, `PendingDecision` (deferred decision first-class object with `waiting_for`/`action_blocked` fields). Confidence model: `staleness_score + corroboration + instrumentation state`. Surfacing rule: signal surfaces only when it changes the recommended action for an active objective. Gate 1 sample complete: `sample/bos_stream_sample.md`. Gate 2 (active): six sequential steps proving one Gmail-only objective through the full primitive loop. Gate 3 (seven dependency-ordered items) and Parked list defined. Architecture doc at `sample/bos_systems_architecture.md`. |
+| 3.26 | 2026-05-18 | **Backlog → ClickUp sync as build process:** `BACKLOG.md` is the source of truth; `Klaroha BOS` ClickUp list mirrors it for team visibility. Sync script at `api/plugins/clickup/scripts/sync_backlog.py` — idempotent, creates missing tasks, updates changed statuses, rate-limited to stay under ClickUp's 100 req/min cap. Documented in Section 9 (Technical Reference). Distinct from the product-level ClickUp plugin (`tasks.create`/`tasks.read` for client org workflows — app users never touch the backlog sync). |
+| 3.25 | 2026-05-17 | **Import Brief scope gate + Getting Started banner:** AdminOnboarding now requires a scope selection step before the form — first-time users choose org vs brand; returning users pick from existing brands or create new. New brand imports create the Brand row first, then pass `brand_id` to ingest — workspace-level slot (`brand_id=NULL`) is never touched. Scope lock badge shown in update mode. Getting Started banner added to all admin pages; uses `workspace_configured && campaign_brand_kit_approved` instead of `all_ready` (which also checks module routing). `brand_profile_configured` in onboarding status now accepts `brand_json` on any Brand row, not only `ws.brand_json`. Deployment ops documented: two stacks (`bos` + `staging`) run from `~/bos/` using `docker-compose.yml` and `docker-compose.staging.yml`; correct deploy commands and known pitfalls captured in `git.md`. |
+
+---
+
+## Appendix B — Pi.dev Capability Development Standards
+
+> Extracted 2026-05-25 from pi.dev documentation. Pi is the minimal agent harness BOS takes direct architectural inspiration from. These standards translate pi's patterns into BOS-specific rules. Where BOS already complies, the rule is a confirmation. Where BOS does not yet comply, the rule is a build target.
+
+### B.1 SKILL.md is an activation contract, not a config file
+
+Pi's progressive disclosure model: descriptions always in context; full instructions load on demand only. The description alone determines when the LLM activates a skill.
+
+**BOS rules:**
+- `description` must name direct task phrases, synonyms, exclusions, and handoffs — not a one-liner summary. Bad: "Facebook post helper." Good: "Drafts, formats, and publishes Facebook posts with image attachments. Use when the user wants to create or schedule a Facebook post."
+- `description` ≤ 1024 chars. `name` ≤ 64 chars, lowercase-with-hyphens only.
+- Full instructions (triggers, memory slots, template hints, quality gates) stay in the SKILL.md body — never bloat frontmatter.
+- `allowed-tools` restricts what tools a skill can invoke. `disable-model-invocation: true` marks purely deterministic capabilities.
+- BOS extends pi's base fields with: `allowed_from_chat`, `requires_intent`, `triggers`, `excluded_triggers`, `module_id`, `memory_slots`, `related_skills`, `output_contract`, `quality_gates`.
+
+### B.2 Single-entrypoint plugin factory — one public surface
+
+Pi extensions export one default factory function. All registration happens inside it. No side effects at import time.
+
+**BOS rules:**
+- Every plugin's `module.py` exposes one function: `execute(brief, context)`. Nothing else is public.
+- Async startup work (token validation, credential check) belongs inside `execute()`, not at module import.
+- Plugins register their own capabilities via `channel.json` and `SKILL.md`. The core router never inspects plugin internals.
+
+### B.3 State in run records, never in process memory
+
+Pi's explicit rule: store extension state in tool result `details` for session branching support. State is rebuilt from stored records on restart — never held in memory.
+
+**BOS rules:**
+- `Run` records are the canonical state. Never rely on in-process cache across API requests.
+- The `execution_brief` passed to a module must be fully self-contained — the module never reaches out to reconstruct context not passed to it.
+- Approval/revision state persists in the `Run` record (`approval_status`, `revision_of`). Never infer it from chat history.
+
+### B.4 Typed JSONL event stream — deterministic lifecycle order
+
+Pi streams `AgentSessionEvent` objects as newline-delimited JSON (LF-only). Event sequence is fixed and deterministic.
+
+**BOS target stream event order:**
+```
+run_start → step_start → [delta...] → step_end → [approval_required] → run_end
+```
+
+**BOS rules:**
+- Every stream event object carries: `type`, `run_id`, `timestamp`. No bare string messages.
+- Retry and compaction events are explicit typed objects — never inlined into delta text.
+- Module output passed back to the orchestrator must be bounded. Truncate and annotate; never silently drop content.
+- `terminate: true` equivalent: modules may return `skip_followup: true` to prevent an automatic follow-up LLM call.
+
+### B.5 RPC pattern — enqueue + stream, never block
+
+Pi RPC: commands in via stdin (with optional `id` for correlation), events out via stdout. HTTP response never blocks waiting for LLM completion.
+
+**BOS rules:**
+- `POST /chat` and `POST /runs` return immediately with `run_id` (accepted response). Completion events come over the SSE stream.
+- Webhook/callback payloads to external callers include the originating `request_id`.
+- Mid-stream messages (steer vs follow-up) require explicit behavior declaration — not implicit ordering assumptions.
+
+### B.6 Package manifest — explicit, glob-aware, auto-discovered
+
+Pi packages declare resources under a `pi` key in `package.json`. Auto-discovery falls back to convention directories (`skills/`, `extensions/`, `prompts/`) when no manifest exists.
+
+**BOS → pi mapping:**
+
+| Pi concept | BOS equivalent | Location |
+|---|---|---|
+| `pi.skills` (package manifest) | plugin SKILL.md auto-scan | `api/plugins/{channel}/` |
+| `pi.extensions` | plugin `module.py` (discovered by scanner) | same |
+| `pi.prompts` | `template.j2` co-located in capability dir | same |
+| glob exclusions `!pattern` | scanner ignore list | `capability_manifest.py` |
+| peerDependencies `"*"` | BOS SDK import only (`from klaroha_sdk import ChannelModule`) | `module.py` |
+| bundledDependencies | plugin-owned third-party libs declared in `channel.json` | `api/plugins/{channel}/channel.json` |
+
+### B.7 Tool registration — schema-first, cancellable, output-bounded
+
+Pi tools require typed `parameters` schema (TypeBox), an `AbortSignal` for cancellation, and output truncation above ~50 KB.
+
+**BOS rules:**
+- Every capability's `module.py` `execute()` must be cancellable — check a stop signal at each I/O boundary.
+- Module output schemas are defined in Pydantic — not inferred from LLM output shape.
+- Use `StringEnum`-style enumerations (not raw string unions) in schemas for cross-provider compatibility.
+- If output exceeds safe context bounds, the module truncates and appends a truncation notice to the payload. Never silently drop content.
+
+### B.8 Auth resolution — priority chain, never logged
+
+Pi resolves credentials in strict priority: **runtime overrides → stored credentials → environment variables**. Keys are never logged or returned in responses.
+
+**BOS auth resolution order (confirmed):**
+```
+SocialConnection row (per-brand, auto-refreshed) → BYOK encrypted key → platform env var
+```
+
+**BOS rules:**
+- Never short-circuit this chain. If a `SocialConnection` row exists for the brand and platform, it is always the first source.
+- Any code path that handles a raw token must not write it to logs, run output, or API responses.
+- `get_page_token()` in `api/routers/social.py` is the only place token refresh logic lives. Callers never handle expired tokens themselves.
+
+### B.9 Three run modes — interactive, single-shot, headless
+
+Pi exports three modes: full TUI (interactive), single execution (print), JSON-RPC subprocess (headless).
+
+**BOS rules:**
+- Every capability must be invokable in at least two modes: **interactive** (CMO chat → Stream UX) and **headless** (direct `POST /runs`, no UX dependency).
+- Approval gates must be bypassable via API flag (`auto_approve: true`) for programmatic/scheduled runs.
+- `module.py` `execute()` must never import or reference UI components. Output is data; rendering belongs to the frontend.
+
+### B.10 Security boundary — one gate, never re-checked downstream
+
+Pi: extensions run with full system permissions; the only gate is at install time (trust the source). Pi does not re-verify intent inside execution.
+
+**BOS rules (confirmed, from Locked Rule #4 and CLAUDE.md):**
+- Security is enforced at one point: is this `module_id` in `allowed_module_ids`? If yes, dispatch. If no, log and skip.
+- No intent re-checking, phrase re-matching, or platform re-filtering inside execution. The LLM decided; the manifest allowed it; the module runs.
+- Channel credential scope is enforced at `inject_channel_credentials()` in `runs.py` — modules receive a scoped token, never full OAuth credentials.
+
+### B.11 Concept → sample → build sequence (pi + BITE alignment)
+
+Pi's async factory pattern allows one-time startup work before the pipeline runs. BOS uses BITE's Discuss → Sample → Agree → Reverse-spec → Build sequence for the same reason: validate shape before committing to implementation.
+
+**BOS rules:**
+- No new capability, plugin, or stream event type enters build without an approved sample in `sample/`.
+- The sample must include both allowed and forbidden outcomes (per CLAUDE.md CMO rules).
+- Progressive disclosure applies to samples too: produce the minimal sample that proves the shape, not a full production artifact.
+
+### B.12 Pi → BOS full concept map
+
+| Pi concept | BOS equivalent | File/location |
+|---|---|---|
+| Extension factory | Plugin `module.py` `execute()` | `api/plugins/{channel}/` |
+| SKILL.md | SKILL.md | Co-located with module |
+| `pi` manifest key | Plugin auto-scan config | `capability_manifest.py` |
+| `registerTool()` | Executor interface | `api/providers/` |
+| RPC JSON event stream | Run SSE stream | `api/routers/runs.py` + `Stream.tsx` |
+| `AgentSession.prompt()` | CMO chat POST | `api/routers/chat.py` |
+| `ctx.signal` (AbortSignal) | Run cancellation flag | orchestrator |
+| `AuthStorage` priority chain | `get_page_token()` | `api/routers/social.py` |
+| Session state rebuild on start | Run history replay | `api/routers/runs.py` |
+| `extension_ui_request` | Approval gate event | Stream approval widget |
+| `terminate: true` | `skip_followup: true` in module return | `module.py` |
+| `renderCall` / `renderResult` | Artifact renderer hints (`layout_hint`) | Plugin output schema |
+
+**Current BOS gaps vs pi.dev (build targets):**
+1. Typed JSONL event lifecycle (run_start → step_start → delta → step_end → run_end) is not yet consistently enforced across all run types.
+2. Explicit `AbortSignal` / cancellation propagation into `module.py` `execute()` is not implemented.
+3. Output truncation with annotation is ad hoc — no standard utility function shared across modules.

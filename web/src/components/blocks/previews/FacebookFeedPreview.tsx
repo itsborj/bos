@@ -3,10 +3,11 @@ interface FacebookFeedPreviewProps {
   pageName: string;
   adCopy: string;
   imageUrl?: string;
+  videoSrc?: string;
   ctaText: string;
 }
 
-export function FacebookFeedPreview({ pageName, adCopy, imageUrl, ctaText }: FacebookFeedPreviewProps) {
+export function FacebookFeedPreview({ pageName, adCopy, imageUrl, videoSrc, ctaText }: FacebookFeedPreviewProps) {
   return (
     <div style={{ 
       fontFamily: 'Segoe UI, Helvetica, Arial, sans-serif', 
@@ -38,13 +39,15 @@ export function FacebookFeedPreview({ pageName, adCopy, imageUrl, ctaText }: Fac
         {adCopy}
       </div>
 
-      {/* Image */}
-      {imageUrl ? (
+      {/* Media */}
+      {videoSrc ? (
+        <video src={videoSrc} controls playsInline style={{ width: '100%', display: 'block', maxHeight: 400, background: '#000' }} />
+      ) : imageUrl ? (
         <img src={imageUrl} alt="Ad" style={{ width: '100%', height: 'auto', display: 'block' }} />
       ) : (
-        <div style={{ 
-          width: '100%', height: '250px', 
-          backgroundColor: '#f0f2f5', 
+        <div style={{
+          width: '100%', height: '250px',
+          backgroundColor: '#f0f2f5',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           color: '#bcc0c4', fontSize: '14px'
         }}>

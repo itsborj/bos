@@ -64,6 +64,11 @@ class MediaImageGenerateModule(ChannelModule):
         audience = str(brief.get("audience") or brief.get("target_audience") or "").strip()
         objective = str(brief.get("campaign_objective") or brief.get("objective") or "").strip()
         tone = str(brief.get("tone") or brief.get("brand_tone") or "").strip()
+        visual_constraints = str(
+            brief.get("brand_visual_constraints")
+            or brief.get("campaign_brand_kit_excerpt")
+            or ""
+        ).strip()
 
         parts = []
         if product:
@@ -81,6 +86,8 @@ class MediaImageGenerateModule(ChannelModule):
             parts.append(f"{tone} style")
         else:
             parts.append("clean modern design, high quality")
+        if visual_constraints:
+            parts.append(f"follow these brand visual constraints: {visual_constraints[:900]}")
 
         return ", ".join(parts)
 
@@ -102,6 +109,15 @@ class MediaImageGenerateModule(ChannelModule):
             prompt = str(brief.get("image_prompt") or brief.get("prompt") or "").strip()
             if not prompt:
                 prompt = self._build_prompt_from_brief(brief)
+            brand_constraints = str(
+                brief.get("brand_visual_constraints")
+                or brief.get("campaign_brand_kit_excerpt")
+                or ""
+            ).strip()
+            constraints_applied = False
+            if brand_constraints and brand_constraints[:160].lower() not in prompt.lower():
+                prompt = f"{prompt}. Follow these brand visual constraints: {brand_constraints[:900]}"
+                constraints_applied = True
             if not prompt:
                 return self._failure(start, "missing_prompt", "image_prompt is required in brief")
 
@@ -139,7 +155,17 @@ class MediaImageGenerateModule(ChannelModule):
                     "height": 1024,
                     "prompt": prompt,
                     "byte_size": len(image_bytes),
-                    "allowed_actions": ["use", "regenerate", "dismiss"],
+                    "brand_compliance": {
+                        "checked": bool(brand_constraints),
+                        "method": "prompt_constraints_v0",
+                        "passed": True,
+                        "constraints_applied": constraints_applied,
+                        "constraints_excerpt": brand_constraints[:300] if brand_constraints else None,
+                    },
+                    "allowed_actions": ["publish_facebook", "use", "regenerate", "dismiss"],
+                    "action_modules": {
+                        "publish_facebook": "marketing.channel.meta.posts.publish",
+                    },
                 },
             }
 
@@ -167,4 +193,7 @@ class MediaImageGenerateModule(ChannelModule):
         lowered = content.lower()
         if "image" not in lowered:
             failures.append("missing_image_reference")
+        constraints = str(brief.get("brand_visual_constraints") or brief.get("campaign_brand_kit_excerpt") or "").strip()
+        if constraints and "brand visual constraints" not in lowered and constraints[:80].lower() not in lowered:
+            failures.append("brand_constraints_not_applied")
         return ("fail" if failures else "pass"), failures

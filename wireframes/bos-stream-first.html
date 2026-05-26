@@ -1,0 +1,1902 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOS — Gate 2 Stream</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#f8f7f5;--surface:#fff;--border:#e5e3df;
+  --text:#1a1a1a;--text2:#6b7280;--text3:#9ca3af;
+  --green:#1a4731;--green-bg:#f0fdf4;--green-border:#bbf7d0;--green-mid:#166534;
+  --amber:#d97706;--amber-bg:#fef3c7;
+  --red:#dc2626;--red-bg:#fef2f2;
+  --blue-bg:#eff6ff;--blue:#1d4ed8;
+  --ok:#15803d;--ok-bg:#dcfce7;
+}
+html,body{height:100%;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;font-size:14px}
+
+/* ── Shell ── */
+.shell{display:flex;flex-direction:column;height:100vh;overflow:hidden;position:relative;max-width:1100px;width:100%;margin:0 auto}
+@media(min-width:1100px){.shell{border-left:1px solid var(--border);border-right:1px solid var(--border)}}
+.topbar{height:48px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;gap:10px;padding:0 16px;flex-shrink:0;z-index:10}
+.topbar-logo{font-size:13px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.06em}
+.topbar-brand{font-size:11px;padding:3px 10px;border-radius:20px;background:var(--green-bg);color:var(--green);font-weight:600;border:1px solid var(--green-border)}
+.topbar-right{margin-left:auto;display:flex;align-items:center;gap:8px}
+.page-area{flex:1;overflow:hidden;display:flex;flex-direction:column}
+.page-scroll{flex:1;overflow-y:auto;scrollbar-width:none}
+.page-scroll::-webkit-scrollbar{display:none}
+
+/* ── Tab bar ── */
+.bottom-tabs{height:68px;display:flex;align-items:center;justify-content:center;flex-shrink:0;padding:0 16px 8px;z-index:10}
+.tab-group{display:inline-flex;align-items:stretch;gap:3px;background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:4px;box-shadow:0 4px 16px rgba(0,0,0,.10),0 1px 4px rgba(0,0,0,.06)}
+.tab-btn{display:flex;align-items:center;gap:8px;border:none;background:none;cursor:pointer;font-size:13px;font-weight:600;color:var(--text2);font-family:inherit;padding:9px 22px;border-radius:12px;transition:all .15s}
+.tab-btn:hover{color:var(--text);background:var(--bg)}
+.tab-btn.active{background:var(--green);color:#fff;box-shadow:0 2px 8px rgba(26,71,49,.25)}
+.tab-badge{background:var(--amber);color:#fff;font-size:9px;font-weight:700;padding:1px 5px;border-radius:8px;min-width:16px;text-align:center}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;padding:6px 13px;border-radius:6px;font-size:12px;font-family:inherit;cursor:pointer;border:1px solid transparent;font-weight:500;transition:all .1s}
+.btn-primary{background:var(--green);color:#fff;border-color:var(--green)}
+.btn-primary:hover{background:var(--green-mid)}
+.btn-ghost{background:none;border-color:var(--border);color:var(--text2)}
+.btn-ghost:hover{background:var(--bg);color:var(--text)}
+.btn-accent{background:none;border-color:var(--green-border);color:var(--green)}
+.btn-accent:hover{background:var(--green-bg)}
+.btn-send{width:28px;height:28px;border-radius:50%;background:var(--green);color:#fff;border:none;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+
+/* ── Stream ── */
+.stream-wrap{padding:20px 16px;max-width:480px;margin:0 auto}
+.stream-kicker{font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.07em;margin-bottom:4px}
+.stream-title{font-size:20px;font-weight:700;margin-bottom:4px}
+.stream-sub{font-size:13px;color:var(--text2);margin-bottom:14px}
+.obj-anchor{background:var(--surface);border:1px solid var(--green-border);border-radius:8px;padding:10px 14px;margin-bottom:14px;display:flex;align-items:center;gap:10px}
+.obj-dot{width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0}
+.obj-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--green)}
+.obj-text{font-size:12px;color:var(--text);font-weight:500}
+.obj-meta{font-size:10px;color:var(--text2);margin-left:auto;white-space:nowrap}
+
+/* ── Cards ── */
+.g2card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px}
+.g2card.featured{border-color:var(--green);border-left:3px solid var(--green)}
+.g2top{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.g2type{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;padding:3px 8px;border-radius:5px}
+.g2type.decision_brief{background:var(--amber-bg);color:#92400e}
+.g2type.pending_artifact{background:var(--blue-bg);color:var(--blue)}
+.g2type.outcome{background:var(--ok-bg);color:var(--ok)}
+.g2type.setup_blocker{background:var(--red-bg);color:var(--red)}
+.g2conf{font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;margin-left:auto}
+.g2conf.amber{background:var(--amber-bg);color:#92400e}
+.g2conf.green{background:var(--ok-bg);color:var(--ok)}
+.g2obj{font-size:11px;color:var(--text2);font-weight:500;margin-bottom:2px}
+.g2brand{font-size:10px;color:var(--text3);margin-bottom:8px;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
+.g2why{font-size:13px;line-height:1.5;margin-bottom:10px}
+.g2stats{display:flex;gap:14px;margin-bottom:10px;flex-wrap:wrap}
+.g2stat{font-size:13px;font-weight:700}
+.g2stat span{font-size:10px;font-weight:500;color:var(--text2);display:block}
+.g2ev{margin-bottom:10px}
+.g2ev-item{font-size:11px;color:var(--text2);padding:2px 0;line-height:1.4}
+.g2ev-item::before{content:'· ';color:var(--text3)}
+.g2mem{display:flex;flex-wrap:wrap;gap:4px;margin-bottom:10px}
+.g2mem-tag{font-size:10px;font-family:'SF Mono','Fira Mono',monospace;background:var(--bg);color:var(--text2);border:1px solid var(--border);padding:2px 7px;border-radius:4px}
+.g2rec{background:var(--green-bg);border:1px solid var(--green-border);border-radius:6px;padding:8px 10px;font-size:12px;color:var(--green-mid);line-height:1.45;margin-bottom:8px}
+.g2rec b{font-weight:700;margin-right:4px}
+.g2boundary{font-size:11px;color:var(--text3);margin-bottom:8px;font-style:italic}
+.readiness-grid{display:grid;grid-template-columns:1fr;gap:8px;margin-bottom:10px}
+.readiness-field{background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px}
+.readiness-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:3px}
+.readiness-body{font-size:12px;line-height:1.45;color:var(--text)}
+.artifact-preview{border:1px dashed var(--border);border-radius:8px;padding:9px 10px;margin-bottom:10px;background:#fbfbfa}
+.artifact-preview summary{cursor:pointer;list-style:none;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text2);display:flex;align-items:center;justify-content:space-between}
+.artifact-preview summary::-webkit-details-marker{display:none}
+.artifact-preview summary::after{content:'secondary';font-size:9px;font-weight:600;text-transform:none;letter-spacing:0;color:var(--text3)}
+.artifact-preview[open] summary{margin-bottom:7px}
+.preview-row{font-size:11px;line-height:1.45;color:var(--text2);padding:4px 0;border-top:1px solid var(--border)}
+.preview-row:first-of-type{border-top:none}
+.preview-row b{color:var(--text);font-weight:600}
+.g2src-row{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px}
+.g2src{font-size:10px;font-family:'SF Mono','Fira Mono',monospace;background:var(--bg);border:1px solid var(--border);padding:2px 7px;border-radius:4px;color:var(--text2)}
+.g2actions{display:flex;gap:6px;flex-wrap:wrap}
+
+/* ── CMO Split ── */
+.split-shell{display:flex;height:100%;overflow:hidden}
+.split-chat{flex:0 0 420px;display:flex;flex-direction:column;border-right:1px solid var(--border);overflow:hidden}
+.split-right{flex:1;overflow-y:auto;background:var(--surface);padding:20px;scrollbar-width:none}
+.split-right::-webkit-scrollbar{display:none}
+@media(max-width:768px){
+  .split-shell{flex-direction:column}
+  .split-chat{flex:0 0 58%;min-height:0;border-right:none;border-bottom:1px solid var(--border)}
+  .split-right{display:block;flex:1;min-height:0;padding:16px;overflow-y:auto}
+}
+
+/* ── CMO chat ── */
+.cmo-msgs{flex:1;overflow-y:auto;padding:16px;scrollbar-width:none}
+.cmo-msgs::-webkit-scrollbar{display:none}
+.cmo-msgs-body{display:flex;flex-direction:column;gap:14px}
+.cmo-ctx{display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding-bottom:12px;border-bottom:1px solid var(--border);margin-bottom:4px}
+.msg-label{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.06em;margin-bottom:5px}
+.msg-ai{background:var(--surface);border:1px solid var(--border);border-radius:10px;border-top-left-radius:2px;padding:10px 13px;font-size:13px;line-height:1.55;max-width:92%}
+.msg-user{background:var(--green);color:#fff;border-radius:10px;border-top-right-radius:2px;padding:9px 13px;font-size:13px;line-height:1.5;align-self:flex-end;max-width:84%}
+.cmo-chips{display:flex;gap:7px;flex-wrap:wrap}
+.cmo-hb{margin-top:10px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--surface)}
+.cmo-hb-header{background:var(--green);color:#fff;padding:12px 14px;display:flex;align-items:flex-start;justify-content:space-between;gap:10px}
+.cmo-hb-header-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;opacity:.8;margin-bottom:3px}
+.cmo-hb-header-obj{font-size:13px;font-weight:700;line-height:1.3}
+.cmo-hb-header-meta{font-size:10px;opacity:.7;margin-top:4px}
+.cmo-hb-header-ts{font-size:10px;opacity:.6;white-space:nowrap;margin-top:2px;font-family:'SF Mono','Fira Mono',monospace}
+.cmo-hb-sections{padding:0}
+.cmo-hb-section{padding:11px 14px;border-bottom:1px solid var(--border)}
+.cmo-hb-section:last-child{border-bottom:none}
+.cmo-hb-label{font-size:9.5px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:5px}
+.cmo-hb-body{font-size:12px;line-height:1.55;color:var(--text)}
+.cmo-hb-action{background:var(--green-bg);border-top:1px solid var(--green-border)}
+.cmo-hb-action .cmo-hb-label{color:var(--green)}
+.cmo-hb-action .cmo-hb-body{color:var(--green-mid);font-weight:500}
+.cmo-hb-footer{padding:10px 14px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:var(--bg)}
+.cmo-hb-pass{font-size:10px;color:var(--text3);font-style:italic}
+.btn-hb-copy{font-size:11px;font-weight:600;background:none;border:1px solid var(--border);border-radius:6px;padding:5px 10px;cursor:pointer;color:var(--text2);font-family:inherit}
+.btn-hb-copy:hover{background:var(--surface);color:var(--text)}
+.cmo-input-wrap{flex-shrink:0;border-top:1px solid var(--border);padding:10px 16px}
+.cmo-composer{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:8px 12px}
+.cmo-ta{width:100%;border:none;background:none;font-family:inherit;font-size:13px;resize:none;outline:none;color:var(--text)}
+.cmo-composer-foot{display:flex;align-items:center;justify-content:space-between;margin-top:6px}
+.cmo-hint{font-size:10px;color:var(--text3)}
+
+/* ── Outcome recording form (inline in CMO chat) ── */
+.outcome-form{background:var(--surface);border:1px solid var(--green-border);border-radius:10px;padding:14px;margin-top:10px;display:flex;flex-direction:column;gap:12px}
+.outcome-form-obj{display:flex;align-items:center;gap:8px;padding-bottom:10px;border-bottom:1px solid var(--border)}
+.outcome-form-obj-dot{width:7px;height:7px;border-radius:50%;background:var(--green);flex-shrink:0}
+.outcome-form-obj-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--green)}
+.outcome-form-obj-name{font-size:12px;color:var(--text);font-weight:500;margin-left:2px}
+.outcome-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.outcome-form-notes{grid-column:1/-1}
+.outcome-form-notes textarea{width:100%;border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:12px;font-family:inherit;background:var(--surface);color:var(--text);outline:none;resize:none}
+.outcome-form-notes textarea:focus{border-color:var(--green)}
+.outcome-form-actions{display:flex;gap:7px;align-items:center;padding-top:4px}
+.btn-outcome-submit{background:var(--green);color:#fff;border:none;border-radius:7px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer;font-family:inherit}
+.btn-outcome-submit:hover{opacity:.88}
+.btn-outcome-cancel{background:none;border:1px solid var(--border);color:var(--text2);border-radius:7px;padding:8px 12px;font-size:12px;cursor:pointer;font-family:inherit}
+.btn-outcome-cancel:hover{background:var(--bg)}
+.outcome-confirm{background:var(--green-bg);border:1px solid var(--green-border);border-radius:10px;padding:14px;margin-top:10px;display:flex;align-items:flex-start;gap:10px}
+.outcome-confirm-icon{width:26px;height:26px;border-radius:50%;background:var(--green);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;margin-top:1px}
+.outcome-confirm-title{font-size:12px;font-weight:700;color:var(--green-mid);margin-bottom:7px}
+.outcome-confirm-tags{display:flex;flex-wrap:wrap;gap:5px;margin-bottom:8px}
+.outcome-confirm-next{font-size:11px;color:var(--green-mid);line-height:1.45}
+
+/* ── Right panel card detail ── */
+.rp-header{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:16px;padding-bottom:14px;border-bottom:1px solid var(--border)}
+.rp-title{font-size:15px;font-weight:700}
+.rp-meta{font-size:11px;color:var(--text2);margin-top:3px}
+.rp-section{margin-bottom:16px}
+.rp-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin-bottom:6px}
+.rp-body{font-size:13px;line-height:1.55;color:var(--text)}
+.rp-actions{display:flex;gap:7px;flex-wrap:wrap;padding-top:14px;border-top:1px solid var(--border)}
+
+/* ── Full window overlay (inside shell, tabs stay visible) ── */
+.fullwin{position:absolute;top:48px;left:0;right:0;bottom:68px;background:var(--bg);z-index:50;display:none;flex-direction:column}
+.fullwin.open{display:flex}
+.fullwin-topbar{height:48px;border-bottom:1px solid var(--border);background:var(--surface);display:flex;align-items:center;gap:12px;padding:0 16px;flex-shrink:0}
+.fullwin-back{font-size:13px;color:var(--text2);cursor:pointer;background:none;border:1px solid var(--border);border-radius:6px;padding:5px 12px;font-family:inherit;display:flex;align-items:center;gap:5px}
+.fullwin-back:hover{background:var(--bg);color:var(--text)}
+.fullwin-title{font-size:13px;font-weight:600;color:var(--text)}
+.fullwin-body{flex:1;overflow-y:auto;padding:24px;max-width:720px;margin:0 auto;width:100%;scrollbar-width:none}
+.fullwin-body::-webkit-scrollbar{display:none}
+
+/* ── Admin ── */
+.admin-wrap{padding:20px 16px;max-width:480px;margin:0 auto}
+/* ── Admin layout ── */
+.admin-layout{display:flex;height:100%;overflow:hidden}
+.admin-nav{width:196px;flex-shrink:0;border-right:1px solid var(--border);background:var(--surface);padding:20px 0;overflow-y:auto;scrollbar-width:none}
+.admin-nav::-webkit-scrollbar{display:none}
+.admin-nav-wordmark{font-size:12px;font-weight:700;color:var(--text);padding:0 16px 18px;letter-spacing:-.01em}
+.admin-nav-group{margin-bottom:6px;padding-bottom:12px;border-bottom:1px solid var(--border)}
+.admin-nav-group:last-child{border-bottom:none}
+.admin-nav-label{font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);padding:8px 16px 4px}
+.admin-nav-item{display:block;width:100%;text-align:left;padding:7px 16px;font-size:13px;font-weight:500;color:var(--text2);background:none;border:none;border-left:2px solid transparent;cursor:pointer;font-family:inherit;transition:all .1s;line-height:1.3}
+.admin-nav-item:hover{color:var(--text);background:var(--bg)}
+.admin-nav-item.active{color:var(--green);background:var(--green-bg);border-left-color:var(--green);font-weight:600}
+.admin-nav-item.parked{color:var(--text3);font-style:italic;cursor:default;opacity:.7}
+.admin-nav-item.parked:hover{background:none;color:var(--text3)}
+.admin-content{flex:1;overflow-y:auto;scrollbar-width:none;padding:32px 36px}
+.admin-content::-webkit-scrollbar{display:none}
+.admin-section-title{font-size:18px;font-weight:700;color:var(--text);margin-bottom:4px}
+.admin-section-sub{font-size:13px;color:var(--text2);margin-bottom:28px;line-height:1.5}
+.settings-group{margin-bottom:32px}
+.settings-group-label{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;color:var(--text3);padding-bottom:10px;border-bottom:1px solid var(--border);margin-bottom:0}
+.settings-row{display:flex;align-items:center;gap:20px;padding:14px 0;border-bottom:1px solid var(--border)}
+.settings-row:last-child{border-bottom:none}
+.settings-row-info{flex:1;min-width:0}
+.settings-row-name{font-size:13px;font-weight:600;color:var(--text);margin-bottom:2px}
+.settings-row-desc{font-size:12px;color:var(--text2);line-height:1.4}
+.settings-row-status{display:flex;align-items:center;gap:5px;white-space:nowrap;flex-shrink:0}
+.s-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.s-dot.green{background:var(--ok)}
+.s-dot.amber{background:var(--amber)}
+.s-dot.grey{background:var(--text3)}
+.s-text{font-size:12px;color:var(--text2)}
+.s-text.amber{color:var(--amber)}
+.settings-row-action{flex-shrink:0}
+.action-link{font-size:12px;color:var(--green);font-weight:500;cursor:pointer;background:none;border:none;font-family:inherit;padding:0}
+.action-link:hover{text-decoration:underline}
+.hb-card{background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.hb-row{padding:14px 18px;border-bottom:1px solid var(--border)}
+.hb-row:last-child{border-bottom:none}
+.hb-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.07em;color:var(--text3);margin-bottom:5px}
+.hb-body{font-size:13px;line-height:1.6;color:var(--text2)}
+@media(max-width:900px){.admin-nav{display:none}.admin-content{padding:20px 16px}}
+
+/* ── Flow ── */
+.flow-scroll{flex:1;overflow-y:auto;scrollbar-width:none}
+.flow-scroll::-webkit-scrollbar{display:none}
+.flow-col{max-width:520px;margin:0 auto;padding:24px 16px 32px}
+.flow-title{font-size:18px;font-weight:700;margin-bottom:4px}
+.flow-sub{font-size:13px;color:var(--text2);margin-bottom:20px}
+.flow-legend{display:flex;gap:16px;margin-bottom:24px;padding:10px 14px;background:var(--surface);border:1px solid var(--border);border-radius:8px}
+.legend-item{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text2)}
+.legend-dot{width:22px;height:22px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0}
+.flow-node{display:flex;gap:0;margin-bottom:0}
+.flow-spine{display:flex;flex-direction:column;align-items:center;width:36px;flex-shrink:0}
+.flow-dot{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:#fff;flex-shrink:0;margin-top:2px}
+.flow-dot.operator{background:var(--green)}
+.flow-dot.system{background:var(--text3)}
+.flow-line{width:2px;background:var(--border);flex:1;min-height:16px;margin:4px 0}
+.flow-body{flex:1;padding:0 0 24px 12px}
+.flow-node-title{font-size:14px;font-weight:700;color:var(--text);margin-bottom:5px;margin-top:3px}
+.flow-node-sub{font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:8px}
+.flow-tags{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:8px}
+.flow-tag{font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px}
+.flow-tag-op{background:var(--green-bg);color:var(--green);border:1px solid var(--green-border)}
+.flow-tag-sys{background:var(--bg);color:var(--text2);border:1px solid var(--border)}
+.flow-tag-state{background:#f5f3ff;color:#5b21b6;border:1px solid #ddd6fe}
+.flow-io{font-size:11px;color:var(--text2);line-height:1.7;background:var(--bg);border-left:2px solid var(--border);padding:6px 10px;border-radius:0 4px 4px 0}
+.flow-io-key{color:var(--text3)}
+.flow-io-val{color:var(--text)}
+
+/* ── signal_update / council_brief ── */
+.g2type.signal_update{background:#f0f9ff;color:#0369a1}
+.g2type.council_brief{background:#faf5ff;color:#6b21a8}
+.g2conf.blue{background:#eff6ff;color:#1d4ed8}
+.g2conf.purple{background:#faf5ff;color:#6b21a8}
+.g2watch{margin-bottom:10px}
+.g2watch-header{display:flex;justify-content:space-between;font-size:10px;color:var(--text2);margin-bottom:4px}
+.g2watch-track{height:4px;border-radius:2px;background:var(--border)}
+.g2watch-fill{height:4px;border-radius:2px;background:#0369a1}
+.g2watch-sub{font-size:10px;color:var(--text3);margin-top:3px}
+.g2voices{margin-bottom:10px;display:flex;flex-direction:column;gap:6px}
+.g2voice{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px 10px}
+.g2voice.dissent{border-color:#e9d5ff;background:#faf5ff}
+.g2voice-top{display:flex;align-items:center;gap:6px;margin-bottom:3px}
+.g2voice-role{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text2)}
+.g2voice-dissent-tag{font-size:9px;font-weight:600;padding:1px 5px;border-radius:3px;background:#f3e8ff;color:#7c3aed;border:1px solid #ddd6fe}
+.g2voice-pos{font-size:12px;line-height:1.45;color:var(--text)}
+.g2synthesis{background:#faf5ff;border:1px solid #e9d5ff;border-radius:6px;padding:8px 10px;font-size:12px;line-height:1.45;color:#4c1d95;margin-bottom:10px}
+.g2synthesis b{font-weight:700}
+.g2questions{margin-bottom:10px}
+.g2question-item{font-size:11px;color:var(--text2);padding:4px 0;border-bottom:1px solid var(--border);line-height:1.4}
+.g2question-item:last-child{border-bottom:none}
+.g2question-item::before{content:'? ';color:#7c3aed;font-weight:700}
+.g2dontlist{margin-bottom:10px}
+.g2dont-item{font-size:11px;color:var(--red);padding:2px 0;line-height:1.4}
+.g2dont-item::before{content:'✕ ';font-weight:700}
+
+/* ── Watchpoint admin ── */
+.wp-state{font-size:10px;font-weight:600;padding:2px 7px;border-radius:4px;white-space:nowrap}
+.wp-state.watching{background:#eff6ff;color:#1d4ed8}
+.wp-state.warning{background:var(--amber-bg);color:#92400e}
+.wp-state.triggered{background:var(--red-bg);color:var(--red)}
+.wp-form{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:20px;margin-bottom:4px}
+.wp-form-title{font-size:14px;font-weight:700;margin-bottom:16px;color:var(--text)}
+.wp-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 20px}
+.wp-field{display:flex;flex-direction:column;gap:4px}
+.wp-field.full{grid-column:1/-1}
+.wp-field label{font-size:11px;font-weight:600;color:var(--text2)}
+.wp-field select,.wp-field input[type="number"],.wp-field input[type="text"]{border:1px solid var(--border);border-radius:6px;padding:7px 10px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--text);outline:none;-webkit-appearance:none}
+.wp-field select:focus,.wp-field input:focus{border-color:var(--green)}
+.wp-field-hint{font-size:10px;color:var(--text3)}
+
+/* ── Council session card type ── */
+.g2type.council_session{background:#1a0f00;color:#b45309;border:1px solid #2a1a08}
+.cs-status-bar{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.cs-settled-chip{font-size:10px;font-weight:700;font-family:'SF Mono','Fira Mono',monospace;padding:2px 8px;border-radius:4px;background:#081510;border:1px solid #173d1e;color:#4ade80;letter-spacing:.06em}
+.cs-session-id{font-size:10px;font-family:'SF Mono','Fira Mono',monospace;color:var(--text3)}
+.cs-rounds{font-size:10px;color:var(--text3);font-family:'SF Mono','Fira Mono',monospace}
+
+/* ── Council session fullwin ── */
+.cs-wrap{background:#0f0f0e;border-radius:10px;padding:20px 18px;font-family:'SF Mono','Fira Mono',monospace}
+.cs-fw-hdr{font-size:9.5px;color:#5c5a56;text-transform:uppercase;letter-spacing:.09em;padding-bottom:12px;border-bottom:1px solid #1e1c1a;margin-bottom:16px;line-height:1.6}
+.cs-fw-hdr strong{color:#8a8580}
+.cs-phase{font-size:9px;color:#3a3836;text-transform:uppercase;letter-spacing:.1em;display:flex;align-items:center;gap:8px;margin:20px 0 12px}
+.cs-phase::after{content:'';flex:1;height:1px;background:#1e1c1a}
+.cs-phase.opening{color:#4a4845}
+.cs-phase.debate{color:#3d2a0e}
+.cs-phase.convergence{color:#0e2a1a}
+.cs-phase.settlement{color:#1a3020}
+.cs-msg{display:flex;gap:9px;margin-bottom:12px;opacity:0;animation:csFadeUp .35s ease forwards}
+@keyframes csFadeUp{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:translateY(0)}}
+.cs-mid{flex-shrink:0;min-width:24px;margin-top:1px}
+.cs-seat{font-size:10.5px;font-weight:700;color:#b45309}
+.cs-sys{font-size:9.5px;color:#3a3836;text-transform:uppercase;letter-spacing:.06em}
+.cs-body{flex:1}
+.cs-reply{font-size:9.5px;color:#3a3836;margin-bottom:3px}
+.cs-reply::before{content:'↳ ';opacity:.6}
+.cs-text{font-size:12px;line-height:1.65;color:#c4c2bc;margin-bottom:4px}
+.cs-sig{display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.07em;padding:1px 6px;border-radius:3px;margin-top:2px}
+.cs-sig.aligned{color:#4ade80;background:rgba(74,222,128,.09)}
+.cs-sig.dissent{color:#f87171;background:rgba(248,113,113,.09)}
+.cs-sig.flag{color:#fbbf24;background:rgba(251,191,36,.09)}
+.cs-settle{background:#081510;border:1px solid #173d1e;border-radius:6px;padding:10px 12px;margin:20px 0 14px;font-size:9.5px;font-weight:700;color:#4ade80;text-transform:uppercase;letter-spacing:.08em}
+.cs-slbl{font-size:9px;color:#5c5a56;text-transform:uppercase;letter-spacing:.1em;margin-bottom:8px;margin-top:14px}
+.cs-order{font-size:12px;color:#e0deda;margin-bottom:5px;line-height:1.5}
+.cs-parked-row{margin-bottom:7px}
+.cs-parked-tree{font-size:12px;color:#7a7875;line-height:1.5}
+.cs-parked-tag{color:#454340;font-size:11px}
+
+/* ── Council block (in CMO chat) ── */
+.council-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#b45309;font-family:'SF Mono','Fira Mono',monospace;margin-bottom:5px}
+.council-block{background:#0f0f0e;border:1px solid #272523;border-radius:0 10px 10px 10px;padding:14px 15px;font-family:'SF Mono','Fira Mono',monospace;font-size:11.5px;line-height:1.65;color:#c4c2bc;box-shadow:0 2px 8px rgba(0,0,0,.18)}
+.council-hdr{color:#5c5a56;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid #222220;padding-bottom:10px;margin-bottom:12px}
+.council-hdr strong{color:#8a8580}
+.council-round-hdr{color:#454340;font-size:9px;text-transform:uppercase;letter-spacing:.07em;margin:14px 0 9px;display:flex;align-items:center;gap:8px}
+.council-round-hdr::after{content:'';flex:1;height:1px;background:#1e1c1a}
+.cpos{display:flex;gap:8px;margin-bottom:9px;align-items:flex-start}
+.cpos-id{color:#b45309;font-weight:700;min-width:24px;flex-shrink:0;margin-top:1px}
+.cpos-body{flex:1;color:#c4c2bc}
+.cpos-body p{margin:0 0 2px}
+.sig{display:inline-block;font-size:9.5px;font-weight:700;letter-spacing:.07em;margin-top:4px;padding:1px 6px;border-radius:3px}
+.sig-aligned{color:#4ade80;background:rgba(74,222,128,.08)}
+.sig-dissent{color:#f87171;background:rgba(248,113,113,.08)}
+.sig-flag{color:#fbbf24;background:rgba(251,191,36,.08)}
+.council-inject{background:#161513;border:1px solid #2a2826;border-radius:6px;padding:9px 11px;margin:10px 0}
+.council-inject-label{color:#3e3c38;font-size:9px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:5px}
+.council-inject-text{color:#9a9890;font-size:11.5px}
+.council-settled{background:#081510;border:1px solid #173d1e;border-radius:5px;padding:8px 10px;color:#4ade80;font-weight:700;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;margin:14px 0 13px}
+.council-section-lbl{color:#5c5a56;font-size:9px;text-transform:uppercase;letter-spacing:.1em;margin-bottom:7px;margin-top:12px}
+.council-order{color:#e0deda;margin-bottom:4px;font-size:11.5px}
+.council-parked{margin-bottom:6px}
+.council-parked-tree{color:#7a7875;font-size:11.5px}
+.council-parked-tags{color:#454340;font-size:10.5px}
+
+/* ── Council seats admin ── */
+.seat-card{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px}
+.seat-card-hdr{display:flex;align-items:center;gap:8px;margin-bottom:12px}
+.seat-badge{font-size:11px;font-weight:700;font-family:'SF Mono','Fira Mono',monospace;background:#0f0f0e;color:#b45309;padding:3px 9px;border-radius:5px;border:1px solid #272523;letter-spacing:.04em}
+.chip-vacant{font-size:9.5px;font-weight:600;font-family:'SF Mono','Fira Mono',monospace;background:var(--amber-bg);border:1px solid #fde68a;color:#92400e;padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:.07em}
+.chip-active{font-size:9.5px;font-weight:600;font-family:'SF Mono','Fira Mono',monospace;background:var(--ok-bg);border:1px solid #86efac;color:var(--ok);padding:2px 8px;border-radius:4px;text-transform:uppercase;letter-spacing:.07em}
+.seat-field{margin-bottom:10px}
+.seat-field-lbl{font-size:9.5px;font-weight:600;text-transform:uppercase;letter-spacing:.09em;color:var(--text3);font-family:'SF Mono','Fira Mono',monospace;margin-bottom:4px;display:block}
+.seat-input{width:100%;font-size:13px;font-family:inherit;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);outline:none;transition:border-color .12s}
+.seat-input:focus{border-color:var(--green);background:#fff}
+.seat-select{width:100%;font-size:12px;font-family:'SF Mono','Fira Mono',monospace;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 10px;color:var(--text);outline:none;cursor:pointer;appearance:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%239ca3a0' d='M6 8L1 3h10z'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;padding-right:28px}
+.seat-select:focus{border-color:var(--green)}
+.ideology-toggle{width:100%;display:flex;align-items:center;justify-content:space-between;background:var(--bg);border:1px solid var(--border);border-radius:7px;padding:8px 11px;cursor:pointer;font-family:inherit;font-size:12px;font-weight:500;color:var(--text2);transition:all .12s;margin-bottom:0}
+.ideology-toggle.open{border-bottom-left-radius:0;border-bottom-right-radius:0;border-bottom-color:transparent}
+.ideology-toggle:hover{background:#f0efed}
+.ideology-chevron{font-size:9px;transition:transform .18s;color:var(--text3)}
+.ideology-toggle.open .ideology-chevron{transform:rotate(180deg)}
+.ideology-area{width:100%;font-size:11.5px;font-family:'SF Mono','Fira Mono',monospace;background:var(--bg);border:1px solid var(--border);border-top:none;border-bottom-left-radius:7px;border-bottom-right-radius:7px;padding:10px 11px;color:var(--text);outline:none;resize:vertical;min-height:76px;line-height:1.55;display:none;box-sizing:border-box}
+.ideology-area.open{display:block}
+.ideology-area:focus{border-color:var(--green)}
+.seat-footer{display:flex;align-items:center;justify-content:space-between;margin-top:13px}
+.status-toggle{display:flex;background:var(--bg);border:1px solid var(--border);border-radius:7px;overflow:hidden}
+.stgl-btn{font-size:10.5px;font-weight:600;font-family:'SF Mono','Fira Mono',monospace;padding:6px 12px;background:transparent;border:none;cursor:pointer;color:var(--text3);transition:all .12s}
+.stgl-btn.sel-vacant{background:var(--amber-bg);color:#92400e}
+.stgl-btn.sel-active{background:var(--ok-bg);color:var(--ok)}
+.btn-save{font-size:12px;font-weight:600;font-family:inherit;background:var(--green);color:#fff;border:none;border-radius:7px;padding:7px 18px;cursor:pointer;transition:background .12s}
+.btn-save:hover{background:var(--green-mid)}
+</style>
+</head>
+<body>
+
+<!-- Shell -->
+<div class="shell">
+  <div class="topbar">
+    <span class="topbar-logo">Klaroha</span>
+    <span class="topbar-brand">Klaroha ↓</span>
+    <div class="topbar-right">
+      <span style="font-size:11px;color:var(--text2)">May 20</span>
+    </div>
+  </div>
+
+  <div class="page-area">
+    <div id="page-area" style="height:100%;overflow:hidden;display:flex;flex-direction:column"></div>
+  </div>
+
+  <!-- Full window overlay — inside shell so tabs remain visible -->
+  <div class="fullwin" id="fullwin">
+    <div class="fullwin-topbar">
+      <button class="fullwin-back" id="fullwin-close">← Back</button>
+      <span class="fullwin-title" id="fullwin-title"></span>
+      <div style="margin-left:auto;display:flex;gap:7px" id="fullwin-actions"></div>
+    </div>
+    <div class="fullwin-body" id="fullwin-body"></div>
+  </div>
+
+  <div class="bottom-tabs">
+    <div class="tab-group">
+      <button class="tab-btn active" data-page="stream">
+        ▶ Stream <span class="tab-badge" id="tab-badge">3</span>
+      </button>
+      <button class="tab-btn" data-page="cmo">
+        ◎ CMO
+      </button>
+      <button class="tab-btn" data-page="admin">
+        ⚙ Admin
+      </button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ── Data ── */
+const TYPE_LABELS = {
+  decision_brief:'Decision Brief',
+  pending_artifact:'Pending Artifact',
+  outcome:'Outcome · Memory Updated',
+  setup_blocker:'Setup Blocker',
+  signal_update:'Signal Update',
+  council_brief:'Council Brief',
+  council_session:'Council Session',
+};
+
+const cards = [
+  {
+    id:'1', type:'decision_brief', featured:true, brand:'Klaroha',
+    obj:'Generate $40k pipeline from dormant prospects, Q2',
+    why:'April data backs this. Case study angle got 21% reply rate vs 8% for feature-benefit. Sequence v2 is ready. Thursday window is optimal — reply rates drop after mid-week.',
+    conf:{label:'Directional · 0.71',color:'amber'},
+    evidence:[
+      'April campaign: 21% reply (case study) vs 8% (feature-benefit)',
+      '47 dormant contacts — no reply in 90+ days, previously engaged',
+      'Gmail connector live · Memory: 2 outcome records on file',
+    ],
+    rec:'Review and approve sequence v2 before Thursday. 47 contacts queued. Optimal send window closes mid-week.',
+    boundary:'BOS can draft and queue. BOS cannot send without approval.',
+    actions:['approve','revise','investigate','ask CMO','dismiss','view full'],
+    sources:['Gmail — live connector','Memory — 2 outcome records'],
+  },
+  {
+    id:'2', type:'pending_artifact', featured:false, brand:'Klaroha',
+    obj:'Generate $40k pipeline from dormant prospects, Q2',
+    why:'Sequence v2 built from April memory. Case study angle validated at 21% reply rate. Updated objection handling in email 3.',
+    conf:{label:'Known',color:'green'},
+    evidence:[
+      'April memory: case-study angle produced 21% replies vs 8% feature-benefit',
+      '47 dormant contacts previously engaged but silent for 90+ days',
+      'Email 3 adds the objection handler learned from two May replies',
+      '3 emails · 9 days · 47 contacts · default send: Tuesday 9 AM',
+    ],
+    platformPreview:{
+      label:'Gmail subject-line preview',
+      rows:[
+        ['Email 1','How [Client Name] cut their CAC by 34% in 6 weeks'],
+        ['Email 2 · Day 4','Quick follow-up — still relevant for you?'],
+        ['Email 3 · Day 9','One last thought before I move on'],
+      ]
+    },
+    rec:'Approve to queue send. Review full sequence before approving.',
+    boundary:'BOS cannot send without approval. Once approved, BOS sends and monitors replies autonomously.',
+    actions:['approve','revise','ask CMO','dismiss','view full'],
+    sources:['Gmail — live connector'],
+  },
+  {
+    id:'3', type:'outcome', featured:false, brand:'Klaroha',
+    obj:'Generate $40k pipeline from dormant prospects, Q2',
+    why:'April reactivation campaign closed. Operator registered outcome May 18. Memory updated.',
+    conf:{label:'Known',color:'green'},
+    stats:[{v:'47',l:'Sent'},{v:'21%',l:'Reply rate'},{v:'4',l:'Calls'},{v:'$18k',l:'Pipeline'}],
+    evidence:[
+      'Average reply: Day 2 — Email 2 drove most responses',
+      '2 no-shows flagged for different sequence timing',
+    ],
+    memtags:['case_study_angle: 21% reply','email_2 high_response','no_show_pattern flagged','pipeline: $18k at proposal'],
+    rec:null, boundary:null,
+    actions:['record outcome','investigate','ask CMO','dismiss'],
+    sources:['Manual — operator registered'],
+  },
+  {
+    id:'4', type:'setup_blocker', featured:false, brand:'Klaroha',
+    obj:'Generate $40k pipeline from dormant prospects, Q2',
+    why:'47 contacts were manually uploaded. No CRM or list source configured. BOS cannot refresh or expand the prospect list without a connected source.',
+    conf:{label:'Known',color:'green'},
+    evidence:[
+      'Prospect list: manual upload only (47 contacts)',
+      'CRM connection: not configured',
+      'List refresh: not possible without connector',
+    ],
+    rec:'Configure a list source (CRM, CSV sync) to enable automated prospect refresh.',
+    boundary:'BOS can generate a connector spec. BOS cannot access CRM without authorization.',
+    actions:['configure','investigate','ask CMO','dismiss'],
+    sources:['List source — requires setup'],
+  },
+  {
+    id:'5', type:'signal_update', featured:false, brand:'Motormoto',
+    obj:'Reactivate lapsed dealer network · Q2',
+    why:'Send frequency approaching fatigue threshold. Currently at 4.2/week — watchpoint set at 4.8. CTR down 6% over 3 weeks. No action required yet.',
+    conf:{label:'Watching',color:'blue'},
+    evidence:[
+      'Frequency: 4.2/week · threshold: 4.8 · 14% headroom remaining',
+      'CTR: −6% over 3-week trend · below March baseline',
+      'Memory: March 2026 fatigue event flagged at 4.6 frequency',
+    ],
+    memtags:['march_fatigue: 4.6 threshold','ctr_trend: −6%','frequency: 4.2'],
+    watchpoint:{ metric:'Frequency / week', current:4.2, threshold:4.8 },
+    rec:null, boundary:null,
+    actions:['investigate','ask CMO','dismiss'],
+    sources:['Memory — March fatigue record','Google Analytics — planned'],
+  },
+  {
+    id:'6', type:'council_brief', featured:false, brand:'Motormoto',
+    obj:'Reactivate lapsed dealer network · Q2',
+    why:'Budget reallocation dismissed twice this week. topic_tag: budget. Council convened — 5 voices split on path forward. 4 direct questions require operator decision before BOS can proceed.',
+    conf:{label:'Contested · 0.54',color:'purple'},
+    evidence:[
+      'budget topic_tag dismissed 2× in 5 days — persistent deferral flagged',
+      'Current spend: $4.2k/mo · Analyst model: $6.5k needed to reach pipeline target by Q2 end',
+      'Creative: fatigue risk active — scaling volume before refresh increases churn probability',
+    ],
+    voices:[
+      { role:'Strategist', position:'Increase budget to $6.5k. Timeline risk now outweighs spend risk.', conf:'High', dissent:false },
+      { role:'Analyst', position:'Data supports $6.5k. Below that, pipeline target is unreachable by Q2 end at current conversion rate.', conf:'High', dissent:false },
+      { role:'Creative', position:'Budget increase is viable only if sequence is refreshed first. Fatigue is measurable and rising.', conf:'Medium', dissent:true },
+      { role:'Channel Spec', position:'Gmail capacity supports the increase. Recommend refreshing creative before scaling volume.', conf:'Medium', dissent:false },
+      { role:"Devil's Advocate", position:"Budget dismissed twice. Is the objective correctly scoped, or is the channel wrong for this segment?", conf:'Low', dissent:true },
+    ],
+    synthesis:"3 of 5 voices support $6.5k budget increase. Dissent on sequence: creative refresh should precede volume scale (Creative, Channel Spec). Channel fit challenged by Devil's Advocate.",
+    questions:[
+      'Is $6.5k within Q2 budget authority — or does this require escalation?',
+      'Should creative refresh happen before or concurrent with budget increase?',
+      'Is the Q2 pipeline target still correctly scoped for this channel?',
+      'If Gmail hits fatigue ceiling, is a second channel ready to activate?',
+    ],
+    do_not_list:[
+      'Do not scale send volume before refreshing creative sequence',
+      'Do not dismiss budget topic a third time without recording rationale',
+    ],
+    rec:'Answer the 4 questions. Record your decision. BOS will update the objective plan.',
+    boundary:'BOS cannot change budget or objective scope without operator decision.',
+    actions:['record decision','ask CMO','dismiss'],
+    sources:['Memory — 2 budget dismissals logged','Analyst model · Gmail connector'],
+  },
+  {
+    id:'7', type:'council_session', brand:'Motormoto',
+    obj:'Reactivate lapsed dealer network · Q2',
+    brief:'Should we pause Google Ads and shift budget to Meta for Q3 — or hold the current split?',
+    session_id:'CS-0041',
+    status:'settled', rounds_completed:3,
+    seats_active:5,
+    transcript: [
+      { kind:'phase', label:'Round 1 · Opening Positions', phase:'opening' },
+      { kind:'msg', label:'C1', text:'Google Ads CPL for the dealer segment is up 42% over 90 days. Meta has the same demographic reach and our creative can be repurposed. I recommend pausing Google and shifting the full budget to Meta for Q3.', signal:'dissent' },
+      { kind:'msg', label:'C2', text:'Attribution integrity is my concern. Google funnel is measurable and tracked — Meta attribution lags 6–8 weeks. Pivoting mid-cycle creates a comparison gap we cannot close. I recommend holding the current split until Q3 data is in.', signal:'dissent' },
+      { kind:'msg', label:'C3', text:'Meta only performs with fresh creative. Before we move budget, we need new assets. Conditional support — creative production must precede any budget shift.', signal:'dissent' },
+      { kind:'msg', label:'C4', text:'Full pause of a proven channel is high operational risk. I support a partial shift — 30% of Google budget to Meta — with 70% held as a control baseline.', signal:'dissent' },
+      { kind:'msg', label:'C5', text:'Questioning the frame. Dealer reactivation historically responds to direct outreach, not paid ads. Are we solving the right problem? A direct outreach lane should be tested before we argue paid-media split.', signal:'dissent' },
+      { kind:'phase', label:'Operator Injection', phase:'debate' },
+      { kind:'sys', text:'Operator context added — creative budget available for Q3: $3k. Evaluate partial shift only; full pause not authorised.' },
+      { kind:'phase', label:'Round 2 · Debate', phase:'debate' },
+      { kind:'msg', label:'C1', reply_to:'C3', text:'With $3k, two Meta ad sets are feasible. I am moving off the full-pause position. A 30% budget shift with a creative sprint is the right call within these constraints.', signal:'aligned' },
+      { kind:'msg', label:'C3', reply_to:'C1', text:'If two ad sets are ready before Week 1, my objection is withdrawn. Creative-first gate plus 30% shift is executable. I align.', signal:'aligned' },
+      { kind:'msg', label:'C2', reply_to:'C4', text:'30% shift preserves a Google baseline for comparison. I support — on one condition: hold the 70% Google floor for the full eval window. No mid-quarter creep.', signal:'aligned', flag:'Hold Google 70% floor — no mid-quarter reallocation' },
+      { kind:'msg', label:'C4', text:'30% matches the risk profile I can support. Aligned with C2 on the floor condition.', signal:'aligned' },
+      { kind:'msg', label:'C5', text:'Direct outreach objection stands in principle. Within the operator constraint, I will engage on the partial shift — but recommend a parallel direct outreach pilot alongside the Meta test.', signal:'dissent' },
+      { kind:'phase', label:'Round 3 · Convergence', phase:'convergence' },
+      { kind:'msg', label:'C1', text:'4 of 5 aligned on 30% shift with creative-first gate and eval floor. C5 dissent noted — parallel direct outreach pilot added to parked decisions.', signal:'aligned' },
+      { kind:'msg', label:'C2', text:'Aligned. Adding a formal eval gate condition: 4 weeks, Meta CPL must close within 15% of Google CPL before the split widens further.', signal:'aligned', flag:'4-week eval gate — Meta CPL within 15% of Google CPL before further shift' },
+      { kind:'msg', label:'C3', text:'Creative sprint first, then 30% shift, then eval gate. Aligned.', signal:'aligned' },
+      { kind:'msg', label:'C4', text:'Aligned. Eval gate is the correct risk control.', signal:'aligned' },
+      { kind:'msg', label:'C5', text:'Withdrawing channel-fit objection given operator framing and direct outreach pilot being parked. Support 30% shift with mandatory eval gate.', signal:'aligned' },
+    ],
+    orders: [
+      'Reallocate 30% of Google Ads budget to Meta — effective Q3 Week 1',
+      'Commission creative sprint · $3k · 2 ad sets · complete before Q3 Week 1 launch',
+      'Hold Google Ads baseline at 70% — no reduction until eval gate clears',
+      'Set 4-week eval gate — Meta CPL must close within 15% of Google CPL',
+      'Record decision in BOS memory — tag: channel_shift · Q3',
+    ],
+    parked: [
+      { text:'Full 100% channel migration to Meta', tags:'requires eval · Q4 candidate' },
+      { text:'Direct outreach pilot for lapsed dealers (C5 recommendation)', tags:'parallel · Q3 test · low cost' },
+    ],
+    actions:['view session','ask CMO'],
+    sources:['Council · 3 rounds · 5 seats','Memory — Motormoto'],
+  },
+];
+
+/* ── Watchpoints data ── */
+const watchpoints = [
+  {
+    id:'wp1', brand:'Motormoto', obj:'Reactivate lapsed dealer network · Q2',
+    metric:'send_frequency', metric_label:'Send frequency / week',
+    condition:'rises above', warn_at:4.5, trigger_at:4.8, unit:'/week',
+    current:4.2, status:'watching', alert:'signal_update',
+    last_checked:'Today · 11:42 AM',
+  },
+  {
+    id:'wp2', brand:'Klaroha', obj:'Generate $40k pipeline from dormant prospects · Q2',
+    metric:'reply_rate', metric_label:'Reply rate',
+    condition:'falls below', warn_at:12, trigger_at:8, unit:'%',
+    current:null, status:'watching', alert:'signal_update',
+    last_checked:'Awaiting first campaign send',
+  },
+];
+
+/* ── State ── */
+let activePage = 'stream';
+let selectedCard = cards[0];
+let cmoContextNote = 'Loaded from featured Stream card';
+let adminSection = 'setup';
+let wpFormOpen = false;
+let wpEditId = null;
+
+/* ── Card HTML builder ── */
+function cardHTML(c) {
+  if (c.type === 'council_session') return councilSessionCardHTML(c);
+  const stats = c.stats
+    ? `<div class="g2stats">${c.stats.map(s=>`<div class="g2stat">${s.v}<span>${s.l}</span></div>`).join('')}</div>`
+    : '';
+  const memtags = c.memtags
+    ? `<div class="g2mem">${c.memtags.map(t=>`<span class="g2mem-tag">${t}</span>`).join('')}</div>`
+    : '';
+  const ev = c.evidence.map(e=>`<div class="g2ev-item">${e}</div>`).join('');
+  const rec = c.rec ? `<div class="g2rec"><b>Next —</b>${c.rec}</div>` : '';
+  const boundary = c.boundary ? `<div class="g2boundary">${c.boundary}</div>` : '';
+  const preview = artifactPreviewHTML(c);
+  const srcs = c.sources.map(s=>`<span class="g2src">${s}</span>`).join('');
+  const confBadge = c.conf.label !== 'Known'
+    ? `<span class="g2conf ${c.conf.color}">${c.conf.label}</span>` : '';
+  const btns = c.actions.map(a => {
+    let cls = 'btn-ghost';
+    if (a==='approve') cls = 'btn-primary';
+    if (['configure','record decision','record outcome','investigate'].includes(a)) cls = 'btn-accent';
+    return `<button class="btn ${cls}" data-action="${a}" data-id="${c.id}">${a}</button>`;
+  }).join('');
+  return `<div class="g2card${c.featured?' featured':''}" id="card-${c.id}">
+    <div class="g2top">
+      <span class="g2type ${c.type}">${TYPE_LABELS[c.type]}</span>
+      ${confBadge}
+    </div>
+    <div class="g2obj">${c.obj}</div>
+    <div class="g2brand">${c.brand}</div>
+    <div class="g2why">${c.why}</div>
+    ${stats}${memtags}${watchpointHTML(c)}
+    <div class="g2ev">${ev}</div>
+    ${councilHTML(c)}
+    ${rec}${boundary}${preview}
+    <div class="g2src-row">${srcs}</div>
+    <div class="g2actions">${btns}</div>
+  </div>`;
+}
+
+/* ── Right panel detail (CMO split) ── */
+function rightPanelHTML(c) {
+  if (c.type === 'council_session') {
+    return `<div>
+      <div class="rp-header">
+        <div>
+          <div class="rp-title">Council Session · Settled</div>
+          <div class="rp-meta">${c.brand} · ${c.obj}</div>
+        </div>
+      </div>
+      <div class="rp-section">
+        <div class="rp-label">Brief</div>
+        <div class="rp-body" style="font-style:italic">"${c.brief}"</div>
+      </div>
+      <div class="rp-section">
+        <div class="rp-label">Marching Orders</div>
+        <div class="rp-body">${c.orders.map((o,i)=>`<div style="padding:3px 0;line-height:1.5"><span style="color:var(--text3);margin-right:6px;font-family:'SF Mono','Fira Mono',monospace">${i+1}.</span>${o}</div>`).join('')}</div>
+      </div>
+      <div class="rp-section">
+        <div class="rp-label">Parked for next session</div>
+        <div class="rp-body">${c.parked.map(p=>`<div style="padding:2px 0;line-height:1.45">— ${p.text}<br><span style="font-size:11px;color:var(--text3)">${p.tags}</span></div>`).join('')}</div>
+      </div>
+      <div class="rp-actions">
+        <button class="btn btn-accent" data-action="view session" data-id="${c.id}">View full session ↗</button>
+      </div>
+    </div>`;
+  }
+  const stats = c.stats
+    ? `<div class="g2stats" style="margin-bottom:12px">${c.stats.map(s=>`<div class="g2stat">${s.v}<span>${s.l}</span></div>`).join('')}</div>`
+    : '';
+  const memtags = c.memtags
+    ? `<div class="g2mem" style="margin-bottom:12px">${c.memtags.map(t=>`<span class="g2mem-tag">${t}</span>`).join('')}</div>`
+    : '';
+  const ev = c.evidence.map(e=>`<div class="g2ev-item">${e}</div>`).join('');
+  const rec = c.rec ? `<div class="g2rec" style="margin-bottom:12px"><b>Next —</b>${c.rec}</div>` : '';
+  const boundary = c.boundary ? `<div class="g2boundary">${c.boundary}</div>` : '';
+  const preview = artifactPreviewHTML(c);
+  const srcs = c.sources.map(s=>`<span class="g2src">${s}</span>`).join('');
+  const allowedActions = c.actions.map(a=>`<span class="g2src">${a}</span>`).join('');
+  const confBadge = c.conf.label !== 'Known'
+    ? `<span class="g2conf ${c.conf.color}" style="margin-left:6px">${c.conf.label}</span>` : '';
+  const primaryBtns = c.actions.filter(a=>['approve','configure','record decision','record outcome','investigate'].includes(a))
+    .map(a=>{
+      const cls = a==='approve' ? 'btn-primary' : 'btn-accent';
+      return `<button class="btn ${cls}" data-action="${a}" data-id="${c.id}">${a}</button>`;
+    }).join('');
+  return `<div>
+    <div class="rp-header">
+      <div>
+        <div class="rp-title">${TYPE_LABELS[c.type]}${confBadge}</div>
+        <div class="rp-meta">${c.brand} · ${c.obj}</div>
+      </div>
+      <button class="btn btn-ghost" style="font-size:11px;white-space:nowrap" data-action="view full" data-id="${c.id}">Expand ↗</button>
+    </div>
+    <div class="rp-section">
+      <div class="rp-label">Why now</div>
+      <div class="rp-body">${c.why}</div>
+    </div>
+    ${stats}${memtags}${watchpointHTML(c)}
+    <div class="rp-section">
+      <div class="rp-label">Evidence</div>
+      <div class="g2ev">${ev}</div>
+    </div>
+    ${councilHTML(c)}
+    ${rec}${boundary}${preview}
+    <div class="rp-section">
+      <div class="rp-label">Allowed actions</div>
+      <div class="g2src-row" style="margin-bottom:0">${allowedActions}</div>
+    </div>
+    <div class="rp-section">
+      <div class="rp-label">Source state</div>
+      <div class="g2src-row" style="margin-bottom:0">${srcs}</div>
+    </div>
+    ${primaryBtns ? `<div class="rp-actions">${primaryBtns}</div>` : ''}
+  </div>`;
+}
+
+/* ── Full window content ── */
+function fullWinHTML(c) {
+  if (c.type === 'council_session') return councilSessionFullwinHTML(c);
+  const stats = c.stats
+    ? `<div class="g2stats" style="margin-bottom:16px">${c.stats.map(s=>`<div class="g2stat">${s.v}<span>${s.l}</span></div>`).join('')}</div>`
+    : '';
+  const memtags = c.memtags
+    ? `<div class="g2mem" style="margin-bottom:16px">${c.memtags.map(t=>`<span class="g2mem-tag">${t}</span>`).join('')}</div>`
+    : '';
+  const ev = c.evidence.map(e=>`<div class="g2ev-item">${e}</div>`).join('');
+  const srcs = c.sources.map(s=>`<span class="g2src">${s}</span>`).join('');
+  const preview = artifactPreviewHTML(c, true);
+  const actionBtns = c.actions.filter(a=>a!=='view full')
+    .map(a=>{
+      let cls='btn-ghost';
+      if(a==='approve')cls='btn-primary';
+      if(['configure','record decision','record outcome','investigate'].includes(a))cls='btn-accent';
+      return `<button class="btn ${cls}" data-action="${a}" data-id="${c.id}" data-ctx="full">${a}</button>`;
+    }).join('');
+  return `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:20px;flex-wrap:wrap">
+      <span class="g2type ${c.type}">${TYPE_LABELS[c.type]}</span>
+      ${c.conf.label !== 'Known' ? `<span class="g2conf ${c.conf.color}">${c.conf.label}</span>` : ''}
+      <div class="g2src-row" style="margin:0;margin-left:auto">${srcs}</div>
+    </div>
+    <div style="font-size:12px;color:var(--text2);margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)">${c.brand} · ${c.obj}</div>
+    <div style="margin-bottom:20px">
+      <div class="rp-label">Why now</div>
+      <div style="font-size:14px;line-height:1.6;margin-top:6px">${c.why}</div>
+    </div>
+    ${stats}${memtags}${watchpointHTML(c)}
+    <div style="margin-bottom:20px">
+      <div class="rp-label">Evidence</div>
+      <div style="margin-top:6px" class="g2ev">${ev}</div>
+    </div>
+    ${councilHTML(c)}
+    ${c.rec ? `<div style="margin-bottom:16px">
+      <div class="rp-label">Recommended next</div>
+      <div class="g2rec" style="margin-top:6px">${c.rec}</div>
+    </div>` : ''}
+    ${c.boundary ? `<div style="margin-bottom:20px">
+      <div class="rp-label">Approval boundary</div>
+      <div class="g2boundary" style="margin-top:4px">${c.boundary}</div>
+    </div>` : ''}
+    ${preview}
+    ${actionBtns ? `<div style="display:flex;gap:8px;flex-wrap:wrap;padding-top:20px;border-top:1px solid var(--border)">${actionBtns}</div>` : ''}
+  `;
+}
+
+/* ── Card section helpers ── */
+function artifactPreviewHTML(c, expanded=false) {
+  if (!c.platformPreview) return '';
+  const rows = c.platformPreview.rows.map(([k,v])=>`<div class="preview-row"><b>${k}</b><br>${v}</div>`).join('');
+  return `<details class="artifact-preview"${expanded ? ' open' : ''}>
+    <summary>${c.platformPreview.label}</summary>
+    ${rows}
+  </details>`;
+}
+
+function watchpointHTML(c) {
+  if (!c.watchpoint) return '';
+  const pct = Math.round(c.watchpoint.current / c.watchpoint.threshold * 100);
+  const headroom = Math.round((1 - c.watchpoint.current / c.watchpoint.threshold) * 100);
+  return `<div class="g2watch">
+    <div class="g2watch-header"><span>${c.watchpoint.metric}</span><span>${c.watchpoint.current} of ${c.watchpoint.threshold} threshold</span></div>
+    <div class="g2watch-track"><div class="g2watch-fill" style="width:${pct}%"></div></div>
+    <div class="g2watch-sub">${headroom}% below fatigue threshold · watching</div>
+  </div>`;
+}
+
+function councilHTML(c) {
+  if (!c.voices) return '';
+  const vhtml = `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:6px">Council · 5 voices</div>
+    <div class="g2voices">${c.voices.map(v=>`<div class="g2voice${v.dissent?' dissent':''}">
+      <div class="g2voice-top">
+        <span class="g2voice-role">${v.role}</span>
+        ${v.dissent?'<span class="g2voice-dissent-tag">dissent</span>':''}
+        <span style="margin-left:auto;font-size:10px;color:var(--text3)">${v.conf}</span>
+      </div>
+      <div class="g2voice-pos">${v.position}</div>
+    </div>`).join('')}</div>`;
+  const syn = `<div class="g2synthesis"><b>Synthesis — </b>${c.synthesis}</div>`;
+  const qs = `<div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:4px">Direct questions</div>
+    <div class="g2questions">${c.questions.map(q=>`<div class="g2question-item">${q}</div>`).join('')}</div>`;
+  const dn = c.do_not_list ? `<div class="g2dontlist">${c.do_not_list.map(d=>`<div class="g2dont-item">${d}</div>`).join('')}</div>` : '';
+  return vhtml + syn + qs + dn;
+}
+
+/* ── Council block (CMO chat view) ── */
+function councilBlockHTML(c) {
+  const body = c.transcript.map(m => {
+    if (m.kind === 'phase') {
+      return `<div class="council-round-hdr">${m.label}</div>`;
+    }
+    if (m.kind === 'sys') {
+      return `<div class="council-inject">
+        <div class="council-inject-label">Operator injection</div>
+        <div class="council-inject-text">${m.text}</div>
+      </div>`;
+    }
+    const sigClass = m.signal === 'aligned' ? 'sig-aligned' : 'sig-dissent';
+    const sigLabel = m.signal === 'aligned' ? 'ALIGNED' : 'DISSENT';
+    const flagHTML = m.flag ? `<br><span class="sig sig-flag">FLAG: ${m.flag}</span>` : '';
+    const replyLine = m.reply_to ? `<span style="font-size:9.5px;color:#454340">↳ ${m.reply_to} — </span>` : '';
+    return `<div class="cpos">
+      <span class="cpos-id">${m.label}:</span>
+      <div class="cpos-body">${replyLine}${m.text}<br><span class="sig ${sigClass}">${sigLabel}</span>${flagHTML}</div>
+    </div>`;
+  }).join('');
+
+  const orders = c.orders.map((o,i)=>`<div class="council-order">${i+1}. ${o}</div>`).join('');
+  const parked = c.parked.map(p=>`<div class="council-parked">
+    <div class="council-parked-tree">— ${p.text}</div>
+    <div class="council-parked-tags">tags: ${p.tags}</div>
+  </div>`).join('');
+
+  return `<div class="council-label">COUNCIL</div>
+  <div class="council-block">
+    <div class="council-hdr"><strong>COUNCIL CONVENED</strong> · ${c.brand} · ${c.session_id} · ${c.seats_active} seats</div>
+    ${body}
+    <div class="council-settled">SETTLED · ${c.rounds_completed} rounds · ${c.seats_active}/${c.seats_active} aligned · ${c.parked.length} parked</div>
+    <div class="council-section-lbl">Marching Orders</div>
+    ${orders}
+    <div class="council-section-lbl" style="margin-top:14px">Parked Decisions</div>
+    ${parked}
+  </div>`;
+}
+
+function renderCouncilCMO() {
+  const c = selectedCard;
+  const chatCol = `<div class="split-chat">
+    <div class="cmo-msgs">
+      <div class="cmo-msgs-body">
+        <div class="cmo-ctx">
+          <span class="g2src" style="font-size:11px">${c.brand}</span>
+          <span class="g2src" style="font-size:11px">${c.obj}</span>
+          <span class="g2src" style="font-size:11px">council_session</span>
+        </div>
+        <div class="msg-user">@council ${c.brief}</div>
+        <div>
+          <div class="msg-label">CMO</div>
+          <div class="msg-ai">Convening the council on this.<br><span style="color:var(--text3);font-size:12px">${c.seats_active} seats · ${c.brand} context loaded</span></div>
+        </div>
+        <div style="width:100%">${councilBlockHTML(c)}</div>
+        <div class="cmo-chips" style="margin-top:10px">
+          <button class="btn btn-ghost" style="font-size:12px" data-chip="cs-orders">What were the marching orders?</button>
+          <button class="btn btn-ghost" style="font-size:12px" data-chip="cs-parked">What's parked?</button>
+          <button class="btn btn-ghost" style="font-size:12px" data-chip="cs-dissent">Was there dissent?</button>
+          <button class="btn btn-accent" style="font-size:12px" data-chip="handoff">Generate handoff brief</button>
+        </div>
+        <div id="chip-reply"></div>
+      </div>
+    </div>
+    <div class="cmo-input-wrap">
+      <div class="cmo-composer">
+        <textarea class="cmo-ta" rows="2" placeholder="Ask CMO about this session..."></textarea>
+        <div class="cmo-composer-foot">
+          <span class="cmo-hint">Enter to send</span>
+          <button class="btn-send">↑</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  const rightCol = `<div class="split-right">
+    <div class="rp-header">
+      <div>
+        <div class="rp-title">Council Session · Settled</div>
+        <div class="rp-meta">${c.brand} · ${c.obj}</div>
+      </div>
+    </div>
+    <div class="rp-section">
+      <div class="rp-label">Brief</div>
+      <div class="rp-body" style="font-style:italic">"${c.brief}"</div>
+    </div>
+    <div class="rp-section">
+      <div class="rp-label">Marching Orders</div>
+      <div class="rp-body">${c.orders.map((o,i)=>`<div style="padding:3px 0;line-height:1.5"><span style="color:var(--text3);margin-right:6px;font-family:'SF Mono','Fira Mono',monospace">${i+1}.</span>${o}</div>`).join('')}</div>
+    </div>
+    <div class="rp-section">
+      <div class="rp-label">Parked for next session</div>
+      <div class="rp-body">${c.parked.map(p=>`<div style="padding:2px 0;line-height:1.45">— ${p.text}<br><span style="font-size:11px;color:var(--text3)">${p.tags}</span></div>`).join('')}</div>
+    </div>
+    <div class="rp-actions">
+      <button class="btn btn-accent" data-action="view session" data-id="${c.id}">View full session ↗</button>
+      <button class="btn btn-ghost" data-action="ask CMO" data-id="${c.id}">Ask CMO</button>
+    </div>
+  </div>`;
+
+  return `<div class="split-shell">${chatCol}${rightCol}</div>`;
+}
+
+/* ── Council session renderers ── */
+function councilSessionCardHTML(c) {
+  const ordersPreview = c.orders.slice(0,2).map((o,i)=>`
+    <div style="font-size:11px;color:var(--text2);padding:2px 0;line-height:1.4">
+      <span style="font-family:'SF Mono','Fira Mono',monospace;color:var(--text3);margin-right:5px">${i+1}.</span>${o}
+    </div>`).join('');
+  const btns = c.actions.map(a=>`<button class="btn btn-ghost" data-action="${a}" data-id="${c.id}">${a}</button>`).join('');
+  return `<div class="g2card" id="card-${c.id}">
+    <div class="g2top">
+      <span class="g2type council_session">Council Session</span>
+      <span class="cs-settled-chip">SETTLED</span>
+    </div>
+    <div class="cs-status-bar">
+      <span class="cs-session-id">${c.session_id}</span>
+      <span class="cs-rounds">${c.rounds_completed} rounds · ${c.seats_active} seats</span>
+    </div>
+    <div class="g2brand">${c.brand} · ${c.obj}</div>
+    <div style="font-size:13px;font-style:italic;color:var(--text2);line-height:1.5;margin-bottom:12px">"${c.brief}"</div>
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--text3);margin-bottom:5px">Marching Orders</div>
+    ${ordersPreview}
+    <div style="font-size:10px;color:var(--text3);margin-top:6px;font-style:italic">+ ${c.orders.length-2} more · ${c.parked.length} item${c.parked.length!==1?'s':''} parked for next session</div>
+    <div class="g2src-row" style="margin-top:10px">${c.sources.map(s=>`<span class="g2src">${s}</span>`).join('')}</div>
+    <div class="g2actions">${btns}</div>
+  </div>`;
+}
+
+function councilSessionFullwinHTML(c) {
+  const transcriptHTML = c.transcript.map((m, i) => {
+    if (m.kind === 'phase') {
+      return `<div class="cs-phase ${m.phase}">${m.label}</div>`;
+    }
+    if (m.kind === 'sys') {
+      return `<div class="cs-msg" style="animation-delay:${i*50}ms">
+        <div class="cs-mid"><span class="cs-sys">SYS</span></div>
+        <div class="cs-body"><div class="cs-text" style="color:#5c5a56;font-size:11.5px;font-style:italic">${m.text}</div></div>
+      </div>`;
+    }
+    const sigLabel = m.signal === 'aligned' ? 'ALIGNED' : m.signal === 'dissent' ? 'DISSENT' : '';
+    const flagHTML = m.flag ? `<div style="margin-top:5px"><span class="cs-sig flag">FLAG: ${m.flag}</span></div>` : '';
+    const replyHTML = m.reply_to ? `<div class="cs-reply">responding to ${m.reply_to}</div>` : '';
+    return `<div class="cs-msg" style="animation-delay:${i*50}ms">
+      <div class="cs-mid"><span class="cs-seat">${m.label}</span></div>
+      <div class="cs-body">
+        ${replyHTML}
+        <div class="cs-text">${m.text}</div>
+        ${sigLabel ? `<span class="cs-sig ${m.signal}">${sigLabel}</span>` : ''}
+        ${flagHTML}
+      </div>
+    </div>`;
+  }).join('');
+
+  const ordersHTML = c.orders.map((o,i)=>`
+    <div class="cs-order"><span style="font-family:'SF Mono','Fira Mono',monospace;color:#454340;margin-right:7px">${i+1}.</span>${o}</div>
+  `).join('');
+
+  const parkedHTML = c.parked.map(p=>`
+    <div class="cs-parked-row">
+      <div class="cs-parked-tree">— ${p.text}</div>
+      <div class="cs-parked-tag">tags: ${p.tags}</div>
+    </div>
+  `).join('');
+
+  return `<div class="cs-wrap">
+    <div class="cs-fw-hdr">
+      <strong>COUNCIL SESSION</strong> · ${c.session_id} · ${c.brand}<br>
+      ${c.rounds_completed} rounds · ${c.seats_active} seats active · <span style="color:#4ade80">SETTLED</span><br>
+      <span style="font-style:italic;color:#6b6965">"${c.brief}"</span>
+    </div>
+    ${transcriptHTML}
+    <div class="cs-settle">⬡ Council settled · ${c.rounds_completed} rounds · all seats aligned</div>
+    <div class="cs-slbl">Marching Orders</div>
+    ${ordersHTML}
+    <div class="cs-slbl" style="margin-top:18px">Parked for Next Session</div>
+    ${parkedHTML}
+  </div>`;
+}
+
+/* ── Pages ── */
+function renderStream() {
+  const active = cards.filter(c=>!c._done);
+  const needs = active.filter(c=>c.type!=='outcome'&&c.type!=='signal_update').length;
+  const inner = active.length
+    ? active.map(c=>cardHTML(c)).join('')
+    : `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:24px 18px;text-align:left">
+        <div class="g2type outcome" style="display:inline-block;margin-bottom:10px">Objective loop quiet</div>
+        <div style="font-size:15px;font-weight:700;margin-bottom:6px">No decisions need attention right now.</div>
+        <div style="font-size:13px;color:var(--text2);line-height:1.55;margin-bottom:12px">BOS is watching the active objective, Gmail replies, pending outcomes, and setup readiness. If Gmail, list, brand context, or objective setup blocks the loop, Stream will surface a setup_blocker here.</div>
+        <div class="g2rec" style="margin-bottom:0"><b>Next —</b>Leave Stream alone until a decision, outcome, or setup blocker appears.</div>
+      </div>`;
+  return `<div class="page-scroll"><div class="stream-wrap">
+    <div class="stream-kicker">Tuesday, May 20 · Klaroha</div>
+    <div class="stream-title">${needs} item${needs!==1?'s':''} need your judgment</div>
+    <div class="stream-sub">Ranked by urgency. Act on what matters, dismiss what does not.</div>
+    <div class="obj-anchor">
+      <div class="obj-dot"></div>
+      <div>
+        <div class="obj-label">Active Objective</div>
+        <div class="obj-text">Generate $40k pipeline from dormant prospects</div>
+      </div>
+      <div class="obj-meta">Q2 · active</div>
+    </div>
+    ${inner}
+  </div></div>`;
+}
+
+function renderCouncilBriefCMO() {
+  const c = selectedCard;
+  const dissenters = (c.voices||[]).filter(v=>v.dissent).map(v=>v.role).join(', ') || 'None';
+  const chatCol = `<div class="split-chat">
+    <div class="cmo-msgs">
+      <div class="cmo-msgs-body">
+        <div class="cmo-ctx">
+          <span class="g2src" style="font-size:11px">${c.brand}</span>
+          <span class="g2src" style="font-size:11px">${c.obj.replace(', Q2',' · Q2')}</span>
+          <span class="g2src" style="font-size:11px;background:#faf5ff;color:#6b21a8;border-color:#e9d5ff">council_brief</span>
+        </div>
+        <div style="background:var(--amber-bg);border:1px solid #fde68a;border-radius:7px;padding:8px 10px;font-size:12px;color:#92400e;line-height:1.45;margin-bottom:2px">
+          Council surfaced this — ${(c.voices||[]).length} voices, contested confidence. ${(c.questions||[]).length} questions require your decision before BOS can proceed.
+        </div>
+        <div>
+          <div class="msg-label">CMO · council brief loaded</div>
+          <div class="msg-ai">${c.synthesis || 'Council synthesis unavailable.'}</div>
+        </div>
+        <div class="cmo-chips">
+          <button class="btn btn-ghost" style="font-size:12px" data-chip="cb-questions">What are the 4 questions?</button>
+          <button class="btn btn-ghost" style="font-size:12px" data-chip="cb-dissent">Who dissented and why?</button>
+          <button class="btn btn-ghost" style="font-size:12px" data-chip="cb-donot">What should I not do?</button>
+          <button class="btn btn-accent" style="font-size:12px" data-chip="handoff">Generate handoff brief</button>
+        </div>
+        <div id="chip-reply"></div>
+        <div>
+          <div class="msg-label" style="margin-top:4px">CMO · waiting</div>
+          <div class="msg-ai" style="opacity:.65;font-style:italic">Answer the questions, record your decision, or ask what the council recommended.</div>
+        </div>
+      </div>
+    </div>
+    <div class="cmo-input-wrap">
+      <div class="cmo-composer">
+        <textarea class="cmo-ta" rows="2" placeholder="Ask about the council brief, or record your decision..."></textarea>
+        <div class="cmo-composer-foot">
+          <span class="cmo-hint">Enter to send</span>
+          <button class="btn-send">↑</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+  const rightCol = `<div class="split-right">${rightPanelHTML(c)}</div>`;
+  return `<div class="split-shell">${chatCol}${rightCol}</div>`;
+}
+
+function renderCMO() {
+  if (selectedCard.type === 'council_session') return renderCouncilCMO();
+  if (selectedCard.type === 'council_brief') return renderCouncilBriefCMO();
+
+  const chatCol = `<div class="split-chat">
+    <div class="cmo-msgs">
+      <div class="cmo-msgs-body">
+        <div class="cmo-ctx">
+          <span class="g2src" style="font-size:11px">Brand · ${selectedCard.brand}</span>
+          <span class="g2src" style="font-size:11px">Active Objective · ${selectedCard.obj.replace(', Q2',' · Q2')}</span>
+          <span class="g2src" style="font-size:11px">Selected Card · ${TYPE_LABELS[selectedCard.type]}</span>
+        </div>
+        <div style="background:var(--green-bg);border:1px solid var(--green-border);border-radius:7px;padding:8px 10px;font-size:12px;color:var(--green-mid);line-height:1.45">
+          Context handoff received — ${cmoContextNote}. CMO has why_now, evidence, recommended_next, approval boundary, actions, and source state loaded.
+        </div>
+        <div>
+          <div class="msg-label">CMO · loaded from Stream</div>
+          <div class="msg-ai">April data backs this. Case study angle got 21% replies vs 8% for feature-benefit. Sequence v2 uses that angle across all 3 emails. The Thursday window matters — reply rates drop after mid-week sends. Approving now gives BOS time to queue and confirm delivery.</div>
+        </div>
+        <div>
+          <div class="msg-label">Context actions</div>
+          <div class="cmo-chips" style="margin-bottom:8px">
+            <button class="btn btn-ghost" style="font-size:12px" data-chip="why">Why this angle?</button>
+            <button class="btn btn-ghost" style="font-size:12px" data-chip="after">What happens after I approve?</button>
+          </div>
+          <div class="msg-label">Always available</div>
+          <div class="cmo-chips">
+            <button class="btn btn-ghost" style="font-size:12px" data-chip="outcome">Record an outcome</button>
+            <button class="btn btn-accent" style="font-size:12px" data-chip="handoff">Generate handoff brief</button>
+          </div>
+        </div>
+        <div id="chip-reply"></div>
+        <div>
+          <div class="msg-label" style="margin-top:4px">CMO · waiting</div>
+          <div class="msg-ai" style="opacity:.65;font-style:italic">Ask about this card, request a revision, record an outcome, or generate a handoff brief.</div>
+        </div>
+      </div>
+    </div>
+    <div class="cmo-input-wrap">
+      <div class="cmo-composer">
+        <textarea class="cmo-ta" rows="2" placeholder="Ask CMO about this card..."></textarea>
+        <div class="cmo-composer-foot">
+          <span class="cmo-hint">Enter to send</span>
+          <button class="btn-send">↑</button>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  const rightCol = `<div class="split-right">${rightPanelHTML(selectedCard)}</div>`;
+
+  return `<div class="split-shell">${chatCol}${rightCol}</div>`;
+}
+
+function adminNav() {
+  const sections = [
+    { section:'setup',        label:'Loop Setup',      group:'Gate 2' },
+    { section:'connectors',   label:'Connectors',      group:'Gate 2' },
+    { section:'memory',       label:'Memory & Audit',  group:'Gate 2' },
+    { section:'watchpoints',  label:'Watchpoints',             group:'Gate 2' },
+    { section:'flow',         label:'Loop Flow',               group:'Investigate' },
+    { section:'council',      label:'Council Seats · parked',  group:'Post-Gate 2' },
+    { section:'parked',       label:'Parked · Gate 3',         group:'Post-Gate 2' },
+  ];
+  const byGroup = (g) => {
+    const isParked = g === 'Post-Gate 2';
+    return sections.filter(i=>i.group===g).map(i=>`
+    <button class="admin-nav-item${adminSection===i.section?' active':''}${isParked?' parked':''}" data-admin-section="${i.section}"${isParked?' title="Post-Gate 2 — not active in current build"':''}>${i.label}</button>`).join('');
+  };
+  return `<div class="admin-nav">
+    <div class="admin-nav-wordmark">BOS Admin</div>
+    <div class="admin-nav-group">
+      <div class="admin-nav-label">Gate 2</div>
+      ${byGroup('Gate 2')}
+    </div>
+    <div class="admin-nav-group">
+      <div class="admin-nav-label">Investigate</div>
+      ${byGroup('Investigate')}
+    </div>
+    <div class="admin-nav-group">
+      <div class="admin-nav-label" style="opacity:.55">Post-Gate 2 · parked</div>
+      ${byGroup('Post-Gate 2')}
+    </div>
+  </div>`;
+}
+
+function adminContentHTML() {
+  if (adminSection === 'setup') {
+    const rows = [
+      { name:'Gmail', desc:'borj.villazorda@gmail.com · OAuth active · send and read enabled', dot:'green', status:'Connected', action:'Manage' },
+      { name:'Brand Context', desc:'Klaroha · voice doc, product brief, ICP defined', dot:'green', status:'Ready', action:'Edit' },
+      { name:'Prospect List', desc:'Manual upload only · 47 contacts · no CRM connected · list cannot auto-refresh', dot:'amber', status:'Action needed', action:'Configure', warn:true },
+      { name:'Active Objective', desc:'Generate $40k pipeline from dormant prospects · Q2', dot:'green', status:'Active', action:'View' },
+    ].map(r=>`
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-name">${r.name}</div>
+          <div class="settings-row-desc">${r.desc}</div>
+        </div>
+        <div class="settings-row-status">
+          <div class="s-dot ${r.dot}"></div>
+          <span class="s-text${r.warn?' amber':''}">${r.status}</span>
+        </div>
+        <div class="settings-row-action">
+          <button class="action-link">${r.action} →</button>
+        </div>
+      </div>`).join('');
+    return `
+      <div class="admin-section-title">Loop Setup</div>
+      <div class="admin-section-sub">Everything BOS needs to run the Gmail-only objective loop.</div>
+      <div class="settings-group">
+        <div class="settings-group-label">Connections &amp; context</div>
+        ${rows}
+      </div>`;
+  }
+
+  if (adminSection === 'connectors') {
+    const live = [
+      { name:'Gmail', desc:'borj.villazorda@gmail.com · OAuth · send and read · Gate 2 active connector', dot:'green', status:'Connected', action:'Manage' },
+    ];
+    const available = [
+      { name:'Google Ads', desc:'Search and Performance Max campaigns · read + write', dot:'grey', status:'Not connected', action:'Connect' },
+      { name:'Google Analytics', desc:'GA4 · event tracking and audience data', dot:'grey', status:'Not connected', action:'Connect' },
+      { name:'Google Calendar', desc:'Meeting scheduling · calendar read', dot:'grey', status:'Not connected', action:'Connect' },
+      { name:'Meta', desc:'Facebook and Instagram · campaigns and creative', dot:'grey', status:'Not connected', action:'Connect' },
+      { name:'Search Console', desc:'GSC · query performance and index coverage', dot:'grey', status:'Not connected', action:'Connect' },
+      { name:'Media Image', desc:'AI image generation · creative assets', dot:'grey', status:'Not connected', action:'Connect' },
+    ];
+    const makeRow = (r, dim) => `
+      <div class="settings-row"${dim?' style="opacity:.5"':''}>
+        <div class="settings-row-info">
+          <div class="settings-row-name">${r.name}</div>
+          <div class="settings-row-desc">${r.desc}</div>
+        </div>
+        <div class="settings-row-status">
+          <div class="s-dot ${r.dot}"></div>
+          <span class="s-text">${r.status}</span>
+        </div>
+        <div class="settings-row-action">
+          <button class="action-link">${r.action} →</button>
+        </div>
+      </div>`;
+    return `
+      <div class="admin-section-title">Connectors</div>
+      <div class="admin-section-sub">Channel plugins installed in this deployment. Only Gmail is active for Gate 2.</div>
+      <div class="settings-group">
+        <div class="settings-group-label">Active · Gate 2</div>
+        ${live.map(r=>makeRow(r,false)).join('')}
+      </div>
+      <div class="settings-group">
+        <div class="settings-group-label">Installed · not connected</div>
+        ${available.map(r=>makeRow(r,true)).join('')}
+      </div>`;
+  }
+
+  if (adminSection === 'memory') {
+    const log = [
+      { name:'Outcome · April reactivation', desc:'Recorded May 18 · 21% reply · 4 calls · $18k pipeline · operator-registered' },
+      { name:'Decision · case study angle approved', desc:'May 15 · rationale: 21% vs 8% reply rate in April data' },
+      { name:'Decision · feature-benefit angle not used', desc:'May 15 · rationale: 8% reply rate in April test' },
+    ].map(r=>`
+      <div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-name">${r.name}</div>
+          <div class="settings-row-desc">${r.desc}</div>
+        </div>
+        <div class="settings-row-action"><button class="action-link">View →</button></div>
+      </div>`).join('');
+    return `
+      <div class="admin-section-title">Memory &amp; Audit</div>
+      <div class="admin-section-sub">Outcome records, decision rationales, and the current handoff brief.</div>
+      <div class="settings-group">
+        <div class="settings-group-label">Recent records</div>
+        ${log}
+      </div>
+      <div class="settings-group">
+        <div class="settings-group-label">Handoff brief · May 20, 2026</div>
+        <div class="hb-card">
+          <div class="hb-row">
+            <div class="hb-label">Active objectives</div>
+            <div class="hb-body">One active objective: generate $40k pipeline from dormant prospects. Q2. In progress.</div>
+          </div>
+          <div class="hb-row">
+            <div class="hb-label">Recent performance</div>
+            <div class="hb-body">April reactivation campaign closed May 18. Case study angle: 21% reply rate vs 8% for feature-benefit. 4 calls booked. $18k at proposal stage.</div>
+          </div>
+          <div class="hb-row">
+            <div class="hb-label">Pending decisions</div>
+            <div class="hb-body">Sequence v2 approval pending. 47 contacts queued. Thursday send window — reply rates drop after mid-week.</div>
+          </div>
+          <div class="hb-row">
+            <div class="hb-label">Known risks</div>
+            <div class="hb-body">No CRM connected. Prospect list is manual upload only (47 contacts). Cannot auto-refresh without a connector.</div>
+          </div>
+          <div class="hb-row">
+            <div class="hb-label">Decided against</div>
+            <div class="hb-body">Feature-benefit email angle. April data: 8% reply rate vs 21% for case study framing.</div>
+          </div>
+          <div class="hb-row">
+            <div class="hb-label">Recommended first action</div>
+            <div class="hb-body" style="color:var(--green-mid);font-weight:500">Approve sequence v2 before Thursday. Then configure a list source to enable prospect refresh.</div>
+          </div>
+        </div>
+      </div>`;
+  }
+
+  if (adminSection === 'watchpoints') {
+    const makeWpRow = w => {
+      const currentLine = w.current !== null
+        ? `Current: <b>${w.current}${w.unit}</b> · last checked ${w.last_checked}`
+        : `No data yet · ${w.last_checked}`;
+      const threshLine = `Fires when ${w.condition} <b>${w.trigger_at}${w.unit}</b>${w.warn_at ? ` · warn at ${w.warn_at}${w.unit}` : ''}`;
+      return `<div class="settings-row">
+        <div class="settings-row-info">
+          <div class="settings-row-name" style="display:flex;align-items:center;gap:8px">
+            ${w.metric_label}
+            <span class="wp-state ${w.status}">${w.status}</span>
+          </div>
+          <div class="settings-row-desc">${w.brand} · ${w.obj}</div>
+          <div class="settings-row-desc" style="margin-top:3px;font-size:11px;font-family:'SF Mono','Fira Mono',monospace">${threshLine}</div>
+          <div class="settings-row-desc" style="margin-top:2px">${currentLine}</div>
+        </div>
+        <div class="settings-row-action">
+          <button class="action-link" data-wp-action="edit" data-wp-id="${w.id}">Edit →</button>
+        </div>
+      </div>`;
+    };
+    const editWp = wpEditId ? watchpoints.find(w => w.id === wpEditId) : null;
+    const sel = (v, match) => v === match ? ' selected' : '';
+    const formHTML = wpFormOpen ? `
+      <div class="wp-form">
+        <div class="wp-form-title">${wpEditId ? 'Edit watchpoint' : 'New watchpoint'}</div>
+        <div style="font-size:12px;color:var(--text2);line-height:1.5;margin:-8px 0 16px">Define the signal, the safe range, and exactly how it should surface in Stream. Every Watchpoint must attach to an objective.</div>
+        <div class="wp-form-grid">
+          <div class="wp-field">
+            <label>Metric</label>
+            <select>
+              <option${sel(editWp?.metric,'send_frequency')}>Send frequency / week</option>
+              <option${sel(editWp?.metric,'reply_rate')}>Reply rate</option>
+              <option>CTR</option>
+              <option>Open rate</option>
+              <option>Bounce rate</option>
+            </select>
+          </div>
+          <div class="wp-field">
+            <label>Brand</label>
+            <select>
+              <option${sel(editWp?.brand,'Klaroha')}>Klaroha</option>
+              <option${sel(editWp?.brand,'Motormoto')}>Motormoto</option>
+              <option>Halo Wellness</option>
+            </select>
+          </div>
+          <div class="wp-field">
+            <label>Condition</label>
+            <select>
+              <option${sel(editWp?.condition,'rises above')}>Rises above</option>
+              <option${sel(editWp?.condition,'falls below')}>Falls below</option>
+            </select>
+          </div>
+          <div class="wp-field">
+            <label>Escalation threshold</label>
+            <input type="number" step="0.1" placeholder="e.g. 4.8" value="${editWp?.trigger_at ?? ''}">
+            <span class="wp-field-hint">Signal update card fires when this is crossed</span>
+          </div>
+          <div class="wp-field">
+            <label>Warning threshold <span style="font-weight:400;color:var(--text3)">(optional)</span></label>
+            <input type="number" step="0.1" placeholder="e.g. 4.5" value="${editWp?.warn_at ?? ''}">
+            <span class="wp-field-hint">Early warning before escalation fires</span>
+          </div>
+          <div class="wp-field">
+            <label>Stream surface rule</label>
+            <select>
+              <option>Surface signal_update card</option>
+              <option>Escalate to decision_brief</option>
+            </select>
+            <span class="wp-field-hint">Choose the lightest interruption that creates the right decision</span>
+          </div>
+          <div class="wp-field full">
+            <label>Objective</label>
+            <input type="text" placeholder="Attach to an active objective" value="${editWp?.obj ?? ''}">
+            <span class="wp-field-hint">Shown as context when the card surfaces in Stream</span>
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;margin-top:16px">
+          <button class="btn btn-primary" data-wp-action="save">Save watchpoint</button>
+          ${wpEditId ? '<button class="btn btn-ghost" style="color:var(--red);border-color:var(--red)" data-wp-action="delete">Delete</button>' : ''}
+          <button class="btn btn-ghost" data-wp-action="cancel">Cancel</button>
+        </div>
+      </div>` : '';
+    return `
+      <div class="admin-section-title">Watchpoints</div>
+      <div class="admin-section-sub">Configure when BOS is allowed to interrupt Stream. Watchpoints are not an analytics dashboard — they are objective-bound attention rules that turn external signals into Stream cards only when judgment may be needed.</div>
+      <div class="hb-card" style="margin-bottom:24px">
+        <div class="hb-row">
+          <div class="hb-label">Operator promise</div>
+          <div class="hb-body">If a metric is still inside its safe range, BOS keeps watching silently. If it approaches or crosses a threshold, Stream receives a signal_update or decision_brief with why-now, evidence, and a recommended next step.</div>
+        </div>
+        <div class="hb-row">
+          <div class="hb-label">Use watchpoints for</div>
+          <div class="hb-body">Objective-critical signals: reply rate drop, send-frequency fatigue, list quality deterioration, bounce risk, or performance thresholds tied to a committed operating goal.</div>
+        </div>
+        <div class="hb-row">
+          <div class="hb-label">Do not use for</div>
+          <div class="hb-body">Vanity monitoring, dashboards, curiosity metrics, or alerts that do not create a decision. If there is no likely operator action, it should not become a Watchpoint.</div>
+        </div>
+      </div>
+      <div class="settings-group">
+        <div class="settings-group-label" style="display:flex;align-items:center;justify-content:space-between;padding-bottom:10px">
+          <span>Active watchpoints</span>
+          ${!wpFormOpen ? '<button class="action-link" data-wp-action="add">+ Add watchpoint</button>' : ''}
+        </div>
+        ${formHTML}
+        ${watchpoints.map(makeWpRow).join('')}
+      </div>
+      <div class="settings-group">
+        <div class="settings-group-label">States</div>
+        <div style="padding:14px 0;display:flex;gap:28px;flex-wrap:wrap;align-items:center">
+          <div style="display:flex;align-items:center;gap:8px"><span class="wp-state watching">watching</span><span style="font-size:12px;color:var(--text2)">Safe range · no action needed</span></div>
+          <div style="display:flex;align-items:center;gap:8px"><span class="wp-state warning">warning</span><span style="font-size:12px;color:var(--text2)">Approaching threshold</span></div>
+          <div style="display:flex;align-items:center;gap:8px"><span class="wp-state triggered">triggered</span><span style="font-size:12px;color:var(--text2)">Threshold crossed — signal_update card in Stream</span></div>
+        </div>
+      </div>`;
+  }
+
+  if (adminSection === 'council') {
+    const modelOpts = `<option value="">— assign a model —</option>
+      <option>anthropic/claude-opus-4-7</option>
+      <option>anthropic/claude-sonnet-4-6</option>
+      <option>openai/gpt-4o</option>
+      <option>openai/o3</option>
+      <option>google/gemini-2.5-pro</option>
+      <option>meta-llama/llama-3.3-70b-instruct</option>
+      <option>x-ai/grok-3</option>`;
+    const seats = [
+      { id:'C1', cid:'c1', name:'Council Member 1', model:'anthropic/claude-opus-4-7', ideology:'Growth-first. Revenue and market movement above all else. Bias toward action and bold bets.', status:'active' },
+      { id:'C2', cid:'c2', name:'Council Member 2', model:'openai/gpt-4o', ideology:'Data and attribution first. Every recommendation must be measurable before commitment.', status:'active' },
+      { id:'C3', cid:'c3', name:'', model:'', ideology:'', status:'vacant' },
+      { id:'C4', cid:'c4', name:'', model:'', ideology:'', status:'vacant' },
+      { id:'C5', cid:'c5', name:'', model:'', ideology:'', status:'vacant' },
+    ];
+    const seatCards = seats.map(s => {
+      const isActive = s.status === 'active';
+      const selOpts = `<option value="">— assign a model —</option>
+        <option${s.model==='anthropic/claude-opus-4-7'?' selected':''}>anthropic/claude-opus-4-7</option>
+        <option${s.model==='anthropic/claude-sonnet-4-6'?' selected':''}>anthropic/claude-sonnet-4-6</option>
+        <option${s.model==='openai/gpt-4o'?' selected':''}>openai/gpt-4o</option>
+        <option${s.model==='openai/o3'?' selected':''}>openai/o3</option>
+        <option${s.model==='google/gemini-2.5-pro'?' selected':''}>google/gemini-2.5-pro</option>
+        <option${s.model==='meta-llama/llama-3.3-70b-instruct'?' selected':''}>meta-llama/llama-3.3-70b-instruct</option>
+        <option${s.model==='x-ai/grok-3'?' selected':''}>x-ai/grok-3</option>`;
+      return `<div class="seat-card">
+        <div class="seat-card-hdr">
+          <span class="seat-badge">${s.id}</span>
+          <span class="${isActive?'chip-active':'chip-vacant'}" id="chip-${s.cid}">${isActive?'ACTIVE':'VACANT'}</span>
+        </div>
+        <div class="seat-field">
+          <span class="seat-field-lbl">Display Name</span>
+          <input class="seat-input" value="${s.name}" placeholder="Recruit a council member" />
+        </div>
+        <div class="seat-field">
+          <span class="seat-field-lbl">Model</span>
+          <select class="seat-select">${selOpts}</select>
+        </div>
+        <div class="seat-field">
+          <button class="ideology-toggle" onclick="toggleIdeology(this)">
+            <span>Ideology</span>
+            <span class="ideology-chevron">&#8963;</span>
+          </button>
+          <textarea class="ideology-area" placeholder="Define this member's strategic worldview, priors, and how they frame decisions.">${s.ideology}</textarea>
+        </div>
+        <div class="seat-footer">
+          <div class="status-toggle">
+            <button class="stgl-btn${!isActive?' sel-vacant':''}" onclick="toggleStatus(this,'${s.cid}','vacant')">Vacant</button>
+            <button class="stgl-btn${isActive?' sel-active':''}" onclick="toggleStatus(this,'${s.cid}','active')">Active</button>
+          </div>
+          <button class="btn-save" onclick="saveSeat(this)">Save</button>
+        </div>
+      </div>`;
+    }).join('');
+    return `
+      <div class="admin-section-title">Council Seats</div>
+      <div class="admin-section-sub">5 seats · assign an LLM and ideology to each. Active seats are called when @council is invoked in CMO. Vacant seats are skipped.</div>
+      <div class="settings-group">
+        <div class="settings-group-label" style="display:flex;align-items:center;justify-content:space-between;padding-bottom:10px">
+          <span>Seats</span>
+          <span style="font-size:11px;color:var(--text3);font-family:'SF Mono','Fira Mono',monospace">2 active · 3 vacant</span>
+        </div>
+        ${seatCards}
+      </div>`;
+  }
+
+  if (adminSection === 'flow') {
+    return `
+      <div class="admin-section-title">Loop Flow</div>
+      <div class="admin-section-sub">Eight steps from first signal to compounding memory. Use this to trace how a decision moved through the system.</div>
+      ${flowNodesHTML()}`;
+  }
+
+  if (adminSection === 'parked') {
+    const rows = [
+      { name:'CRM connector', desc:'HubSpot, Salesforce — prospect list sync and auto-refresh' },
+      { name:'Additional channels', desc:'LinkedIn, Slack outreach — multi-channel sequences' },
+      { name:'Watchpoints automation', desc:'Automated signal detection from connected data sources — requires live connectors beyond Gmail' },
+      { name:'CMO Council', desc:'Multi-model deliberation layer — planned for Gate 3' },
+    ].map(r=>`
+      <div class="settings-row" style="opacity:.45">
+        <div class="settings-row-info">
+          <div class="settings-row-name">${r.name}</div>
+          <div class="settings-row-desc">${r.desc}</div>
+        </div>
+        <div class="settings-row-status">
+          <div class="s-dot grey"></div>
+          <span class="s-text">Gate 3</span>
+        </div>
+      </div>`).join('');
+    return `
+      <div class="admin-section-title">Parked · Gate 3</div>
+      <div class="admin-section-sub">Not in scope for Gate 2. Enabled after the Gmail-only loop proves economic movement.</div>
+      <div class="settings-group">
+        <div class="settings-group-label">Planned capabilities</div>
+        ${rows}
+      </div>`;
+  }
+  return '';
+}
+
+function renderAdmin() {
+  return `<div class="admin-layout">
+    ${adminNav()}
+    <div class="admin-content" id="admin-content">${adminContentHTML()}</div>
+  </div>`;
+}
+
+function flowNodesHTML() {
+  const steps = [
+    { role:'system', title:'Stream: decision_brief appears',
+      sub:'BOS reads Gmail, matches April memory, ranks card as highest urgency. Confidence: directional (0.71). Card surfaces with evidence, recommended action, and approval boundary.',
+      tags:['system','state: pending operator review'],
+      io:[['inputs','Gmail replies · April memory · 47 contacts identified'],['output','decision_brief card ranked #1 in Stream']] },
+    { role:'operator', title:'Operator taps "Ask CMO"',
+      sub:'From the decision_brief card. CMO opens with context pre-loaded: brand, objective, card type. Not a blank chatbot — the brief is already there.',
+      tags:['operator','state: CMO surface open'],
+      io:[['context loaded','Klaroha · $40k pipeline · decision_brief'],['CMO opens with','judgment summary, not blank prompt']] },
+    { role:'operator', title:'Operator reviews brief, taps "Approve"',
+      sub:'Operator reviews the pending_artifact (sequence v2). Decision: approve. BOS receives the approval signal — this is the only gate before execution.',
+      tags:['operator','state: artifact approved'],
+      io:[['artifact','sequence v2 · status: approved'],['boundary','BOS cannot send without this step']] },
+    { role:'system', title:'BOS queues Gmail send',
+      sub:'Card moves from pending to queued. BOS schedules delivery for the Thursday window. No further operator action needed until replies arrive.',
+      tags:['system','state: queued for send'],
+      io:[['action','47 emails queued · Thursday window · Gmail connector'],['operator required','none until replies arrive']] },
+    { role:'system', title:'Gmail sends · replies come in',
+      sub:'BOS monitors the Gmail thread. Replies are read, reply rate is tracked, patterns are noted. Memory writing is deferred until operator confirms outcome.',
+      tags:['system','state: observing'],
+      io:[['monitoring','Gmail replies · reply timing patterns'],['memory writing','deferred until operator confirms']] },
+    { role:'operator', title:'Operator records outcome in CMO or Stream',
+      sub:'After calls conclude, the operator records what happened. BOS uses this to write memory — outcome records are the basis for every future recommendation.',
+      tags:['operator','state: outcome recording'],
+      io:[['operator inputs','calls booked · deal status · notes'],['BOS writes','outcome record to memory']] },
+    { role:'system', title:'Stream: outcome card appears · memory updated',
+      sub:'Campaign closes. Outcome card shows results and lists what was written to memory. Operator can dismiss or ask CMO for interpretation.',
+      tags:['system','state: memory written'],
+      io:[['written','case_study_angle · email_2_response · no_show_pattern'],['card type','outcome · dismissable']] },
+    { role:'system', title:'Next decision_brief is better', last:true,
+      sub:'The next recommendation references both April and May data. Confidence increases. Sequence v3 can be proposed with stronger evidence. The loop compounds.',
+      tags:['system','state: loop complete · memory compounds'],
+      io:[['evidence base','April + May outcome records'],['confidence','directional → known as data accumulates'],['loop','observe → interpret → remember → recommend → execute']] },
+  ];
+
+  const tagClass = t => t==='operator' ? 'flow-tag-op' : t.startsWith('state') ? 'flow-tag-state' : 'flow-tag-sys';
+
+  const nodes = steps.map(s=>`
+    <div class="flow-node">
+      <div class="flow-spine">
+        <div class="flow-dot ${s.role}">${s.role==='operator'?'O':'S'}</div>
+        ${s.last ? '' : '<div class="flow-line"></div>'}
+      </div>
+      <div class="flow-body">
+        <div class="flow-node-title">${s.title}</div>
+        <div class="flow-node-sub">${s.sub}</div>
+        <div class="flow-tags">${s.tags.map(t=>`<span class="flow-tag ${tagClass(t)}">${t}</span>`).join('')}</div>
+        <div class="flow-io">${s.io.map(([k,v])=>`<span class="flow-io-key">${k}: </span><span class="flow-io-val">${v}</span>`).join('<br>')}</div>
+      </div>
+    </div>`).join('');
+
+  return `
+    <div class="flow-legend">
+      <div class="legend-item"><div class="legend-dot" style="background:var(--green)">O</div> Operator action</div>
+      <div class="legend-item"><div class="legend-dot" style="background:var(--text3)">S</div> System action</div>
+    </div>
+    ${nodes}`;
+}
+
+/* ── Router ── */
+function setPage(p) {
+  activePage = p;
+  document.querySelectorAll('.tab-btn').forEach(b=>{
+    b.classList.toggle('active', b.dataset.page===p);
+  });
+  const area = document.getElementById('page-area');
+  if (p==='stream') {
+    area.innerHTML = renderStream();
+  } else if (p==='cmo') {
+    area.innerHTML = renderCMO();
+    wireCMO();
+  } else if (p==='admin') {
+    area.innerHTML = renderAdmin();
+  }
+  updateBadge();
+}
+
+function updateBadge() {
+  const needs = cards.filter(c=>!c._done&&c.type!=='outcome'&&c.type!=='signal_update').length;
+  const b = document.getElementById('tab-badge');
+  if (b) { b.textContent=needs; b.style.display=needs?'':'none'; }
+}
+
+function outcomeFormHTML() {
+  return `
+    <div class="outcome-form" id="outcome-form">
+      <div class="outcome-form-obj">
+        <div class="outcome-form-obj-dot"></div>
+        <span class="outcome-form-obj-label">Objective</span>
+        <span class="outcome-form-obj-name">Generate $40k pipeline from dormant prospects · Q2</span>
+      </div>
+      <div class="outcome-form-grid">
+        <div class="wp-field">
+          <label>What happened?</label>
+          <select id="of-type">
+            <option value="">Select outcome type...</option>
+            <option value="reply_received">Reply received</option>
+            <option value="meeting_booked">Meeting booked</option>
+            <option value="deal_opened">Deal opened / proposal stage</option>
+            <option value="no_response">No response</option>
+            <option value="unsubscribed">Unsubscribed / opt-out</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+        <div class="wp-field">
+          <label>Metric / value</label>
+          <input type="text" id="of-value" placeholder="e.g. 3 replies, 1 meeting booked">
+        </div>
+        <div class="wp-field outcome-form-notes">
+          <label>Notes for memory (optional)</label>
+          <textarea id="of-notes" rows="2" placeholder="Any context BOS should remember about this send..."></textarea>
+        </div>
+      </div>
+      <div class="outcome-form-actions">
+        <button class="btn-outcome-submit" onclick="submitOutcomeForm()">Record &amp; update memory</button>
+        <button class="btn-outcome-cancel" onclick="cancelOutcomeForm()">Cancel</button>
+      </div>
+    </div>`;
+}
+
+function handoffBriefHTML() {
+  const ts = new Date().toLocaleString('en-US',{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
+  return `
+    <div class="cmo-hb">
+      <div class="cmo-hb-header">
+        <div>
+          <div class="cmo-hb-header-title">Handoff Brief</div>
+          <div class="cmo-hb-header-obj">Generate $40k pipeline from dormant prospects</div>
+          <div class="cmo-hb-header-meta">Klaroha · Q2 · active</div>
+        </div>
+        <div class="cmo-hb-header-ts">${ts}</div>
+      </div>
+      <div class="cmo-hb-sections">
+        <div class="cmo-hb-section">
+          <div class="cmo-hb-label">Active state</div>
+          <div class="cmo-hb-body">Sequence v2 is drafted and pending approval — 47 dormant contacts queued, Thursday send window. Gmail connector is live. No other connectors active.</div>
+        </div>
+        <div class="cmo-hb-section">
+          <div class="cmo-hb-label">Recent performance</div>
+          <div class="cmo-hb-body">April reactivation: case-study angle produced <strong>21% reply rate</strong> vs 8% for feature-benefit framing. 4 calls booked, $18k at proposal stage. May memory flags email 2 as the strongest response driver — used as the sequence anchor in v2.</div>
+        </div>
+        <div class="cmo-hb-section">
+          <div class="cmo-hb-label">Pending decisions</div>
+          <div class="cmo-hb-body">Approve or revise sequence v2 before Thursday. After this send: decide whether to connect a durable list source — the current list is a manual upload and cannot auto-refresh.</div>
+        </div>
+        <div class="cmo-hb-section">
+          <div class="cmo-hb-label">Committed actions</div>
+          <div class="cmo-hb-body">If approved, BOS queues the Gmail send for Tuesday 9 AM and monitors replies automatically. High-intent replies will surface as pending artifacts. No-shows flagged for sequence timing review.</div>
+        </div>
+        <div class="cmo-hb-section">
+          <div class="cmo-hb-label">Known risks</div>
+          <div class="cmo-hb-body">Manual prospect list cannot refresh without a connector. Timing sensitivity confirmed — reply rates drop sharply after mid-week. No CRM integration; deals tracked manually only.</div>
+        </div>
+        <div class="cmo-hb-section">
+          <div class="cmo-hb-label">Decided against</div>
+          <div class="cmo-hb-body">Feature-benefit email angle (8% reply rate in April vs 21% for case study). Adding a second channel — the Gmail loop must record one more full outcome cycle before expanding.</div>
+        </div>
+        <div class="cmo-hb-section cmo-hb-action">
+          <div class="cmo-hb-label">Recommended first action</div>
+          <div class="cmo-hb-body">Open the pending_artifact card in Stream. Approve or revise sequence v2 before Thursday. Record the outcome when replies arrive — that memory write is what makes the next recommendation better.</div>
+        </div>
+      </div>
+      <div class="cmo-hb-footer">
+        <span class="cmo-hb-pass">A new CMO should be operational from this brief alone.</span>
+        <button class="btn-hb-copy" onclick="copyHandoffBrief(this)">Copy brief</button>
+      </div>
+    </div>`;
+}
+
+function outcomeConfirmHTML(type, value) {
+  const typeLabels = {
+    reply_received:'reply_received', meeting_booked:'meeting_booked',
+    deal_opened:'deal_opened', no_response:'no_response',
+    unsubscribed:'unsubscribed', other:'outcome_recorded'
+  };
+  const tag = typeLabels[type] || 'outcome_recorded';
+  const displayVal = value ? value : 'recorded';
+  return `
+    <div class="outcome-confirm">
+      <div class="outcome-confirm-icon">✓</div>
+      <div>
+        <div class="outcome-confirm-title">Outcome recorded · Memory updated</div>
+        <div class="outcome-confirm-tags">
+          <span class="g2mem-tag">${tag}</span>
+          <span class="g2mem-tag">$40k pipeline · Q2</span>
+          <span class="g2mem-tag">${displayVal}</span>
+          <span class="g2mem-tag">case_study_angle</span>
+        </div>
+        <div class="outcome-confirm-next">Next recommendation will incorporate this result. Check Stream for an updated decision brief.</div>
+      </div>
+    </div>`;
+}
+
+function copyHandoffBrief(btn) {
+  const hb = btn.closest('.cmo-hb');
+  if (!hb) return;
+  const lines = [];
+  hb.querySelectorAll('.cmo-hb-section').forEach(s => {
+    const label = s.querySelector('.cmo-hb-label')?.textContent || '';
+    const body  = s.querySelector('.cmo-hb-body')?.textContent || '';
+    lines.push(label.toUpperCase() + '\n' + body);
+  });
+  const text = 'HANDOFF BRIEF — Klaroha — Generate $40k pipeline\n\n' + lines.join('\n\n');
+  navigator.clipboard?.writeText(text).then(() => { btn.textContent = 'Copied ✓'; setTimeout(() => btn.textContent = 'Copy brief', 2000); });
+}
+
+function submitOutcomeForm() {
+  const type = document.getElementById('of-type')?.value || '';
+  const value = document.getElementById('of-value')?.value?.trim() || '';
+  const r = document.getElementById('chip-reply');
+  if (r) r.innerHTML = r.innerHTML.replace(/<div class="outcome-form"[\s\S]*?<\/div>\s*<\/div>\s*<\/div>/, '') + outcomeConfirmHTML(type, value);
+  // Replace the form node directly
+  const form = document.getElementById('outcome-form');
+  if (form) form.outerHTML = outcomeConfirmHTML(type, value);
+}
+
+function cancelOutcomeForm() {
+  const form = document.getElementById('outcome-form');
+  if (form) form.remove();
+}
+
+function openCMOFromCard(card, actionLabel='ask CMO') {
+  selectedCard = card;
+  cmoContextNote = `Opened from Stream via ${actionLabel} on ${TYPE_LABELS[card.type]}`;
+  closeFullWin();
+  setPage('cmo');
+}
+
+function openOutcomeFromCard(card) {
+  openCMOFromCard(card, 'record outcome');
+  const r = document.getElementById('chip-reply');
+  if (r) r.innerHTML = `<div>
+    <div class="msg-label" style="margin-top:10px">CMO</div>
+    <div class="msg-ai">Record the outcome against this objective. BOS will write memory and improve the next recommendation.</div>
+    ${outcomeFormHTML()}
+  </div>`;
+}
+
+function wireCMO() {
+  document.querySelectorAll('[data-chip]').forEach(btn => {
+    btn.addEventListener('click', function() {
+      const chip = this.dataset.chip;
+      const replies = {
+        why:'The case study angle works because it leads with a specific, credible outcome — 34% CAC reduction — rather than a feature list. In April, this framing made the email feel like a peer referral rather than a pitch. It outperformed the feature-benefit version 21% to 8%.',
+        after:'Once approved, BOS queues the sequence for Tuesday 9 AM send via Gmail. Replies are monitored automatically. High-intent replies surface back here as pending artifacts for follow-up drafts. No-shows get flagged for a different sequence timing.',
+        outcome:'Tell me what happened and I will record it. Fill in the outcome below — BOS will write memory and adjust the next recommendation.',
+        handoff:'Here is the current-state handoff brief. A new CMO should be able to become operational from this without asking you to reconstruct context.',
+        'cb-questions':'The council flagged 4 questions before BOS can proceed: (1) Is $6.5k within Q2 budget authority, or does this require escalation? (2) Should creative refresh happen before or concurrent with the budget increase? (3) Is the Q2 pipeline target still correctly scoped for this channel? (4) If Gmail hits fatigue ceiling, is a second channel ready to activate? Record your answers — BOS will update the objective plan.',
+        'cb-dissent':'Two seats dissented. Creative: "Budget increase is viable only if the sequence is refreshed first — fatigue is measurable and rising." Devil\'s Advocate: "Budget was dismissed twice. Is the objective correctly scoped, or is the channel wrong for this segment?" The other three seats support the $6.5k increase.',
+        'cb-donot':'Do not scale send volume before refreshing the creative sequence. Do not dismiss the budget topic a third time without recording your rationale — BOS will flag a third dismissal as a decision-not-to-act event.',
+        'cs-orders': selectedCard.orders ? `Marching orders from this session: ${selectedCard.orders.map((o,i)=>`(${i+1}) ${o}`).join(' · ')}` : 'No marching orders recorded for this session.',
+        'cs-parked': selectedCard.parked ? `Parked for next session: ${selectedCard.parked.map(p=>p.text).join(' · ')}` : 'Nothing explicitly parked.',
+        'cs-dissent':'The council reached alignment — all seats settled. No formal dissent was recorded. The Devil\'s Advocate raised the channel-fit question but withdrew after the Strategist and Analyst presented the pipeline model.',
+      };
+      const r = document.getElementById('chip-reply');
+      if (!r) return;
+      if (chip === 'outcome') {
+        r.innerHTML = `<div>
+          <div class="msg-label" style="margin-top:10px">CMO</div>
+          <div class="msg-ai">${replies.outcome}</div>
+          ${outcomeFormHTML()}
+        </div>`;
+      } else if (chip === 'handoff') {
+        r.innerHTML = `<div>
+          <div class="msg-label" style="margin-top:10px">CMO · handoff brief</div>
+          <div class="msg-ai">${replies.handoff}</div>
+          ${handoffBriefHTML()}
+        </div>`;
+      } else {
+        r.innerHTML = `<div><div class="msg-label" style="margin-top:10px">CMO</div><div class="msg-ai">${replies[chip]}</div></div>`;
+      }
+    });
+  });
+}
+
+function openFullWin(c) {
+  document.getElementById('fullwin-title').textContent = TYPE_LABELS[c.type] + ' — ' + c.brand;
+  document.getElementById('fullwin-body').innerHTML = fullWinHTML(c);
+  document.getElementById('fullwin').classList.add('open');
+}
+
+function closeFullWin() {
+  document.getElementById('fullwin').classList.remove('open');
+}
+
+/* ── Events ── */
+document.getElementById('fullwin-close').addEventListener('click', closeFullWin);
+
+document.addEventListener('click', e => {
+  const tabBtn = e.target.closest('.tab-btn[data-page]');
+  if (tabBtn) {
+    closeFullWin();
+    setPage(tabBtn.dataset.page);
+    return;
+  }
+
+  const wpBtn = e.target.closest('[data-wp-action]');
+  if (wpBtn) {
+    const a = wpBtn.dataset.wpAction;
+    if (a === 'add')    { wpFormOpen = true;  wpEditId = null; }
+    if (a === 'edit')   { wpFormOpen = true;  wpEditId = wpBtn.dataset.wpId; }
+    if (a === 'cancel' || a === 'save' || a === 'delete') { wpFormOpen = false; wpEditId = null; }
+    const ac = document.getElementById('admin-content');
+    if (ac) ac.innerHTML = adminContentHTML();
+    return;
+  }
+
+  const navItem = e.target.closest('[data-admin-section]');
+  if (navItem) {
+    adminSection = navItem.dataset.adminSection;
+    wpFormOpen = false;
+    wpEditId = null;
+    document.querySelectorAll('.admin-nav-item').forEach(i =>
+      i.classList.toggle('active', i.dataset.adminSection === adminSection));
+    const ac = document.getElementById('admin-content');
+    if (ac) ac.innerHTML = adminContentHTML();
+    return;
+  }
+
+  const btn = e.target.closest('[data-action]');
+  if (!btn) return;
+  const action = btn.dataset.action;
+  const id = btn.dataset.id;
+  const ctx = btn.dataset.ctx;
+  const card = cards.find(c=>c.id===id);
+
+  if ((action==='view full' || action==='view session' || action==='investigate') && card) { openFullWin(card); return; }
+  if ((action==='ask CMO'||action==='record decision') && card) { openCMOFromCard(card, action); return; }
+  if (action==='record outcome' && card) { openOutcomeFromCard(card); return; }
+  if (action==='revise' && card) { openCMOFromCard(card, action); return; }
+  if (action==='configure' && card) {
+    card._done = true;
+    if (ctx==='full') closeFullWin();
+    setPage('admin');
+    return;
+  }
+  if ((action==='approve' || action==='dismiss') && card) {
+    card._done = true;
+    if (ctx==='full') closeFullWin();
+    setPage(activePage==='cmo' ? 'cmo' : 'stream');
+    return;
+  }
+});
+
+window.addEventListener('resize', () => {
+  if (activePage==='cmo') setPage('cmo');
+});
+
+/* ── Council admin helpers ── */
+function toggleIdeology(btn) {
+  const area = btn.nextElementSibling;
+  const open = btn.classList.contains('open');
+  btn.classList.toggle('open', !open);
+  area.classList.toggle('open', !open);
+}
+
+function toggleStatus(clickedBtn, seatId, mode) {
+  const toggle = clickedBtn.parentElement;
+  toggle.querySelectorAll('.stgl-btn').forEach(b => b.classList.remove('sel-vacant','sel-active'));
+  clickedBtn.classList.add(mode === 'vacant' ? 'sel-vacant' : 'sel-active');
+  const chip = document.getElementById('chip-' + seatId);
+  if (chip) {
+    chip.className = mode === 'active' ? 'chip-active' : 'chip-vacant';
+    chip.textContent = mode === 'active' ? 'ACTIVE' : 'VACANT';
+  }
+}
+
+function saveSeat(btn) {
+  const orig = btn.textContent;
+  btn.textContent = 'Saved ✓';
+  btn.style.background = '#166534';
+  setTimeout(() => { btn.textContent = orig; btn.style.background = ''; }, 1600);
+}
+
+/* ── Init ── */
+setPage('stream');
+</script>
+</body>
+</html>

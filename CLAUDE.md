@@ -83,6 +83,15 @@ When `body.brand_id` is present, `active_brand` is resolved and module execution
 - Add a row to the Decisions Log in `BACKLOG.md` with date, decision, and rationale.
 - Never make a silent architectural assumption. Label inline: `[ASSUMING: ...]`
 
+### After any BACKLOG.md change (non-negotiable)
+After every session where BACKLOG.md task statuses are changed or new tasks are added, run the ClickUp sync before finishing the response — no reminder needed:
+
+```bash
+CLICKUP_API_TOKEN=pk_30049374_PMWVZSKXNFW68CV2BVDP3WIM21OJ6ZVF CLICKUP_TEAM_ID=90161582949 python3 api/plugins/clickup/scripts/sync_backlog.py --list "Klaroha BOS"
+```
+
+This keeps the `Klaroha BOS` ClickUp list in sync automatically. The script is idempotent — safe to run even if nothing changed.
+
 ---
 
 ## Key Architectural Decisions
@@ -98,6 +107,8 @@ When `body.brand_id` is present, `active_brand` is resolved and module execution
 | Frontend is first-class | `web/` is React + Vite (decided 2026-05-02). Component tests required before Phase 3 is complete. |
 | One workspace per deployment | No tenant_id columns yet. The workspace table has one row. SaaS tenancy is a later addition. |
 | FastAPI for BOS core | Async, typed, OpenAPI spec generated automatically at `/docs`. |
+| Stream artifact cards are inline approval surfaces | `StreamArtifactCard` embeds `ApprovalBundle` directly for pending runs — full platform preview, editable copy, attachment, Dismiss/Revise/Approve inline. Do not re-add `StreamRunPanel`, `onOpenPanel` prop, or `requiresReview → panel` pattern. `stream-side-panel` is for `StreamUpdateOut` types only (decision_brief, outcome, setup_blocker). `bos:focus-artifact` injects runs into the feed state — it must not call `setPanelItem` with a `RunResponse`. |
+| Creative assets are channel-agnostic; distribution is never hardwired | BOS is omni-channel, multi-location, multi-brand. A generated image or video is a Drive asset — not a Facebook post, not a YouTube video. Creative modules must not hardwire channel publish logic. Channel distribution = CMO dispatches the appropriate channel capability with the asset reference (`drive_file_id` / `run_id`). Available channels = installed plugins × connected brand accounts. Native channel settings (page, ad account, playlist, recipient list) stay inside each channel plugin — never cross-injected into creative modules. The `publish_facebook` / `publish_youtube` buttons in Phase 6 are pragmatic shortcuts, not architecture. Do not model future creative modules after them. |
 
 ---
 
@@ -170,9 +181,14 @@ Per-brand OAuth connections are stored in the `social_connections` table. Each b
 ```
 http://localhost/social/gmail/callback
 http://localhost/social/google-calendar/callback
+http://localhost/social/youtube/callback
+http://localhost/social/google-drive/callback
 https://hq.klaroha.com/social/gmail/callback
 https://hq.klaroha.com/social/google-calendar/callback
+https://hq.klaroha.com/social/youtube/callback
+https://hq.klaroha.com/social/google-drive/callback
 ```
+> Note: this deployment's `GOOGLE_REDIRECT_URI` uses `http://localhost:8090/...` locally (not port 80). Register the matching `:8090` Drive callback for local connect, plus the staging/prod hosts.
 
 **After OAuth changes:** `api/` hot-reloads via Watchfiles. `web/` is a static build — run `docker compose build web && docker compose up -d web` after any frontend change.
 

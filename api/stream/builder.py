@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from models.stream import StreamUpdate
 from models.workspace import Workspace
-from stream.generators import alert, narrative, performance, recommendation
+from stream.generators import alert, decision_brief, narrative, outcome, performance, recommendation
 
 logger = logging.getLogger("bos.stream.builder")
 
@@ -40,6 +40,8 @@ async def build(
     candidates: list[dict] = []
     candidates.extend(await alert.generate(db, workspace))
     candidates.extend(await performance.generate(db, workspace))
+    candidates.extend(await outcome.generate(db, workspace))
+    candidates.extend(await decision_brief.generate(db, workspace))
     candidates.extend(await narrative.generate(db, workspace, openrouter_key))
     candidates.extend(await recommendation.generate(db, workspace))
 

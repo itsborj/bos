@@ -1,0 +1,19 @@
+{
+  "plugin_id": "channel.youtube",
+  "name": "YouTube Specialist",
+  "version": "0.1.0",
+  "klaroha_min_version": "3.5",
+  "capabilities_root": "capabilities/",
+  "implements": ["marketing.execute", "marketing.optimize"],
+  "specialty": ["youtube", "video_publishing", "shorts", "channel_management", "video_performance", "connector_validation"],
+  "platforms": ["youtube"],
+  "connector_protocol": "youtube_data_api_v3_oauth",
+  "risk_policy": "connection_validate_is_read_only; publish_and_channel_mutations_are_approval_gated",
+  "output_contracts": ["youtube_connection_check", "youtube_publish_proposal", "youtube_action_result", "youtube_channel_update_proposal", "video_intelligence"],
+  "requires_social_connection": ["youtube"],
+  "requires_platform_vars": [],
+  "capability_ids": [
+    "marketing.channel.youtube.connection.validate",
+    "marketing.channel.youtube.video.publish"
+  ]
+}

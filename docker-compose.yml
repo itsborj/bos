@@ -5,15 +5,15 @@ services:
     image: postgres:16
     restart: unless-stopped
     environment:
-      POSTGRES_DB: bos
+      POSTGRES_DB: ${DB_NAME:-bos}
       POSTGRES_USER: bos
       POSTGRES_PASSWORD: bos
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U bos -d bos"]
+      test: ["CMD-SHELL", "pg_isready -U bos -d ${DB_NAME:-bos}"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -24,9 +24,9 @@ services:
       context: ./api
       dockerfile: Dockerfile
     restart: unless-stopped
-    env_file: .env
+    env_file: ${ENV_FILE:-.env}
     ports:
-      - "8000:8000"
+      - "${API_PORT:-8000}:8000"
     depends_on:
       db:
         condition: service_healthy
@@ -39,26 +39,45 @@ services:
       dockerfile: Dockerfile
     restart: unless-stopped
     ports:
-      - "5173:80"
+      - "${WEB_PORT:-5173}:80"
 
   nginx:
     image: nginx:alpine
     restart: unless-stopped
     ports:
-      - "8090:80"
+      - "${NGINX_PORT:-8090}:80"
     volumes:
       - ./nginx.conf:/etc/nginx/nginx.conf:ro
     depends_on:
       - api
       - web
+      - relay
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+
+  relay:
+    build:
+      context: ./relay
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: ${ENV_FILE:-.env}
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+    depends_on:
+      - redis
 
   public:
     image: nginx:alpine
     restart: unless-stopped
     ports:
-      - "3000:80"
+      - "${PUBLIC_PORT:-3000}:80"
     volumes:
       - ./public:/usr/share/nginx/html:ro
 
 volumes:
   postgres_data:
+  redis_data:

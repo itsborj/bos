@@ -25,6 +25,16 @@ BLOCK_TYPES: dict[str, dict] = {
         "interaction": "expandable",
         "default_priority": "low",
     },
+    "outcome": {
+        "layout_hint": "compact",
+        "interaction": "expandable",
+        "default_priority": "normal",
+    },
+    "decision_brief": {
+        "layout_hint": "narrative",
+        "interaction": "actionable",
+        "default_priority": "high",
+    },
     "status": {
         "layout_hint": "compact",
         "interaction": "passive",
