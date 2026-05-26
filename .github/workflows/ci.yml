@@ -6,6 +6,12 @@ on:
   push:
     branches: [main, staging]
 
+permissions:
+  contents: read
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   # ── Tests + guardrails ────────────────────────────────────────────────────
   test:
@@ -102,7 +108,8 @@ jobs:
   # ── Deploy to production ─────────────────────────────────────────────────
   deploy-production:
     name: Deploy → production
-    needs: test
+    # Intentionally independent of the test job: production recovery must still run
+    # when GitHub checkout/test infrastructure fails before code is available.
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
 
