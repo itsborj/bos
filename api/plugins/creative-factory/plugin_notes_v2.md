@@ -174,7 +174,7 @@ The Creative Factory plugin acts as an orchestrator only, coordinating specialis
 - **2026-05-23 — App startup crash: `'CreativeBlueprintAssembleModule' object has no attribute 'platform_hint'`.** The three scaffolded modules (`pack/generate`, `primitive/generate`, `blueprint/assemble`) were created without `platform_hint`. Latent because the app only re-scans modules on (re)start/reload; surfaced when an unrelated file edit triggered a watchfiles reload. Fix: added `platform_hint` to all three. Lesson: any new module class needs the full required ClassVar set before the next reload, or the whole app goes down.
 
 - **2026-05-26 — Stream performance regression:** Fixed large base64 image payloads by implementing `include_assets=false` parameter and bounded concurrency in Stream.tsx. See performance strategy above for details.
-- **2026-05-27 — Stream metadata-first loading:** Added `GET /runs?include_preview=true` and updated Stream to render list preview metadata first. CMO split-screen uses the exact same Stream component as `/stream`; heavy artifact detail/assets hydrate lazily, one card at a time as cards enter the viewport, and additional run pages load on scroll.
+- **2026-05-27 — Stream metadata-first loading:** Added `GET /runs?include_preview=true` and updated Stream to render list preview metadata first. CMO split-screen uses the exact same Stream component as `/stream`; heavy artifact detail/assets hydrate lazily, one card at a time as cards enter the viewport, and additional run pages load on scroll. CMO artifact-reference clicks now focus by exact `run_id` before full asset hydration so slow/failed detail fetches cannot make the click appear dead.
 
 ## creative.post.image (CMO-dispatchable, generate + store)
 
@@ -202,8 +202,10 @@ Check these first:
 3. **Asset Markers:** `asset_omitted: true` should appear on stripped blocks
 4. **Lazy Hydration:** `/api/runs/<id>?include_assets=true` should happen as cards enter view or are opened, not as a blocking first-load batch
 5. **CMO Split Screen:** `/cmo` should render the same Stream component as `/stream`, not a divergent artifact-only feed
-6. **Plugin Boundaries:** Creative Factory should not directly generate assets
-7. **Performance Metrics:** Monitor asset loading times and plugin performance
+6. **Artifact Focus:** clicking a CMO artifact reference should dispatch/focus by exact `run_id` immediately, inject the card if needed, scroll to it, and only then hydrate heavy assets
+7. **Deploy Parity:** after frontend changes, rebuild local (`docker compose up -d --build api web nginx`) and deploy staging (`bash deploy-staging.sh`) before UI verification
+8. **Plugin Boundaries:** Creative Factory should not directly generate assets
+9. **Performance Metrics:** Monitor asset loading times and plugin performance
 
 ## Next Iteration Ideas
 

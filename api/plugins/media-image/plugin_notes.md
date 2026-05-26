@@ -86,6 +86,27 @@ Check these first:
 - Artifact details/assets hydrate lazily and sequentially when cards enter the viewport via `IntersectionObserver` + a one-at-a-time hydration queue.
 - Additional run pages load as the user scrolls instead of fetching the full run history at once.
 - `GET /runs/{run_id}?include_assets=false` does not trigger Drive video re-download; local video rehydration only happens when full assets are explicitly requested.
+- CMO artifact reference clicks dispatch `bos:focus-artifact` with the `run_id` immediately, then fetch a lightweight run preview. Stream focuses that exact card by `run_id`, injects it if it is outside the currently loaded page, scrolls it into view, and temporarily highlights it. Do not make artifact focus depend on a full asset fetch.
+
+### Local + staging deploy note
+
+When changing Stream/CMO frontend behavior, update both local and staging before asking for UI verification:
+
+```bash
+# local verification surface
+cd /home/ubu/bos
+docker compose up -d --build api web nginx
+
+# staging verification surface
+bash deploy-staging.sh
+```
+
+Confirm both surfaces serve the same web asset hash:
+
+```bash
+curl -s http://localhost:8090/ | grep -o 'assets/index-[^" ]*\\.js' | head -1
+curl -s http://localhost:8091/ | grep -o 'assets/index-[^" ]*\\.js' | head -1
+```
 
 ### Next iteration ideas
 
