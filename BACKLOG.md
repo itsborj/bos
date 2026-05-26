@@ -1160,6 +1160,7 @@ CYCLE 2 — Intelligence to Optimization
 - [x] CORE ACTION LOOP: Add generic direct-action payload handoff in CMO core so SKILL.md-declared publish/send/upload modules receive text payloads without channel-specific chat routing. Implemented generic `ACTION: <run_id> <action>` handoff for persisted artifact actions and shared `execute_declared_run_action()` primitive.
 - [!] INFRA BUG: Public `staging.klaroha.com` is not serving the staging compose stack; fixed local compose nginx exposure from 8082 → 8080, but public Cloudflare route still returns a different long-running API instance. Blocked on Cloudflare/origin route access.
 - [x] BUG: CI runs pytest from `api/`, so tests importing `api.plugins...` fail collection; add a generic test path shim instead of editing channel plugin code.
+- [x] PUBLIC SITE: Add TikTok developer-review-ready Privacy Policy and Terms & Conditions pages, linked from Klaroha homepage header and footer.
 
 ## Phase 5 — Hardening + Second Vertical
 ### Hardening
