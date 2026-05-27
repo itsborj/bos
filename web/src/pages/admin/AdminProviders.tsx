@@ -149,6 +149,7 @@ export function AdminProviders() {
   async function startLogin(provider: string) {
     setOauthBusy(provider);
     setOauthMessage(null);
+    setError(null);
     try {
       const result = await api.startProviderLogin(provider);
       setLoginState((prev) => ({
@@ -160,7 +161,7 @@ export function AdminProviders() {
       }));
       setCallbackUrls((prev) => ({ ...prev, [provider]: '' }));
     } catch (e: unknown) {
-      setOauthMessage((e as Error).message ?? 'Failed to start login');
+      setError((e as Error).message ?? 'Failed to start login');
     } finally {
       setOauthBusy(null);
     }
@@ -172,6 +173,7 @@ export function AdminProviders() {
     if (!pending || !callbackUrl) return;
     setOauthBusy(provider);
     setOauthMessage(null);
+    setError(null);
     try {
       await api.completeProviderLogin(provider, pending.login_id, callbackUrl);
       setLoginState((prev) => {
@@ -183,7 +185,7 @@ export function AdminProviders() {
       await load();
       setOauthMessage(`${providerLabel(provider)} connected.`);
     } catch (e: unknown) {
-      setOauthMessage((e as Error).message ?? 'Failed to complete login');
+      setError((e as Error).message ?? 'Failed to complete login');
     } finally {
       setOauthBusy(null);
     }
@@ -271,7 +273,7 @@ export function AdminProviders() {
                 </div>
                 <div>
                   <div style={{ fontWeight: 700, fontSize: 13 }}>Step 2 — Copy the callback URL</div>
-                  <div style={{ fontSize: 12, color: 'var(--text2)', margin: '4px 0 8px' }}>After sign-in, copy the full callback URL and paste it here.</div>
+                  <div style={{ fontSize: 12, color: 'var(--text2)', margin: '4px 0 8px' }}>After sign-in, OpenAI redirects to localhost. If the tab says it cannot connect, that is expected — copy the full URL from the address bar and paste it here.</div>
                   <textarea className="input" style={{ minHeight: 90, resize: 'vertical', fontFamily: 'var(--mono)', fontSize: 12 }} placeholder="Paste callback URL here…" value={callbackUrls.openai ?? ''} onChange={(e) => setCallbackUrls((prev) => ({ ...prev, openai: e.target.value }))} />
                 </div>
                 <div>
@@ -335,7 +337,7 @@ export function AdminProviders() {
                       <td style={{ fontSize: 12, color: 'var(--text2)', maxWidth: 300 }}>{provider.model_count} · {modelSummary(provider)}</td>
                       <td>
                         <div style={{ display: 'flex', gap: 6, justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                          {provider.connected && <button className="btn btn-ghost btn-sm" onClick={() => handleCheck(provider.provider)} disabled={checking === provider.provider}>{checking === provider.provider ? '…' : 'Check'}</button>}
+                          {(provider.connected || provider.has_platform_key) && <button className="btn btn-ghost btn-sm" onClick={() => handleCheck(provider.provider)} disabled={checking === provider.provider}>{checking === provider.provider ? '…' : 'Check'}</button>}
                           {provider.auth_mode === 'oauth' && <button className="btn btn-danger btn-sm" onClick={() => handleDeleteAuth(provider.provider)}>Disconnect</button>}
                           {provider.has_byok_key && <button className="btn btn-danger btn-sm" onClick={() => handleDeleteKey(provider.provider)}>Remove key</button>}
                           <button className="btn btn-secondary btn-sm" onClick={() => setExpandedProvider(expanded ? null : provider.provider)}>{expanded ? 'Hide' : 'Details'}</button>

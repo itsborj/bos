@@ -2,8 +2,8 @@
 ## Unified Project Brief
 
 **Date:** 2026-05-22  
-**Status:** Phase 6 in progress — Plugin documentation strategy implemented  
-**Version:** 3.44 (Specialists + connector setup unified; CMO chat → creative → Drive working)  
+**Status:** Phase 6 in progress — GTM upstream-contract workflow implemented
+**Version:** 3.45 (GTM Strategy consumes buyer-map/message-architecture substrate; Stream artifact focus restored)
 
 > **MANDATORY READING:** Before any new system update, feature build, or architectural change, read `BITE.md`. It is both the Business Implementation by Example methodology and the BOS architecture constitution for minimal core, plugin/package extensibility, SKILL.md ownership, live manifests, MCP boundaries, lifecycle hooks, and command registration.
 ---
@@ -139,7 +139,10 @@ api/capabilities/{vertical}/{domain}/{atomic_task}/
 | Any comment/inbox manager for a named channel | Platform action, not BOS pipeline logic |
 
 **Native Marketing Planning Specialist:**
-`@klar plan` resolves the active/requested brand, builds a brand-scoped planning brief, and calls the first-party `marketing.plan.campaign_strategy` Transform. Chat stays a short control surface; the plan itself is a persisted Workspace `plan_artifact` with structured `marketing_plan` block data for review, revision, approval, or dismissal. The older `workspace.plan_mode` skill remains as a planning context/resource contract, but mobile CMO output must not paste full plans inline.
+`@klar plan` resolves the active/requested brand, builds a brand-scoped planning brief, and calls the first-party `marketing.plan.campaign_strategy` Transform. Chat stays a short control surface; the plan itself is a persisted Workspace/Stream `plan_artifact` with structured `marketing_plan` block data for review, revision, approval, or dismissal. The older `workspace.plan_mode` skill remains as a planning context/resource contract, but mobile CMO output must not paste full plans inline.
+
+**GTM strategic substrate chain:**
+`marketing.planning.gtm_plan` is the go-to-market planning artifact for launch/GTM requests, including shorthand like “need GTM” or “another GTM.” It must consume `buyer_map.v1` and `message_architecture.v1`; these are produced by `reasoning.buyer_intelligence` and `marketing.messaging.architecture` as supporting upstream artifacts when no successful prior artifact exists for the active Brand. The CMO must not ask the user to supply internal substrate such as buyer maps, message architecture, or a primary objective when a Brand Brief exists. Run orchestration enforces `required_upstream` generically from `SKILL.md`: load successful prior contract artifact → generate missing producer output → inject actual output → block only if the contract cannot be produced. GTM artifacts render as `GTM Strategy` in Stream; Google Tag Manager only activates on explicit tag-manager/container language, not bare `GTM`.
 
 **Agency app model for social channels:**
 One Meta Developer App at the platform operator level. Brands authorize once via OAuth (`pages_manage_posts,pages_show_list,pages_read_engagement`). The system exchanges for a long-lived user token (~60 days), then stores per-page access tokens encrypted per `(brand_id, platform, page_id)`. Brands never manage their own API credentials.
@@ -548,10 +551,11 @@ BOS models the Agent Skills three-tier loading strategy, adapted for governed bu
 - **Approval/Revision Skill:** Governs Modify/Approve review threads using prior draft, run ID, channel, user feedback, and recent accepted/rejected decisions.
 - **Onboarding Skills:** Brand setup and Campaign Brand Kit generation remain explicit onboarding flows, not normal chat-dispatchable skills.
 
-**Skill, memory, resource split:**
+**Skill, memory, resource, upstream split:**
 - **Skill:** How to behave for a class of work.
 - **Memory:** Atomic facts and learnings BOS knows.
 - **Resource:** Source documents and durable artifacts such as briefs, Brand Kits, examples, SOPs, references, scripts, validators, and performance reports.
+- **Upstream contract:** A versioned artifact declared in `required_upstream`/`outputs` (for example `buyer_map.v1` or `message_architecture.v1`) that must be loaded or generated before a dependent module runs.
 - **Quality Gate:** Deterministic or LLM-assisted check before output is shown or a run is accepted.
 
 **Agent Skills principles BOS adopts:**
@@ -595,6 +599,9 @@ api/capabilities/
   workspace/approval_review/SKILL.md
   workspace/plan_mode/SKILL.md              # strategic planning mode; never dispatches modules
 
+  reasoning/buyer_intelligence/SKILL.md     # supporting substrate; outputs buyer_map.v1
+  marketing/messaging/architecture/SKILL.md # supporting substrate; outputs message_architecture.v1
+  marketing/planning/gtm_plan/SKILL.md      # GTM Strategy artifact; consumes buyer_map + message architecture
   marketing/plan/campaign_strategy/SKILL.md # native campaign plan artifact; decide what to do
   marketing/execute/SKILL.md                # make or prepare the work
   marketing/optimize/SKILL.md               # learn what works and improve it
@@ -838,6 +845,7 @@ Run this sync whenever a significant batch of tasks is completed or added. The s
 
 | Version | Date | Changes |
 |---|---|---|
+| 3.45 | 2026-05-27 | **GTM upstream-contract workflow:** Added executable strategic substrate capabilities `reasoning.buyer_intelligence` (`buyer_map.v1`) and `marketing.messaging.architecture` (`message_architecture.v1`). `marketing.planning.gtm_plan` now enforces `required_upstream` generically through run orchestration: load successful prior contract artifact, generate missing producer output, inject actual upstream content, and block only when a required contract cannot be produced. Shorthand “GTM” now means go-to-market unless the user explicitly says Google Tag Manager/container/tags. GTM artifacts title as `GTM Strategy`, render through Stream, and chat Review focuses the inline Stream card rather than navigating to Workspace. Strict backend override credential/execution failures fall back to normal model routing so Brand Brief-driven substrate generation can complete. |
 | 3.44 | 2026-05-27 | **Specialists + connectors unified:** Admin Specialists (`/admin/modules`) is now the single readiness/setup surface for installed specialists and their connector rows. Connector rows show status, description, Implements, Missing vars, and Configure/Update/Remove actions. Brand-scoped OAuth connect/disconnect stays on Brands/Clients. `/admin/connectors` is only a compatibility alias and OAuth callback results now route to `/admin/modules`. The standalone `AdminConnectors` component was removed. |
 | 3.41 | 2026-05-24 | **CMO chat → creative → Drive (live):** `google-drive` plugin built (`drive_client.py` Drive REST v3 + `drive.folder.setup`/`asset.upload`/`asset.list`/`asset.get`); Google Drive OAuth connection (per-brand) + Google Picker root-folder selection. New `creative.post.image` capability (creative-factory, `allowed_from_chat`) generates a Meta-post visual via the image hook and stores it in the brand's Drive under `Creative Assets/Meta Posts/` — does NOT publish. Declarative `requires_generated_image` ClassVar on `ModuleBase` + generic `runs.py` hook (no capability hardcoded in core); `inject_channel_credentials` now surfaces `drive_root_folder_id` for google_drive. Validated live via `/chat` on the Klaroha brand. Per-brand isolation confirmed: a brand without a Drive connection correctly fails closed (no fallback to another brand's Drive). Detail: `CREATIVE_SUPPLY_CHAIN.md`. |
 | 3.40 | 2026-05-24 | **Platform OAuth Broker — customer self-host model:** Locked the deployment model — BOS is self-hosted by customers in their own cloud, but the system/integrations are Klaroha's (Windows-install analogy: customers run the OS, auth against Microsoft's identity, never register their own app). Third-party OAuth (Google Drive/Gmail/Calendar/YouTube, Meta) must require ZERO per-customer provider setup; BYO-Google-app per deployment is explicitly rejected. Mechanism: one Klaroha-run central OAuth broker holding one verified app + Picker key, one stable redirect URI, signed one-time token handoff back to each self-hosted instance. Critical scope: broker only changes token *acquisition* — `get_page_token()`, `social_connections`, channel plugins, and the creative factory are unaffected, so feature work does not block on it. Broker is its own platform mini-project (needs Google verification + CASA, Klaroha-hosted Picker page). Current single Klaroha dev box continues on env-var platform credentials until the broker is built. See Section 7 → Platform OAuth Broker. |

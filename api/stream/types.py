@@ -35,6 +35,16 @@ BLOCK_TYPES: dict[str, dict] = {
         "interaction": "actionable",
         "default_priority": "high",
     },
+    "gtm_strategy": {
+        "layout_hint": "narrative",
+        "interaction": "actionable",
+        "default_priority": "high",
+    },
+    "marketing_plan": {
+        "layout_hint": "narrative",
+        "interaction": "actionable",
+        "default_priority": "high",
+    },
     "status": {
         "layout_hint": "compact",
         "interaction": "passive",

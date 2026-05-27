@@ -101,6 +101,7 @@ export interface RunResponse {
   approval_status?: string | null;
   campaign_id?: string | null;
   brand_id?: string | null;
+  brand_name?: string | null;
   result?: RunResultOut;
   execution?: RunExecutionOut;
   trace?: RunTraceOut;
@@ -123,6 +124,7 @@ export interface RunListItem {
   campaign_id?: string | null;
   campaign_name?: string | null;
   brand_id?: string | null;
+  brand_name?: string | null;
   created_at: string;
   provider?: string | null;
   model?: string | null;

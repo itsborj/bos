@@ -175,7 +175,8 @@ async def list_providers(
         last_check_message = metadata.get("last_check_message") if isinstance(metadata, dict) else None
         last_check_at = metadata.get("last_check_at") if isinstance(metadata, dict) else None
         effective_status = model_info.get(provider, {}).get("status", "unknown")
-        if provider in stored or get_platform_key(provider, settings):
+        platform_available = bool(get_platform_key(provider, settings))
+        if provider in stored or platform_available:
             # An explicit provider check is the clearest connectivity signal and
             # should override older failed run attempts. Otherwise the UI can show
             # contradictory states like "Error" beside "last check: connected".
@@ -183,14 +184,29 @@ async def list_providers(
                 effective_status = "live"
             elif last_check_status == "error":
                 effective_status = "error"
-            elif last_attempt_status.get(provider) == "ok":
+            elif provider in stored and last_attempt_status.get(provider) == "ok":
                 effective_status = "live"
-            elif last_attempt_status.get(provider) == "error":
+            elif provider in stored and last_attempt_status.get(provider) == "error":
                 effective_status = "error"
             elif provider in stored:
                 effective_status = "stored_unverified"
-            elif get_platform_key(provider, settings):
+            elif platform_available:
                 effective_status = "platform_available"
+
+        display_models = top_models.get(provider, [])
+        if provider == "openai" and provider in stored and stored[provider].auth_mode == "oauth" and display_models:
+            first = display_models[0]
+            display_models = [
+                ProviderModelInfo(
+                    model_id="gpt-5.3-codex",
+                    capability=first.capability,
+                    quality_tier=first.quality_tier,
+                    latency_ms=first.latency_ms,
+                    supports_json=first.supports_json,
+                    status=first.status,
+                ),
+                *display_models[1:],
+            ]
 
         providers.append(ProviderInfo(
             provider=provider,
@@ -208,7 +224,7 @@ async def list_providers(
             last_check_status=last_check_status,
             last_check_message=last_check_message,
             last_check_at=last_check_at,
-            top_models=top_models.get(provider, []),
+            top_models=display_models,
         ))
 
     return {"providers": providers}
@@ -489,11 +505,16 @@ async def check_key(
     ws = await _require_workspace(db)
     target_brand_id = await _resolve_brand_id(db, ws.id, body.brand_id)
     api_key, auth_mode = await resolve_stored_provider_credential(db, ws.id, body.provider, settings, brand_id=target_brand_id)
+    if not api_key:
+        platform_key = get_platform_key(body.provider, settings)
+        if platform_key:
+            api_key = platform_key
+            auth_mode = "platform"
 
     if not api_key:
         raise HTTPException(
             status_code=404,
-            detail={"error": {"code": "KEY_NOT_FOUND", "message": f"No stored credential for provider '{body.provider}'", "details": None}},
+            detail={"error": {"code": "KEY_NOT_FOUND", "message": f"No stored credential or platform key for provider '{body.provider}'", "details": None}},
         )
 
     row = (await db.execute(
@@ -503,6 +524,15 @@ async def check_key(
             ProviderKey.provider == body.provider,
         )
     )).scalar_one_or_none()
+    if row is None and target_brand_id:
+        row = (await db.execute(
+            select(ProviderKey).where(
+                ProviderKey.workspace_id == ws.id,
+                ProviderKey.brand_id == None,  # noqa: E711
+                ProviderKey.provider == body.provider,
+                ProviderKey.auth_mode != "api_key",
+            )
+        )).scalar_one_or_none()
 
     try:
         ok = await get_adapter(body.provider, api_key, auth_mode).check()

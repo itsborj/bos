@@ -36,6 +36,7 @@ function titleCase(value: string): string {
 function artifactTitle(run: RunResponse, platformLabel: string): string {
   if (!run?.module_id) return 'Artifact';
   const moduleId = run.module_id.toLowerCase();
+  if (moduleId.includes('gtm_plan') || moduleId.includes('gtm')) return 'GTM Strategy';
   if (moduleId.includes('marketing.plan')) return 'Marketing Plan';
   if (moduleId.includes('email') && moduleId.includes('plan')) return 'Email Campaign Plan';
   if (moduleId.includes('email') || platformLabel.toLowerCase().includes('email')) return 'Email Draft';
@@ -106,11 +107,11 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
 
   if (!result) return <div className="bos-ws-empty">No artifact content available.</div>;
 
-  const brandName = result.block?.brand_name || result.brand_name || 'Klaroha';
-  const socialHandle = result.block?.brand_handle || result.brand_handle || '@klarohahq';
+  const brandName = result.block?.brand_name || result.brand_name || run.brand_name || 'Unknown brand';
+  const socialHandle = result.block?.brand_handle || result.brand_handle || '@brand';
   const selfCheckPassed = result.self_check === 'pass';
-  const canPublish = hasArtifactAction(run, 'publish');
   const isFbDraft = result.block?.type === 'fb_page_post_draft';
+  const canPublish = hasArtifactAction(run, 'publish') && (!isFbDraft || Boolean(result.block?.page_id));
   const isCreativePost = result.block?.type === 'creative_post_asset' && result.block?.status === 'succeeded';
   const isShortformVideo = (result.block?.type === 'creative_shortform_video' || result.block?.type === 'video_asset') && result.block?.status === 'succeeded';
   const isImageAsset = result.block?.type === 'image_asset' && result.block?.status === 'succeeded';
@@ -547,6 +548,60 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     }
     if (channel.includes('twitter') || moduleId.includes('twitter')) {
       return <TwitterFeedPreview username={socialHandle} tweetText={result.content || 'Copy missing'} />;
+    }
+    if (result.block?.type === 'gtm_strategy') {
+      const block = result.block as any;
+      const stack = block.channel_stack || {};
+      const doNow = Array.isArray(stack.do_now) ? stack.do_now : [];
+      const hold = Array.isArray(stack.hold) ? stack.hold : [];
+      const avoid = Array.isArray(stack.avoid_for_now) ? stack.avoid_for_now : [];
+      const assumptions = Array.isArray(block.assumptions) ? block.assumptions : [];
+      const gaps = Array.isArray(block.critical_gaps) ? block.critical_gaps : [];
+      const nextArtifacts = Array.isArray(block.next_artifacts) ? block.next_artifacts : [];
+      return (
+        <div style={{ padding: '20px', textAlign: 'left', color: '#1f2937', fontSize: '13px', border: '1px solid #e5e7eb', borderRadius: 14, maxWidth: 620, background: '#fff' }}>
+          <div style={{ color: '#6b7280', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>GTM strategy</div>
+          <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 8 }}>{block.title || title}</div>
+          {block.best_current_motion && <div style={{ lineHeight: 1.45, marginBottom: 12 }}><strong>Best motion:</strong> {block.best_current_motion}</div>}
+          {block.why_this_motion && <div style={{ color: '#4b5563', lineHeight: 1.45, marginBottom: 12 }}>{block.why_this_motion}</div>}
+          {block.positioning_angle && <div style={{ marginBottom: 12 }}><strong>Positioning:</strong> {block.positioning_angle}</div>}
+          {doNow.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Do now</div>
+              {doNow.map((ch: any, idx: number) => (
+                <div key={idx} style={{ padding: '7px 0', borderTop: idx ? '1px solid #f3f4f6' : 'none' }}>
+                  <strong>{ch.channel || ch.name}</strong>{ch.role ? ` — ${ch.role}` : ''}
+                  {ch.reason && <div style={{ color: '#4b5563' }}>{ch.reason}</div>}
+                </div>
+              ))}
+            </div>
+          )}
+          {(hold.length > 0 || avoid.length > 0) && (
+            <div style={{ marginBottom: 14 }}>
+              {hold.length > 0 && <div><strong>Hold</strong>{hold.slice(0, 3).map((item: any, idx: number) => <div key={idx} style={{ color: '#4b5563' }}>• {item.name || item.channel}{item.reason ? ` — ${item.reason}` : ''}</div>)}</div>}
+              {avoid.length > 0 && <div style={{ marginTop: 8 }}><strong>Avoid for now</strong>{avoid.slice(0, 3).map((item: any, idx: number) => <div key={idx} style={{ color: '#4b5563' }}>• {item.name || item.channel}{item.reason ? ` — ${item.reason}` : ''}</div>)}</div>}
+            </div>
+          )}
+          {assumptions.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Assumptions</div>
+              <ul style={{ margin: 0, paddingLeft: 18 }}>{assumptions.slice(0, 4).map((item: string, idx: number) => <li key={idx}>{item}</li>)}</ul>
+            </div>
+          )}
+          {gaps.length > 0 && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Critical gaps</div>
+              {gaps.slice(0, 4).map((gap: any, idx: number) => <div key={idx} style={{ color: '#4b5563' }}>• {gap.gap || gap.name}{gap.unlocks ? ` — ${gap.unlocks}` : ''}</div>)}
+            </div>
+          )}
+          {nextArtifacts.length > 0 && (
+            <div>
+              <div style={{ fontWeight: 700, marginBottom: 6 }}>Next artifacts</div>
+              {nextArtifacts.slice(0, 4).map((item: any, idx: number) => <div key={idx} style={{ color: '#4b5563' }}>• {item.name || item.artifact}{item.reason || item.purpose ? ` — ${item.reason || item.purpose}` : ''}</div>)}
+            </div>
+          )}
+        </div>
+      );
     }
     if (result.block?.type === 'marketing_plan' || moduleId.includes('marketing.plan')) {
       const block = result.block || {};

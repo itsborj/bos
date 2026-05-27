@@ -191,40 +191,44 @@ async def inject_channel_credentials(
     credentials: dict = {}
 
     if manifest.requires_social_connection:
+        from models.social import SocialConnection
         from routers.social import get_page_token
+        from sqlalchemy import select as _select
 
-        # Auto-resolve brand when none is provided: find the first brand with a matching connection.
+        # Credentials are brand-scoped. Never auto-resolve to "the first connected"
+        # account: in a multi-brand workspace that can mutate the wrong Brand's
+        # external platform account.
         resolved_brand_id = brand_id
-        if not resolved_brand_id:
-            from models.social import SocialConnection
-            from sqlalchemy import select as _select
-            for platform in manifest.requires_social_connection:
-                row = (await db.execute(
-                    _select(SocialConnection)
-                    .where(
-                        SocialConnection.platform == platform,
-                        SocialConnection.status == "connected",
-                    )
-                    .order_by(SocialConnection.created_at.desc())
-                    .limit(1)
-                )).scalar_one_or_none()
-                if row and row.brand_id:
-                    resolved_brand_id = row.brand_id
-                    break
 
         if resolved_brand_id:
             brand_id_str = str(resolved_brand_id)
-            first = True
+            primary_platform = manifest.requires_social_connection[0] if manifest.requires_social_connection else None
             for platform in manifest.requires_social_connection:
                 token, page_id = await get_page_token(db, brand_id_str, platform, settings)
                 if token:
                     credentials[f"{platform}_page_token"] = token
                     credentials[f"{platform}_page_id"] = page_id
-                    if first:
+                    conn = (await db.execute(
+                        _select(SocialConnection).where(
+                            SocialConnection.brand_id == resolved_brand_id,
+                            SocialConnection.platform == platform,
+                            SocialConnection.page_id == page_id,
+                            SocialConnection.status == "connected",
+                        ).order_by(SocialConnection.created_at.desc()).limit(1)
+                    )).scalar_one_or_none()
+                    if conn:
+                        if conn.page_name:
+                            credentials[f"{platform}_page_name"] = conn.page_name
+                        if conn.page_handle:
+                            credentials[f"{platform}_page_handle"] = conn.page_handle
+                    if platform == primary_platform:
                         credentials["page_token"] = token
                         credentials["page_id"] = page_id
                         credentials["access_token"] = token
-                        first = False
+                        if conn and conn.page_name:
+                            credentials["page_name"] = conn.page_name
+                        if conn and conn.page_handle:
+                            credentials["page_handle"] = conn.page_handle
 
             # Google Drive: surface the operator-picked root folder so storage
             # capabilities know where to write. Stored on the connection's token_meta.

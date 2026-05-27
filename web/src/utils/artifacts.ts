@@ -25,6 +25,7 @@ export function artifactTitle(run: RunResponse): string {
   const id = run.module_id.toLowerCase();
   const platform = titleCase(run.result?.platform || run.module_id.split('.').pop() || 'asset');
   const platformKey = platform.toLowerCase();
+  if (id.includes('gtm_plan') || id.includes('gtm')) return 'GTM Strategy';
   if ((id.includes('email') || id.includes('gmail') || platformKey.includes('email')) && id.includes('plan')) return 'Email Campaign Plan';
   if (id.includes('email') || id.includes('gmail') || platformKey.includes('email')) return 'Email Draft';
   if (id.includes('plan')) return 'Campaign Plan';
@@ -59,6 +60,7 @@ export function artifactRenderer(run: RunResponse): string {
   if (!run?.module_id) return 'artifact_detail';
   const id = run.module_id.toLowerCase();
   const channel = `${id} ${(run.result?.platform || '').toLowerCase()}`;
+  if (id.includes('gtm_plan') || id.includes('gtm')) return 'gtm_strategy_preview';
   if (channel.includes('email')) return 'email_preview';
   if (id.includes('google') && (id.includes('text') || id.includes('search'))) return 'google_search_preview';
   if (channel.includes('google') && channel.includes('display')) return 'google_display_preview';

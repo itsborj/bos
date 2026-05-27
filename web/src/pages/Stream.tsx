@@ -29,6 +29,7 @@ function artifactTitle(run: RunResponse): string {
   if (!run?.module_id) return 'Artifact';
   const id = run.module_id.toLowerCase();
   const platform = titleCase(run.result?.platform || run.module_id.split('.').pop() || 'asset');
+  if (id.includes('gtm_plan') || id.includes('gtm')) return 'GTM Strategy';
   if (id.includes('email') && id.includes('plan')) return 'Email Campaign Plan';
   if (id.includes('email')) return 'Email Draft';
   if (id.includes('plan')) return 'Campaign Plan';
@@ -72,6 +73,7 @@ function runFromListItem(item: RunListItem): RunResponse {
     approval_status: item.approval_status,
     campaign_id: item.campaign_id,
     brand_id: item.brand_id,
+    brand_name: item.brand_name,
     result: item.result || undefined,
     execution: item.provider ? {
       provider: item.provider,
@@ -105,14 +107,18 @@ function statusText(status: ArtifactStatus): string {
   return 'Saved';
 }
 
+function artifactBrandName(run: RunResponse, fallback: string): string {
+  return run.result?.block?.brand_name || run.result?.brand_name || run.brand_name || fallback;
+}
+
 function renderNativePreview(run: RunResponse) {
   const result = run.result;
   if (!result) return <div className="stream-artifact-fallback">No artifact content available.</div>;
 
   const moduleId = run.module_id.toLowerCase();
   const channel = `${moduleId} ${(result.platform || '').toLowerCase()}`;
-  const brandName = result.block?.brand_name || result.brand_name || 'Klaroha';
-  const socialHandle = result.block?.brand_handle || result.brand_handle || '@klarohahq';
+  const brandName = result.block?.brand_name || result.brand_name || run.brand_name || 'Unknown brand';
+  const socialHandle = result.block?.brand_handle || result.brand_handle || '@brand';
 
   if (moduleId.includes('google') && (moduleId.includes('text') || moduleId.includes('search'))) {
     const block = result.block;
@@ -223,6 +229,36 @@ function renderNativePreview(run: RunResponse) {
             <div style={{ color: '#6b7280', fontSize: 12 }}>{p.category}{p.followers != null ? ` · ${p.followers.toLocaleString()} followers` : ''}</div>
           </div>
         ))}
+      </div>
+    );
+  }
+  if (result.block?.type === 'gtm_strategy') {
+    const block = result.block as any;
+    const stack = block.channel_stack || {};
+    const doNow: any[] = Array.isArray(stack.do_now) ? stack.do_now : [];
+    const gaps: any[] = Array.isArray(block.critical_gaps) ? block.critical_gaps : [];
+    return (
+      <div style={{ padding: '16px 20px', fontSize: 13, color: '#1f2937', border: '1px solid #e5e7eb', borderRadius: 12, maxWidth: 560, background: '#fff' }}>
+        <div style={{ color: '#6b7280', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>GTM strategy</div>
+        <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 8 }}>{block.title || artifactTitle(run)}</div>
+        {block.best_current_motion && <div style={{ lineHeight: 1.45, marginBottom: 10 }}><strong>Motion:</strong> {block.best_current_motion}</div>}
+        {block.positioning_angle && <div style={{ color: '#4b5563', marginBottom: 10 }}>{block.positioning_angle}</div>}
+        {doNow.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Do now</div>
+            {doNow.slice(0, 3).map((ch: any, idx: number) => (
+              <div key={idx} style={{ color: '#4b5563' }}>• {ch.channel || ch.name}{ch.role ? ` — ${ch.role}` : ''}</div>
+            ))}
+          </div>
+        )}
+        {gaps.length > 0 && (
+          <div>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Critical gaps</div>
+            {gaps.slice(0, 2).map((gap: any, idx: number) => (
+              <div key={idx} style={{ color: '#4b5563' }}>• {gap.gap || gap.name}{gap.unlocks ? ` — ${gap.unlocks}` : ''}</div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -448,6 +484,7 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, focused = false, r
   const displayRun = hydratedRun || run;
   const createdAt = new Date(run.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
   const source = artifactPlatform(run) + ' · ' + createdAt + ' · ' + timeAgo(run.created_at);
+  const displayBrandName = artifactBrandName(displayRun, brandName);
 
   const setCardNode = useCallback((node: HTMLElement | null) => {
     cardRef.current = node;
@@ -477,7 +514,7 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, focused = false, r
     enqueueArtifactHydration(async () => {
       const fullRun = await api.getRun(run.run_id, { includeAssets: true }).catch(() => null);
       if (fullRun) {
-        setHydratedRun({ ...fullRun, approval_status: run.approval_status, brand_id: fullRun.brand_id || run.brand_id } as RunResponse);
+        setHydratedRun({ ...fullRun, approval_status: run.approval_status, brand_id: fullRun.brand_id || run.brand_id, brand_name: fullRun.brand_name || run.brand_name } as RunResponse);
       }
       setHydrating(false);
     });
@@ -490,7 +527,7 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, focused = false, r
         <span className={`g2conf ${status === 'approved' ? 'green' : 'amber'}`}>{statusText(status)}</span>
       </div>
       <div className="g2obj">{objectiveTitle || 'Active objective'}</div>
-      <div className="g2brand">{brandName}</div>
+      <div className="g2brand">{displayBrandName}</div>
       <div className="g2src-row"><span className="g2src">{source}</span></div>
       {hydrating && !hydratedRun ? (
         <div className="stream-artifact-fallback" style={{ marginTop: 10 }}><span className="spinner" /> Loading artifact…</div>

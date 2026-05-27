@@ -39,6 +39,8 @@ def artifact_title(run: Any) -> str:
     module_id = run.module_id.lower()
     platform = _title_case((run.result.platform if run.result and run.result.platform else run.module_id.rsplit(".", 1)[-1]) or "asset")
     platform_key = platform.lower()
+    if "gtm_plan" in module_id or "marketing.planning.gtm" in module_id:
+        return "GTM Strategy"
     if ("email" in module_id or "gmail" in module_id or "email" in platform_key) and "plan" in module_id:
         return "Email Campaign Plan"
     if "email" in module_id or "gmail" in module_id or "email" in platform_key:
@@ -66,6 +68,8 @@ def artifact_renderer(run: Any) -> str:
     module_id = run.module_id.lower()
     platform = (run.result.platform if run.result and run.result.platform else "").lower()
     channel = f"{module_id} {platform}"
+    if "gtm_plan" in module_id or "marketing.planning.gtm" in module_id:
+        return "gtm_strategy_preview"
     if "email" in channel:
         return "email_preview"
     if "google" in module_id and ("text" in module_id or "search" in module_id):

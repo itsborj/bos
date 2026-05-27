@@ -44,6 +44,10 @@ logger = logging.getLogger("bos.chat")
 
 _RUN_RE = re.compile(r"RUN:\s*([a-zA-Z0-9_.-]+)")
 _ACTION_RE = re.compile(r"ACTION:\s*([0-9a-fA-F-]{36})\s+([a-zA-Z0-9_-]+)")
+_ACTION_AUTHORIZATION_RE = re.compile(
+    r"\b(approve|approved|apply|publish|post|send|dismiss|revise|redo|update|delete|remove|confirm|yes,? do it|go ahead)\b",
+    re.IGNORECASE,
+)
 # Matches key: value lines immediately following a RUN: directive (until blank line or next RUN:)
 _RUN_PARAMS_RE = re.compile(
     r"RUN:\s*([a-zA-Z0-9_.-]+)((?:\n(?![ \t]*RUN\s*:)[ \t]*[a-zA-Z_][a-zA-Z0-9_]*\s*:[^\n]*)*)",
@@ -223,6 +227,17 @@ def _strip_control_directives(text: str) -> str:
 def _strip_run_directives(text: str) -> str:
     """Backward-compatible wrapper for revision paths."""
     return _strip_control_directives(text)
+
+
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
 
 
 
@@ -721,6 +736,7 @@ HARD RULES — no exceptions:
 6. Active brand isolation: when Known project context says `brand: X`, use only that brand's profile/products/audiences/docs as business facts. Ignore chat-history facts that refer to a different brand unless the scope-resolution note sets a different execution_brand for a new artifact.
 7. Hidden scope directive: every reply must start with a SCOPE block exactly like the scope-resolution skill describes. If you append any RUN line, `execution_brand` must be one existing Brand name, not none.
 8. When the scope-resolution note sets a clear execution_brand for a new/equivalent artifact, append the matching RUN line if the installed capability exists. Do not ask for Brand profile details; BOS hydrates the execution Brand for the module.
+8a. If a capability requires upstream contracts (buyer maps, message architecture, briefs, reports, or other substrate), do not ask the user to provide those internal artifacts. Append the RUN line for the requested capability; BOS execution will load or generate required upstream contracts from the Brand Brief.
 9. RUN lines must use ONLY the exact module IDs listed under "Deployable capabilities" below. Never invent, guess, or extrapolate a module ID. If no listed capability matches the request, say so — do not fabricate a RUN line.
 9a. Passing parameters to a RUN: when a capability's description asks for inputs (e.g. `caption`, `image_prompt`), append them as indented `key: value` lines directly under the RUN line, one per line, no blank line between. Example:
    RUN: creative.post.image
@@ -877,6 +893,15 @@ def _extract_action_directives(text: str) -> list[tuple[str, str]]:
     return [(match.group(1), match.group(2)) for match in _ACTION_RE.finditer(text or "")]
 
 
+def _user_authorized_artifact_action(message: str) -> bool:
+    """Return true only when the latest user turn explicitly asks to act on an artifact.
+
+    The CMO may recommend review after a specialist returns, but it cannot approve,
+    publish, send, dismiss, or mutate artifacts merely because synthesis is running.
+    """
+    return bool(_ACTION_AUTHORIZATION_RE.search(message or ""))
+
+
 async def _actionable_artifacts_context(db: AsyncSession, ws, brand: Brand | None = None) -> str:
     if not ws:
         return "No actionable artifacts available."
@@ -924,7 +949,7 @@ def _build_synthesis_context(run_results: list[RunResponse], *, final_turn: bool
         "Write the operator-facing CMO reply only after reading these summaries.",
         "Use artifact references/titles only; do not paste native artifact content, copy, prompts, targeting, budgets, or provider details.",
         "Do not mention raw module IDs in the visible reply.",
-        "If useful and allowed, you may emit RUN directives for additional installed specialists only when more work is truly required." if not final_turn else "This is the final allowed loop turn. Do not emit RUN directives; summarize current results and next review action.",
+        "If useful and allowed, you may emit RUN directives for additional installed specialists only when more work is truly required. Do not emit ACTION directives unless the latest user message explicitly approved or requested that action." if not final_turn else "This is the final allowed loop turn. Do not emit RUN or ACTION directives; summarize current results and next review action.",
         "Specialist result summaries:",
         "```json",
         json.dumps(_specialist_result_summaries(run_results), indent=2),
@@ -993,6 +1018,9 @@ async def _continue_cmo_loop_after_results(
         final_execution_brand = scope_execution_brand or final_execution_brand
 
         requested_actions = _extract_action_directives(reply_without_scope)
+        if requested_actions and not _user_authorized_artifact_action(body.message):
+            logger.warning("CMO synthesis emitted unauthorized ACTION directives — skipping: %s", requested_actions)
+            requested_actions = []
         if requested_actions and not final_turn:
             yield {"type": "step", "label": "Executing approved artifact action..."}
             async for event in _run_actions_streaming(db, requested_actions, settings):
@@ -1004,7 +1032,16 @@ async def _continue_cmo_loop_after_results(
         invalid = [mid for mid in requested_modules if mid not in allowed_module_ids]
         if invalid:
             logger.warning("CMO synthesis triggered modules outside allowed set — skipping: %s", invalid)
-        requested_modules = [mid for mid in requested_modules if mid in allowed_module_ids]
+        requested_modules = _dedupe_preserve_order([mid for mid in requested_modules if mid in allowed_module_ids])
+
+        # Never re-dispatch a module already run in this CMO turn. Synthesis may explain,
+        # revise, or ask for approval, but it must not create duplicate artifacts unless a
+        # later user turn explicitly requests another version.
+        already_ran = {run.module_id for run in all_run_results}
+        duplicate_requests = [mid for mid in requested_modules if mid in already_ran]
+        if duplicate_requests:
+            logger.warning("CMO synthesis re-requested already-run modules — skipping: %s", duplicate_requests)
+        requested_modules = [mid for mid in requested_modules if mid not in already_ran]
 
         # Never re-dispatch a module that already produced a permanent credential/config failure.
         # These errors require operator action (e.g. connect an account); retrying won't help.
@@ -1343,7 +1380,7 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
     invalid = [mid for mid in triggered_modules if mid not in allowed_module_ids]
     if invalid:
         logger.warning("LLM triggered modules outside allowed set — skipping: %s", invalid)
-    triggered_modules = [mid for mid in triggered_modules if mid in allowed_module_ids]
+    triggered_modules = _dedupe_preserve_order([mid for mid in triggered_modules if mid in allowed_module_ids])
 
     run_results: list[RunResponse] = []
 
@@ -1353,6 +1390,10 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
             active_campaign_uuid = UUID(body.campaign_id)
         except (ValueError, TypeError):
             pass
+
+    if triggered_actions and not _user_authorized_artifact_action(body.message):
+        logger.warning("CMO emitted unauthorized ACTION directives — skipping: %s", triggered_actions)
+        triggered_actions = []
 
     if triggered_actions and ws:
         yield _sse({"type": "step", "label": "Executing approved artifact action..."})
@@ -1829,7 +1870,7 @@ async def chat(
         invalid = [mid for mid in triggered_modules if mid not in allowed_module_ids]
         if invalid:
             logger.warning("LLM triggered modules outside allowed set — skipping: %s", invalid)
-        triggered_modules = [mid for mid in triggered_modules if mid in allowed_module_ids]
+        triggered_modules = _dedupe_preserve_order([mid for mid in triggered_modules if mid in allowed_module_ids])
         logger.warning("CMO dispatch: %s", triggered_modules)
 
     run_results: list[RunResponse] = []
@@ -1839,6 +1880,10 @@ async def chat(
             active_campaign_uuid = UUID(body.campaign_id)
         except (ValueError, TypeError):
             pass
+
+    if triggered_actions and not _user_authorized_artifact_action(body.message):
+        logger.warning("CMO emitted unauthorized ACTION directives — skipping: %s", triggered_actions)
+        triggered_actions = []
 
     if triggered_actions and ws:
         async for event in _run_actions_streaming(db, triggered_actions, settings):

@@ -42,6 +42,8 @@ class RunResultOut(BaseModel):
     content: str
     self_check: str
     platform: Optional[str] = None
+    brand_name: Optional[str] = None
+    brand_handle: Optional[str] = None
     block: Optional[dict] = None  # Module-specific structured block (performance_report, google_ads_text, etc.)
 
 
@@ -73,6 +75,7 @@ class RunResponse(BaseModel):
     approval_status: Optional[str] = None
     campaign_id: Optional[str] = None
     brand_id: Optional[str] = None
+    brand_name: Optional[str] = None
     result: Optional[RunResultOut] = None
     execution: Optional[RunExecutionOut] = None
     trace: Optional[RunTraceOut] = None
@@ -88,6 +91,7 @@ class RunListItem(BaseModel):
     campaign_id: Optional[str] = None
     campaign_name: Optional[str] = None
     brand_id: Optional[str] = None
+    brand_name: Optional[str] = None
     created_at: datetime
     provider: Optional[str] = None
     model: Optional[str] = None

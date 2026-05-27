@@ -19,6 +19,8 @@ SkillScope = Literal[
     "atomic_workflow",
     "diagnostic",
     "knowledge",
+    "reasoning",
+    "strategy",
     "creative",
     "media",
 ]
@@ -54,6 +56,12 @@ class SkillManifest(BaseModel):
     required_context: List[str] = Field(default_factory=list)
     output_contract: List[str] = Field(default_factory=list)
     quality_gates: List[str] = Field(default_factory=list)
+    inherits: List[str] = Field(default_factory=list)
+    depends_on: List[str] = Field(default_factory=list)
+    required_upstream: List[str] = Field(default_factory=list)
+    outputs: List[str] = Field(default_factory=list)
+    input_minimum: Optional[str] = None
+    load_policy: Optional[str] = None
     metadata: Dict[str, Any] = Field(default_factory=dict)
     path: str
 
@@ -93,6 +101,16 @@ def _parse_scalar(value: str) -> Any:
     return value.strip('"\'')
 
 
+def _coerce_string_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        return [part.strip() for part in value.split(",") if part.strip()]
+    return [str(value).strip()] if str(value).strip() else []
+
+
 def _available_resources_for(skill_file: Path) -> List[str]:
     skill_dir = skill_file.parent
     resources: List[str] = []
@@ -119,6 +137,21 @@ def _normalize_frontmatter(data: dict[str, Any], path: Path, root: Path) -> dict
     data["available_resources"] = _available_resources_for(path)
     if data.get("module_id") and not data.get("related_modules"):
         data["related_modules"] = [data["module_id"]]
+    for list_key in (
+        "related_modules",
+        "requires_intent",
+        "triggers",
+        "excluded_triggers",
+        "memory_slots",
+        "resources",
+        "output_contract",
+        "quality_gates",
+        "inherits",
+        "depends_on",
+        "required_upstream",
+        "outputs",
+    ):
+        data[list_key] = _coerce_string_list(data.get(list_key))
     rs = data.get("related_skills")
     if isinstance(rs, list):
         data["related_skills"] = {sid: "" for sid in rs if isinstance(sid, str)}
@@ -294,6 +327,10 @@ def format_activated_skill(skill: Skill) -> str:
     """Return protected, structured skill context for prompt assembly/tracing."""
     resource_lines = "\n".join(f"- {resource}" for resource in skill.available_resources) or "- none"
     related_lines = "\n".join(f"- {sid}: {reason}" for sid, reason in skill.related_skills.items()) or "- none"
+    inherits_lines = "\n".join(f"- {item}" for item in skill.inherits) or "- none"
+    depends_lines = "\n".join(f"- {item}" for item in skill.depends_on) or "- none"
+    upstream_lines = "\n".join(f"- {item}" for item in skill.required_upstream) or "- none"
+    outputs_lines = "\n".join(f"- {item}" for item in skill.outputs) or "- none"
     return f"""<activated_skill id=\"{skill.id}\" name=\"{skill.name}\" version=\"{skill.version}\" path=\"{skill.path}\">
 <instructions>
 {skill.body.strip()}
@@ -304,6 +341,20 @@ def format_activated_skill(skill: Skill) -> str:
 <related_skills>
 {related_lines}
 </related_skills>
+<skill_dependencies>
+<inherits>
+{inherits_lines}
+</inherits>
+<depends_on>
+{depends_lines}
+</depends_on>
+<required_upstream>
+{upstream_lines}
+</required_upstream>
+<outputs>
+{outputs_lines}
+</outputs>
+</skill_dependencies>
 </activated_skill>"""
 
 

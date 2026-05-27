@@ -43,14 +43,14 @@ function ArtifactReferenceCard({ refData, onOpen }: { refData: ArtifactRef; onOp
   return (
     <div className="bos-chat-artifact-ref">
       <div>
-        <div className="artifact-eyebrow">Workspace artifact</div>
+        <div className="artifact-eyebrow">Stream artifact</div>
         <div className="artifact-title">{refData.title}</div>
         <div className="artifact-meta">
-          {artifactStatusLabel(refData.status)} · {refData.type.replace(/_/g, ' ')} · Preview in Workspace/Stream
+          {artifactStatusLabel(refData.status)} · {refData.type.replace(/_/g, ' ')} · Preview in Stream
         </div>
       </div>
       <button className="artifact-btn primary" onClick={() => onOpen(refData.artifact_id)}>
-        Review →
+        Review in Stream →
       </button>
     </div>
   );
@@ -251,14 +251,13 @@ export function CmoChat() {
   }
 
   async function handleOpenArtifact(artifactId: string) {
-    // Focus immediately by ID so the Stream can scroll/inject the exact card without
-    // waiting on a full run-detail request. Then send preview/full data when available.
-    window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: { run_id: artifactId } }));
+    // Focus the exact artifact in Stream. Do not navigate to Workspace; Stream is
+    // the inline review surface for pending artifacts.
     try {
       const run = await api.getRun(artifactId, { includeAssets: false });
       window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: run }));
     } catch {
-      // Stream owns fallback loading by run_id.
+      window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: { run_id: artifactId } }));
     }
   }
 

@@ -101,5 +101,5 @@ Artifact type: `draft_artifact`
 Block type: `fb_page_post_draft`
 Platform: `facebook`
 Risk policy: `draft_only_until_approved`
-`allowed_actions`: `["revise", "dismiss", "approve", "publish"]`
-`action_modules`: `{ "publish": "marketing.channel.meta.posts.publish" }`
+`allowed_actions`: `["revise", "dismiss", "approve"]`; add `"publish"` only when the owning Brand has a connected Facebook page in the injected credentials.
+`action_modules`: `{ "publish": "marketing.channel.meta.posts.publish" }` only when `publish` is present.
