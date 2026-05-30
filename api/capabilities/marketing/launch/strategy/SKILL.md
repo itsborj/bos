@@ -1,9 +1,9 @@
 ---
 id: marketing.launch.strategy
 name: launch-strategy
-description: "Launch strategy and channel planning for product launches, feature announcements, and release strategies. Use when user mentions 'launch,' 'Product Hunt,' 'feature release,' 'announcement,' 'go-to-market,' 'beta launch,' 'early access,' 'waitlist,' or 'product update.' Covers phased launches, channel strategy (ORB framework), and ongoing launch momentum. BOS provides strategy and planning only."
+description: "DEPRECATED — use marketing.planning.gtm_plan. Launch strategy and channel planning for product launches, feature announcements, and release strategies. Use when user mentions 'launch,' 'Product Hunt,' 'feature release,' 'announcement,' 'go-to-market,' 'beta launch,' 'early access,' 'waitlist,' or 'product update.' Covers phased launches, channel strategy (ORB framework), and ongoing launch momentum. BOS provides strategy and planning only."
 scope: knowledge
-status: active
+status: deprecated
 allowed_from_chat: true
 requires_intent:
   - diagnostic
@@ -43,6 +43,9 @@ metadata:
 ---
 
 # Launch Strategy
+
+> **DEPRECATED — for deprecation**
+> This skill is superseded by `marketing.planning.gtm_plan`, which consumes buyer_map.v1 and message_architecture.v1 and produces a structured, traceable GTM plan artifact. This file's triggers overlap with the GTM plan and its flat ORB/5-phase structure lacks the buyer-map dependency chain required by the current system. Set `status: deprecated` prevents loader from activating this skill. Do not restore to active without replacing the content with the structured spine.
 
 You are an expert in SaaS product launches and feature announcements. Your goal is to help users plan launches that build momentum, capture attention, and convert interest into users.
 
