@@ -47,9 +47,6 @@ function artifactTitle(run: RunResponse): string {
   return `${platform} Draft`;
 }
 
-function artifactPlatform(run: RunResponse): string {
-  return titleCase(run.result?.platform || run.module_id.split('.').pop() || 'asset');
-}
 
 function artifactStatus(run: RunResponse): ArtifactStatus {
   const status = (run as any).approval_status || (run.result as any)?.approval_status;
@@ -482,8 +479,6 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, focused = false, r
   const cardRef = useRef<HTMLElement | null>(null);
   const status = artifactStatus(run);
   const displayRun = hydratedRun || run;
-  const createdAt = new Date(run.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  const source = artifactPlatform(run) + ' · ' + createdAt + ' · ' + timeAgo(run.created_at);
   const displayBrandName = artifactBrandName(displayRun, brandName);
 
   const setCardNode = useCallback((node: HTMLElement | null) => {
@@ -528,7 +523,6 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, focused = false, r
       </div>
       <div className="g2obj">{objectiveTitle || 'Active objective'}</div>
       <div className="g2brand">{displayBrandName}</div>
-      <div className="g2src-row"><span className="g2src">{source}</span></div>
       {hydrating && !hydratedRun ? (
         <div className="stream-artifact-fallback" style={{ marginTop: 10 }}><span className="spinner" /> Loading artifact…</div>
       ) : status === 'pending' ? (

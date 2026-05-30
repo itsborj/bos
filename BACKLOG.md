@@ -1,6 +1,6 @@
 # BOS — Backlog
 
-**Last updated:** 2026-05-25
+**Last updated:** 2026-05-30
 **Active phase:** Phase 6 — Gate 2 Gmail-only objective loop
 ---
 ## How to Use This
@@ -1178,6 +1178,13 @@ CYCLE 2 — Intelligence to Optimization
 - [x] BUG: CI runs pytest from `api/`, so tests importing `api.plugins...` fail collection; add a generic test path shim instead of editing channel plugin code.
 - [x] PUBLIC SITE: Add TikTok developer-review-ready Privacy Policy and Terms & Conditions pages, linked from Klaroha homepage header and footer.
 
+### Infrastructure & CI/CD
+- [x] INFRA: Build-once deploy — CI builds `api`/`web` images tagged with commit SHA and pushes to GHCR; `deploy-staging.sh` pulls pre-built images instead of building on VDS; `docker-compose.override.yml` handles local dev (bind mounts, hot reload, `--reload`); `docker-compose.yml` uses `image:` vars; `api/Dockerfile` drops `--reload` from production CMD; `git.md` merged into `DEPLOY.md` and deleted.
+- [x] INFRA: Post-deploy verification strengthened — `check-staging.sh` now asserts auth layer (401 on unauthenticated request), authenticated DB query (valid workspace row), capability manifest count (≥20), and migrations at head — not just HTTP status codes.
+- [x] INFRA: Devcontainer added — `.devcontainer/devcontainer.json` uses the same `python:3.11-slim` image as production; VS Code / Codespaces users get the full stack without a local Python install.
+- [x] INFRA: TypeScript strict mode + CI type-check gate — `strict: true` added to `web/tsconfig.app.json`; `tsc -b` runs in CI test job before Docker build; null-safety violations fail before reaching GHCR. Zero codebase fixes needed — codebase already passes.
+- [x] UX: Stream artifact source label removed — `g2src-row` ("Planning · date · time") removed from `StreamArtifactCard`; `artifactPlatform()` helper and its computed variables removed. `StreamUpdateCard` source row unaffected.
+
 ## Phase 5 — Hardening + Second Vertical
 ### Hardening
 - [ ] Retry with structured feedback (BITE failure-feedback loop)
@@ -1282,6 +1289,8 @@ CYCLE 2 — Intelligence to Optimization
 | 2026-05-12 | Email Specialist MVP is the next optimization focus | Email should implement `marketing.plan`, `marketing.execute`, and `marketing.optimize` as one owner-facing specialist: setup/readiness, plan artifacts, draft artifacts, approval-gated send/test, inbox reply intelligence, and optimization learnings. Gmail/module IDs remain internal tool details |
 | 2026-05-12 | Lean hierarchy is `Org → Brand/Client → Market Unit → Campaign`; no Portfolio layer | Keeps architecture lean while supporting agencies, ecommerce multi-brand, multi-location services, and broker/agent networks. The Org acts as portfolio/control plane; Market Unit handles location/agent/territory/marketplace/SKU/service-line scope only when needed |
 | 2026-05-12 | CMO-facing marketing surface collapses to `marketing.plan`, `marketing.execute`, and `marketing.optimize` | Prevents BOS from exposing a thousand-entry channel/task catalog; preserves the promise that a small business owner gets a CMO in their pocket, whose specialists use tools and produce artifacts while the owner approves decisions and BOS remembers what worked |
+| 2026-05-30 | CI builds Docker images tagged with commit SHA and pushes to GHCR; staging deploy pulls pre-built images | Building on VDS is slow, environment-inconsistent (VDS OS deps can differ from Docker build), and ties deploy time to code complexity. Exact image tested in CI is what runs in staging/production — build-once guarantee. `docker-compose.override.yml` keeps local dev bind-mounted with hot reload; `docker-compose.yml` uses `image:` vars consumed by CI and `deploy-staging.sh`. |
+| 2026-05-30 | TypeScript strict mode enabled; CI type-check gate runs `tsc -b` before Docker build | `strict: true` catches null-safety violations at compile time instead of as staging runtime crashes (e.g., calling `.toLowerCase()` on a potentially-undefined value). CI fails fast before reaching GHCR. Codebase passed with zero fixes needed — strict mode confirmed the existing type discipline. |
 | 2026-05-12 | `BITE.md` elevated to BOS architecture constitution | Keeps governing policy in one mandatory-read file; codifies pi-inspired minimal core, package/plugin extensibility, SKILL.md ownership, live capability manifests, MCP-as-connector, lifecycle hooks, and command registration so new capabilities do not require chat/pipeline edits |
 | 2026-05-26 | Creative assets are channel-agnostic source artifacts; distribution is a separate CMO-driven dispatch | BOS is omni-channel, multi-location, multi-brand. A generated image or video is an asset — it can flow to Facebook, be attached to an email, appear in a YouTube post, or land in any other connected channel. Nothing in the creative artifact itself should hardwire it to a specific channel. The correct model: (1) generate creative → asset stored in Drive, artifact on Stream with `approved` or `pending` status; (2) CMO dispatches channel capabilities independently, each referencing the asset by Drive file ID or run ID — "post the image to Facebook", "attach the video to the email campaign", "upload to YouTube" are separate capability invocations; (3) what channels are available is determined by installed plugins × connected accounts for the active brand, not by hardcoded action buttons on the card. The current `publish_facebook` / `publish_youtube` inline action buttons are a convenience shortcut (Phase 6 pragmatism), not the target architecture. Long-term: remove hardwired publish actions from creative cards; CMO handles all distribution via chat by dispatching the appropriate channel capability with the asset reference. |
 | 2026-05-01 | PostgreSQL from day one, no SQLite | Avoid migration cost; per-VPS deployment makes this feasible |
