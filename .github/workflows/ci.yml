@@ -65,6 +65,12 @@ jobs:
             exit 1
           fi
 
+      - name: TypeScript strict type check
+        run: |
+          cd web
+          npm ci --silent
+          npx tsc -b
+
   # ── Build & push images to GHCR ──────────────────────────────────────────
   build-and-push:
     name: Build & push images
