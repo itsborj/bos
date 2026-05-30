@@ -53,15 +53,44 @@ echo "=== Pulling staging ==="
 git fetch origin
 git reset --hard origin/staging
 
-echo "=== Building staging containers ==="
-docker compose --env-file .env.staging -p staging up -d --build --force-recreate
+# ── Resolve image tags ────────────────────────────────────────────────────────
+# DEPLOY_SHA is set by CI (the exact commit that was tested and built).
+# Fall back to :staging tag for manual runs.
+SHA="${DEPLOY_SHA:-}"
+if [[ -n "$SHA" ]]; then
+  export API_IMAGE="ghcr.io/itsborj/bos-api:sha-${SHA}"
+  export WEB_IMAGE="ghcr.io/itsborj/bos-web:sha-${SHA}"
+  export RELAY_IMAGE="ghcr.io/itsborj/bos-relay:sha-${SHA}"
+else
+  export API_IMAGE="ghcr.io/itsborj/bos-api:staging"
+  export WEB_IMAGE="ghcr.io/itsborj/bos-web:staging"
+  export RELAY_IMAGE="ghcr.io/itsborj/bos-relay:staging"
+fi
+
+echo "=== Pulling images ==="
+echo "  API:   $API_IMAGE"
+echo "  Web:   $WEB_IMAGE"
+echo "  Relay: $RELAY_IMAGE"
+
+# Authenticate to GHCR if token provided (required for private packages).
+if [[ -n "${GHCR_TOKEN:-}" ]]; then
+  echo "$GHCR_TOKEN" | docker login ghcr.io -u itsborj --password-stdin
+fi
+
+# Use -f explicitly so docker-compose.override.yml (local dev) is never loaded.
+docker compose -f docker-compose.yml --env-file .env.staging -p staging pull api web relay
+
+echo "=== Starting staging containers ==="
+docker compose -f docker-compose.yml --env-file .env.staging -p staging \
+  up -d --no-build --force-recreate
 
 echo "=== Running migrations ==="
-docker compose --env-file .env.staging -p staging exec -T api alembic upgrade head
+docker compose -f docker-compose.yml --env-file .env.staging -p staging \
+  exec -T api alembic upgrade head
 
 echo "=== Running smoke tests ==="
 sleep 5
 ~/bos/check-staging.sh
 
 echo ""
-echo "Staging deploy complete."
+echo "Staging deploy complete — image: ${API_IMAGE}"

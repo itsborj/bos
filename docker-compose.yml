@@ -20,9 +20,7 @@ services:
       start_period: 10s
 
   api:
-    build:
-      context: ./api
-      dockerfile: Dockerfile
+    image: ${API_IMAGE:-bos-api:local}
     restart: unless-stopped
     env_file: ${ENV_FILE:-.env}
     ports:
@@ -30,13 +28,9 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    volumes:
-      - ./api:/app
 
   web:
-    build:
-      context: ./web
-      dockerfile: Dockerfile
+    image: ${WEB_IMAGE:-bos-web:local}
     restart: unless-stopped
     ports:
       - "${WEB_PORT:-5173}:80"
@@ -60,9 +54,7 @@ services:
       - redis_data:/data
 
   relay:
-    build:
-      context: ./relay
-      dockerfile: Dockerfile
+    image: ${RELAY_IMAGE:-bos-relay:local}
     restart: unless-stopped
     env_file: ${ENV_FILE:-.env}
     environment:
