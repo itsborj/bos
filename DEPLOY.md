@@ -369,7 +369,7 @@ Three failure modes discovered manually during early staging setup:
 | 5 | **Ephemeral preview environments** | `[ ]` | Every PR gets its own isolated environment spun up automatically. Test against the actual deployed artifact before merging. Eliminates localhost-as-staging entirely. |
 | 6 | **Infrastructure as Code (IaC)** | `[ ]` | All environment definitions live in code (Terraform, Pulumi, Helm). Staging and production are the same template with different parameter values. Accidental per-env config drift is structurally impossible. |
 | 7 | **Secrets management** | `[ ]` | Vault, AWS Secrets Manager, Doppler, or 1Password Secrets Automation. One source of truth for secrets, versioned, auditable. All environments pull from the same system with different access scopes. Eliminates C4 entirely. |
-| 8 | **Automated post-deploy verification** | `[ ]` | Every deploy runs a functional test suite against the live environment. Pipeline fails and rolls back if tests fail. No human needed to detect a broken deploy. |
+| 8 | **Automated post-deploy verification** | `[x]` | Every deploy runs a functional test suite against the live environment. Pipeline fails and rolls back if tests fail. No human needed to detect a broken deploy. |
 | 9 | **Dependency lockfiles pinned and committed** | `[x]` | `requirements.txt` with pinned versions, `package-lock.json` committed. Same dep versions in dev, CI, staging, and production. |
 | 10 | **Local dev mirrors production runtime** | `[ ]` | devcontainers or Tilt/Skaffold. The developer's local environment IS the production container, not a volume-mounted lookalike. Eliminates the "uncommitted file visible via volume mount" class entirely. |
 
