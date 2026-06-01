@@ -1241,6 +1241,9 @@ CYCLE 2 — Intelligence to Optimization
 - [x] UX: Stream artifact source label removed — `g2src-row` ("Planning · date · time") removed from `StreamArtifactCard`; `artifactPlatform()` helper and its computed variables removed. `StreamUpdateCard` source row unaffected.
 - [x] DOCS: Add `DEPLOY_COORDINATION.md` as the live AI handoff tracker for staging parity + first-org deploy work, and reference it from `DEPLOY.md`
 - [x] DOCS: Reorganize deploy debugging so only cause-elimination items are hypotheses; move observability/docs work out of the hypothesis list and document the rule in deploy docs
+- [x] INFRA: F1-1/F1-2 — Auto-generate `API_SECRET_KEY` and `ENCRYPTION_KEY` at first boot if absent; persist to named Docker volume (`bos_secrets`); never write to env file. Eliminates manual bootstrap step and C10 wrong-format key class.
+- [x] INFRA: D1 — `deploy-staging.sh` always uses immutable SHA-tagged image (`sha-<commit>`); derives SHA from `git rev-parse HEAD` on manual runs instead of falling back to mutable `:staging` tag. Removed redundant explicit `alembic upgrade head` exec (Dockerfile CMD handles it).
+- [x] INFRA: F1-4 — Bootstrap default workspace row at first boot if table is empty; name derived from `FRONTEND_URL` hostname (`ensure_workspace()` in `lifespan()`). Eliminates manual `PUT /workspace/brand` step after fresh deploy.
 
 ## Phase 5 — Hardening + Second Vertical
 ### Hardening

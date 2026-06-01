@@ -25,6 +25,8 @@ services:
     env_file: ${ENV_FILE:-.env}
     ports:
       - "${API_PORT:-8000}:8000"
+    volumes:
+      - bos_secrets:/data/secrets
     depends_on:
       db:
         condition: service_healthy
@@ -73,3 +75,4 @@ services:
 volumes:
   postgres_data:
   redis_data:
+  bos_secrets:

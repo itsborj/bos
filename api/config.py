@@ -84,7 +84,7 @@ def validate_settings(s: "Settings") -> None:
         logger.warning("ENCRYPTION_KEY not set — BYOK key storage will not work")
 
     if s.api_secret_key == "dev-key-change-me":
-        logger.warning("API_SECRET_KEY is the insecure default — set a strong random value for production")
+        logger.warning("API_SECRET_KEY is the insecure default — auto-generation via first_boot requires a writable /data/secrets volume")
 
     has_llm = any([s.platform_openrouter_key, s.platform_gemini_key, s.platform_nvidia_key, s.platform_openai_key])
     if not has_llm:

@@ -4,16 +4,21 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import get_settings, validate_settings
-from db import get_engine
-from errors import BosError, bos_error_handler, unhandled_error_handler
-from middleware import RequestLoggingMiddleware
+from first_boot import ensure_secrets, ensure_workspace
 
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(name)s — %(message)s",
     datefmt="%Y-%m-%dT%H:%M:%S",
 )
+
+# Must run before get_settings() so generated keys are in os.environ when pydantic reads them
+ensure_secrets()
+
+from config import get_settings, validate_settings  # noqa: E402
+from db import get_engine  # noqa: E402
+from errors import BosError, bos_error_handler, unhandled_error_handler  # noqa: E402
+from middleware import RequestLoggingMiddleware  # noqa: E402
 
 settings = get_settings()
 
@@ -25,6 +30,7 @@ async def lifespan(app: FastAPI):
 
     validate_settings(settings)
     list_all()
+    await ensure_workspace(settings.frontend_url)
 
     yield
 

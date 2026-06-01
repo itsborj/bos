@@ -64,11 +64,9 @@ Full directive: `DEPLOY.md §Scale Directive`
 - Completion check: fresh server + only `KLAROHA_DEPLOYMENT_KEY` + `FRONTEND_URL` → `docker compose up` → `GET /api/` returns `first_boot_complete: true, migration_status: head, env_valid: true` — no SSH at any point
 - Files: `api/first_boot.py`, `api/main.py`, `api/config.py`, `docker-compose.yml`
 - Remaining sub-items:
-  - [ ] F1-3: auto-run `alembic upgrade head` at start — log + fail loudly on error
-  - [ ] F1-4: bootstrap default workspace row if empty
   - [ ] F1-6: expose `first_boot_complete`, `migration_status`, `env_valid` in `GET /api/`
-- Done: F1-1 (`API_SECRET_KEY` to `bos_secrets` volume), F1-2 (`ENCRYPTION_KEY` Fernet-correct), F1-5 (`validate_settings()` blocks startup on malformed vars)
-- Next action: F1-3
+- Done: F1-1, F1-2, F1-3, F1-4 (`ensure_workspace()` in `lifespan()`), F1-5
+- Next action: F1-6
 
 ---
 
@@ -150,7 +148,10 @@ Full directive: `DEPLOY.md §Scale Directive`
 |---|---|---|
 | F1-1: auto-generate `API_SECRET_KEY` | done — `first_boot.py` + `bos_secrets` volume | 2026-06-02 |
 | F1-2: auto-generate `ENCRYPTION_KEY` (Fernet) | done — same `first_boot.py` | 2026-06-02 |
+| F1-3: auto-run migrations at container start | done — Dockerfile CMD `alembic upgrade head && uvicorn ...` | 2026-06-02 |
 | F1-5: startup env validation | done — `validate_settings()` blocks on malformed vars | 2026-06-02 |
+| D1: always deploy immutable SHA tag | done — `deploy-staging.sh` derives `git rev-parse HEAD` on manual runs | 2026-06-02 |
+| F1-4: bootstrap default workspace | done — `ensure_workspace()` in `lifespan()`; name from `FRONTEND_URL` hostname | 2026-06-02 |
 | git_sha in health endpoint | done | 2026-06-02 |
 | uptime_seconds in deploy banner | done | 2026-06-02 |
 | H2: push=deploy | falsified — CI deploy job is active | 2026-06-02 |

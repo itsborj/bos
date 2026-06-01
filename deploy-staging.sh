@@ -55,18 +55,13 @@ git fetch origin
 git reset --hard origin/staging
 
 # ── Resolve image tags ────────────────────────────────────────────────────────
-# DEPLOY_SHA is set by CI (the exact commit that was tested and built).
-# Fall back to :staging tag for manual runs.
-SHA="${DEPLOY_SHA:-}"
-if [[ -n "$SHA" ]]; then
-  export API_IMAGE="ghcr.io/itsborj/bos-api:sha-${SHA}"
-  export WEB_IMAGE="ghcr.io/itsborj/bos-web:sha-${SHA}"
-  export RELAY_IMAGE="ghcr.io/itsborj/bos-relay:sha-${SHA}"
-else
-  export API_IMAGE="ghcr.io/itsborj/bos-api:staging"
-  export WEB_IMAGE="ghcr.io/itsborj/bos-web:staging"
-  export RELAY_IMAGE="ghcr.io/itsborj/bos-relay:staging"
-fi
+# Always deploy an immutable SHA-tagged image, never the mutable :staging tag.
+# CI sets DEPLOY_SHA to the tested commit SHA. Manual runs derive it from git HEAD
+# (safe because git reset --hard origin/staging ran above).
+SHA="${DEPLOY_SHA:-$(git rev-parse HEAD)}"
+export API_IMAGE="ghcr.io/itsborj/bos-api:sha-${SHA}"
+export WEB_IMAGE="ghcr.io/itsborj/bos-web:sha-${SHA}"
+export RELAY_IMAGE="ghcr.io/itsborj/bos-relay:sha-${SHA}"
 
 echo "=== Pulling images ==="
 echo "  API:   $API_IMAGE"
@@ -84,10 +79,6 @@ docker compose -f docker-compose.yml --env-file .env.staging -p staging pull api
 echo "=== Starting staging containers ==="
 docker compose -f docker-compose.yml --env-file .env.staging -p staging \
   up -d --no-build --force-recreate
-
-echo "=== Running migrations ==="
-docker compose -f docker-compose.yml --env-file .env.staging -p staging \
-  exec -T api alembic upgrade head
 
 echo "=== Running smoke tests ==="
 sleep 5

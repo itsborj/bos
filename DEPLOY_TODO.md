@@ -25,8 +25,8 @@ The #1 confirmed crash cause: env misconfiguration (INC-004, INC-006, C10, C11).
 | ~~F1-1~~ | ~~Auto-generate `API_SECRET_KEY` to persistent volume~~ | done 2026-06-02 | Manual key bootstrap |
 | ~~F1-2~~ | ~~Auto-generate `ENCRYPTION_KEY` as valid Fernet key~~ | done 2026-06-02 | C10 — wrong format |
 | ~~F1-5~~ | ~~Startup validation — refuse to start on malformed vars~~ | done 2026-06-02 | C11 silent misconfiguration |
-| F1-3 | Auto-run `alembic upgrade head` at container start — fail loudly on error | `[claude-code]` | Manual migration step, migration drift |
-| F1-4 | Bootstrap default workspace if table is empty — name from `FRONTEND_URL` domain | `[claude-code]` | Manual `PUT /workspace/brand` after fresh deploy, C7 partial |
+| ~~F1-3~~ | ~~Auto-run `alembic upgrade head` at container start — fail loudly on error~~ | done — Dockerfile CMD | Manual migration step, migration drift |
+| ~~F1-4~~ | ~~Bootstrap default workspace if table is empty — name from `FRONTEND_URL` domain~~ | done 2026-06-02 | Manual `PUT /workspace/brand` after fresh deploy |
 | F1-6 | Add to `GET /api/`: `first_boot_complete`, `migration_status`, `env_valid` | `[claude-code]` | Makes any env diagnosable without SSH |
 
 ---
@@ -39,7 +39,7 @@ Confirmed cause C4: keys in `.env` that aren't in `.env.staging` silently break 
 
 | # | Task | Owner | Crash class eliminated |
 |---|---|---|---|
-| D1 | `deploy-staging.sh` — when `DEPLOY_SHA` is unset, derive it from `git rev-parse HEAD` before pulling; never deploy a mutable `:staging` tag | `[claude-code]` | C5a — wrong image deployed on manual deploy |
+| ~~D1~~ | ~~`deploy-staging.sh` — when `DEPLOY_SHA` is unset, derive from `git rev-parse HEAD`; never deploy mutable `:staging` tag~~ | done 2026-06-02 | C5a — wrong image on manual deploy |
 | D2 | `scripts/check-env-parity.sh` — diff required keys between `.env` and `.env.staging`; run before every staging deploy; fail with a list of missing keys | `[claude-code]` | C4 — missing keys silently break features on staging |
 | D3 | Add `HEALTHCHECK` to `api/Dockerfile` — `CMD curl -f http://localhost:8000/ \|\| exit 1`; compose marks container unhealthy until API responds | `[claude-code]` | Silent startup failures where container is "running" but API is down |
 
