@@ -50,6 +50,33 @@ else
   echo "OK — .env.staging is complete."
 fi
 
+# ── Staging port overrides — must never match production defaults ─────────────
+# These vars are not in .env.example (no auto-fill) and may be absent from the
+# STAGING_ENV_FILE secret. Enforce them here so staging never conflicts with the
+# production bos stack running on the same host.
+declare -A STAGING_PORTS=(
+  [DB_PORT]=5433
+  [API_PORT]=8001
+  [WEB_PORT]=5174
+  [NGINX_PORT]=8091
+  [PUBLIC_PORT]=3001
+)
+for key in "${!STAGING_PORTS[@]}"; do
+  val="${STAGING_PORTS[$key]}"
+  if grep -qE "^${key}=" .env.staging 2>/dev/null; then
+    current=$(grep -E "^${key}=" .env.staging | cut -d= -f2)
+    if [[ "$current" != "$val" ]]; then
+      echo "  corrected ${key}: ${current} → ${val}"
+      sed -i "s|^${key}=.*|${key}=${val}|" .env.staging
+    fi
+  else
+    echo "  added ${key}=${val}"
+    echo "${key}=${val}" >> .env.staging
+  fi
+  # Also export so docker compose picks them up even before file is re-read
+  export "${key}=${val}"
+done
+
 echo "=== Pulling staging ==="
 git fetch origin
 git reset --hard origin/staging
