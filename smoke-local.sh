@@ -18,6 +18,13 @@ ENV_FILE="${1:-.env.staging}"
 SMOKE_PORT=8092
 PROJECT=bos-smoke
 
+# Override all host ports so the smoke stack doesn't clash with the running dev stack
+export NGINX_PORT=$SMOKE_PORT
+export PUBLIC_PORT=$((SMOKE_PORT + 1))
+export DB_PORT=$((SMOKE_PORT + 2))
+export API_PORT=$((SMOKE_PORT + 3))
+export WEB_PORT=$((SMOKE_PORT + 4))
+
 COMPOSE_CMD="docker compose -f docker-compose.yml --env-file $ENV_FILE -p $PROJECT"
 
 cleanup() {
@@ -46,11 +53,11 @@ fi
 
 # ── Pull images ───────────────────────────────────────────────────────────────
 echo "=== Pulling GHCR :staging images ==="
-NGINX_PORT=$SMOKE_PORT $COMPOSE_CMD pull api web relay
+$COMPOSE_CMD pull api web relay
 
 # ── Start stack ───────────────────────────────────────────────────────────────
 echo "=== Starting smoke stack on port $SMOKE_PORT ==="
-NGINX_PORT=$SMOKE_PORT $COMPOSE_CMD up -d --no-build --force-recreate
+$COMPOSE_CMD up -d --no-build --force-recreate
 
 echo "=== Waiting for API ==="
 for i in $(seq 1 20); do
@@ -112,7 +119,7 @@ else
 fi
 
 echo "=== Migrations ==="
-ALEMBIC_OUT=$(NGINX_PORT=$SMOKE_PORT $COMPOSE_CMD exec -T api alembic current 2>/dev/null || true)
+ALEMBIC_OUT=$($COMPOSE_CMD exec -T api alembic current 2>/dev/null || true)
 if echo "$ALEMBIC_OUT" | grep -q "(head)"; then
   ok "migrations at head"
 else
