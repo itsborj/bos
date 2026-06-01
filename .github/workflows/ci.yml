@@ -96,6 +96,8 @@ jobs:
         with:
           context: ./api
           push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: |
             ghcr.io/itsborj/bos-api:sha-${{ github.sha }}
             ghcr.io/itsborj/bos-api:staging

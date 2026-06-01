@@ -197,7 +197,24 @@ The gap between your filesystem and `origin/staging` is always the first place t
 
 ### Hypothesis Standard
 
-A useful hypothesis here is an **elimination hypothesis**: "If we implement X, problem class Y stops occurring." Confirmation experiments (confirming what we already suspect without eliminating anything) generate more tasks, not fewer. Before adding a new candidate cause or investigation item, ask: what implementation would close this class of problem permanently? That implementation is the real fix — document it here, add it to `DEPLOY_TODO.md`, and skip pure-investigation steps that don't change the fix list.
+Use two different buckets and do not mix them:
+
+1. **Cause-elimination hypotheses** — for the current localhost-vs-staging debug tree
+2. **Observability / process work** — version fingerprints, uptime surfacing, doc cleanup, agent protocol, CI gates
+
+A valid **cause-elimination hypothesis** must be:
+- **specific** — one clear claim
+- **falsifiable** — the test can prove it wrong
+- **root-cause reducing** — once tested, one branch of the current cause tree is removed or confirmed
+
+Valid final states for a cause-elimination hypothesis are:
+- `validated`
+- `falsified`
+- `blocked`
+
+`partial` and `inconclusive` are not valid final outcomes. If you get one of those, the hypothesis was too broad or the experiment was incomplete — rewrite it.
+
+Observability / process items are still important, but they do **not** belong in the current-cause hypothesis list unless testing them will directly shrink today's root-cause tree. Track those separately in `DEPLOY_COORDINATION.md` under non-hypothesis work.
 
 ### Candidate Causes
 
@@ -368,7 +385,7 @@ curl -s -H "X-API-Key: $KEY" "$BASE/workspace/documents?brand_id=<brand_id>" | j
 ---
 
 #### C8 — Provider / plugin / social-connection readiness differs across environments
-**Status:** `HYPOTHESIS — OPEN (2026-06-01)`
+**Status:** `VALIDATED (2026-06-02)`
 
 Localhost and staging keep separate provider keys, plugin vars, OAuth connections, and token refresh state. The deploy can be perfect while the behavior still diverges because the affected specialist is not equally ready in both places.
 
@@ -384,7 +401,25 @@ curl -s -H "X-API-Key: $KEY" "$BASE/plugins" | jq
 curl -s -H "X-API-Key: $KEY" "$BASE/social/connections" | jq
 ```
 
-**Rule out:** the affected brand has the same provider readiness, plugin credentials, and social connections in both environments.
+**Confirmed findings (2026-06-02):**
+
+| Check | Localhost | Staging | Delta |
+|---|---|---|---|
+| Social connections | 7 rows | 7 rows identical | **parity** (INC-005 restore worked) |
+| Gemini provider | `platform_available` | `degraded` (platform=False) | **gap** |
+| OpenRouter provider | `platform_available` | `degraded` (platform=False) | **gap** |
+| Nvidia / OpenAI | `live` | `live` | parity |
+| Google Ads plugin | 0 missing vars | 4 missing vars | **gap** |
+| Google Analytics plugin | 0 missing vars | 4 missing vars | **gap** |
+| All other plugins | same | same | parity |
+
+All missing vars are present in the local `.env.staging`. The VDS copy was wiped when CI last overwrote it with the stale `STAGING_ENV_FILE` secret. That secret contains only the 6 port overrides + `ENV_FILE`; it is missing `PLATFORM_GEMINI_KEY`, `PLATFORM_OPENROUTER_KEY`, `GOOGLE_ADS_DEVELOPER_TOKEN`, `GOOGLE_ADS_CLIENT_ID`, `GOOGLE_ADS_CLIENT_SECRET`, `GOOGLE_ADS_REFRESH_TOKEN`, `GOOGLE_ANALYTICS_CLIENT_ID`, `GOOGLE_ANALYTICS_CLIENT_SECRET`, `GOOGLE_ANALYTICS_REFRESH_TOKEN`, `GOOGLE_ANALYTICS_PROPERTY_ID`.
+
+**Effect on CMO behavior:** any module configured for OpenRouter or Gemini in platform mode fails or falls back to a different backend on staging. Google Ads and Google Analytics specialists are not executable on staging.
+
+**Fix pattern:** update `STAGING_ENV_FILE` GitHub secret to include the full set of staging-critical vars — not just port overrides. The minimum required additions are: `PLATFORM_GEMINI_KEY`, `PLATFORM_OPENROUTER_KEY`, all `GOOGLE_ADS_*`, all `GOOGLE_ANALYTICS_*`.
+
+**Scale alignment:** at 10K orgs, each org has their own `.env` and manages their own keys — there is no CI overwrite. The equivalent problem is an org that hasn't configured their provider keys. F2-2 (admin diagnostic panel) must surface exactly this: which providers are degraded and why, so the org admin self-diagnoses without Klaroha support.
 
 ---
 

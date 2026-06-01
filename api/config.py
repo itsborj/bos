@@ -1,6 +1,10 @@
+import base64
+import logging
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings
+
+logger = logging.getLogger(__name__)
 
 
 class Settings(BaseSettings):
@@ -51,8 +55,45 @@ class Settings(BaseSettings):
     frontend_url: str = "http://localhost"
 
     app_version: str = "0.1.0"
+    git_sha: str = "dev"
 
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
+
+
+def validate_settings(s: "Settings") -> None:
+    """Validate critical settings at startup. Raises RuntimeError on fatal misconfiguration."""
+    errors: list[str] = []
+
+    if s.encryption_key:
+        try:
+            padding = (4 - len(s.encryption_key) % 4) % 4
+            decoded = base64.urlsafe_b64decode(s.encryption_key + "=" * padding)
+            if len(decoded) != 32:
+                errors.append(
+                    f"ENCRYPTION_KEY decodes to {len(decoded)} bytes, expected 32. "
+                    "Regenerate: python3 -c \"import base64,secrets; "
+                    "print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())\""
+                )
+        except Exception:
+            errors.append(
+                "ENCRYPTION_KEY is not valid base64url. "
+                "Regenerate: python3 -c \"import base64,secrets; "
+                "print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())\""
+            )
+    else:
+        logger.warning("ENCRYPTION_KEY not set — BYOK key storage will not work")
+
+    if s.api_secret_key == "dev-key-change-me":
+        logger.warning("API_SECRET_KEY is the insecure default — set a strong random value for production")
+
+    has_llm = any([s.platform_openrouter_key, s.platform_gemini_key, s.platform_nvidia_key, s.platform_openai_key])
+    if not has_llm:
+        logger.warning("No LLM provider key set — CMO will not function until at least one provider key is configured")
+
+    if errors:
+        for e in errors:
+            logger.error("STARTUP ERROR: %s", e)
+        raise RuntimeError(f"BOS startup validation failed ({len(errors)} error(s)). Check logs above.")
 
 
 @lru_cache

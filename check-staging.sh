@@ -12,6 +12,7 @@ ENV_FILE=~/bos/.env.staging
 API_KEY=$(grep -E '^API_SECRET_KEY=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
 FRONTEND_URL=$(grep -E '^FRONTEND_URL=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
 BASE=http://127.0.0.1:8091
+EXPECTED_GIT_SHA=${DEPLOY_SHA:-}
 
 # ── 1. Config ─────────────────────────────────────────────────────────────────
 echo "=== Config ==="
@@ -62,8 +63,19 @@ fi
 echo "=== API health ==="
 HEALTH=$(curl -s "$BASE/api/")
 if echo "$HEALTH" | grep -q '"status":"ok"'; then
+  HEALTH_SUMMARY=$(echo "$HEALTH" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("uptime={}s git_sha={}".format(d.get("uptime_seconds", "?"), d.get("git_sha", "missing")))' 2>/dev/null || echo "uptime=?s git_sha=missing")
   UPTIME=$(echo "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('uptime_seconds','?'))" 2>/dev/null || echo "?")
-  ok "API status=ok, uptime=${UPTIME}s"
+  GIT_SHA=$(echo "$HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('git_sha',''))" 2>/dev/null || echo "")
+  ok "API status=ok (${HEALTH_SUMMARY})"
+  if [[ -z "$GIT_SHA" ]]; then
+    fail "git_sha missing from API health response"
+  elif [[ -n "$EXPECTED_GIT_SHA" && "$GIT_SHA" != "$EXPECTED_GIT_SHA" ]]; then
+    fail "git_sha mismatch — expected $EXPECTED_GIT_SHA, got $GIT_SHA"
+  elif [[ -n "$EXPECTED_GIT_SHA" ]]; then
+    ok "git_sha matches expected deploy SHA ($GIT_SHA)"
+  else
+    ok "git_sha present ($GIT_SHA)"
+  fi
 else
   fail "API health check failed — response: $(echo "$HEALTH" | head -c 120)"
 fi

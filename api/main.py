@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from config import get_settings
+from config import get_settings, validate_settings
 from db import get_engine
 from errors import BosError, bos_error_handler, unhandled_error_handler
 from middleware import RequestLoggingMiddleware
@@ -23,6 +23,7 @@ async def lifespan(app: FastAPI):
     import models  # noqa: F401 — registers all ORM models with Base.metadata
     from registry import list_all  # eager module scan on startup
 
+    validate_settings(settings)
     list_all()
 
     yield
