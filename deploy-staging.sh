@@ -93,5 +93,15 @@ echo "=== Running smoke tests ==="
 sleep 5
 ~/bos/check-staging.sh
 
+# ── Post-deploy health summary ────────────────────────────────────────────────
+_HEALTH=$(curl -s http://127.0.0.1:8091/api/ || true)
+_UPTIME=$(echo "$_HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('uptime_seconds','?'))" 2>/dev/null || echo "?")
+_GITSHA=$(echo "$_HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('git_sha','missing'))" 2>/dev/null || echo "missing")
+
 echo ""
-echo "Staging deploy complete — image: ${API_IMAGE}"
+echo "================================================"
+echo " Staging deploy complete"
+echo " image:          ${API_IMAGE}"
+echo " git_sha:        ${_GITSHA}"
+echo " uptime_seconds: ${_UPTIME}s"
+echo "================================================"

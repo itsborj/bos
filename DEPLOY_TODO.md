@@ -19,10 +19,10 @@
 
 | # | Task | Owner | Ref |
 |---|---|---|---|
-| P1-1 | Add `ARG GIT_SHA=dev` to `api/Dockerfile`, pass `--build-arg GIT_SHA=${{ github.sha }}` in CI `build-and-push` job | `[claude-code]` | DEPLOY.md C13, A3 |
-| P1-2 | Expose `git_sha` field in `GET /api/` health response (`api/config.py`, `api/routers/health.py`) | `[claude-code]` | DEPLOY.md C13, A3 |
-| P1-3 | Update `check-staging.sh` to print `git_sha` and `uptime_seconds` prominently; add `git_sha` as check 14 (non-blocking / informational until A3 is deployed) | `[claude-code]` | DEPLOY.md C16, C17, A4 |
-| P1-4 | Update `deploy-staging.sh` to print post-deploy `uptime_seconds` from health endpoint as the final confirmation line | `[claude-code]` | DEPLOY.md C17, A4 |
+| ~~P1-1~~ | ~~Add `ARG GIT_SHA=dev` to `api/Dockerfile`, pass `--build-arg GIT_SHA=${{ github.sha }}` in CI `build-and-push` job~~ | — | DEPLOY.md C13, A3 — **done 2026-06-02** |
+| ~~P1-2~~ | ~~Expose `git_sha` field in `GET /api/` health response (`api/config.py`, `api/routers/health.py`)~~ | — | DEPLOY.md C13, A3 — **done 2026-06-02** |
+| ~~P1-3~~ | ~~Update `check-staging.sh` to print `git_sha` and `uptime_seconds` prominently; add `git_sha` as check 14 (non-blocking / informational until A3 is deployed)~~ | — | DEPLOY.md C16, C17, A4 — **done 2026-06-02** |
+| ~~P1-4~~ | ~~Update `deploy-staging.sh` to print post-deploy `uptime_seconds` from health endpoint as the final confirmation line~~ | — | DEPLOY.md C17, A4 — **done 2026-06-02** |
 | P1-5 | Add "Agent Deploy Protocol" section to `CLAUDE.md` — explicit rule that push ≠ staging updated, and verification requires `git_sha` + `uptime_seconds` check | `[claude-code]` | DEPLOY.md C12, A5 |
 
 ---
@@ -33,7 +33,7 @@ Each item eliminates a class of debug problems when shipped. Implement → valid
 
 | # | Task | Owner | Ref | Eliminates |
 |---|---|---|---|---|
-| P2-1 | E1: `git_sha` in health endpoint — bake SHA at CI build, expose in `GET /api/`, add to `check-staging.sh` | `[claude-code]` | COORD E1 | C13, C16, C17, silent-stale-code class |
+| ~~P2-1~~ | ~~E1: `git_sha` in health endpoint — bake SHA at CI build, expose in `GET /api/`, add to `check-staging.sh`~~ | — | COORD O1 | **done 2026-06-02** |
 | P2-2 | E2: Agent Deploy Protocol in `CLAUDE.md` — push ≠ deploy; web/ rebuild required; verify `git_sha` + uptime | `[claude-code]` | COORD E2 | C12 agent-side, C15, false-confidence class |
 | P2-3 | E3: re-enable CI auto-deploy with staging gate (blocked on P0-2 decision) | `[claude-code]` + `[human]` | COORD E3 | C12 structural |
 | P2-4 | E4: update `STAGING_ENV_FILE` GitHub secret (blocked on P0-1 human action) | `[human]` | COORD E4 | C11, port-drift, INC-004/006 replay |
@@ -89,3 +89,6 @@ _(move items here when done, with date and one-line resolution)_
 | 2026-06-02 | Document C12-C17 in DEPLOY.md | Done — see candidate causes section |
 | 2026-06-02 | C4: smoke-local.sh scope hypothesis | **validated** — script inspection + image probe confirm GHCR image used, not local source |
 | 2026-06-02 | C5a: manual deploy tag-resolution subclaim | **validated** — unset `DEPLOY_SHA` falls back to mutable `:staging`; live race claim split to C5b and remains blocked pending CI/GHCR/deploy evidence |
+| 2026-06-02 | O1/E1: git_sha deploy verification | Added `GIT_SHA` Docker build arg/env, health `git_sha`, CI build arg, and `check-staging.sh` presence/match verification |
+| 2026-06-02 | P1-4: uptime_seconds in deploy-staging.sh final banner | Added post-smoke-test health fetch; banner prints `image`, `git_sha`, `uptime_seconds` |
+| 2026-06-02 | H2: push-does-not-deploy hypothesis | **falsified** — `deploy-staging` CI job is active (re-enabled by c82f94c); push to staging auto-deploys via CI |

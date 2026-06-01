@@ -185,6 +185,13 @@ export function Layout() {
     return () => { cancelled = true; };
   }, []);
 
+  // Evict stale localStorage brand_id after brands load (e.g. after a staging DB reset that changes UUIDs).
+  useEffect(() => {
+    if (brands.length > 0 && activeBrand && !brands.some(b => b.id === activeBrand.id)) {
+      setActiveBrand(null);
+    }
+  }, [brands, activeBrand]);
+
   const addPendingRun = useCallback((run: RunResponse) => {
     setPendingRunItems(prev => ({ ...prev, [run.run_id]: run }));
   }, []);
