@@ -1,552 +1,239 @@
 # DEPLOY_COORDINATION.md
 
-Purpose:
-- `DEPLOY.md` is the durable deploy runbook, topology map, incident log, and policy reference.
-- `DEPLOY_COORDINATION.md` is the live execution tracker for active deploy work and AI handoff.
-- This file exists to keep the active work cleanly separated into:
-  1. **cause-elimination hypotheses** for the current localhost-vs-staging debugging tree
-  2. **observability / guardrail work** that improves future debugging
-  3. **docs / protocol work** that reduces coordination mistakes
-  4. **first-org deploy foundation work**
-
-Use this file when another AI is doing the work.
-- Start with **Track H** only.
-- A hypothesis belongs in **Track H** only if a test result will remove a branch from the current localhost-vs-staging cause tree.
-- If an item improves measurement, verification, or operator behavior but does not shrink the current root-cause list, it does **not** belong in Track H.
-- End every hypothesis with one of: `validated`, `falsified`, `blocked`.
-- If a result feels `inconclusive`, the hypothesis was too broad or the experiment was incomplete — rewrite it before rerunning.
+> Active execution tracker for deploy product work and AI handoff.
+> `DEPLOY.md` is the durable runbook and incident log — update it for any confirmed finding.
+> `DEPLOY_TODO.md` is the prioritized task list — this file has the detailed specs.
 
 ---
 
-## Hypothesis Guideline
+## The Frame
 
-### What counts as a real debugging hypothesis
-A debugging hypothesis must be:
-1. **specific** — one clear claim
-2. **falsifiable** — the test can prove it wrong
-3. **root-cause reducing** — once tested, one branch of the current cause tree is removed or confirmed
+Every staging incident that required manual SSH to fix is a **first-boot init failure in disguise**. The hypothesis testing, the staging gate debates, the agent protocol — all of it exists because the product doesn't yet configure itself.
 
-### What does *not* count as a debugging hypothesis
-These are valuable, but they are **not** hypotheses:
-- adding `git_sha` to the API
-- printing `uptime_seconds` more clearly
-- updating docs or agent protocol
-- changing CI gates or deploy policy
+The work is not debugging our staging process. The work is building a product that any organization can deploy without Klaroha intervention.
 
-Those belong in **Track O** or **Track D**, not Track H.
+**Working order:** Track F (product build) → Track I (internal ops, only as needed). Never let Track I block Track F.
 
-### Valid final states
-- `validated`
-- `falsified`
-- `blocked`
+---
 
-Rule:
-- `blocked` means the experiment could not be completed due to missing access, missing environment, or another external dependency.
-- `partial` and `inconclusive` are not valid final states.
+## Scale Rules (read before working any item)
+
+| Rule | What it means for every task |
+|---|---|
+| No per-org SSH | A fix requiring SSH into a customer server is a product gap, not a closed issue |
+| No Klaroha data access | Operators must self-diagnose from admin UI or health endpoint |
+| Zero-touch new org deploys | Every manual post-boot step must become automated first-boot behavior |
+| Operator-resolvable | Org admin resolves via admin panel or one documented command |
+| Automated verification | Health, migration status, version, env validity — all machine-readable |
+
+Full directive: `DEPLOY.md §Scale Directive`
 
 ---
 
 ## Quick Start for the Next AI
 
-Read in this order:
-1. `DEPLOY_COORDINATION.md`
-2. `DEPLOY.md` — especially `INC-004` to `INC-006`, `Open Items`, and `Candidate Causes`
-3. `CLAUDE.md` — deploy rules / staging is manual-only
-4. Runtime files likely to change:
-   - `deploy-staging.sh`
-   - `check-staging.sh`
-   - `.github/workflows/ci.yml`
-   - `api/config.py`
-   - `api/routers/health.py`
-   - `api/main.py`
+1. Read `DEPLOY_TODO.md` — find the first open item in Priority 1
+2. Read `DEPLOY.md §Scale Directive` — frame every decision against 10K orgs
+3. Read `PROJECT_BRIEF.md §10` — production model and build order
+4. Key files for Priority 1 (first-boot init):
+   - `api/main.py` — startup sequence
+   - `api/config.py` — settings and env validation
+   - `docker-compose.yml` + `docker-compose.override.yml`
+   - `.env.example` — env var inventory
 
-Working order:
-1. **Track H — Cause-Elimination Hypotheses**
-2. **Track O — Observability / Verification Upgrades**
-3. **Track D — Docs / Protocol / Governance**
-4. **Track B — First Org Deploy Foundation**
-
-If blocked by external access:
-- mark the item `blocked`
-- record exactly which secret/server permission is missing
-- do not guess whether staging is current
+Do not start Track I items until Priority 1 (F1) is underway. Track I is temporary scaffolding.
 
 ---
 
-## Known Contradictions / Blockers
+## Item Template
 
-1. Repo policy says staging deploys are **manual only**.
-   - Sources: `CLAUDE.md`, `DEPLOY.md`, `BACKLOG.md`
-2. `.github/workflows/ci.yml` still contains a `deploy-staging` job.
-   - Treat this as a contradiction to resolve/document before assuming push behavior.
-3. Some items below require GitHub/VDS access outside the repo.
-   - If the current AI cannot access secrets/server settings directly, mark `blocked` and record the exact external step required.
-
----
-
-## Evidence Protocol
-
-For every attempt, append evidence under the item worked:
-- **Commands run:**
-- **Files changed:**
-- **Expected SHA / version:**
-- **Observed API output:**
-- **Observed `uptime_seconds`:**
-- **Pass/fail:**
-- **Notes:**
-
----
-
-## Standard Templates
-
-### Hypothesis item template
 ```md
-## H<n> — <title>
-- Status: open | in_progress | validated | falsified | blocked
-- Owner:
-- Claim:
-- Why this shrinks the root-cause list:
-- Files / systems involved:
-- Test:
-- Expected result if true:
-- Expected result if false:
-- Actual result:
-- Conclusion:
-- Next action:
-
-Evidence log
-- Commands run:
-- Files changed:
-- Expected SHA / version:
-- Observed API output:
-- Observed uptime_seconds:
-- Pass/fail:
-- Notes:
-```
-
-### Non-hypothesis work item template
-```md
-## O<n>/D<n>/B<n> — <title>
+## F<n>/I<n> — <title>
 - Status: open | in_progress | done | blocked
 - Owner:
 - Goal:
-- Why it matters:
-- Files / systems involved:
-- Validation / completion check:
+- Completion check: (what does done look like — observable behavior, not code merged)
+- Files involved:
 - Actual result:
 - Next action:
 
 Evidence log
 - Commands run:
-- Files changed:
-- Expected SHA / version:
-- Observed API output:
-- Observed uptime_seconds:
-- Pass/fail:
+- Observed behavior:
 - Notes:
 ```
 
 ---
 
-# Track H — Cause-Elimination Hypotheses
+# Track F — Product Build
 
-These are the only items that directly shrink the current localhost-vs-staging root-cause tree.
+## F1 — First-boot init: `docker compose up` self-configures without manual steps
 
-## H1 — The live `STAGING_ENV_FILE` secret is missing required staging-only keys `[DEPLOY.md: C11, INC-004, INC-006]`
-- Status: blocked
-- Owner: ai
-- Claim: the currently active GitHub secret `STAGING_ENV_FILE` is missing one or more of the required six entries, and that omission is a live cause of staging drift / 502 recovery regressions.
-- Why this shrinks the root-cause list: if validated, config-secret drift remains an active root cause; if falsified, that entire branch can be removed from the current debug tree.
-- Files / systems involved:
-  - GitHub Actions secret `STAGING_ENV_FILE`
-  - `.github/workflows/ci.yml`
-  - VDS `/root/bos/.env.staging`
-  - `DEPLOY.md`
-- Test:
-  1. Inspect the real GitHub Actions secret `STAGING_ENV_FILE` or the generated `/root/bos/.env.staging` immediately after a secret-backed deploy.
-  2. Check for all six required values:
-     - `DB_PORT=5433`
-     - `API_PORT=8001`
-     - `WEB_PORT=5174`
-     - `NGINX_PORT=8091`
-     - `PUBLIC_PORT=3001`
-     - `ENV_FILE=.env.staging`
-  3. If missing, validate by running a secret-backed deploy and observing staging bind failure or wrong-port behavior.
-- Expected result if true: one or more keys are missing, and the secret-backed deploy reproduces or plausibly explains the wrong-port / wrong-env failure class.
-- Expected result if false: all six keys are present in the real secret/generated file, so this branch is removed from the current cause list.
-- Actual result: repo-side inspection confirms the required six entries are documented in `DEPLOY.md`, and `.github/workflows/ci.yml` writes `STAGING_ENV_FILE` directly to `.env.staging`. The secret value itself is not readable from current repo-only tooling.
-- Conclusion: blocked pending GitHub Secrets or VDS access.
-- Next action: inspect the actual secret or generated server file; do not keep this as an open-ended suspicion without that check.
-
-Evidence log
-- Commands run: `read DEPLOY_COORDINATION.md`; `read .github/workflows/ci.yml`; `read DEPLOY.md`
-- Files changed: `DEPLOY_COORDINATION.md`
-- Expected SHA / version: n/a
-- Observed API output: none
-- Observed uptime_seconds: none
-- Pass/fail: blocked
-- Notes: this remains a real candidate cause because `.github/workflows/ci.yml` still writes the secret into `.env.staging`.
-
-## H2 — A push to `staging` does not update public staging unless a manual deploy actually runs `[DEPLOY.md: C12]`
-- Status: falsified
-- Owner: ai
-- Claim: `git push origin staging` alone does not change `staging.klaroha.com`; a manual staging deploy is still required for the public environment to update.
-- Why this shrinks the root-cause list: if validated, all “I pushed but staging didn’t change” reports stop branching into code drift speculation first; if falsified, the deploy path assumption must be rewritten.
-- Files / systems involved:
-  - `.github/workflows/ci.yml`
-  - `deploy-staging.sh`
-  - `CLAUDE.md`
-  - `DEPLOY.md`
-  - public `https://staging.klaroha.com/api/`
-- Test:
-  1. Make one tiny non-breaking verification change.
-  2. Commit and push to `staging`.
-  3. Observe whether public staging changes before any manual deploy.
-  4. Then run the manual deploy path.
-  5. Observe whether the change appears only after manual deploy.
-- Expected result if true: push alone does not change public staging; only manual deploy changes it.
-- Expected result if false: staging updates from push alone.
-- Actual result: `.github/workflows/ci.yml` contains an active `deploy-staging` job (not commented, not disabled) triggered on `push` to `staging`. It runs `build-and-push` then SSHes to the VDS and executes `deploy-staging.sh` with `DEPLOY_SHA` and `GHCR_TOKEN`. Commit `c82f94c` explicitly re-enabled this job. `CLAUDE.md` says the job was “permanently disabled” — that claim is stale. The auto-deploy path IS active. Push to staging = staging.klaroha.com updates automatically (assuming GitHub secrets are set).
-- Conclusion: falsified. Push alone DOES update staging.klaroha.com via CI. The CLAUDE.md “permanently disabled” statement is a documentation contradiction, not a code reality. CLAUDE.md must be updated or the CI job must actually be disabled — see D1.
-- Next action: update D1 and CLAUDE.md to resolve the contradiction between the “manual only” policy and the active CI auto-deploy job.
-
-Evidence log
-- Commands run: `read .github/workflows/ci.yml`; `git log --oneline -5`
-- Files changed: `DEPLOY_COORDINATION.md`
-- Expected SHA / version: n/a
-- Observed API output: CI file shows `deploy-staging` job active, `if: github.ref == ‘refs/heads/staging’ && github.event_name == ‘push’`
-- Observed uptime_seconds: n/a
-- Pass/fail: falsified
-- Notes: contradiction — CLAUDE.md says “permanently disabled”, commit `c82f94c` says “Re-enable deploy-staging CI job”. The code reality is auto-deploy is ON. Human decision D2 must resolve which is authoritative.
-
-## H3 — Browser-held brand/session state is causing at least part of the perceived localhost-vs-staging drift `[DEPLOY.md: C9, INC-005]`
-- Status: falsified
-- Owner: ai
-- Claim: after staging recovery/reset, stale browser localStorage/session state can produce brand/context mismatches even when backend parity is restored.
-- Why this shrinks the root-cause list: if validated, some “staging differs” reports become frontend-session issues instead of backend/deploy issues.
-- Files / systems involved:
-  - browser localStorage/session state — `bos_active_brand` key, `readActiveBrand()` in `web/src/components/Layout.tsx`
-  - `api/routers/brands.py` — `resolve_brand()`
-  - `api/routers/chat.py` — `_resolve_startup_brand()` and streaming endpoint
-  - `DEPLOY.md` incident notes
-- Test:
-  1. Reproduce the bad behavior in the current browser session.
-  2. Repeat in a private window or after clearing site storage.
-  3. Compare outbound `brand_id` in `POST /api/chat` or `/api/chat/stream`.
-  4. Compare resulting run payloads.
-- Expected result if true: bad behavior disappears or materially changes in a fresh browser session, and the old session shows stale `brand_id`/history.
-- Expected result if false: fresh session reproduces the exact same behavior with the same request payloads.
-- Actual result:
-  - Code analysis confirms the mechanism is real: `readActiveBrand()` (Layout.tsx:48) loads `bos_active_brand` from localStorage with no API validation — shape check only. `resolve_brand()` (brands.py:238) returns `None` silently for a UUID not in DB. With 3 brands, `_resolve_startup_brand()` (chat.py:392-404) then falls through to `None, None` → CMO runs workspace-scoped with no brand context (products/audiences/docs not loaded).
-  - H4 evidence confirms staging Klaroha UUID is `c1cb6603-e8d4-4e63-8995-640453d5b50b`, matching localhost. A stale UUID in localStorage would therefore resolve correctly on staging. The drift mechanism is real, but not currently active.
-  - Fix applied: `web/src/components/Layout.tsx` now validates the localStorage brand_id against the live brand list after `getBrands()` loads. If the stored ID is absent from the response, `activeBrand` is cleared to null. TypeScript type-check passes.
-- Conclusion: falsified for the current environment. Brand UUIDs match; stale localStorage is not causing current drift. The code gap (no API validation on startup) was real and has been closed — it would have replayed immediately after any future staging DB reset.
-- Next action: none for current root-cause tree. Code fix is shipped. If a future staging DB wipe occurs, stale localStorage is no longer a risk.
-
-Evidence log
-- Commands run: code audit of `Layout.tsx`, `brands.py`, `chat.py`; `npx tsc -b --noEmit` (0 errors); `curl localhost:8090/api/brands` confirmed local brand UUIDs
-- Files changed: `web/src/components/Layout.tsx` (brand staleness eviction on startup), `DEPLOY_COORDINATION.md`
-- Expected SHA / version: n/a
-- Observed API output: local brands — `c1cb6603 Klaroha`, `e44fc8fd MotorMoto`, `7a3a3535 Mactan Group`
-- Observed uptime_seconds: n/a
-- Pass/fail: falsified (mechanism exists, not currently active; code gap closed)
-- Notes: the stale-localStorage failure class was historically active during INC-005 (DB wipe + re-seed). The fix prevents replay. Browser-side testing would confirm empirically but code analysis is conclusive for the current UUID-match state.
-
-## H4 — Staging state drift (brands/objectives/docs/connectors) is still an active cause branch `[DEPLOY.md: C7, INC-005]`
-- Status: falsified
-- Owner: ai
-- Claim: localhost and staging can still differ because their database state differs, even when code and containers are healthy.
-- Why this shrinks the root-cause list: if falsified, a major non-code branch is removed; if validated, future debugging must compare data state before code assumptions.
-- Files / systems involved:
-  - `/workspace`
-  - `/brands`
-  - `/objectives`
-  - `/workspace/documents`
-  - staging/local DB state
-- Test:
-  1. Compare localhost vs staging on the documented parity endpoints.
-  2. Compare active brands, objectives, docs, and connector-backed rows.
-  3. Reproduce the user-facing difference only after parity check is recorded.
-- Expected result if true: one or more state surfaces differ materially and explain the behavior drift.
-- Expected result if false: state surfaces match closely enough that this branch can be deprioritized.
-- Actual result: localhost and staging matched on the sampled parity surfaces: workspace name `BOS`, brands total `3` with identical brand names, objectives total `2` with the same active objective for brand `c1cb6603-e8d4-4e63-8995-640453d5b50b`, documents total `6` with identical doc-type distribution and per-brand counts, workspace product count `8`, and audience count `10`.
-- Conclusion: falsified for the current environment snapshot. State drift is not an active cause branch **right now** on the tested parity surfaces.
-- Next action: remove state drift from the front of the current debug tree; only reopen if a fresh parity snapshot shows divergence again.
-
-Evidence log
-- Commands run: authenticated `curl` comparisons against local `http://localhost:8090/api` and staging `https://staging.klaroha.com/api` for `/workspace`, `/brands`, `/workspace/documents`, `/objectives`
-- Files changed: `DEPLOY_COORDINATION.md`
-- Expected SHA / version: n/a
-- Observed API output: identical summary snapshot across tested parity endpoints (workspace name, brand list, document counts, objective counts)
-- Observed uptime_seconds: local ~1739s; staging ~4529s from earlier health check
-- Pass/fail: falsified
-- Notes: this falsifies the **current active branch**, not the historical fact that state drift caused `INC-005`.
-
-## H5 — Provider / plugin / social-connection readiness drift is still an active cause branch `[DEPLOY.md: C8]`
-- Status: falsified
-- Owner: ai
-- Claim: localhost and staging can still differ because provider keys, plugin vars, OAuth connections, or token refresh state differ across environments.
-- Why this shrinks the root-cause list: if falsified, connector-readiness drift stops consuming time in future triage for the current issue.
-- Files / systems involved:
-  - `/providers`
-  - `/plugins`
-  - `/social/connections`
-  - brand-scoped connector readiness
-- Test:
-  1. Compare localhost vs staging connector/provider/plugin readiness for the affected brand and capability.
-  2. Reproduce the affected workflow only after that readiness snapshot is captured.
-- Expected result if true: readiness differs and plausibly explains the behavior drift.
-- Expected result if false: readiness is materially the same, so this branch can be deprioritized.
-- Actual result: localhost and staging matched on the tested readiness surfaces: providers count `4` with the same provider states (`gemini` disconnected, `nvidia` connected api_key, `openai` connected oauth, `openrouter` disconnected), plugins count `16`, social connections count `7`, and identical social-connection platform distribution (`facebook:1`, `gmail:2`, `google_calendar:1`, `google_drive:2`, `youtube:1`).
-- Conclusion: falsified for the current environment snapshot. Provider/plugin/social readiness drift is not an active cause branch **right now** on the tested surfaces.
-- Next action: deprioritize connector-readiness drift for the current localhost-vs-staging issue unless a brand/capability-specific repro points at a deeper token-refresh or plugin-internal difference not visible in these readiness endpoints.
-
-Evidence log
-- Commands run: authenticated `curl` comparisons against local `http://localhost:8090/api` and staging `https://staging.klaroha.com/api` for `/providers`, `/plugins`, `/social/connections`
-- Files changed: `DEPLOY_COORDINATION.md`
-- Expected SHA / version: n/a
-- Observed API output: identical provider/plugin/social summary snapshot across tested endpoints
-- Observed uptime_seconds: local ~1739s; staging ~4529s from earlier health check
-- Pass/fail: falsified
-- Notes: this falsifies the **current active branch**, not the general possibility of future readiness drift.
-
----
-
-# Track O — Observability / Verification Upgrades
-
-These improve future debugging and operator confidence. They are not current root-cause hypotheses.
-
-## O1 — Add `git_sha` to health endpoint / deploy verification `[DEPLOY.md: C13, C16]`
-- Status: done
-- Owner: pi debugger
-- Goal: expose the exact deployed git SHA from the running API and use it in verification tooling.
-- Why it matters: current `version: 0.1.0` is static and cannot distinguish deployed code versions.
-- Files / systems involved:
-  - `api/config.py`
-  - `api/routers/health.py`
-  - `api/main.py`
-  - `api/Dockerfile`
-  - `.github/workflows/ci.yml`
-  - `check-staging.sh`
-  - `DEPLOY.md`
-- Validation / completion check:
-  1. `GET /api/` returns `git_sha`
-  2. CI passes build arg `${{ github.sha }}`
-  3. `check-staging.sh` prints/verifies it
-- Actual result: `git_sha` is now a `Settings` field sourced from `GIT_SHA`, exposed by `GET /api/`, baked into the API image through Docker `ARG/ENV`, passed by CI as `GIT_SHA=${{ github.sha }}`, and checked by `check-staging.sh` against `DEPLOY_SHA` when present.
-- Next action: deploy to staging after normal review; `check-staging.sh` will fail on SHA mismatch when `DEPLOY_SHA` is supplied and will at least require `git_sha` presence when no expected SHA is supplied.
-
-Evidence log
-- Commands run:
-  - `curl -s http://127.0.0.1:8000/` after reload
-  - `bash -n check-staging.sh && bash -n deploy-staging.sh`
-  - `cd api && GIT_SHA=unit-test-sha python3 - <<'PY' ... Settings().git_sha ... PY`
-  - `docker build -t bos-api:gitsha-test --build-arg GIT_SHA=build-test-sha ./api`
-  - `docker inspect bos-api:gitsha-test --format '{{range .Config.Env}}{{println .}}{{end}}' | grep '^GIT_SHA='`
-  - parser check against sample health JSON for `check-staging.sh` git_sha/uptime extraction
-  - `python3` YAML parse of `.github/workflows/ci.yml` to verify `build-args`
-  - `docker rmi bos-api:gitsha-test`
-- Files changed: `api/config.py`, `api/routers/health.py`, `api/Dockerfile`, `.github/workflows/ci.yml`, `check-staging.sh`, `DEPLOY_COORDINATION.md`
-- Expected SHA / version: local default `dev`; env override `unit-test-sha`; Docker build arg `build-test-sha`; CI build arg `${{ github.sha }}`
-- Observed API output: `{"status":"ok","version":"0.1.0","git_sha":"dev","db":"ok","uptime_seconds":151.1}`
-- Observed uptime_seconds: 151.1 in the final local health check
-- Pass/fail: pass
-- Notes: full public staging verification still requires a deploy; local/runtime/build-script validations passed. Test image was removed after validation.
-
-## O2 — Surface `uptime_seconds` clearly in deploy tooling `[DEPLOY.md: C17]`
-- Status: done
-- Owner: ai
-- Goal: make restart freshness visible immediately after deploy and during checks.
-- Why it matters: right now `uptime_seconds` exists but is not surfaced clearly enough to act as a reliable operator cue.
-- Files / systems involved:
-  - `deploy-staging.sh`
-  - `check-staging.sh`
-  - `DEPLOY.md`
-- Validation / completion check:
-  1. `check-staging.sh` highlights uptime prominently — already done in O1 (`HEALTH_SUMMARY` line includes `uptime=Xs git_sha=...`)
-  2. `deploy-staging.sh` prints post-deploy uptime as a final confirmation line — done in this session
-- Actual result: `deploy-staging.sh` now fetches `/api/` immediately after smoke tests complete and prints a banner with `image`, `git_sha`, and `uptime_seconds`. Parsing logic validated against live local API (`http://localhost:8090/api/`) — output `uptime: 719.7s git_sha: dev`. Script syntax check passes.
-- Next action: none — item complete. Uptime freshness is now visible at both check time (O1) and end-of-deploy (this item).
-
-Evidence log
-- Commands run: `bash -n deploy-staging.sh` (syntax OK); live API parse test against `localhost:8090/api/`
-- Files changed: `deploy-staging.sh`
-- Expected SHA / version: local `git_sha=dev`; staging will show actual commit SHA after next CI build
-- Observed API output: `{"status":"ok","version":"0.1.0","git_sha":"dev","db":"ok","uptime_seconds":719.7}`
-- Observed uptime_seconds: 719.7s (local)
-- Pass/fail: pass
-- Notes: banner uses `http://127.0.0.1:8091/api/` (staging port); local test used `localhost:8090`. Logic is identical.
-
----
-
-# Track D — Docs / Protocol / Governance
-
-These reduce coordination errors. They are not root-cause hypotheses.
-
-## D1 — Agent protocol: push does not equal staging updated
 - Status: open
-- Owner: unassigned
-- Goal: make the AI/operator protocol explicit so future sessions do not misreport staging status.
-- Why it matters: repeated coordination mistakes compound technical debugging time.
-- Files / systems involved:
-  - `CLAUDE.md`
-  - `DEPLOY.md`
-  - `DEPLOY_COORDINATION.md`
-- Validation / completion check:
-  1. docs explicitly state push alone does not update staging
-  2. docs require verification by `git_sha` + `uptime_seconds` once O1/O2 ship
-  3. no nearby wording implies push auto-updates staging
-- Actual result:
-- Next action:
-
-Evidence log
-- Commands run:
-- Files changed:
-- Pass/fail:
-- Notes:
-
-## D2 — Human decision: define the gate before any future auto-deploy to staging
-- Status: open
-- Owner: human decision required
-- Goal: define the promotion criteria that would gate any future automated staging deploy.
-- Why it matters: re-enabling automatic deploy without an explicit gate risks repeating the 2026-06-01 unfinished-feature problem.
-- Files / systems involved:
-  - `.github/workflows/ci.yml`
-  - `DEPLOY.md`
-  - `CLAUDE.md`
-- Validation / completion check:
-  1. one gating model is chosen
-  2. docs reflect that decision
-  3. CI/policy follow the chosen model
-- Options:
-  1. protected branch + required PR checks
-  2. manual approval step in CI
-  3. label-based gate
-  4. another explicitly approved staging gate
-- Actual result:
-- Next action:
-
-Evidence log
-- Commands run:
-- Files changed:
-- Pass/fail:
-- Notes:
-
----
-
-# Track B — First Org Deploy Foundation
-
-These are productization items after the current staging parity root-cause tree is under control.
-
-## B1 — Relay architecture decision
-- Status: open
-- Owner: unassigned
-- Goal: confirm the canonical relay design for zero-setup OAuth.
-- Why it matters: first-org deploy cannot be click-to-deploy if each org must create its own cloud OAuth apps first.
-- Files / systems involved:
-  - `PROJECT_BRIEF.md`
-  - `BACKLOG.md`
-  - `DEPLOY.md`
-  - `api/provider_auth.py`
-- Validation / completion check:
-  1. one relay design decision is recorded
-  2. unresolved design choices are closed or explicitly deferred
-- Actual result:
-- Next action:
-
-Evidence log
-- Commands run:
-- Files changed:
-- Pass/fail:
-- Notes:
-
-## B2 — First-boot init behavior
-- Status: open
-- Owner: unassigned
-- Goal: turn `docker compose up` into a real first install instead of a manual ops exercise.
-- Why it matters: no per-org SSH and zero-touch deploy are explicit scale rules.
-- Files / systems involved:
+- Owner: `[claude-code]`
+- Goal: on a fresh server with only `KLAROHA_DEPLOYMENT_KEY` + `FRONTEND_URL` set, `docker compose up` produces a working BOS instance — no SSH, no manual env editing, no post-boot shell commands.
+- Why this is Priority 1: every staging incident requiring manual SSH (INC-004, INC-005, INC-006, C10, C11) would not have occurred if this existed. We are manually compensating for its absence in every recovery session.
+- Completion check:
+  1. Fresh server, only `KLAROHA_DEPLOYMENT_KEY` + `FRONTEND_URL` in env
+  2. `docker compose up` — no errors
+  3. `GET /api/` returns `{ "first_boot_complete": true, "migration_status": "head", "env_valid": true, "git_sha": "<sha>" }`
+  4. Admin login works — default credentials or setup prompt
+  5. No SSH required at any point
+- Files involved:
+  - `api/main.py` — startup hook
+  - `api/config.py` — env validation, secret generation
+  - `api/migrations/` — must run automatically
   - `docker-compose.yml`
-  - API startup / entrypoint files
-  - `DEPLOY.md`
   - `.env.example`
-- Validation / completion check:
-  1. first-boot secret generation path defined
-  2. migration/bootstrap behavior defined
-  3. operator-visible first-login flow defined
+- Sub-items (ref DEPLOY_TODO F1-1 through F1-6):
+  - Auto-generate `API_SECRET_KEY` (persistent volume, not env)
+  - Auto-generate `ENCRYPTION_KEY` as valid Fernet key (`base64.urlsafe_b64encode(secrets.token_bytes(32))`)
+  - Auto-run `alembic upgrade head` at startup
+  - Bootstrap default workspace row if empty
+  - Startup validation: refuse to start if critical vars missing or malformed
+  - Expose `first_boot_complete`, `migration_status`, `env_valid` in `GET /api/`
 - Actual result:
 - Next action:
 
 Evidence log
 - Commands run:
-- Files changed:
-- Pass/fail:
+- Observed behavior:
 - Notes:
 
-## B3 — Minimal `.env` target
+---
+
+## F2 — Operator self-diagnosis: no SSH required to understand what's wrong
+
+- Status: in_progress
+- Owner: `[claude-code]`
+- Goal: an org admin with no CLI access can determine what is wrong with their deployment from the admin panel or a single curl.
+- Completion check: `GET /api/` returns enough information to diagnose any deployment issue; in-app admin panel shows the same information visually.
+- Files involved: `api/routers/health.py`, `api/config.py`, `web/src/` (admin panel)
+- Sub-items (ref DEPLOY_TODO F2-1 through F2-3):
+  - ~~`git_sha` in health endpoint~~ — done 2026-06-02
+  - In-app admin diagnostic panel (version, migration, env completeness, provider health)
+  - Rollback procedure — documented one-command revert, no data loss
+- Actual result: `git_sha` done. In-app panel and rollback doc still open.
+- Next action: in-app admin diagnostic panel (F2-2)
+
+Evidence log
+- Commands run:
+- Observed behavior: `GET /api/` now returns `git_sha` + `uptime_seconds`
+- Notes:
+
+---
+
+## F3 — OAuth relay: zero-setup for Google + Meta integrations
+
 - Status: open
-- Owner: unassigned
-- Goal: reduce required install-time env vars to the smallest deployable set.
-- Why it matters: a long env checklist is incompatible with fast org deployment at scale.
-- Files / systems involved:
-  - `.env.example`
-  - `PROJECT_BRIEF.md`
-  - `BACKLOG.md`
-  - `DEPLOY.md`
-- Validation / completion check:
-  1. required-now vars audited
-  2. elimination target documented
-  3. optional vars clearly labeled
+- Owner: `[decision]` → `[claude-code]`
+- Goal: a new org gets full Google and Meta OAuth without creating a Google Cloud project or Meta developer app.
+- Why this matters: without the relay, every org needs manual OAuth setup. That's incompatible with any self-service deployment model.
+- Completion check: a fresh org deployment connects Gmail, Google Calendar, and Meta from the admin panel with no external app registration.
+- Files involved: `api/provider_auth.py`, new relay service
+- Blocked by: relay architecture design decision
 - Actual result:
-- Next action:
+- Next action: design decision on relay architecture (signed token handoff vs. proxy model)
 
 Evidence log
-- Commands run:
-- Files changed:
-- Pass/fail:
-- Notes:
+- Notes: DEPLOY.md Build Order #1 — relay is the dependency for zero-setup deploys.
 
-## B4 — Setup wizard path to first CMO message
+---
+
+## F4 — Minimal env: two vars to deploy
+
 - Status: open
-- Owner: unassigned
-- Goal: define and implement the shortest path from first login to useful CMO operation.
-- Why it matters: the product promise is fast operational clarity, not admin setup burden.
-- Files / systems involved:
-  - `PROJECT_BRIEF.md`
-  - `BACKLOG.md`
-  - frontend onboarding/admin files
-- Validation / completion check:
-  1. target path is agreed
-  2. current gaps are identified
-  3. implementation order is defined
+- Owner: `[claude-code]`
+- Goal: operators set `KLAROHA_DEPLOYMENT_KEY` and `FRONTEND_URL`. Everything else is auto-generated or relay-provided.
+- Completion check: `.env.example` has exactly 2 required vars at deploy time; all others have auto-generated or relay defaults.
+- Files involved: `.env.example`, `api/config.py`, first-boot init (F1 dependency)
+- Blocked by: F1 (secrets must be auto-generated first), F3 (OAuth credentials must come from relay)
 - Actual result:
-- Next action:
+- Next action: audit `.env.example` — classify every var as auto/relay/required
 
 Evidence log
-- Commands run:
-- Files changed:
-- Pass/fail:
 - Notes:
 
-## B5 — Distribution/install flow
+---
+
+## F5 — Deployment key system
+
 - Status: open
-- Owner: unassigned
-- Goal: define the real install surface for first-org deploy.
-- Why it matters: distribution is part of deploy design, not an afterthought.
-- Files / systems involved:
-  - `DEPLOY.md`
-  - `PROJECT_BRIEF.md`
-  - `BACKLOG.md`
-  - install/bootstrap scripts (future)
-- Validation / completion check:
-  1. target install experience is clear
-  2. prerequisites for installer are explicit
-  3. build order is documented
+- Owner: `[claude-code]`
+- Goal: each org receives a `KLAROHA_DEPLOYMENT_KEY` at purchase; this key gates relay access and enables usage metering.
+- Completion check: relay rejects requests without a valid deployment key; key is issued and validated without manual Klaroha intervention.
+- Blocked by: F3 (relay must exist first)
 - Actual result:
-- Next action:
+- Next action: design key issuance and validation mechanism
 
 Evidence log
-- Commands run:
-- Files changed:
-- Pass/fail:
 - Notes:
+
+---
+
+## F6 — Installer + setup wizard
+
+- Status: open
+- Owner: `[claude-code]`
+- Goal: `curl install.klaroha.com | bash` produces a working BOS instance; first login reaches CMO-operational state with no additional documentation.
+- Completion check: a non-technical operator follows the install script, completes the setup wizard, and sends their first CMO message — no Klaroha support.
+- Blocked by: F1, F3, F4, F5
+- Sub-items: one-command installer; setup wizard (org name → brand brief → CMO open)
+- Actual result:
+- Next action: after F1-F5 are complete
+
+Evidence log
+- Notes:
+
+---
+
+# Track I — Internal Ops (Klaroha Staging Only)
+
+> These exist because F1 doesn't exist yet. We are manually compensating for the absence of first-boot init.
+> Do not let these block Track F. Each one becomes irrelevant once the corresponding product feature ships.
+
+## I1 — Fix `STAGING_ENV_FILE` GitHub secret
+
+- Status: open
+- Owner: `[human]`
+- Goal: add the 6 missing staging-only vars so the next CI deploy doesn't overwrite `.env.staging` with broken values.
+- Required values to add: `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`, `ENV_FILE=.env.staging`
+- Becomes irrelevant when: F1 ships — each org's env is self-managed, no GitHub secret needed
+- Actual result:
+- Next action: human updates GitHub Actions secret
+
+---
+
+## I2 — CI staging gate decision
+
+- Status: open
+- Owner: `[decision]`
+- Goal: decide what gate prevents unfinished features from auto-deploying to staging.klaroha.com.
+- Options: protected branch + PR checks / manual CI approval / staging-ready label
+- Becomes irrelevant when: F1 + F3 make staging a real org deployment; the gate becomes part of the product release process, not internal ops.
+- Actual result:
+- Next action: human decision
+
+---
+
+## I3 — Agent Deploy Protocol in CLAUDE.md
+
+- Status: open
+- Owner: `[claude-code]`
+- Goal: document that push ≠ deploy and that `git_sha` + `uptime_seconds` are the verification signals.
+- Becomes irrelevant when: F1-6 + F2-2 make verification automatic — health endpoint tells you everything.
+- Actual result:
+- Next action: write the protocol section
+
+---
+
+# Validated / Falsified / Done
+
+| Item | Result | Date |
+|---|---|---|
+| H2 — push to staging does not auto-deploy | **falsified** — CI `deploy-staging` job is active | 2026-06-02 |
+| H3 — stale browser brand state causing drift | **falsified** + fixed — `Layout.tsx` evicts stale localStorage brand_id | 2026-06-02 |
+| C4 — smoke-local.sh tests GHCR, not local code | **validated** — correct by design | 2026-06-02 |
+| C5a — manual deploy uses mutable `:staging` tag | **validated** — script inspection confirmed | 2026-06-02 |
+| F2-1 — `git_sha` in health endpoint | **done** | 2026-06-02 |
+| O2 — `uptime_seconds` in deploy banner | **done** | 2026-06-02 |
