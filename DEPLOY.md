@@ -5,6 +5,31 @@
 
 ---
 
+## Scale Directive — Non-Negotiable
+
+BOS is built to deploy to **hundreds of organizations per day** and support **10,000+ concurrent org deployments** with minimal Klaroha operational overhead. This is not a future aspiration — it shapes every bug fix, solution, and architectural choice documented here today.
+
+### Principles
+
+| Principle | Implication for every bug fix and solution |
+|---|---|
+| **No per-org SSH** | Any fix that requires Klaroha to SSH into a customer's server is a product defect at scale. The fix is not done until it is automatable or operator-self-serviceable via a documented single command. |
+| **No Klaroha access to org data** | Debugging cannot rely on reading a customer's DB, container, or `.env`. Issues must be diagnosable from: in-app admin UI, the org's own logs, or deployment-key telemetry visible to the operator. |
+| **Zero-touch new org deploys** | A new org deploy must complete without Klaroha intervention. Any runbook step that says "Klaroha engineer must do X" must be converted into automated first-boot behavior before it ships. |
+| **Operator-resolvable issues** | When something breaks, the org admin must be able to resolve it through the admin panel or a single documented command — not a multi-step SSH session guided by Klaroha support. |
+| **Automated verification** | Any check that requires a human to run and interpret is a liability. Health, migration status, version fingerprint, and env validation must be machine-readable and auto-reported. |
+| **Isolated by default** | Each org has its own DB, keys, and container. Bugs in one org must not affect others. Fixes must never require cross-org operations. |
+
+### What this means for the incident log
+
+Every incident marked `CONFIRMED` that was resolved via manual SSH is a **product gap** — not a closed issue. Before marking such an incident resolved, add a corresponding automation task to `BACKLOG.md`. The manual fix is a one-time exception; the automated equivalent is the real fix.
+
+### What is not required now vs. must be right
+
+Not every item needs to be built today. The scale directive governs **direction** — each incremental solution must make the system more scalable, not less. A fix that introduces a new manual step or a new per-org secret to manage is moving in the wrong direction, even if it solves the immediate symptom.
+
+---
+
 ## Server Layout
 
 Both stacks run on the same VDS from `~/bos/` using one compose file with different env vars.
@@ -128,6 +153,7 @@ Internet → port 80 (bos-proxy-proxy-1, network_mode: host, nginx.host.conf)
 3. **Reload the host proxy after changing `nginx.host.conf`:** `docker compose -p bos-proxy exec proxy nginx -s reload`
 4. **`.env.staging` is gitignored.** After a port change, update it on the VDS server manually: `sed -i 's/NGINX_PORT=OLD/NGINX_PORT=NEW/' .env.staging`
 5. **`STAGING_ENV_FILE` must include all five staging host-port overrides explicitly.** Do not rely on compose defaults for staging. Required entries: `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`. If these are missing, staging falls back to production host ports (`5432/8000/5173/8090/3000`), `db/api/web/public/nginx` stay stuck in `Created`, and host nginx returns 502 because nothing binds `127.0.0.1:8091`.
+6. **`STAGING_ENV_FILE` must also set `ENV_FILE=.env.staging`.** The compose file uses `env_file: ${ENV_FILE:-.env}` for `api` and `relay`. Without `ENV_FILE=.env.staging`, compose interpolation may use `.env.staging` while the running containers silently read `/root/bos/.env`, causing cross-environment secret/config drift.
 
 ### History
 
@@ -146,6 +172,8 @@ Internet → port 80 (bos-proxy-proxy-1, network_mode: host, nginx.host.conf)
 > Closed causes stay in the list — mark status and move on.
 >
 > Goal: isolate root causes through controlled experiments and never violate the confirmed rules again.
+>
+> **Scale alignment:** Every confirmed cause that was resolved manually must have a corresponding BACKLOG item to automate it before it becomes a recurring support burden at 10K-org scale. Solutions that require Klaroha SSH access, per-org manual steps, or undocumented environment surgery are not acceptable long-term fixes.
 
 ---
 
@@ -447,17 +475,114 @@ PY
 
 ---
 
+#### C12 — The deploy gap: `git push` ≠ staging updated (STRUCTURAL — PRIMARY CAUSE)
+**Status:** `CONFIRMED STRUCTURAL (2026-06-02)`
+
+Pushing to the `staging` branch triggers the `build-and-push` CI job (new GHCR image built and tagged `sha-{SHA}` + `:staging`). It does **not** update `staging.klaroha.com`. The `deploy-staging` CI job is permanently disabled (2026-06-01). Staging only updates when `deploy-staging.sh` is run manually via SSH on the VDS. Every session where code is pushed without a subsequent manual deploy leaves staging running old code indefinitely.
+
+This is the structural root cause of 90%+ of "staging doesn't reflect my changes" reports.
+
+**Confirm:**
+```bash
+curl -s https://staging.klaroha.com/api/ | python3 -c "import json,sys; print(json.load(sys.stdin)['uptime_seconds'])"
+# If uptime > 600s after a push, deploy-staging.sh was not run
+```
+
+**Rule:** Treat push and deploy as completely separate operations. After any `git push origin staging`, `staging.klaroha.com` will not update until someone SSH's in and runs `deploy-staging.sh`. Never report staging as reflecting a change unless the deploy has been manually confirmed.
+
+**Scale alignment:** At 100s of org deployments/day, the equivalent gap is a new org pressing "Install" and getting an old version. The fix is restoring automated deployment with a proper staging gate (protected branch rules, required status checks) rather than re-disabling CI.
+
+---
+
+#### C13 — Static version string: code version is unverifiable from outside the container
+**Status:** `CONFIRMED — VERIFICATION GAP (2026-06-02)`
+
+`config.py` hardcodes `app_version = "0.1.0"`. `GET /api/` returns this same string regardless of which git commit is actually running. Two containers on completely different commits return identical responses except for `uptime_seconds`. Agents and operators have no programmatic way to confirm which code is deployed.
+
+`check-staging.sh` passes 13/13 on a staging stack running code from weeks ago. None of the 13 checks test code version.
+
+**Confirm:**
+```bash
+curl -s https://staging.klaroha.com/api/ | jq '{version, uptime_seconds}'
+# version is always "0.1.0" — meaningless for freshness check
+```
+
+**Fix pattern (required for scale):** Bake `GIT_SHA` into the Docker image at build time via build arg (`ARG GIT_SHA=dev` in Dockerfile, `--build-arg GIT_SHA=${{ github.sha }}` in `build-and-push` CI step). Expose as `git_sha` field in `GET /api/` response. At 10K orgs, support must be able to ask an org "what does `GET /api/` return?" and get a definitive answer about which version is running.
+
+---
+
+#### C14 — Uvicorn hot-reload silently dies; localhost runs stale code
+**Status:** `HYPOTHESIS — OPEN (2026-06-02)`
+
+Uvicorn `--reload` (watchfiles) monitors `.py` files. When a syntax error is introduced, the reload fails silently — the container keeps responding to HTTP using the last successfully-loaded code version. No browser error, no container crash, no alert. The API returns HTTP 200 while running old code.
+
+New directories added to `api/capabilities/` after container start may also not be auto-detected if watchfiles has already enumerated the file tree at startup.
+
+**Confirm:**
+```bash
+docker compose logs api --tail=50 | grep -E "Reload|reload|error|Error|Traceback|WARNING"
+# "WatchFiles detected changes" present = reload fired
+# Absence = reload silently failed or never fired
+```
+
+**Rule:** After adding new directories or suspecting a reload failure, `docker compose restart api` for a guaranteed clean module load.
+
+**Scale alignment:** At org scale, this becomes a first-boot reliability issue — the operator's first deploy must load all modules correctly, without a silent failure requiring a restart that no documentation mentions.
+
+---
+
+#### C15 — Frontend web/ changes require manual container rebuild; neither env applies them automatically
+**Status:** `CONFIRMED STRUCTURAL (2026-06-02)`
+
+`web/` is a static Vite build baked into a Docker image at build time. There is no HMR through Docker to the host. Any change to `web/src/**` on localhost requires:
+```bash
+docker compose build web && docker compose up -d web
+```
+
+The API hot-reloads (Python watchfiles via volume mount). The frontend does not. Developers and agents assume all changes are instant because the API is instant, make frontend edits, see no change, and diagnose the wrong layer.
+
+On staging: `deploy-staging.sh` uses `--no-build` and pulls pre-built GHCR images. If the `build-and-push` CI job has not completed when a manual deploy runs, staging pulls the old `:staging` image.
+
+**Rule:** Any change to `web/` must be followed by the rebuild command on localhost. On staging, confirm CI `build-and-push` completed before running `deploy-staging.sh`.
+
+---
+
+#### C16 — `check-staging.sh` confirms availability, not code version — false positive for agents
+**Status:** `CONFIRMED STRUCTURAL (2026-06-02)`
+
+13/13 from `check-staging.sh` means: ports listening, HTTP 200, API health ok, auth boundary correct, DB connected, capabilities ≥ 20, migrations at head. It does **not** mean new code is running. A staging stack running month-old code passes all 13 checks. Agents interpret green checks as deployment confirmation. It is only availability confirmation.
+
+**Fix pattern (required for scale):** Add a 14th check: print `git_sha` from the health endpoint and compare against the expected commit. Until `git_sha` is in the health endpoint (C13 fix), add an explicit `uptime_seconds` check that warns if staging has been up > 5 minutes after a deploy (indicating containers did not restart).
+
+**Scale alignment:** At 10K orgs, Klaroha support cannot SSH into each org to verify version. The health endpoint must be the self-service diagnostic tool. It must carry enough information for an org admin to resolve their own version mismatch.
+
+---
+
+#### C17 — `uptime_seconds` is the only deploy freshness signal, and nothing surfaces it automatically
+**Status:** `CONFIRMED STRUCTURAL (2026-06-02)`
+
+After `deploy-staging.sh`, the API container restarts and `uptime_seconds` resets to near-zero. This is the only currently-available indicator that a fresh deploy happened. It is not in `check-staging.sh` output. It is not in any deploy success message. It is buried as a manual check command in `DEPLOY.md`. Agents and developers have no prompted workflow that checks it.
+
+**Fix pattern:** `check-staging.sh` should print `uptime_seconds` prominently after every run. `deploy-staging.sh` should print the post-deploy uptime from the health endpoint as a final confirmation line.
+
+**Scale alignment:** At org scale, post-deploy verification must be automated and visible. An operator who deploys and gets no confirmation signal will open a support ticket. The deploy script must be self-verifying.
+
+---
+
 ### Process of Elimination
 
 When a feature breaks after a staging deploy, work through in this order:
 
-1. **C6** — check VDS API uptime first. If uptime is hours/days old despite recent CI runs, the CI deploy isn't reaching the containers. `curl https://staging.klaroha.com/api/ | python3 -c "import json,sys; print(json.load(sys.stdin)['uptime_seconds'])"` — anything over 10 minutes after a CI run is suspicious.
-2. **C1** — `git diff origin/staging -- api/` — 5 seconds, rules out the most common cause.
-3. **C3** — is this a pre-deploy run or a new generation? Pre-deploy video = check Drive connectivity + `drive_file_id` in DB.
-4. **C4** — diff local `.env` against `.env.example` for keys the capability uses.
-5. **C2** — only if the render itself fails (not just serving). Compare ffmpeg versions between containers.
-6. **C5** — only if you see import errors or missing file errors in API logs.
-7. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
+1. **C12** — Was `deploy-staging.sh` actually run on the VDS after the last push? Check uptime: `curl -s https://staging.klaroha.com/api/ | python3 -c "import json,sys; print(json.load(sys.stdin)['uptime_seconds'])"`. If > 600s after a push, the deploy never ran. This is the primary cause — check it first.
+2. **C6** — If deploys are running but uptime stays high, CI is failing to reach the containers. See C6 for the three compounding bugs.
+3. **C1** — `git diff origin/staging -- api/` — uncommitted local edits were not deployed.
+4. **C15** — Did the change touch `web/`? Frontend requires manual `docker compose build web && docker compose up -d web`; it does not hot-reload.
+5. **C14** — API returning old responses despite a restart? Check `docker compose logs api` for reload failures.
+6. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
+7. **C4** — diff local `.env` against `.env.example` for keys the capability uses.
+8. **C2** — only if the render itself fails (not just serving). Compare ffmpeg versions between containers.
+9. **C5** — only if you see import errors or missing file errors in API logs.
+10. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
 
 ### Behavior Parity Checklist — deploy is green, output still differs
 
@@ -549,14 +674,28 @@ Three failure modes discovered manually during early staging setup:
 - **Current next step:** re-test through the browser/UI. If staging still behaves differently there, investigate only C9 (stale browser-held brand/session state) before assuming new backend drift.
 - **Notes:** `INC-004` required manual workspace bootstrap and a fresh login key. That recovery got the stack healthy, but it did not restore behavior parity data.
 
+#### INC-006 — 2026-06-01 — Push-triggered staging deploy rewrote `.env.staging`, dropped port overrides/`ENV_FILE`, and caused 502
+
+- **Cause confirmed:** stale `STAGING_ENV_FILE` secret + active push-triggered `deploy-staging` workflow rewrote `/root/bos/.env.staging` with missing staging-only keys.
+- **Symptom:** Minutes after pushing commit `247580d`, `staging.klaroha.com` returned Cloudflare 502 again. Host nginx stayed healthy, but only `staging-redis-1` and `staging-relay-1` were up. `staging-db-1`, `staging-api-1`, `staging-web-1`, `staging-public-1`, and `staging-nginx-1` sat in `Created` because they tried to bind production host ports (`5432/8000/5173/8090/3000`).
+- **Confirmed by:** Direct VDS inspection showed current `.env.staging` had lost `DB_PORT`, `API_PORT`, `WEB_PORT`, `NGINX_PORT`, `PUBLIC_PORT`, and `ENV_FILE`. Container state errors included `Bind for 0.0.0.0:5432 failed: port is already allocated` and `Bind for :::8000 failed: port is already allocated`. Backup copies of `.env.staging` from the earlier repair still contained the correct staging values.
+- **Resolved by:** restored the missing port overrides + `ENV_FILE=.env.staging` to `/root/bos/.env.staging`, re-ran secret re-encryption against the current staging Fernet key, then ran `bash deploy-staging.sh` manually. `check-staging.sh` returned 13/13 pass and brand-scoped `/chat` worked again.
+- **Prevention:** update GitHub secret `STAGING_ENV_FILE` to include `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`, and `ENV_FILE=.env.staging`. Until the secret is fixed, any push-triggered staging deploy can re-break the stack.
+- **Success criteria note:** this incident means the real deploy-parity success criteria is **not yet satisfied**. Manual VDS repair proves the stack can be recovered, but it does **not** prove localhost → commit → push → deploy is reliable. Success is only achieved after `STAGING_ENV_FILE` is corrected in GitHub Secrets and a subsequent small commit/push/deploy reaches `staging.klaroha.com` with **no manual post-deploy intervention**.
+
 ---
 
 ## Open Items
 
 - [x] Add `name:` field to the compose file so project name is explicit and never inferred — `name: bos` is in `docker-compose.yml`
 - [x] Write a `deploy.sh` script wrapping the full staging deploy sequence — `deploy-staging.sh` (env-fill → git reset → image pull → up → migrations → `check-staging.sh` smoke tests)
+- [ ] Update GitHub secret `STAGING_ENV_FILE` so it includes `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`, and `ENV_FILE=.env.staging`
+- [ ] After the secret is updated, prove the real success criteria with one tiny localhost change → commit → push → deploy → `staging.klaroha.com` healthy **without** manual server repair
 - [ ] Set `git config pull.rebase false` (or `--ff-only`) on the server so `git pull` doesn't fail on divergence
 - [x] GitHub secrets: `VDS_HOST`, `VDS_USER`, `VDS_DEPLOY_KEY`, `STAGING_PATH`, `PROD_PATH`, `GHCR_TOKEN`, `STAGING_ENV_FILE` — all wired in `ci.yml`
+- [ ] **C13 fix (scale-required):** Bake git SHA into Docker image at CI build time (`ARG GIT_SHA`, `--build-arg GIT_SHA=${{ github.sha }}`); expose as `git_sha` in `GET /api/` response; add as 14th `check-staging.sh` verification. Required before reaching 10 active customer orgs.
+- [ ] **C17 fix:** `deploy-staging.sh` must print `uptime_seconds` from the health endpoint as a final confirmation line after every deploy. `check-staging.sh` must print `uptime_seconds` prominently.
+- [ ] **Agent protocol (CLAUDE.md):** Add explicit section documenting that `git push origin staging` does NOT update staging.klaroha.com and that agents must never report staging as reflecting a change without verifying `git_sha` + `uptime_seconds`.
 
 ---
 
@@ -567,7 +706,7 @@ Three failure modes discovered manually during early staging setup:
 | # | Standard | Status | Core Idea |
 |---|---|---|---|
 | 1 | **Build once, deploy the artifact** | `[x]` | CI builds GHCR images tagged `sha-<commit>` and `:staging`. VDS pulls the exact SHA image — no rebuild per environment. `--no-build --force-recreate` on `docker compose up`. Eliminates C1, C3, and C6 at the architectural level. |
-| 2 | **Config injection, not per-env config files** | `[x]` | `STAGING_ENV_FILE` GitHub Actions secret is the single source of truth. CI overwrites `.env.staging` on **every** deploy (not just first boot) — manual edits on the VDS are wiped on the next push. `.env.staging` is gitignored and never in source. `deploy-staging.sh` auto-fills any keys missing from the secret using `.env.example` defaults as a safety net. Critical exception: staging-only host-port overrides are **not** in `.env.example` and therefore must be present in `STAGING_ENV_FILE` explicitly: `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`. |
+| 2 | **Config injection, not per-env config files** | `[x]` | `STAGING_ENV_FILE` GitHub Actions secret is the single source of truth. CI overwrites `.env.staging` on **every** deploy (not just first boot) — manual edits on the VDS are wiped on the next push. `.env.staging` is gitignored and never in source. `deploy-staging.sh` auto-fills any keys missing from the secret using `.env.example` defaults as a safety net. Critical exceptions that are **not** in `.env.example` and therefore must be present in `STAGING_ENV_FILE` explicitly: `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`, and `ENV_FILE=.env.staging`. |
 | 3 | **GitOps — git is the only source of truth** | `[ ]` | What is in the branch is what is running. Tools like ArgoCD or Flux continuously reconcile running state against git. Manual server edits are impossible by design. Drift is detected and corrected automatically. |
 | 4 | **Immutable infrastructure** | `[x]` | `smoke-local.sh` pulls the GHCR `:staging` image and runs it locally on port 8092 with no volume mounts and no `docker-compose.override.yml`. Uncommitted local edits are invisible to the image — the test reveals the gap before the push. Closes C1 structurally as a pre-push gate. |
 | 5 | **Ephemeral preview environments** | `[ ]` | Every PR gets its own isolated environment spun up automatically. Test against the actual deployed artifact before merging. Eliminates localhost-as-staging entirely. |
@@ -578,6 +717,10 @@ Three failure modes discovered manually during early staging setup:
 | 10 | **Local dev mirrors production runtime** | `[x]` | devcontainers or Tilt/Skaffold. The developer's local environment IS the production container, not a volume-mounted lookalike. Eliminates the "uncommitted file visible via volume mount" class entirely. |
 
 > #1, #2, #4, #7, #8, #9, #10 done. Remaining: #3 (GitOps), #5 (ephemeral preview envs), #6 (IaC) — lower leverage, defer until distribution scale warrants it.
+>
+> **Scale directive note:** #3 (GitOps) and #5 (ephemeral previews) become required when daily deployment volume exceeds human-reviewable capacity. At 100+ org deploys/day, manual SSH recovery (as seen in INC-003 through INC-006) is not operationally viable. Target: #3 implemented before reaching 50 active customer orgs. #11 below is newly required at scale.
+
+| 11 | **Deployed version fingerprinting** | `[ ]` | Every running container must expose the exact git commit SHA it was built from (via build arg baked into image at CI build time, surfaced in `GET /api/`). Operators, support, and automated checks can then confirm exactly which version is running without SSH access. Required for operator self-service diagnostics at 10K org scale. Closes C13, C16, C17. |
 
 ---
 
@@ -587,7 +730,9 @@ Three failure modes discovered manually during early staging setup:
 
 BOS is packaged software that organizations deploy on their own cloud infrastructure. It is **not** a multi-tenant SaaS. Klaroha is the software vendor and central services operator; organizations own their data and their cloud environment.
 
-**Active focus:** one clean end-to-end first-org deploy. Getting that journey right once is the template all future deployments clone.
+**Scale target:** hundreds of new org deployments per day; 10,000+ concurrent active deployments maintained with no per-org Klaroha intervention.
+
+**Active focus:** one clean end-to-end first-org deploy. Getting that journey right once is the template all future deployments clone. Every manual step eliminated from the first deploy is a step eliminated at 10K-org scale.
 
 ---
 

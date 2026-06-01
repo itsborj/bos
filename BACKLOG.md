@@ -1,6 +1,6 @@
 # BOS — Backlog
 
-**Last updated:** 2026-06-01
+**Last updated:** 2026-06-02
 **Active phase:** Phase 6 — Gate 2 Gmail-only objective loop
 ---
 ## How to Use This
@@ -1632,3 +1632,4 @@ CYCLE 2 — Intelligence to Optimization
 - [x] BUG: Restore staging state from localhost baseline after INC-004 recovery — staging deploy is healthy but DB state drift leaves `My Workspace` with 0 brands/objectives/provider_keys/social_connections, so media/chat behavior diverges from localhost. Restored local baseline rows into staging (`brands`, `products`, `audiences`, `workspace_documents`, `objectives`, `provider_keys`, `social_connections`, `calendar_pages`), preserved the staging workspace/API keys, cleared blank-workspace runs, and direct staging `/chat` re-tests now scope runs to `Mactan Group` / `MotorMoto` instead of `(workspace)`.
 - [x] BUG: `deploy-staging.sh` auto-generates an invalid `ENCRYPTION_KEY` format when `.env.staging` omits it — current code wrote `secrets.token_hex(32)`, but BOS expects a Fernet key (`base64url`, 44 chars). Fixed repo script to generate a Fernet-compatible key and replaced the recovered staging env key before restoring secret-backed rows.
 - [x] BUG: Staging `api`/`relay` services were loading `/root/bos/.env` instead of `.env.staging` because `docker-compose.yml` uses `env_file: ${ENV_FILE:-.env}` and the staging env/secret did not set `ENV_FILE=.env.staging`. Result: host ports/images came from `.env.staging`, but container secrets/config came from `.env`, causing silent cross-env drift (confirmed via `ENCRYPTION_KEY` hash mismatch). Fixed repo deploy script to export `ENV_FILE=.env.staging` and patched the live staging env before recreating `api`/`relay`.
+- [x] INCIDENT: staging.klaroha.com returned Cloudflare 502 again immediately after parity-fix deploy — root cause was a push-triggered staging deploy rewriting `/root/bos/.env.staging` from stale `STAGING_ENV_FILE` secret content that omitted `DB_PORT`, `API_PORT`, `WEB_PORT`, `NGINX_PORT`, `PUBLIC_PORT`, and `ENV_FILE=.env.staging`. Result: `staging-db/api/web/public/nginx` sat in `Created` trying to bind production ports while only `redis` + `relay` stayed up. Recovery: restore the six missing vars, re-encrypt restored secret rows against the current staging Fernet key, rerun `bash deploy-staging.sh`, confirm `check-staging.sh` 13/13 pass, and verify brand-scoped `/chat` works again. Follow-up: update the GitHub secret `STAGING_ENV_FILE` or any future push-triggered deploy can re-break staging.
