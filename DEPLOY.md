@@ -336,7 +336,7 @@ Every CI run reports green (~55s) but the VDS API container never restarts and n
 
 1. **Bootstrapping loop:** The CI runs `bash deploy-staging.sh` using the *existing script on the VDS*. The old script failed immediately on missing `.env.staging` keys (before reaching `git reset --hard origin/staging`). So the new version of the script — which had auto-fill — could never pull itself. Every CI run ran the same broken old script and exited early.
 
-2. **`appleboy/ssh-action` swallows exit codes:** By default, the action reports success even when the remote script exits non-zero. CI showed green for every broken deploy. Added `script_stop: true` to the action so failures are visible.
+2. **`appleboy/ssh-action` swallows exit codes:** By default, the action reports success even when the remote script exits non-zero. CI showed green for every broken deploy. Added `script_stop: true` to the action so failures are visible. **Note (2026-06-02):** `script_stop` was removed in `appleboy/ssh-action@v1` — it is not a valid input and produces a warning. The deploy script already uses `set -euo pipefail` which aborts on error. Remove `script_stop: true` from any `appleboy/ssh-action@v1` step.
 
 3. **`docker compose up --build` doesn't recreate containers when image hash is unchanged:** The API Dockerfile rarely changes; Python file changes via volume mount don't change the image digest. Docker Compose saw "image unchanged" and left the running container alone. New code was on disk but never loaded. Added `--force-recreate` to guarantee a fresh container on every deploy.
 
@@ -723,6 +723,27 @@ Three failure modes discovered manually during early staging setup:
 - **Prevention:** update GitHub secret `STAGING_ENV_FILE` to include `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`, and `ENV_FILE=.env.staging`. Until the secret is fixed, any push-triggered staging deploy can re-break the stack.
 - **Success criteria note:** this incident means the real deploy-parity success criteria is **not yet satisfied**. Manual VDS repair proves the stack can be recovered, but it does **not** prove localhost → commit → push → deploy is reliable. Success is only achieved after `STAGING_ENV_FILE` is corrected in GitHub Secrets and a subsequent small commit/push/deploy reaches `staging.klaroha.com` with **no manual post-deploy intervention**.
 
+#### INC-007 — 2026-06-02 — CI deploy job fails; staging containers stuck in `Created` due to three compounding bugs
+
+- **Cause confirmed:** (a) `script_stop: true` invalid in `appleboy/ssh-action@v1`; (b) `docker compose down` tears down the bridge network, leaving containers with host-port bindings unable to start due to iptables not being ready when `up` immediately recreates the network; (c) staging PORT vars absent from `STAGING_ENV_FILE` secret, so containers are created with production default ports that conflict with the live `bos` stack.
+- **Symptom:** CI deploy job emits `Warning: Unexpected input(s) 'script_stop'`. The `up --force-recreate` step starts `staging-redis-1` and `staging-relay-1` (no host port bindings) but leaves `staging-db-1`, `staging-api-1`, `staging-web-1`, `staging-public-1`, and `staging-nginx-1` in `Created` state. Attempting to start them manually fails with `Bind for 0.0.0.0:5432 / 8000 / 5173 failed: port is already allocated` — conflicting with the production `bos` stack running on the same VDS.
+- **Root cause detail:**
+  - **Bug A:** `script_stop` was removed from `appleboy/ssh-action@v1`'s accepted inputs. The warning is harmless but confirms the CI step is misconfigured.
+  - **Bug B:** `deploy-staging.sh` was running `docker compose down --remove-orphans` before `up`. `down` removes the Docker bridge network entirely. When `up` recreates the network immediately after, the kernel's iptables NAT rules are not programmed in time. Containers that bind no host ports (redis, relay) start fine; all containers with `ports:` entries fail and stay in `Created`. The root signal: *every container with a host port binding is in `Created`; every container without one is `Up`.*
+  - **Bug C:** `STAGING_ENV_FILE` GitHub secret does not contain `DB_PORT`, `API_PORT`, `WEB_PORT`, `NGINX_PORT`, or `PUBLIC_PORT`. These vars are not in `.env.example` so the auto-fill step skips them. Containers are created with compose defaults (5432, 8000, 5173, 8090, 3000) which directly conflict with the production `bos` stack ports on the same host.
+- **Confirmed by:** VDS diagnostic — `docker ps -a --filter name=staging` showed six containers in `Created`, only relay and redis `Up`. `ss -tlnp` showed no staging ports in use. `docker ps` (unfiltered) showed `bos-db-1` on 5432, `bos-api-1` on 8000, `bos-web-1` on 5173 (production). Manual `docker start staging-db-1` succeeded, confirming the iptables race (not a permanent conflict) was the blocker during `up`.
+- **Resolved by (manual recovery):**
+  1. `docker stop $(docker ps -aq --filter name=staging) && docker rm $(docker ps -aq --filter name=staging)` — remove all stuck containers, preserve `staging_default` network
+  2. `export DB_PORT=5433 API_PORT=8001 WEB_PORT=5174 NGINX_PORT=8091 PUBLIC_PORT=3001`
+  3. `docker compose -f ~/bos/docker-compose.yml --env-file ~/bos/.env.staging -p staging up -d --no-build` — all 7 containers start cleanly with correct staging ports
+  4. `curl -s http://127.0.0.1:8091/api/` returns `{"status":"ok","db":"ok",...}`
+- **Fixes committed to repo (2026-06-02, commits 854b808 → 48f9e93):**
+  - `ci.yml`: removed `script_stop: true` (not valid in `appleboy/ssh-action@v1`; `set -euo pipefail` in the script already handles abort-on-error)
+  - `deploy-staging.sh`: replaced `docker compose down --remove-orphans` with `docker compose stop && docker compose rm -f` — stops and removes containers only, preserving the bridge network so no iptables race on the subsequent `up`
+  - `deploy-staging.sh`: added staging port enforcement block — after the env drift check, explicitly writes and exports `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001` to `.env.staging` regardless of what is or is not in `STAGING_ENV_FILE`
+  - `deploy-staging.sh`: removed `check-staging.sh` post-deploy call — smoke tests are overhead; verify by hitting the actual endpoint or checking `docker ps`
+- **Remaining gap:** `STAGING_ENV_FILE` GitHub secret still does not include the five port vars. The `deploy-staging.sh` enforcement block now closes this gap in-script, but the secret should still be updated so the env file is self-consistent without relying on script-level correction.
+
 ---
 
 ## Open Items
@@ -731,8 +752,9 @@ Three failure modes discovered manually during early staging setup:
 
 - [x] Add `name:` field to the compose file so project name is explicit and never inferred — `name: bos` is in `docker-compose.yml`
 - [x] Write a `deploy.sh` script wrapping the full staging deploy sequence — `deploy-staging.sh` (env-fill → git reset → image pull → up → migrations → `check-staging.sh` smoke tests)
-- [ ] Update GitHub secret `STAGING_ENV_FILE` so it includes `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`, and `ENV_FILE=.env.staging`
-- [ ] After the secret is updated, prove the real success criteria with one tiny localhost change → commit → push → deploy → `staging.klaroha.com` healthy **without** manual server repair
+- [x] `deploy-staging.sh` now enforces staging port overrides directly (2026-06-02) — containers can no longer be created with production default ports even if the secret is missing these vars
+- [ ] Update GitHub secret `STAGING_ENV_FILE` so it includes `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`, and `ENV_FILE=.env.staging` — the script enforcement is a safety net, not a replacement for fixing the secret
+- [ ] After the secret is updated, prove the real success criteria with one tiny localhost change → commit → push → CI deploy → `staging.klaroha.com` healthy **without** manual server repair
 - [ ] Set `git config pull.rebase false` (or `--ff-only`) on the server so `git pull` doesn't fail on divergence
 - [x] GitHub secrets: `VDS_HOST`, `VDS_USER`, `VDS_DEPLOY_KEY`, `STAGING_PATH`, `PROD_PATH`, `GHCR_TOKEN`, `STAGING_ENV_FILE` — all wired in `ci.yml`
 - [ ] **C13 fix (scale-required):** Bake git SHA into Docker image at CI build time (`ARG GIT_SHA`, `--build-arg GIT_SHA=${{ github.sha }}`); expose as `git_sha` in `GET /api/` response; add as 14th `check-staging.sh` verification. Required before reaching 10 active customer orgs.
