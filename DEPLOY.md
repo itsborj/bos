@@ -127,6 +127,7 @@ Internet → port 80 (bos-proxy-proxy-1, network_mode: host, nginx.host.conf)
 2. **Any port change requires two file updates:** `.env.staging` (or `.env`) AND `nginx.host.conf`. Changing only one will break routing silently.
 3. **Reload the host proxy after changing `nginx.host.conf`:** `docker compose -p bos-proxy exec proxy nginx -s reload`
 4. **`.env.staging` is gitignored.** After a port change, update it on the VDS server manually: `sed -i 's/NGINX_PORT=OLD/NGINX_PORT=NEW/' .env.staging`
+5. **`STAGING_ENV_FILE` must include all five staging host-port overrides explicitly.** Do not rely on compose defaults for staging. Required entries: `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`. If these are missing, staging falls back to production host ports (`5432/8000/5173/8090/3000`), `db/api/web/public/nginx` stay stuck in `Created`, and host nginx returns 502 because nothing binds `127.0.0.1:8091`.
 
 ### History
 
@@ -304,6 +305,148 @@ curl https://staging.klaroha.com/api/ | python3 -c "import json,sys; print(json.
 
 ---
 
+#### C7 — Staging DB / brand / objective state differs from localhost
+**Status:** `CONFIRMED (2026-06-01)`
+
+The code and containers can be healthy while the two environments still behave differently because they do not share the same database state. This became the confirmed cause for the current localhost-vs-staging media drift after `INC-004`, because staging had been manually recovered and only minimally re-bootstrapped (`PUT /api/workspace/brand`, fresh auth key).
+
+**Typical symptoms:**
+- generic artifact titles / generic CMO confirmation text on staging
+- `SCOPE brand: My Workspace` on staging while localhost is using a real Brand like `Mactan Group`
+- wrong or missing active brand/objective on staging
+- localhost shows richer context, products, audiences, docs, and connector state than staging
+
+**Confirm:**
+```bash
+# Compare these between localhost and staging
+curl -s -H "X-API-Key: $KEY" "$BASE/workspace" | jq
+curl -s -H "X-API-Key: $KEY" "$BASE/brands" | jq
+curl -s -H "X-API-Key: $KEY" "$BASE/objectives/active?brand_id=<brand_id>" | jq
+curl -s -H "X-API-Key: $KEY" "$BASE/workspace/documents?brand_id=<brand_id>" | jq
+```
+
+**Confirmed findings (2026-06-01):**
+- **localhost:** workspace `BOS`; brands `Klaroha`, `Mactan Group`, `MotorMoto`; brand-scoped products/audiences/docs present; recent media runs stored under `Mactan Group`
+- **staging:** workspace `My Workspace`; **0 brands**; **0 objectives**; **0 social_connections**; **0 provider_keys**; recent media runs all stored as workspace-scoped with `block_brand_name = "My Workspace"`
+- Therefore the current divergence is **state drift, not image/code drift**.
+
+**Rule out:** same workspace name, same Brand rows, same active objective, and same brand-scoped documents/products/audiences exist in both environments.
+
+---
+
+#### C8 — Provider / plugin / social-connection readiness differs across environments
+**Status:** `HYPOTHESIS — OPEN (2026-06-01)`
+
+Localhost and staging keep separate provider keys, plugin vars, OAuth connections, and token refresh state. The deploy can be perfect while the behavior still diverges because the affected specialist is not equally ready in both places.
+
+This explains failures like:
+- image/video providers working locally but returning 401 / partial / fallback behavior on staging
+- publish actions present locally but blocked or downgraded on staging
+- Drive-backed assets or brand accounts available in one env but not the other
+
+**Confirm:**
+```bash
+curl -s -H "X-API-Key: $KEY" "$BASE/providers" | jq
+curl -s -H "X-API-Key: $KEY" "$BASE/plugins" | jq
+curl -s -H "X-API-Key: $KEY" "$BASE/social/connections" | jq
+```
+
+**Rule out:** the affected brand has the same provider readiness, plugin credentials, and social connections in both environments.
+
+---
+
+#### C9 — Browser-held brand/session state is stale after staging recovery
+**Status:** `HYPOTHESIS — OPEN (2026-06-01)`
+
+The frontend stores active brand selection in localStorage (`bos_active_brand`) and keeps per-brand chat history. After a staging DB reset/recovery, the browser can still hold an old `brand_id`, old conversation history, or old pending artifact references that no longer match the recovered DB. The result can look like “deploy drift” even though the new containers are fine.
+
+**Typical symptoms:**
+- staging keeps saying `My Workspace` or shows the wrong brand after recovery
+- the same prompt behaves differently in a fresh/private window
+- Network tab shows `POST /api/chat` or `/api/chat/stream` carrying an unexpected `brand_id`
+
+**Confirm:**
+1. Hard refresh and/or open staging in a private window.
+2. Clear site storage for `staging.klaroha.com` (especially localStorage key `bos_active_brand`).
+3. Re-login and re-select the brand.
+4. In DevTools Network, inspect `POST /api/chat` or `/api/chat/stream` and verify the outbound `brand_id`.
+5. Compare the resulting `GET /api/runs/{run_id}` payload's `brand_id` and brief context.
+
+**Rule out:** a fresh browser session sends the correct `brand_id` and reproduces the exact same bad behavior.
+
+---
+
+#### C10 — Auto-generated `ENCRYPTION_KEY` is wrong format for BOS secret storage
+**Status:** `CONFIRMED AND FIXED IN REPO (2026-06-01)`
+
+`deploy-staging.sh` auto-fills missing `.env.staging` keys from `.env.example`. When `ENCRYPTION_KEY` was missing, it generated `secrets.token_hex(32)` — a 64-character hex string. BOS secret storage uses Fernet, which requires a 32-byte URL-safe base64 key (44 chars). The stack can appear healthy until any provider/plugin/social credential must be encrypted or decrypted.
+
+**Typical symptoms:**
+- staging boots and passes smoke tests
+- provider/plugin/social credentials are absent or later fail to decrypt
+- recovered stacks work as blank workspaces, then secret-backed features break when reconnected/restored
+
+**Confirm:**
+```bash
+grep '^ENCRYPTION_KEY=' .env.staging | cut -d= -f2 | awk '{print length}'
+# 64 = wrong hex token, 44 = Fernet-compatible
+```
+
+**Confirmed findings (2026-06-01):**
+- localhost `ENCRYPTION_KEY` length: **44** (valid Fernet key)
+- staging `ENCRYPTION_KEY` after recovery: **64** (invalid hex token)
+- direct decrypt tests against restored `provider_keys` / `social_connections` succeeded only after replacing staging with a valid 44-char Fernet key
+
+**Fix pattern:**
+- `deploy-staging.sh` now generates `base64.urlsafe_b64encode(secrets.token_bytes(32)).decode()`
+- replace any already-generated 64-char hex `ENCRYPTION_KEY` in `.env.staging` before restoring secret-backed state
+
+---
+
+#### C11 — Staging containers are reading `.env` instead of `.env.staging`
+**Status:** `CONFIRMED AND FIXED OPERATIONALLY / FIXED IN REPO (2026-06-01)`
+
+The compose file uses `env_file: ${ENV_FILE:-.env}` for `api` and `relay`. Passing `--env-file .env.staging` only controls compose interpolation unless `ENV_FILE=.env.staging` is also set. If `ENV_FILE` is missing from the staging environment, host ports/images can come from `.env.staging` while the containers themselves silently load secrets/config from `.env`.
+
+**Typical symptoms:**
+- `docker compose ... --env-file .env.staging ps` looks correct, but app behavior still reflects the wrong environment
+- container `ENCRYPTION_KEY` / provider config hashes do not match `.env.staging`
+- restored or re-encrypted credentials still fail with `DECRYPTION_FAILED`
+
+**Confirm:**
+```bash
+# File value
+python3 - <<'PY'
+from pathlib import Path
+import hashlib
+for line in Path('.env.staging').read_text().splitlines():
+    if line.startswith('ENCRYPTION_KEY='):
+        v=line.split('=',1)[1]
+        print('file', len(v), hashlib.sha256(v.encode()).hexdigest())
+        break
+PY
+
+# Running container value
+ENV_FILE=.env.staging docker compose -f docker-compose.yml --env-file .env.staging -p staging exec -T api python - <<'PY'
+import os, hashlib
+v=os.environ.get('ENCRYPTION_KEY','')
+print('container', len(v), hashlib.sha256(v.encode()).hexdigest())
+print('ENV_FILE', os.environ.get('ENV_FILE'))
+PY
+```
+
+**Confirmed findings (2026-06-01):**
+- `/root/bos/.env` and `/root/bos/.env.staging` had different `ENCRYPTION_KEY` hashes
+- staging `api` container matched `/root/bos/.env`, not `.env.staging`
+- after adding `ENV_FILE=.env.staging` and recreating `api`/`relay`, the container hash matched `.env.staging` and brand-scoped `/chat` worked again
+
+**Fix pattern:**
+- `deploy-staging.sh` now exports `ENV_FILE=.env.staging` before all compose commands
+- add `ENV_FILE=.env.staging` to the real staging env file / GitHub secret for belt-and-suspenders
+- for manual staging commands, prefix with `ENV_FILE=.env.staging`
+
+---
+
 ### Process of Elimination
 
 When a feature breaks after a staging deploy, work through in this order:
@@ -314,6 +457,24 @@ When a feature breaks after a staging deploy, work through in this order:
 4. **C4** — diff local `.env` against `.env.example` for keys the capability uses.
 5. **C2** — only if the render itself fails (not just serving). Compare ffmpeg versions between containers.
 6. **C5** — only if you see import errors or missing file errors in API logs.
+7. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
+
+### Behavior Parity Checklist — deploy is green, output still differs
+
+Use this when `bash check-staging.sh` passes, containers are healthy, but localhost and staging still produce different CMO/artifact behavior.
+
+1. **Record the repro exactly** — prompt text, environment, clock time, artifact ID, run ID, and brand selected in the UI.
+2. **Prove staging is actually the new stack** — `bash check-staging.sh`, `docker compose ... ps`, and API uptime near-zero after deploy.
+3. **Clear browser-held state** — hard refresh, private window, clear `bos_active_brand`, re-login, re-select brand.
+4. **Inspect the actual chat request** — in DevTools Network, verify `POST /api/chat` or `/api/chat/stream` is sending the expected `brand_id` and not replaying stale history/context.
+5. **Compare workspace/brand/objective data** — `/workspace`, `/brands`, `/objectives/active`, `/workspace/documents` on localhost vs staging.
+6. **Compare specialist readiness** — `/providers`, `/plugins`, `/social/connections` on localhost vs staging.
+7. **Compare the run payload, not just the card text** — `GET /api/runs/{run_id}?include_assets=false` and inspect `brand_id`, `brief`, `result.block`, `self_check`, `error`, `drive_file_id`, and provider/mode fields.
+8. **Tail staging API logs during the repro**:
+```bash
+docker compose -f docker-compose.yml --env-file .env.staging -p staging logs -f api
+```
+9. **Only after steps 1–8 match should you assume code/image drift.** Most post-recovery differences are state/session/connector drift first.
 
 ---
 
@@ -362,6 +523,32 @@ Three failure modes discovered manually during early staging setup:
   4. VDS — manual `git fetch && git reset --hard origin/staging && bash deploy-staging.sh` to bootstrap out of the loop; followed by `docker compose up -d --force-recreate --remove-orphans` to clear a stale container reference
 - **Notes:** The stale container error (`No such container: 0a12b98f…_staging-api-1`) is a Docker Compose artefact from a previous failed/interrupted run. `--remove-orphans` clears it. Future deploys use `--force-recreate` which handles this automatically.
 
+#### INC-004 — 2026-06-01 — STAGING_ENV_FILE missing staging port overrides; stack stuck in `Created`
+
+- **Cause confirmed:** `STAGING_ENV_FILE` / `.env.staging` lost explicit staging host-port overrides, so docker-compose fell back to production defaults.
+- **Symptom:** Public `staging.klaroha.com` returned 502 while host nginx itself was healthy. On the VDS, only `staging-redis-1` and `staging-relay-1` were running; `staging-db-1`, `staging-api-1`, `staging-web-1`, `staging-public-1`, and `staging-nginx-1` were stuck in `Created`. `ss -lntp` showed nothing listening on `5433/8001/5174/8091/3001`, and `curl http://127.0.0.1:8091/` failed with connection refused.
+- **Confirmed by:** `.env.staging` contained `FRONTEND_URL=https://staging.klaroha.com` but no `DB_PORT`, `API_PORT`, `WEB_PORT`, `NGINX_PORT`, or `PUBLIC_PORT` entries. After restoring `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, and `PUBLIC_PORT=3001`, the staging stack came up immediately and `check-staging.sh` passed 13/13 checks.
+- **Resolved by:**
+  1. Back up `.env.staging`
+  2. Re-add the five staging host-port overrides plus SHA-pinned image tags
+  3. `docker compose -p staging -f docker-compose.yml --env-file .env.staging down`
+  4. `docker compose -p staging -f docker-compose.yml --env-file .env.staging up -d --no-build --force-recreate`
+  5. Run `bash check-staging.sh`
+  6. Because the recovered staging DB had no workspace/auth state, bootstrap minimal workspace state with `PUT /api/workspace/brand` using the env `API_SECRET_KEY`, then create a fresh DB-backed login key via `POST /api/auth/keys`
+- **Notes:** Manual edits to `.env.staging` on the VDS are temporary. The GitHub Actions secret `STAGING_ENV_FILE` must be updated with the same five port vars before the next push or CI will overwrite the file and re-break staging.
+
+#### INC-005 — 2026-06-01 — Deploy green, but staging media behavior still diverges from localhost
+
+- **Status:** Core parity restored; browser/UI retest still recommended.
+- **Symptom:** Manual staging deploy succeeded (`check-staging.sh` 13/13, 36 capabilities loaded, fresh containers), but user-facing behavior still differed from localhost for media prompts. Staging produced generic confirmations such as `The Video Generation Artifact is ready for your review.` / `Image Generation Artifact is ready for review in the Stream.` and exposed `SCOPE brand: My Workspace`, while localhost had real brand-scoped media runs for `Mactan Group`.
+- **Cause confirmed:** C7 — staging database/state drift after `INC-004` recovery.
+- **Confirmed by:** Direct VDS DB inspection. Staging workspace was `My Workspace` with **0 brands**, **0 objectives**, **0 social_connections**, and **0 provider_keys**. Recent staging media runs were all workspace-scoped (`brand = (workspace)`, `block_brand_name = "My Workspace"`). Localhost, by contrast, had workspace `BOS`, brands `Klaroha` / `Mactan Group` / `MotorMoto`, brand-scoped context rows, and recent media runs under `Mactan Group`.
+- **Remediation applied:** preserved the staging `workspaces.id` (so current staging API keys remain valid), replaced the blank staging brand/context tables with local baseline rows (`brands`, `products`, `audiences`, `workspace_documents`, `objectives`), re-encrypted local `provider_keys` and `social_connections` with the staging Fernet key, copied `calendar_pages`, cleared blank-workspace media runs, and renamed staging workspace `My Workspace` → `BOS`.
+- **Additional blockers discovered during restore:** C10 — recovered staging had an invalid 64-char hex `ENCRYPTION_KEY`; C11 — staging `api`/`relay` were actually reading `/root/bos/.env` instead of `.env.staging` because `ENV_FILE` was unset.
+- **Verification after fixes:** direct staging API retest to `POST /chat` with explicit brand IDs succeeded again. Example: `generate new video for mactangroup. this is a test only` returned a successful `media.video.generate` run with `brand_id = 7a3a3535-9f5b-4035-a5e7-00e2ec8d9b1c`; `new image for motormoto. this is a test only` returned a `media.image.generate` partial run scoped to `brand_id = e44fc8fd-84e6-4cd6-a813-73da5cb63881` rather than `(workspace)`.
+- **Current next step:** re-test through the browser/UI. If staging still behaves differently there, investigate only C9 (stale browser-held brand/session state) before assuming new backend drift.
+- **Notes:** `INC-004` required manual workspace bootstrap and a fresh login key. That recovery got the stack healthy, but it did not restore behavior parity data.
+
 ---
 
 ## Open Items
@@ -380,7 +567,7 @@ Three failure modes discovered manually during early staging setup:
 | # | Standard | Status | Core Idea |
 |---|---|---|---|
 | 1 | **Build once, deploy the artifact** | `[x]` | CI builds GHCR images tagged `sha-<commit>` and `:staging`. VDS pulls the exact SHA image — no rebuild per environment. `--no-build --force-recreate` on `docker compose up`. Eliminates C1, C3, and C6 at the architectural level. |
-| 2 | **Config injection, not per-env config files** | `[x]` | `STAGING_ENV_FILE` GitHub Actions secret is the single source of truth. CI overwrites `.env.staging` on **every** deploy (not just first boot) — manual edits on the VDS are wiped on the next push. `.env.staging` is gitignored and never in source. `deploy-staging.sh` auto-fills any keys missing from the secret using `.env.example` defaults as a safety net. |
+| 2 | **Config injection, not per-env config files** | `[x]` | `STAGING_ENV_FILE` GitHub Actions secret is the single source of truth. CI overwrites `.env.staging` on **every** deploy (not just first boot) — manual edits on the VDS are wiped on the next push. `.env.staging` is gitignored and never in source. `deploy-staging.sh` auto-fills any keys missing from the secret using `.env.example` defaults as a safety net. Critical exception: staging-only host-port overrides are **not** in `.env.example` and therefore must be present in `STAGING_ENV_FILE` explicitly: `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`. |
 | 3 | **GitOps — git is the only source of truth** | `[ ]` | What is in the branch is what is running. Tools like ArgoCD or Flux continuously reconcile running state against git. Manual server edits are impossible by design. Drift is detected and corrected automatically. |
 | 4 | **Immutable infrastructure** | `[x]` | `smoke-local.sh` pulls the GHCR `:staging` image and runs it locally on port 8092 with no volume mounts and no `docker-compose.override.yml`. Uncommitted local edits are invisible to the image — the test reveals the gap before the push. Closes C1 structurally as a pre-push gate. |
 | 5 | **Ephemeral preview environments** | `[ ]` | Every PR gets its own isolated environment spun up automatically. Test against the actual deployed artifact before merging. Eliminates localhost-as-staging entirely. |

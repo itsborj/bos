@@ -2,6 +2,7 @@
 set -euo pipefail
 
 cd ~/bos
+export ENV_FILE=.env.staging
 
 # ── Env drift check — auto-fill missing keys from .env.example defaults ──────
 echo "=== Checking .env.staging for missing keys ==="
@@ -24,9 +25,9 @@ while IFS= read -r line; do
         ;;
       ENCRYPTION_KEY)
         if [[ -z "$default_val" ]]; then
-          generated=$(python3 -c "import secrets; print(secrets.token_hex(32))")
+          generated=$(python3 -c "import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())")
           sed -i "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=${generated}|" .env.staging
-          echo "  generated random ENCRYPTION_KEY"
+          echo "  generated Fernet-compatible ENCRYPTION_KEY"
         fi
         ;;
       FRONTEND_URL)
