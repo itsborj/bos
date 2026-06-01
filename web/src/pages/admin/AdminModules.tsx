@@ -117,16 +117,18 @@ function varLabel(varName: string): { label: string; sensitive: boolean; hint: s
     return { label: 'Client ID', sensitive: false, hint: '' };
   if (n.includes('REFRESH_TOKEN'))
     return { label: 'Refresh Token', sensitive: true, hint: '' };
+  if (n === 'IMAGE_GEN_PROVIDER')
+    return { label: 'Image Provider', sensitive: false, hint: 'openai · gemini · custom  (openai and gemini use your platform key — no extra key needed)' };
   if (n === 'IMAGE_GEN_WORKER_URL')
-    return { label: 'Worker URL', sensitive: false, hint: 'The full HTTPS URL of your image generation worker endpoint' };
+    return { label: 'Worker URL', sensitive: false, hint: 'Required when provider is custom — full HTTPS URL of your image generation worker' };
   if (n === 'IMAGE_GEN_API_KEY')
-    return { label: 'Image Gen API Key', sensitive: true, hint: 'Bearer token used to authenticate requests to the worker' };
+    return { label: 'Worker API Key', sensitive: true, hint: 'Required when provider is custom — bearer token for the worker endpoint' };
   if (n === 'VIDEO_GEN_PROVIDER')
-    return { label: 'Video Provider', sensitive: false, hint: 'Provider label, e.g. runway, kling, custom_http, or local_ffmpeg' };
+    return { label: 'Video Provider', sensitive: false, hint: 'gemini · seedance · local_ffmpeg · custom  (gemini uses your platform key; local_ffmpeg needs no credentials; Kling coming soon)' };
   if (n === 'VIDEO_GEN_API_URL')
-    return { label: 'Video API URL', sensitive: false, hint: 'HTTPS endpoint for your video provider; use local for FFmpeg fallback' };
+    return { label: 'Provider API URL', sensitive: false, hint: 'Required for seedance or custom — HTTPS endpoint for your video provider' };
   if (n === 'VIDEO_GEN_API_KEY')
-    return { label: 'Video API Key', sensitive: true, hint: 'Bearer token for the configured video provider' };
+    return { label: 'Provider API Key', sensitive: true, hint: 'Required for seedance or custom — bearer token for the provider' };
   if (n.endsWith('_API_KEY'))
     return { label: 'API Key', sensitive: true, hint: '' };
   if (n.endsWith('_URL') || n.endsWith('_ENDPOINT'))
@@ -890,6 +892,59 @@ export function AdminModules() {
                     </div>
                   );
                 })}
+                {/* Optional URL + Key fields for custom/seedance image and video providers */}
+                {configuringPlugin.plugin_id === 'media.image' && (() => {
+                  const prov = (credFields['IMAGE_GEN_PROVIDER'] || '').toLowerCase();
+                  if (prov && prov !== 'openai' && prov !== 'gemini') return (
+                    <>
+                      {(['IMAGE_GEN_WORKER_URL', 'IMAGE_GEN_API_KEY'] as const).map(varName => {
+                        const { label, sensitive, hint } = varLabel(varName);
+                        return (
+                          <div key={varName}>
+                            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{label}</label>
+                            {hint && <div style={{ color: 'var(--text2)', fontSize: 11, marginBottom: 5 }}>{hint}</div>}
+                            <input
+                              type={sensitive ? 'password' : 'text'}
+                              className="input"
+                              placeholder={varName}
+                              value={credFields[varName] ?? ''}
+                              onChange={e => setCredFields(f => ({ ...f, [varName]: e.target.value }))}
+                              style={{ width: '100%', fontFamily: sensitive ? 'monospace' : undefined }}
+                              autoComplete="off"
+                            />
+                          </div>
+                        );
+                      })}
+                    </>
+                  );
+                  return null;
+                })()}
+                {configuringPlugin.plugin_id === 'media.video' && (() => {
+                  const prov = (credFields['VIDEO_GEN_PROVIDER'] || '').toLowerCase();
+                  if (prov && prov !== 'gemini' && prov !== 'local_ffmpeg') return (
+                    <>
+                      {(['VIDEO_GEN_API_URL', 'VIDEO_GEN_API_KEY'] as const).map(varName => {
+                        const { label, sensitive, hint } = varLabel(varName);
+                        return (
+                          <div key={varName}>
+                            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{label}</label>
+                            {hint && <div style={{ color: 'var(--text2)', fontSize: 11, marginBottom: 5 }}>{hint}</div>}
+                            <input
+                              type={sensitive ? 'password' : 'text'}
+                              className="input"
+                              placeholder={varName}
+                              value={credFields[varName] ?? ''}
+                              onChange={e => setCredFields(f => ({ ...f, [varName]: e.target.value }))}
+                              style={{ width: '100%', fontFamily: sensitive ? 'monospace' : undefined }}
+                              autoComplete="off"
+                            />
+                          </div>
+                        );
+                      })}
+                    </>
+                  );
+                  return null;
+                })()}
               </div>
             )}
 

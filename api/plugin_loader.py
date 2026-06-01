@@ -276,6 +276,20 @@ async def inject_channel_credentials(
         except Exception as exc:
             log.warning("inject_channel_credentials pm_config injection failed: %s", exc)
 
+    # For image/video modules: inject the platform key for openai/gemini providers
+    # so modules never touch settings or env directly.
+    _media_provider = (
+        credentials.get("image_gen_provider") or credentials.get("video_gen_provider") or ""
+    ).lower().strip()
+    if _media_provider == "openai":
+        _pk = getattr(settings, "platform_openai_key", "") or os.getenv("PLATFORM_OPENAI_KEY", "")
+        if _pk:
+            credentials.setdefault("provider_api_key", _pk)
+    elif _media_provider == "gemini":
+        _pk = getattr(settings, "platform_gemini_key", "") or os.getenv("PLATFORM_GEMINI_KEY", "")
+        if _pk:
+            credentials.setdefault("provider_api_key", _pk)
+
     if credentials:
         return {**brief, "_channel_credentials": credentials}
     return brief

@@ -6,11 +6,11 @@
   "capabilities_root": "capabilities/",
   "implements": ["media.generate"],
   "specialty": ["image_generation", "visual_asset"],
-  "platforms": ["cloudflare_workers_ai"],
+  "platforms": ["openai", "gemini", "cloudflare_workers_ai"],
   "connector_protocol": "api_key",
   "risk_policy": "generate_only",
   "output_contracts": ["image_asset"],
-  "requires_platform_vars": ["IMAGE_GEN_API_KEY", "IMAGE_GEN_WORKER_URL"],
+  "requires_platform_vars": ["IMAGE_GEN_PROVIDER"],
   "capability_ids": [
     "media.image.generate"
   ]

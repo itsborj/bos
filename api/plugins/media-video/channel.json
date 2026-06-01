@@ -6,11 +6,11 @@
   "capabilities_root": "capabilities/",
   "implements": ["media.generate"],
   "specialty": ["video_generation", "shortform_video", "motion_asset"],
-  "platforms": ["custom_video_provider", "ffmpeg"],
+  "platforms": ["gemini", "seedance", "ffmpeg", "custom_http"],
   "connector_protocol": "api_key",
   "risk_policy": "generate_only",
   "output_contracts": ["video_asset"],
-  "requires_platform_vars": ["VIDEO_GEN_PROVIDER", "VIDEO_GEN_API_URL", "VIDEO_GEN_API_KEY"],
+  "requires_platform_vars": ["VIDEO_GEN_PROVIDER"],
   "requires_social_connection": ["google_drive"],
   "capability_ids": [
     "media.video.generate",
