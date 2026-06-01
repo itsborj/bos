@@ -85,9 +85,9 @@ git fetch origin && git reset --hard origin/main
 docker compose build web && docker compose up -d web
 ```
 
-### Pre-push smoke test (runs automatically)
+### Pre-push test (runs automatically)
 
-`smoke-local.sh` is wired as a git pre-push hook via `.githooks/pre-push`. It fires automatically on any push to `staging` or `main` — no manual step required.
+`.githooks/pre-push` fires automatically on any push to `staging` or `main` — no manual step required.
 
 The hook is activated per-clone with:
 ```bash
@@ -96,11 +96,11 @@ git config core.hooksPath .githooks
 
 This is already set in the local repo. Any new clone needs to run this once (add to onboarding docs).
 
-**What it does:** pulls the GHCR `:staging` image, runs it on port 8092 with no volume mounts and no override file, checks API health / web / auth / DB / capabilities / migrations, tears down. Uncommitted local edits are invisible to the image — the test reveals the gap before the push lands on staging.
+**What it does:** runs `pytest` inside the running `api` container and a TypeScript type check inside the running `web` container — against your actual local code, not a pulled image. If either fails, the push is blocked.
 
-**Skip when needed:** `BOS_SKIP_SMOKE=1 git push` (emergency escape hatch).
+**Requirements:** `api` and `web` containers must be running (`docker compose up -d api web`). If a container is not running the check is skipped with a warning, not a hard block.
 
-**Prerequisite:** `.env.staging` must be present locally. If absent, the hook skips with a warning rather than blocking.
+**Skip when needed:** `BOS_SKIP_PUSH=1 git push` (emergency escape hatch).
 
 ### Check what's running
 
@@ -518,19 +518,21 @@ PY
 #### C12 — The deploy gap: `git push` ≠ staging updated (STRUCTURAL — PRIMARY CAUSE)
 **Status:** `CONFIRMED STRUCTURAL (2026-06-02)`
 
-Pushing to the `staging` branch triggers the `build-and-push` CI job (new GHCR image built and tagged `sha-{SHA}` + `:staging`). It does **not** update `staging.klaroha.com`. The `deploy-staging` CI job is permanently disabled (2026-06-01). Staging only updates when `deploy-staging.sh` is run manually via SSH on the VDS. Every session where code is pushed without a subsequent manual deploy leaves staging running old code indefinitely.
+Pushing to the `staging` branch triggers the `build-and-push` CI job (new GHCR image built and tagged `sha-{SHA}` + `:staging`). It does **not** update `staging.klaroha.com`. The `deploy-staging` CI job is `workflow_dispatch` only — it runs only when manually triggered from the GitHub Actions UI or via `gh workflow run CI`. Staging only updates when that trigger is fired. Every session where code is pushed without a subsequent manual deploy trigger leaves staging running old code indefinitely.
 
 This is the structural root cause of 90%+ of "staging doesn't reflect my changes" reports.
 
 **Confirm:**
 ```bash
 curl -s https://staging.klaroha.com/api/ | python3 -c "import json,sys; print(json.load(sys.stdin)['uptime_seconds'])"
-# If uptime > 600s after a push, deploy-staging.sh was not run
+# If uptime > 600s after a push, deploy was not triggered
 ```
 
-**Rule:** Treat push and deploy as completely separate operations. After any `git push origin staging`, `staging.klaroha.com` will not update until someone SSH's in and runs `deploy-staging.sh`. Never report staging as reflecting a change unless the deploy has been manually confirmed.
+**Rule:** Treat push and deploy as completely separate operations. After any `git push origin staging`, `staging.klaroha.com` will not update until the deploy workflow is manually triggered. Never report staging as reflecting a change unless the deploy has been manually confirmed.
 
-**Scale alignment:** At 100s of org deployments/day, the equivalent gap is a new org pressing "Install" and getting an old version. The fix is restoring automated deployment with a proper staging gate (protected branch rules, required status checks) rather than re-disabling CI.
+**To deploy:** GitHub Actions → CI → Run workflow → (optionally enter a SHA) → Run. Or: `gh workflow run CI --ref staging`
+
+**Scale alignment:** At 100s of org deployments/day, the equivalent gap is a new org pressing "Install" and getting an old version. The fix is restoring automated deployment with a proper staging gate (protected branch rules, required status checks, comprehensive behavioral test coverage) rather than manual-only CI.
 
 ---
 
@@ -754,7 +756,7 @@ Three failure modes discovered manually during early staging setup:
 - [x] Write a `deploy.sh` script wrapping the full staging deploy sequence — `deploy-staging.sh` (env-fill → git reset → image pull → up → migrations → `check-staging.sh` smoke tests)
 - [x] `deploy-staging.sh` now enforces staging port overrides directly (2026-06-02) — containers can no longer be created with production default ports even if the secret is missing these vars
 - [ ] Update GitHub secret `STAGING_ENV_FILE` so it includes `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`, and `ENV_FILE=.env.staging` — the script enforcement is a safety net, not a replacement for fixing the secret
-- [ ] After the secret is updated, prove the real success criteria with one tiny localhost change → commit → push → CI deploy → `staging.klaroha.com` healthy **without** manual server repair
+- [ ] After the secret is updated, prove the real success criteria with one tiny localhost change → commit → push → CI builds image → trigger `workflow_dispatch` → `staging.klaroha.com` healthy **without** manual server repair
 - [ ] Set `git config pull.rebase false` (or `--ff-only`) on the server so `git pull` doesn't fail on divergence
 - [x] GitHub secrets: `VDS_HOST`, `VDS_USER`, `VDS_DEPLOY_KEY`, `STAGING_PATH`, `PROD_PATH`, `GHCR_TOKEN`, `STAGING_ENV_FILE` — all wired in `ci.yml`
 - [ ] **C13 fix (scale-required):** Bake git SHA into Docker image at CI build time (`ARG GIT_SHA`, `--build-arg GIT_SHA=${{ github.sha }}`); expose as `git_sha` in `GET /api/` response; add as 14th `check-staging.sh` verification. Required before reaching 10 active customer orgs.
@@ -772,7 +774,7 @@ Three failure modes discovered manually during early staging setup:
 | 1 | **Build once, deploy the artifact** | `[x]` | CI builds GHCR images tagged `sha-<commit>` and `:staging`. VDS pulls the exact SHA image — no rebuild per environment. `--no-build --force-recreate` on `docker compose up`. Eliminates C1, C3, and C6 at the architectural level. |
 | 2 | **Config injection, not per-env config files** | `[x]` | `STAGING_ENV_FILE` GitHub Actions secret is the single source of truth. CI overwrites `.env.staging` on **every** deploy (not just first boot) — manual edits on the VDS are wiped on the next push. `.env.staging` is gitignored and never in source. `deploy-staging.sh` auto-fills any keys missing from the secret using `.env.example` defaults as a safety net. Critical exceptions that are **not** in `.env.example` and therefore must be present in `STAGING_ENV_FILE` explicitly: `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`, and `ENV_FILE=.env.staging`. |
 | 3 | **GitOps — git is the only source of truth** | `[ ]` | What is in the branch is what is running. Tools like ArgoCD or Flux continuously reconcile running state against git. Manual server edits are impossible by design. Drift is detected and corrected automatically. |
-| 4 | **Immutable infrastructure** | `[x]` | `smoke-local.sh` pulls the GHCR `:staging` image and runs it locally on port 8092 with no volume mounts and no `docker-compose.override.yml`. Uncommitted local edits are invisible to the image — the test reveals the gap before the push. Closes C1 structurally as a pre-push gate. |
+| 4 | **Immutable infrastructure** | `[x]` | `.githooks/pre-push` runs `pytest` + `tsc` inside the local running containers before any push to `staging` or `main`. Tests your actual local code — if they fail, the push is blocked. Closes C1 structurally as a pre-push gate. |
 | 5 | **Ephemeral preview environments** | `[ ]` | Every PR gets its own isolated environment spun up automatically. Test against the actual deployed artifact before merging. Eliminates localhost-as-staging entirely. |
 | 6 | **Infrastructure as Code (IaC)** | `[ ]` | All environment definitions live in code (Terraform, Pulumi, Helm). Staging and production are the same template with different parameter values. Accidental per-env config drift is structurally impossible. |
 | 7 | **Secrets management** | `[x]` | All deploy credentials (`VDS_HOST`, `VDS_DEPLOY_KEY`, `GHCR_TOKEN`) and the full staging env (`STAGING_ENV_FILE`) live in GitHub Actions secrets. CI is the only writer of `.env.staging` on the VDS — overwritten on every deploy, never manually editable in a durable way. No Vault/Doppler, but GitHub Secrets is the authoritative store and drift is structurally impossible. |

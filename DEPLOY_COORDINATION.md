@@ -156,5 +156,6 @@ Full directive: `DEPLOY.md §Scale Directive`
 | uptime_seconds in deploy banner | done | 2026-06-02 |
 | H2: push=deploy | falsified — CI deploy job is active | 2026-06-02 |
 | H3: stale browser brand state | falsified + fixed — Layout.tsx evicts stale brand_id | 2026-06-02 |
-| C4: smoke-local.sh tests GHCR, not local code | validated — correct by design | 2026-06-02 |
+| pre-push hook: replaced smoke-local.sh with pytest+tsc against local containers | done — tests actual local code before push; `BOS_SKIP_PUSH=1` to bypass | 2026-06-02 |
+| deploy-staging CI: changed from push-triggered to workflow_dispatch (manual only) | done — push builds image, deploy is a separate explicit trigger | 2026-06-02 |
 | C5a: manual deploy uses mutable `:staging` tag | validated — confirmed by script inspection | 2026-06-02 |

@@ -5,6 +5,12 @@ on:
     branches: [main, staging]
   push:
     branches: [main, staging]
+  workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: 'Git SHA to deploy (leave blank to use latest origin/staging)'
+        required: false
+        default: ''
 
 jobs:
   # ── Tests + guardrails ────────────────────────────────────────────────────
@@ -120,11 +126,13 @@ jobs:
             ghcr.io/itsborj/bos-relay:sha-${{ github.sha }}
             ghcr.io/itsborj/bos-relay:staging
 
-  # ── Deploy to staging ────────────────────────────────────────────────────
+  # ── Deploy to staging (manual only) ─────────────────────────────────────
+  # Triggered via: GitHub Actions UI → "Run workflow" (or gh workflow run CI)
+  # Push to staging builds and pushes images automatically but does NOT deploy.
+  # Deploy when you're ready — not on every push.
   deploy-staging:
     name: Deploy → staging
-    needs: build-and-push
-    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       packages: read
@@ -134,7 +142,7 @@ jobs:
         uses: appleboy/ssh-action@v1
         env:
           STAGING_ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
-          DEPLOY_SHA: ${{ github.sha }}
+          DEPLOY_SHA: ${{ github.event.inputs.deploy_sha }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.VDS_HOST }}
