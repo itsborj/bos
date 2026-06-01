@@ -145,10 +145,8 @@ jobs:
               rm -rf "$STAGING_PATH"
               git clone https://github.com/itsborj/bos.git "$STAGING_PATH"
             fi
-            if [ ! -f "$STAGING_PATH/.env.staging" ]; then
-              echo "Writing .env.staging from secret"
-              printf '%s' "$STAGING_ENV_FILE" > "$STAGING_PATH/.env.staging"
-            fi
+            echo "Writing .env.staging from secret"
+            printf '%s' "$STAGING_ENV_FILE" > "$STAGING_PATH/.env.staging"
             cd "$STAGING_PATH"
             git fetch origin
             git reset --hard origin/staging

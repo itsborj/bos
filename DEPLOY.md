@@ -59,6 +59,23 @@ git fetch origin && git reset --hard origin/main
 docker compose build web && docker compose up -d web
 ```
 
+### Pre-push smoke test (runs automatically)
+
+`smoke-local.sh` is wired as a git pre-push hook via `.githooks/pre-push`. It fires automatically on any push to `staging` or `main` — no manual step required.
+
+The hook is activated per-clone with:
+```bash
+git config core.hooksPath .githooks
+```
+
+This is already set in the local repo. Any new clone needs to run this once (add to onboarding docs).
+
+**What it does:** pulls the GHCR `:staging` image, runs it on port 8092 with no volume mounts and no override file, checks API health / web / auth / DB / capabilities / migrations, tears down. Uncommitted local edits are invisible to the image — the test reveals the gap before the push lands on staging.
+
+**Skip when needed:** `BOS_SKIP_SMOKE=1 git push` (emergency escape hatch).
+
+**Prerequisite:** `.env.staging` must be present locally. If absent, the hook skips with a warning rather than blocking.
+
 ### Check what's running
 
 ```bash
@@ -349,10 +366,10 @@ Three failure modes discovered manually during early staging setup:
 
 ## Open Items
 
-- [ ] Add `name:` field to the compose file so project name is explicit and never inferred
-- [ ] Write a `deploy.sh` script wrapping the full staging deploy sequence (fetch → reset → build → up) for one-command deploys
+- [x] Add `name:` field to the compose file so project name is explicit and never inferred — `name: bos` is in `docker-compose.yml`
+- [x] Write a `deploy.sh` script wrapping the full staging deploy sequence — `deploy-staging.sh` (env-fill → git reset → image pull → up → migrations → `check-staging.sh` smoke tests)
 - [ ] Set `git config pull.rebase false` (or `--ff-only`) on the server so `git pull` doesn't fail on divergence
-- [ ] GitHub secrets: add `VDS_HOST`, `VDS_USER`, `VDS_DEPLOY_KEY`, `STAGING_PATH`, `PROD_PATH`, `GHCR_TOKEN` (PAT with `read:packages`) to repo secrets so CI can SSH in and VDS can pull from GHCR without manual setup
+- [x] GitHub secrets: `VDS_HOST`, `VDS_USER`, `VDS_DEPLOY_KEY`, `STAGING_PATH`, `PROD_PATH`, `GHCR_TOKEN`, `STAGING_ENV_FILE` — all wired in `ci.yml`
 
 ---
 
@@ -362,103 +379,115 @@ Three failure modes discovered manually during early staging setup:
 
 | # | Standard | Status | Core Idea |
 |---|---|---|---|
-| 1 | **Build once, deploy the artifact** | `[x]` | CI builds one Docker image tagged with the commit SHA. That exact image is promoted to staging then production. No rebuilding per environment. Eliminates C1, C3, and C6 at the architectural level. |
-| 2 | **Config injection, not per-env config files** | `[ ]` | Code is identical across environments. Only env vars differ, injected at runtime. No `.env.staging`, no per-env key sets. One schema (`.env.example`), values from a secrets manager. Eliminates C4. |
+| 1 | **Build once, deploy the artifact** | `[x]` | CI builds GHCR images tagged `sha-<commit>` and `:staging`. VDS pulls the exact SHA image — no rebuild per environment. `--no-build --force-recreate` on `docker compose up`. Eliminates C1, C3, and C6 at the architectural level. |
+| 2 | **Config injection, not per-env config files** | `[x]` | `STAGING_ENV_FILE` GitHub Actions secret is the single source of truth. CI overwrites `.env.staging` on **every** deploy (not just first boot) — manual edits on the VDS are wiped on the next push. `.env.staging` is gitignored and never in source. `deploy-staging.sh` auto-fills any keys missing from the secret using `.env.example` defaults as a safety net. |
 | 3 | **GitOps — git is the only source of truth** | `[ ]` | What is in the branch is what is running. Tools like ArgoCD or Flux continuously reconcile running state against git. Manual server edits are impossible by design. Drift is detected and corrected automatically. |
-| 4 | **Immutable infrastructure** | `[ ]` | Servers are never modified in place. A deploy replaces containers with new ones built from the latest artifact. No SSH + edit patterns. Solves C1 and C3 architecturally. |
+| 4 | **Immutable infrastructure** | `[x]` | `smoke-local.sh` pulls the GHCR `:staging` image and runs it locally on port 8092 with no volume mounts and no `docker-compose.override.yml`. Uncommitted local edits are invisible to the image — the test reveals the gap before the push. Closes C1 structurally as a pre-push gate. |
 | 5 | **Ephemeral preview environments** | `[ ]` | Every PR gets its own isolated environment spun up automatically. Test against the actual deployed artifact before merging. Eliminates localhost-as-staging entirely. |
 | 6 | **Infrastructure as Code (IaC)** | `[ ]` | All environment definitions live in code (Terraform, Pulumi, Helm). Staging and production are the same template with different parameter values. Accidental per-env config drift is structurally impossible. |
-| 7 | **Secrets management** | `[ ]` | Vault, AWS Secrets Manager, Doppler, or 1Password Secrets Automation. One source of truth for secrets, versioned, auditable. All environments pull from the same system with different access scopes. Eliminates C4 entirely. |
-| 8 | **Automated post-deploy verification** | `[x]` | Every deploy runs a functional test suite against the live environment. Pipeline fails and rolls back if tests fail. No human needed to detect a broken deploy. |
+| 7 | **Secrets management** | `[x]` | All deploy credentials (`VDS_HOST`, `VDS_DEPLOY_KEY`, `GHCR_TOKEN`) and the full staging env (`STAGING_ENV_FILE`) live in GitHub Actions secrets. CI is the only writer of `.env.staging` on the VDS — overwritten on every deploy, never manually editable in a durable way. No Vault/Doppler, but GitHub Secrets is the authoritative store and drift is structurally impossible. |
+| 8 | **Automated post-deploy verification** | `[x]` | `check-staging.sh` runs 8 checks on every CI deploy: FRONTEND_URL validity, API_SECRET_KEY presence, ports listening (8091, 8001, 5174, 3001), web + public HTTP 200, API health (`status: ok`), auth boundary (401/403), authenticated DB query, capability manifest count ≥ 20, migrations at head. Pipeline fails and alerts if any check fails. |
 | 9 | **Dependency lockfiles pinned and committed** | `[x]` | `requirements.txt` with pinned versions, `package-lock.json` committed. Same dep versions in dev, CI, staging, and production. |
 | 10 | **Local dev mirrors production runtime** | `[x]` | devcontainers or Tilt/Skaffold. The developer's local environment IS the production container, not a volume-mounted lookalike. Eliminates the "uncommitted file visible via volume mount" class entirely. |
 
-> Start with #1. It has the most impact and makes several downstream standards easier to implement.
+> #1, #2, #4, #7, #8, #9, #10 done. Remaining: #3 (GitOps), #5 (ephemeral preview envs), #6 (IaC) — lower leverage, defer until distribution scale warrants it.
 
 ---
 
-## Production Model (Future — GHCR + Watchtower)
+## Production Model — Click-to-Deploy Software
 
-> **Status:** Draft — circle back before implementation. This section describes the target self-hosted customer deployment model, not the current dev/staging setup above.
+> **Decision locked 2026-06-01.** Canonical source: `PROJECT_BRIEF.md §10`. This section is a deploy-operations summary — the brief is the authority on model rationale and policy.
 
-### Deployment Model
+BOS is packaged software that organizations deploy on their own cloud infrastructure. It is **not** a multi-tenant SaaS. Klaroha is the software vendor and central services operator; organizations own their data and their cloud environment.
 
-Single-tenant per VPS. Each org gets their own deployment. Code is identical across all instances; only `.env`, domain, and data differ. The product shipped is a Docker image + compose file, not a shared SaaS service.
+**Active focus:** one clean end-to-end first-org deploy. Getting that journey right once is the template all future deployments clone.
 
-```
-┌─────────────────────────────────────────────────┐
-│  GitHub repo                                     │
-│  git push → GitHub Actions builds image          │
-│           → pushes to GHCR (api:latest or :v1.x) │
-└─────────────────────────────────────────────────┘
-              ↓ Watchtower polls + pulls
-┌─────────────────────────────────────────────────┐
-│  Org A VPS (e.g. Hetzner, $6/mo)               │
-│  /opt/bos/                                       │
-│    docker-compose.prod.yml   ← pulled from git   │
-│    .env                      ← unique per org    │
-│    Caddyfile                 ← unique domain     │
-│    update.sh                 ← manual trigger    │
-│                                                  │
-│  services: db, api (ghcr image), web (nginx),   │
-│            caddy, watchtower                     │
-└─────────────────────────────────────────────────┘
-┌─────────────────────────────────────────────────┐
-│  Org B VPS — same image, different .env          │
-└─────────────────────────────────────────────────┘
-```
+---
 
-### Key Decisions
+### What Each Org Gets
 
-**Plugins are baked into the Docker image.** We are the plugin developer. No plugin registry or live delivery mechanism needed. Updating a plugin = build a new image tag = Watchtower picks it up on each VPS automatically.
+- Their own server or cloud environment (DigitalOcean droplet, AWS EC2, VPS)
+- Their own isolated PostgreSQL database — no commingling with other orgs
+- Their own encryption keys, auto-generated at first boot
+- Their own domain or subdomain
+- No Klaroha access to their data at rest
 
-**Caddy replaces dev nginx.** Auto-provisions Let's Encrypt TLS. No certbot, no manual cert renewal.
+### What Klaroha Operates Centrally
 
-**Watchtower solves "dev is offline."** Push a commit from anywhere → GitHub builds + pushes image → Watchtower pulls on each VPS within 5 min. No SSH required for code/plugin updates.
-
-**Config changes (`.env`, domain) always require SSH.** Unavoidable for security.
-
-### Files to Build
-
-| File | Notes |
+| Service | What it does |
 |---|---|
-| `api/Dockerfile.prod` | Remove `--reload`; `uvicorn main:app --host 0.0.0.0 --port 8000 --workers 2`; no volume mounts |
-| `web/Dockerfile.prod` | Stage 1: `npm ci && npm run build`; Stage 2: nginx serves `/dist` |
-| `docker-compose.prod.yml` | No `./api:/app` or `./web:/app` mounts; API uses GHCR image; Caddy + Watchtower |
-| `Caddyfile.template` | `yourdomain.com { reverse_proxy /api/* api:8000; reverse_proxy /* web:80 }` |
-| `.env.prod.example` | See below |
-| `setup.sh` | One-time VPS setup: generate secrets, create `.env` from template, run migrations |
-| `update.sh` | `git pull && docker compose pull api && docker compose up -d api && alembic upgrade head` |
-| `.github/workflows/release.yml` | Trigger: push to `main` or tag `v*`; build → push to `ghcr.io/you/bos-api` |
+| **OAuth relay** (`connect.klaroha.com`) | Holds the one Klaroha-verified Google + Meta + TikTok app. Brokers token exchange for all deployed instances. One stable redirect URI per platform — no per-org app registration ever required. |
+| **Platform inference** | Pooled AI provider access for orgs that do not bring their own API keys. Metered against each org's deployment key. |
+| **Deployment key issuance** | Each org receives a `KLAROHA_DEPLOYMENT_KEY` at purchase. Gates relay access and usage metering. |
+| **Software distribution** | Docker image registry; `stable` and `latest` channels. Klaroha controls what is promoted to `stable`. |
+| **Update notifications** | In-app alert when a new version is available. Org controls timing of their own update. |
 
+---
+
+### Target Deploy Experience (Zero-Setup)
+
+Once the relay is built, the full operator experience is:
+
+1. Org purchases license → receives `KLAROHA_DEPLOYMENT_KEY`
+2. Clicks "Deploy to DigitalOcean" or runs `curl install.klaroha.com | bash`
+3. Sets domain name + deployment key — nothing else
+4. Container first boot: auto-generates `API_SECRET_KEY` and `ENCRYPTION_KEY`, runs `alembic upgrade head`, bootstraps admin
+5. First login → setup wizard (org name → import brand brief → CMO operational)
+
+No Google Cloud project. No Meta Developer App. No AI API keys required to get started.
+
+### Minimal `.env` at Deploy Time (Target)
+
+```env
+KLAROHA_DEPLOYMENT_KEY=dk_live_xxx     # issued at purchase — relay access + metering
+KLAROHA_RELAY_URL=https://connect.klaroha.com
+FRONTEND_URL=https://theirorg.com      # org's chosen domain
 ```
-# .env.prod.example
-POSTGRES_PASSWORD=
-API_SECRET_KEY=
-ENCRYPTION_KEY=
-GOOGLE_CLIENT_ID=
-GOOGLE_CLIENT_SECRET=
-GOOGLE_REDIRECT_URI=https://YOUR_DOMAIN/api/social/gmail/callback
-FRONTEND_URL=https://YOUR_DOMAIN
-PLATFORM_OPENROUTER_KEY=    # optional
-```
 
-> **Local dev note:** Set `FRONTEND_URL=http://localhost:8090` (the Docker nginx HQ port).
-> `http://localhost` (port 80) has no listener by default — the host nginx config rejects
-> unmatched hosts with 444 and has no `localhost` server block. Using port 80 locally
-> causes OAuth callbacks and calendar widget links to silently fail.
+All other values (database URL, secret keys, encryption key) are auto-generated at first boot and stored in the container's persisted volume.
 
-### Implementation Order
+> **Local dev note:** Set `FRONTEND_URL=http://localhost:8090` (the Docker nginx HQ port). `http://localhost` (port 80) has no listener — the host nginx config rejects unmatched hosts with 444. Using port 80 locally causes OAuth callbacks and calendar widget links to silently fail.
 
-1. `api/Dockerfile.prod` — remove `--reload`, bake code in
-2. `web/Dockerfile.prod` — build step + nginx
-3. `docker-compose.prod.yml` — Caddy + Watchtower
-4. `.env.prod.example` + `setup.sh`
-5. Test full stack on one real VPS end-to-end
-6. `.github/workflows/release.yml` — image build + push to GHCR
-7. Per-org setup README or Notion page
+---
 
-### Google OAuth Setup (per deployment)
+### Current State vs. Target
+
+Today a deployment requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `META_APP_ID`, `META_APP_SECRET`, and all other platform credentials set manually in `.env`. The relay closes this gap entirely. Until the relay is built, new deployments require manual Google Cloud and Meta app setup — this blocks clean customer onboarding.
+
+---
+
+### Distribution Targets
+
+| Platform | Priority | Notes |
+|---|---|---|
+| DigitalOcean Marketplace | Primary | 1-Click Droplet; right fit for non-technical operator audience |
+| Docker Compose + install script | Secondary | `curl install.klaroha.com \| bash`; dev-savvy operators |
+| AWS Marketplace | Enterprise | Larger agencies already on AWS infrastructure |
+
+---
+
+### Build Order
+
+| Step | What | Why it unblocks |
+|---|---|---|
+| 1 | **OAuth relay** (`connect.klaroha.com`) | Zero-setup for all Google + Meta integrations; every deploy currently requires manual cloud project setup without it |
+| 2 | **First-boot init script** | Turns `docker compose up` into a real product install; no post-boot shell access required |
+| 3 | **Deployment key system** | Gates relay access; enables per-org usage metering and billing |
+| 4 | **DigitalOcean Marketplace listing** | Primary distribution channel for the target operator persona |
+| 5 | **In-app update notification** | Keeps deployed instances informed without forcing auto-updates |
+| 6 | **AWS Marketplace** | Enterprise distribution tier |
+
+---
+
+### Update Strategy
+
+Each deployed instance checks a Klaroha version endpoint periodically. When a new version is available, the admin panel surfaces "Update available — vX.Y.Z" with a changelog. The admin triggers the update manually (pull new Docker image + run migrations). Auto-updates on the `stable` channel are available for orgs that opt in.
+
+**Plugins are baked into the Docker image.** No plugin registry or live delivery mechanism needed. Updating a plugin = build a new image tag.
+
+---
+
+### Google OAuth Setup (per deployment — until relay is built)
 
 | Integration | Redirect URI |
 |---|---|
@@ -475,9 +504,3 @@ PLATFORM_OPENROUTER_KEY=    # optional
 | `https://www.googleapis.com/auth/gmail.readonly` | Gmail inbox |
 | `https://www.googleapis.com/auth/calendar` | Calendar booking (read/write events + FreeBusy) |
 | `openid email` | All Google OAuth flows (user identity) |
-
-### Open Questions
-
-- Does the frontend use a hardcoded API key or `VITE_API_KEY` at build time? Needs audit before deploy.
-- Watchtower polling interval: 5 min is fine for beta.
-- Backup strategy: `pg_dump` cron + local rotation is enough for beta. Add off-site (S3/R2) when data matters.

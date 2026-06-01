@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Runs smoke-local.sh automatically before any push to staging or main.
+# Skip with: BOS_SKIP_SMOKE=1 git push
+
+set -euo pipefail
+
+while read -r _local_ref _local_sha _remote_ref _remote_sha; do
+  branch="${_remote_ref#refs/heads/}"
+  if [[ "$branch" != "staging" && "$branch" != "main" ]]; then
+    continue
+  fi
+
+  if [[ -n "${BOS_SKIP_SMOKE:-}" ]]; then
+    echo "[pre-push] BOS_SKIP_SMOKE set — skipping smoke test"
+    continue
+  fi
+
+  if [[ ! -f ".env.staging" ]]; then
+    echo "[pre-push] .env.staging not found — skipping smoke test (copy from VDS to enable)"
+    continue
+  fi
+
+  echo "[pre-push] Pushing to $branch — running smoke test..."
+  bash smoke-local.sh || exit 1
+done
