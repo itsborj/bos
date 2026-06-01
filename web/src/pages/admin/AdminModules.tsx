@@ -97,6 +97,15 @@ function groupKey(mod: ModuleInfo): string {
   return mod.vertical || 'specialist';
 }
 
+function varPlaceholder(varName: string): string {
+  const n = varName.toUpperCase();
+  if (n === 'IMAGE_GEN_PROVIDER') return 'openai  /  gemini  /  custom';
+  if (n === 'VIDEO_GEN_PROVIDER') return 'gemini  /  seedance  /  local_ffmpeg  /  custom';
+  if (n === 'IMAGE_GEN_WORKER_URL' || n === 'VIDEO_GEN_API_URL') return 'https://...';
+  if (n.endsWith('_API_KEY') || n.endsWith('_TOKEN')) return '••••••••';
+  return varName;
+}
+
 function varLabel(varName: string): { label: string; sensitive: boolean; hint: string } {
   const n = varName.toUpperCase();
   if (n.endsWith('_API_TOKEN') || n.endsWith('_TOKEN'))
@@ -883,7 +892,7 @@ export function AdminModules() {
                       <input
                         type={sensitive ? 'password' : 'text'}
                         className="input"
-                        placeholder={varName}
+                        placeholder={varPlaceholder(varName)}
                         value={credFields[varName] ?? ''}
                         onChange={e => setCredFields(f => ({ ...f, [varName]: e.target.value }))}
                         style={{ width: '100%', fontFamily: sensitive ? 'monospace' : undefined }}
@@ -906,7 +915,7 @@ export function AdminModules() {
                             <input
                               type={sensitive ? 'password' : 'text'}
                               className="input"
-                              placeholder={varName}
+                              placeholder={varPlaceholder(varName)}
                               value={credFields[varName] ?? ''}
                               onChange={e => setCredFields(f => ({ ...f, [varName]: e.target.value }))}
                               style={{ width: '100%', fontFamily: sensitive ? 'monospace' : undefined }}
@@ -932,7 +941,7 @@ export function AdminModules() {
                             <input
                               type={sensitive ? 'password' : 'text'}
                               className="input"
-                              placeholder={varName}
+                              placeholder={varPlaceholder(varName)}
                               value={credFields[varName] ?? ''}
                               onChange={e => setCredFields(f => ({ ...f, [varName]: e.target.value }))}
                               style={{ width: '100%', fontFamily: sensitive ? 'monospace' : undefined }}
