@@ -98,6 +98,9 @@ done
 # Use -f explicitly so docker-compose.override.yml (local dev) is never loaded.
 docker compose -f docker-compose.yml --env-file .env.staging -p staging pull api web relay
 
+echo "=== Stopping any previously stuck containers ==="
+docker compose -f docker-compose.yml -p staging down --remove-orphans || true
+
 echo "=== Starting staging containers ==="
 docker compose -f docker-compose.yml --env-file .env.staging -p staging \
   up -d --no-build --force-recreate
