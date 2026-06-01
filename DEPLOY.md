@@ -2,6 +2,7 @@
 
 > Single source of truth for all deploy operations, port topology, localhost ↔ staging breakage runbook, and the future production model.
 > **git.md has been merged into this file and deleted.**
+> Active execution tracker for deploy hypotheses / AI handoff: `DEPLOY_COORDINATION.md`.
 
 ---
 
@@ -193,6 +194,10 @@ Localhost and staging run from different sources of truth:
 The gap between your filesystem and `origin/staging` is always the first place to look.
 
 ---
+
+### Hypothesis Standard
+
+A useful hypothesis here is an **elimination hypothesis**: "If we implement X, problem class Y stops occurring." Confirmation experiments (confirming what we already suspect without eliminating anything) generate more tasks, not fewer. Before adding a new candidate cause or investigation item, ask: what implementation would close this class of problem permanently? That implementation is the real fix — document it here, add it to `DEPLOY_TODO.md`, and skip pure-investigation steps that don't change the fix list.
 
 ### Candidate Causes
 
@@ -686,6 +691,8 @@ Three failure modes discovered manually during early staging setup:
 ---
 
 ## Open Items
+
+> Active execution tracking for the items below lives in `DEPLOY_COORDINATION.md`. Keep this section as the durable checklist summary; record live hypothesis work and evidence in the coordination file.
 
 - [x] Add `name:` field to the compose file so project name is explicit and never inferred — `name: bos` is in `docker-compose.yml`
 - [x] Write a `deploy.sh` script wrapping the full staging deploy sequence — `deploy-staging.sh` (env-fill → git reset → image pull → up → migrations → `check-staging.sh` smoke tests)
