@@ -73,6 +73,28 @@ if [[ -n "${GHCR_TOKEN:-}" ]]; then
   echo "$GHCR_TOKEN" | docker login ghcr.io -u itsborj --password-stdin
 fi
 
+# Wait for all 3 images to be present in GHCR before pulling.
+# CI builds api → web → relay sequentially; checking only api causes a race.
+echo "=== Waiting for all images to be available in GHCR ==="
+for i in $(seq 1 30); do
+  API_OK=$(docker manifest inspect "$API_IMAGE" 2>&1 | head -1)
+  WEB_OK=$(docker manifest inspect "$WEB_IMAGE" 2>&1 | head -1)
+  RELAY_OK=$(docker manifest inspect "$RELAY_IMAGE" 2>&1 | head -1)
+  if [[ "$API_OK" == "{" && "$WEB_OK" == "{" && "$RELAY_OK" == "{" ]]; then
+    echo "All images ready."
+    break
+  fi
+  if [[ $i -eq 30 ]]; then
+    echo "ERROR: images not available after 10 minutes. CI may have failed."
+    echo "  api:   $([[ $API_OK == '{' ]] && echo ok || echo missing)"
+    echo "  web:   $([[ $WEB_OK == '{' ]] && echo ok || echo missing)"
+    echo "  relay: $([[ $RELAY_OK == '{' ]] && echo ok || echo missing)"
+    exit 1
+  fi
+  echo "  not ready yet (attempt $i/30) — waiting 20s..."
+  sleep 20
+done
+
 # Use -f explicitly so docker-compose.override.yml (local dev) is never loaded.
 docker compose -f docker-compose.yml --env-file .env.staging -p staging pull api web relay
 
