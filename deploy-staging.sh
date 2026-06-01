@@ -99,7 +99,13 @@ done
 docker compose -f docker-compose.yml --env-file .env.staging -p staging pull api web relay
 
 echo "=== Stopping any previously stuck containers ==="
-docker compose -f docker-compose.yml -p staging down --remove-orphans || true
+# Stop+remove containers only — do NOT remove the network.
+# Removing the network tears down the Docker bridge and the kernel's iptables
+# rules aren't ready in time when up recreates it, causing host-port-binding
+# containers (db, api, web, nginx) to fail while port-less ones (redis, relay)
+# start fine.
+docker compose -f docker-compose.yml -p staging stop 2>/dev/null || true
+docker compose -f docker-compose.yml -p staging rm -f 2>/dev/null || true
 
 echo "=== Starting staging containers ==="
 docker compose -f docker-compose.yml --env-file .env.staging -p staging \
