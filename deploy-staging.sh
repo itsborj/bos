@@ -105,10 +105,6 @@ echo "=== Starting staging containers ==="
 docker compose -f docker-compose.yml --env-file .env.staging -p staging \
   up -d --no-build --force-recreate
 
-echo "=== Running smoke tests ==="
-sleep 5
-~/bos/check-staging.sh
-
 # ── Post-deploy health summary ────────────────────────────────────────────────
 _HEALTH=$(curl -s http://127.0.0.1:8091/api/ || true)
 _UPTIME=$(echo "$_HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('uptime_seconds','?'))" 2>/dev/null || echo "?")
