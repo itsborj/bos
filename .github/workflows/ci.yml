@@ -126,6 +126,8 @@ jobs:
     needs: build-and-push
     if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      packages: read
 
     steps:
       - name: SSH deploy to staging.klaroha.com
@@ -133,7 +135,7 @@ jobs:
         env:
           STAGING_ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
           DEPLOY_SHA: ${{ github.sha }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.VDS_HOST }}
           username: ${{ secrets.VDS_USER }}
