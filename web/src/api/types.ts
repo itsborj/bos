@@ -1,3 +1,14 @@
+export interface MediaModelOption {
+  value: string;
+  label: string;
+}
+
+export interface MediaProviderOption {
+  provider: string;
+  label: string;
+  models: MediaModelOption[];
+}
+
 export interface PluginInfo {
   plugin_id: string;
   name: string;
@@ -7,6 +18,7 @@ export interface PluginInfo {
   credentials_configured: boolean;
   missing_vars: string[];
   credential_source: 'database' | 'env_var' | 'partial' | 'none';
+  media_provider_options?: MediaProviderOption[];
 }
 
 export interface BrandOut {

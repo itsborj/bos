@@ -119,38 +119,17 @@ jobs:
             ghcr.io/itsborj/bos-relay:staging
 
   # ── Deploy to staging ────────────────────────────────────────────────────
-  deploy-staging:
-    name: Deploy → staging
-    needs: build-and-push
-    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: SSH deploy to staging.klaroha.com
-        uses: appleboy/ssh-action@v1
-        env:
-          STAGING_ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
-          DEPLOY_SHA: ${{ github.sha }}
-          GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
-        with:
-          host: ${{ secrets.VDS_HOST }}
-          username: ${{ secrets.VDS_USER }}
-          key: ${{ secrets.VDS_DEPLOY_KEY }}
-          envs: STAGING_ENV_FILE,DEPLOY_SHA,GHCR_TOKEN
-          script: |
-            set -euo pipefail
-            STAGING_PATH=${{ secrets.STAGING_PATH }}
-            if [ ! -d "$STAGING_PATH/.git" ]; then
-              echo "Repo missing — cloning fresh"
-              rm -rf "$STAGING_PATH"
-              git clone https://github.com/itsborj/bos.git "$STAGING_PATH"
-            fi
-            echo "Writing .env.staging from secret"
-            printf '%s' "$STAGING_ENV_FILE" > "$STAGING_PATH/.env.staging"
-            cd "$STAGING_PATH"
-            git fetch origin
-            git reset --hard origin/staging
-            DEPLOY_SHA="$DEPLOY_SHA" GHCR_TOKEN="$GHCR_TOKEN" bash deploy-staging.sh
+  # DISABLED — auto-deploy on staging branch push caused unfinished features to
+  # go live on staging.klaroha.com without review. Staging deploys must be
+  # triggered manually via deploy-staging.sh on the server.
+  # DO NOT RE-ENABLE this job without an explicit team decision and a defined
+  # "staging-ready" gate (e.g. a separate release branch or manual workflow_dispatch).
+  #
+  # deploy-staging:
+  #   name: Deploy → staging
+  #   needs: build-and-push
+  #   if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
+  #   ...removed...
 
   # ── Deploy to production ─────────────────────────────────────────────────
   deploy-production:

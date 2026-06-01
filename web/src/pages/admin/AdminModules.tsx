@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { BackendOverride, ModuleInfo, PluginInfo, ProviderInfo, ProviderModelLive, SocialConnectionResponse } from '../../api/types';
+import type { BackendOverride, MediaProviderOption, ModuleInfo, PluginInfo, ProviderInfo, ProviderModelLive, SocialConnectionResponse } from '../../api/types';
 
 const OAUTH_PLATFORMS: Record<string, { label: string; icon: string }> = {
   facebook:        { label: 'Facebook',        icon: '📘' },
@@ -40,6 +40,9 @@ type SpecialistSummary = {
   moduleIds: string[];
   capabilityKeys: string[];
   llmModuleIds: string[];
+  mediaModuleId?: string;
+  mediaModality?: 'image' | 'video';
+  mediaProviderOptions?: MediaProviderOption[];
   connectors: ConnectorSummary[];
   nextStep?: string;
   pluginId?: string;
@@ -127,7 +130,7 @@ function varLabel(varName: string): { label: string; sensitive: boolean; hint: s
   if (n.includes('REFRESH_TOKEN'))
     return { label: 'Refresh Token', sensitive: true, hint: '' };
   if (n === 'IMAGE_GEN_PROVIDER')
-    return { label: 'Image Provider', sensitive: false, hint: 'openai · gemini · custom  (openai and gemini use your platform key — no extra key needed)' };
+    return { label: 'Image Provider', sensitive: false, hint: 'openai · gemini · custom  (openai and gemini use the API key from Admin → AI Providers)' };
   if (n === 'IMAGE_GEN_WORKER_URL')
     return { label: 'Worker URL', sensitive: false, hint: 'Required when provider is custom — full HTTPS URL of your image generation worker' };
   if (n === 'IMAGE_GEN_API_KEY')
@@ -224,8 +227,8 @@ function pluginConnector(plugins: PluginInfo[], pluginId: string, label?: string
     missingVars: plugin.missing_vars,
     status: configured ? 'connected' : 'needs_setup',
     statusText: sourceText,
-    actionLabel: plugin.credential_source === 'env_var' ? undefined : (configured ? 'Update' : 'Configure'),
-    actionType: plugin.credential_source === 'env_var' ? undefined : 'plugin',
+    actionLabel: (plugin.credential_source === 'env_var' && !['media.image', 'media.video'].includes(plugin.plugin_id)) ? undefined : (configured ? 'Update' : 'Configure'),
+    actionType: (plugin.credential_source === 'env_var' && !['media.image', 'media.video'].includes(plugin.plugin_id)) ? undefined : 'plugin',
     pluginId: plugin.plugin_id,
     removable: configured && plugin.credential_source === 'database',
   };
@@ -393,6 +396,7 @@ function summarizeGroup(key: string, modules: ModuleInfo[], connections: SocialC
   }
 
   if (key === 'media-image') {
+    const imagePlugin = plugins.find(p => p.plugin_id === 'media.image');
     const imageConnector = pluginConnector(plugins, 'media.image');
     const connectors = compactConnectors([
       imageConnector,
@@ -409,6 +413,9 @@ function summarizeGroup(key: string, modules: ModuleInfo[], connections: SocialC
       readinessText: readiness === 'ready' ? 'Image generation connected' : 'Configure image generation provider credentials',
       risk: 'Generate only — distribution stays in channel plugins',
       ...base,
+      mediaModuleId: 'media.image.generate',
+      mediaModality: 'image' as const,
+      mediaProviderOptions: imagePlugin?.media_provider_options ?? [],
       connectors,
       nextStep: readiness === 'ready' ? 'Ask the CMO to generate an image or ad creative.' : undefined,
       pluginId: 'media.image',
@@ -416,23 +423,26 @@ function summarizeGroup(key: string, modules: ModuleInfo[], connections: SocialC
   }
 
   if (key === 'media-video') {
+    const videoPlugin = plugins.find(p => p.plugin_id === 'media.video');
     const videoConnector = pluginConnector(plugins, 'media.video');
     const connectors = compactConnectors([
       videoConnector,
       oauthConnector(connections, 'google_drive', 'Google Drive assets'),
     ]);
     const hasExternalProvider = videoConnector?.status === 'connected';
-    const readiness = 'ready';
     return {
       key,
       name: 'Video Generation',
       description: 'Generates channel-agnostic video assets and short-form motion creative with a configurable provider.',
       jobs: jobs.length ? jobs : ['media.generate'],
       specialties: ['video generation', 'shortform video', 'motion creative'],
-      readiness,
+      readiness: 'ready',
       readinessText: hasExternalProvider ? 'Video provider connected' : 'Local FFmpeg video rendering is ready; configure provider credentials only for an external video API',
       risk: 'Generate only - distribution stays in channel plugins',
       ...base,
+      mediaModuleId: 'media.video.generate',
+      mediaModality: 'video' as const,
+      mediaProviderOptions: videoPlugin?.media_provider_options ?? [],
       connectors,
       nextStep: 'Ask the CMO to generate a video or short.',
       pluginId: 'media.video',
@@ -567,6 +577,8 @@ export function AdminModules() {
   const [loading, setLoading] = useState(true);
   const [configuringPlugin, setConfiguringPlugin] = useState<PluginInfo | null>(null);
   const [configuringAI, setConfiguringAI] = useState<SpecialistSummary | null>(null);
+  const [selectedMediaProvider, setSelectedMediaProvider] = useState('');
+  const [selectedMediaModel, setSelectedMediaModel] = useState('');
   const [credFields, setCredFields] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
@@ -710,6 +722,50 @@ export function AdminModules() {
     if (!value) return 'Auto-route best available';
     if (value === '__mixed__') return 'Mixed model settings';
     return value.replace('::', ' · ');
+  }
+
+  function currentMediaLabel(s: SpecialistSummary): string {
+    if (!s.mediaModuleId) return '';
+    const override = overrideMap.get(s.mediaModuleId);
+    if (!override?.provider) return 'Not assigned';
+    const provLabel = s.mediaProviderOptions?.find(p => p.provider === override.provider)?.label ?? override.provider;
+    return override.model_id ? `${provLabel} · ${override.model_id}` : provLabel;
+  }
+
+  function openConfigureMediaAI(s: SpecialistSummary) {
+    const override = s.mediaModuleId ? overrideMap.get(s.mediaModuleId) : undefined;
+    setSelectedMediaProvider(override?.provider ?? '');
+    setSelectedMediaModel(override?.model_id ?? '');
+    setSaveError('');
+    setConfiguringAI(s);
+  }
+
+  async function handleSaveMediaAIModel() {
+    if (!configuringAI?.mediaModuleId) return;
+    setSaving(true);
+    setSaveError('');
+    try {
+      if (!selectedMediaProvider) {
+        await api.deleteBackendOverride(configuringAI.mediaModuleId);
+      } else {
+        await api.putBackendOverride(configuringAI.mediaModuleId, {
+          provider: selectedMediaProvider,
+          model_id: selectedMediaModel || null,
+          tool_id: null,
+          modality: configuringAI.mediaModality ?? 'image',
+          strict: true,
+        });
+      }
+      await refreshBackendOverrides();
+      setConfiguringAI(null);
+      setSelectedMediaProvider('');
+      setSelectedMediaModel('');
+      showToast('✅ AI model saved');
+    } catch (e: unknown) {
+      setSaveError(e instanceof Error ? e.message : 'Failed to save AI model');
+    } finally {
+      setSaving(false);
+    }
   }
 
   async function handleClickUpResolve() {
@@ -975,60 +1031,164 @@ export function AdminModules() {
       )}
 
       {configuringAI && (() => {
-        const isMixed = selectedModel === '__mixed__';
+        const isMedia = Boolean(configuringAI.mediaModality);
+        const isMixed = !isMedia && selectedModel === '__mixed__';
+
+        const providerOptions = configuringAI.mediaProviderOptions ?? [];
+        const mediaModelOptions = selectedMediaProvider
+          ? (providerOptions.find(p => p.provider === selectedMediaProvider)?.models ?? [])
+          : [];
+
+        function isMediaProviderConnected(provider: string): boolean {
+          if (provider === 'local_ffmpeg') return true;
+          return providers.some(p => p.provider === provider && (p.has_byok_key || p.has_platform_key));
+        }
+
+        const builtInOptions = providerOptions.filter(p => p.provider === 'local_ffmpeg');
+        const connectedOptions = providerOptions.filter(p => p.provider !== 'local_ffmpeg' && p.provider !== 'custom' && isMediaProviderConnected(p.provider));
+        const needsKeyOptions = providerOptions.filter(p => p.provider !== 'local_ffmpeg' && p.provider !== 'custom' && !isMediaProviderConnected(p.provider));
+        const customOptions = providerOptions.filter(p => p.provider === 'custom');
+
+        const selectedProviderLabel = providerOptions.find(p => p.provider === selectedMediaProvider)?.label ?? selectedMediaProvider;
+        const selectedNeedsKey = Boolean(selectedMediaProvider && selectedMediaProvider !== 'local_ffmpeg' && selectedMediaProvider !== 'custom' && !isMediaProviderConnected(selectedMediaProvider));
+        const selectedIsCustom = selectedMediaProvider === 'custom';
+
+        const dismiss = () => { setConfiguringAI(null); setSelectedMediaProvider(''); setSelectedMediaModel(''); setSaveError(''); };
         return (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
             <div className="admin-card" style={{ width: '100%', maxWidth: 520, margin: 0 }}>
-              <div style={{ fontWeight: 850, fontSize: 17, marginBottom: 4 }}>Configure AI for {configuringAI.name}</div>
+              <div style={{ fontWeight: 850, fontSize: 17, marginBottom: 4 }}>Configure AI — {configuringAI.name}</div>
               <div style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 18 }}>
-                Choose the exact LLM/model this specialist should use. Leave on auto-route to let BOS choose the best available model.
+                {isMedia
+                  ? `Choose which provider generates ${configuringAI.mediaModality}s. API keys are managed in AI Providers.`
+                  : 'Choose the exact LLM/model this specialist should use. Leave on auto-route to let BOS choose the best available model.'}
               </div>
 
-              {isMixed ? (
-                <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', marginBottom: 14 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Mixed model settings detected</div>
-                  <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 10 }}>
-                    The {configuringAI.llmModuleIds.length} tools in this specialist have different model overrides. Select a model below to apply one setting to all, or reset everything to auto-route.
-                  </div>
-                  <button className="btn btn-ghost btn-sm" onClick={() => setSelectedModel('')}>Reset all to auto-route</button>
-                </div>
-              ) : null}
+              {isMedia ? (
+                <>
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Provider</label>
+                  <select
+                    className="select"
+                    value={selectedMediaProvider}
+                    onChange={e => { setSelectedMediaProvider(e.target.value); setSelectedMediaModel(''); }}
+                  >
+                    <option value="">Not assigned — auto-route</option>
+                    {builtInOptions.length > 0 && (
+                      <optgroup label="── Built-in · No key needed ──">
+                        {builtInOptions.map(p => (
+                          <option key={p.provider} value={p.provider}>{p.label}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {connectedOptions.length > 0 && (
+                      <optgroup label="── Connected ──">
+                        {connectedOptions.map(p => (
+                          <option key={p.provider} value={p.provider}>{p.label} ✓</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {needsKeyOptions.length > 0 && (
+                      <optgroup label="── Add key in AI Providers ──">
+                        {needsKeyOptions.map(p => (
+                          <option key={p.provider} value={p.provider}>{p.label}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {customOptions.length > 0 && (
+                      <optgroup label="── Custom ──">
+                        {customOptions.map(p => (
+                          <option key={p.provider} value={p.provider}>{p.label}</option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
 
-              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Model</label>
-              <select className="select" value={selectedModel} onChange={e => setSelectedModel(e.target.value)}>
-                <option value="">Auto-route best available</option>
-                {isMixed && <option value="__mixed__" disabled>Mixed model settings</option>}
-                {choicesForSpecialist(configuringAI).map(choice => (
-                  <option key={choice.value} value={choice.value}>{choice.label}</option>
-                ))}
-              </select>
-              {selectedModel && !isMixed && (
-                <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
-                  <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={strictOverride}
-                      onChange={e => setStrictOverride(e.target.checked)}
-                      style={{ marginTop: 2 }}
-                    />
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600 }}>Strict pin</div>
-                      <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>
-                        When enabled, runs fail if this exact model is unavailable — no fallback. Leave unchecked to fall back to auto-route if the key is removed or the provider goes down.
+                  {selectedNeedsKey && (
+                    <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                      <div style={{ fontSize: 12, color: 'var(--text2)' }}>
+                        No API key for <strong>{selectedProviderLabel}</strong> — add one first.
                       </div>
+                      <button
+                        className="btn btn-ghost btn-sm"
+                        style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                        onClick={() => { dismiss(); navigate('/admin/providers'); }}
+                      >
+                        AI Providers →
+                      </button>
                     </div>
-                  </label>
-                </div>
+                  )}
+
+                  {selectedIsCustom && (
+                    <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text2)' }}>
+                      Custom provider credentials (URL + API key) are configured in the connector settings on this card.
+                    </div>
+                  )}
+
+                  {selectedMediaProvider && mediaModelOptions.length > 0 && (
+                    <>
+                      <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginTop: 14, marginBottom: 6 }}>Model</label>
+                      <select className="select" value={selectedMediaModel} onChange={e => setSelectedMediaModel(e.target.value)}>
+                        <option value="">Default for provider</option>
+                        {mediaModelOptions.map(m => (
+                          <option key={m.value} value={m.value}>{m.label}</option>
+                        ))}
+                      </select>
+                    </>
+                  )}
+                </>
+              ) : (
+                <>
+                  {isMixed ? (
+                    <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', marginBottom: 14 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Mixed model settings detected</div>
+                      <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 10 }}>
+                        The {configuringAI.llmModuleIds.length} tools in this specialist have different model overrides. Select a model below to apply one setting to all, or reset everything to auto-route.
+                      </div>
+                      <button className="btn btn-ghost btn-sm" onClick={() => setSelectedModel('')}>Reset all to auto-route</button>
+                    </div>
+                  ) : null}
+
+                  <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Model</label>
+                  <select className="select" value={selectedModel} onChange={e => setSelectedModel(e.target.value)}>
+                    <option value="">Auto-route best available</option>
+                    {isMixed && <option value="__mixed__" disabled>Mixed model settings</option>}
+                    {choicesForSpecialist(configuringAI).map(choice => (
+                      <option key={choice.value} value={choice.value}>{choice.label}</option>
+                    ))}
+                  </select>
+                  {selectedModel && !isMixed && (
+                    <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                      <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={strictOverride}
+                          onChange={e => setStrictOverride(e.target.checked)}
+                          style={{ marginTop: 2 }}
+                        />
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>Strict pin</div>
+                          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>
+                            When enabled, runs fail if this exact model is unavailable — no fallback. Leave unchecked to fall back to auto-route if the key is removed or the provider goes down.
+                          </div>
+                        </div>
+                      </label>
+                    </div>
+                  )}
+                  <div style={{ color: 'var(--text2)', fontSize: 12, marginTop: 10 }}>
+                    Applies to {configuringAI.llmModuleIds.length} LLM tool{configuringAI.llmModuleIds.length !== 1 ? 's' : ''} in this specialist.
+                  </div>
+                </>
               )}
 
-              <div style={{ color: 'var(--text2)', fontSize: 12, marginTop: 10 }}>
-                Applies to {configuringAI.llmModuleIds.length} LLM tool{configuringAI.llmModuleIds.length !== 1 ? 's' : ''} in this specialist.
-              </div>
               {saveError && <div style={{ color: 'var(--error)', fontSize: 13, marginTop: 12 }}>{saveError}</div>}
               <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
-                <button className="btn btn-ghost" onClick={() => { setConfiguringAI(null); setSaveError(''); }}>Cancel</button>
-                <button className="btn btn-primary" onClick={handleSaveAIModel} disabled={saving || isMixed}>
-                  {saving ? 'Saving…' : selectedModel ? 'Save AI model' : 'Reset to auto-route'}
+                <button className="btn btn-ghost" onClick={dismiss}>Cancel</button>
+                <button
+                  className="btn btn-primary"
+                  onClick={isMedia ? handleSaveMediaAIModel : handleSaveAIModel}
+                  disabled={saving || (!isMedia && isMixed)}
+                >
+                  {saving ? 'Saving…' : (isMedia ? (selectedMediaProvider ? 'Save AI model' : 'Remove assignment') : (selectedModel ? 'Save AI model' : 'Reset to auto-route'))}
                 </button>
               </div>
             </div>
@@ -1039,116 +1199,89 @@ export function AdminModules() {
       {specialists.length === 0 ? (
         <div className="admin-card"><div className="empty-state"><div className="empty-state-icon">◎</div><div className="empty-state-title">No specialists installed</div><div className="empty-state-text">Install capability or plugin packages to see specialists here.</div></div></div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 14 }}>
-          {specialists.map(s => (
-            <div key={s.key} className="admin-card" style={{ margin: 0 }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
-                <div>
-                  <div style={{ fontWeight: 850, fontSize: 16 }}>{s.name}</div>
-                  <div style={{ color: 'var(--text2)', fontSize: 12, marginTop: 3 }}>{s.description}</div>
-                </div>
-                <span className={`badge badge-${s.readiness === 'needs_setup' ? 'warning' : 'success'}`}>{s.readiness === 'needs_setup' ? 'Needs setup' : s.readiness === 'ready' ? 'Ready' : 'Available'}</span>
-              </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
+          {specialists.map(s => {
+            const hasAI = s.llmModuleIds.length > 0 || Boolean(s.mediaModuleId);
+            const mediaSet = s.mediaModuleId ? Boolean(overrideMap.get(s.mediaModuleId)?.provider) : false;
+            const aiLabel = s.mediaModuleId ? currentMediaLabel(s) : currentAILabel(s);
+            const aiNotSet = Boolean(s.mediaModuleId && !mediaSet);
 
-              <div style={{ display: 'grid', gap: 10, marginTop: 14 }}>
-                <div>
-                  <div className="label" style={{ marginBottom: 5 }}>CMO jobs</div>
-                  <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                    {s.jobs.map(job => <span key={job} className="badge badge-info">{job}</span>)}
+            return (
+              <div key={s.key} className="admin-card" style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+
+                {/* Header */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start' }}>
+                  <div>
+                    <div style={{ fontWeight: 750, fontSize: 15 }}>{s.name}</div>
+                    <div style={{ color: 'var(--text2)', fontSize: 12, marginTop: 3, lineHeight: 1.4 }}>{s.description}</div>
                   </div>
-                </div>
-                <div>
-                  <div className="label" style={{ marginBottom: 5 }}>Specialty</div>
-                  <div style={{ color: 'var(--text2)', fontSize: 13 }}>{s.specialties.join(' · ') || 'General marketing'}</div>
-                </div>
-                <div>
-                  <div className="label" style={{ marginBottom: 5 }}>Risk policy</div>
-                  <div style={{ color: 'var(--text2)', fontSize: 13 }}>{s.risk}</div>
+                  <span className={`badge badge-${s.readiness === 'needs_setup' ? 'warning' : 'success'}`} style={{ flexShrink: 0 }}>
+                    {s.readiness === 'needs_setup' ? 'Needs setup' : s.readiness === 'ready' ? 'Ready' : 'Available'}
+                  </span>
                 </div>
 
-                <div style={{ paddingTop: 10, borderTop: '1px solid var(--border)', display: 'grid', gap: 8 }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'center' }}>
-                    <span style={{ color: 'var(--text2)', fontSize: 12 }}>Access: {s.readinessText}</span>
-                    <span className="badge badge-muted">{s.moduleCount} tool{s.moduleCount !== 1 ? 's' : ''}</span>
-                  </div>
-                  {s.llmModuleIds.length > 0 && (
-                    <div style={{ color: 'var(--text2)', fontSize: 12 }}>AI model: {currentAILabel(s)}</div>
-                  )}
-                  {s.nextStep && <div style={{ color: 'var(--text2)', fontSize: 12 }}>{s.nextStep}</div>}
-
-                  {s.connectors.length > 0 && (
-                    <div style={{ display: 'grid', gap: 8, marginTop: 2 }}>
-                      <div className="label">Connectors</div>
-                      {s.connectors.map(connector => (
-                        <div key={connector.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '9px 10px', display: 'grid', gap: 8 }}>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' }}>
-                            <div style={{ minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 750 }}>{connector.label}</div>
-                              <div style={{ color: 'var(--text2)', fontSize: 11, marginTop: 2, overflowWrap: 'anywhere' }}>{connector.detail}</div>
-                              {connector.description && (
-                                <div style={{ color: 'var(--text2)', fontSize: 12, marginTop: 6 }}>{connector.description}</div>
-                              )}
-                            </div>
-                            <span className={`badge badge-${connectorBadgeClass(connector.status)}`} style={{ whiteSpace: 'nowrap' }}>{connector.statusText}</span>
-                          </div>
-                          {connector.missingVars && connector.missingVars.length > 0 && (
-                            <div>
-                              <div className="label" style={{ marginBottom: 5 }}>Missing</div>
-                              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                                {connector.missingVars.map(v => (
-                                  <span key={v} className="badge badge-muted" style={{ fontFamily: 'monospace', fontSize: 11 }}>{v}</span>
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                          {connector.implements && connector.implements.length > 0 && (
-                            <div>
-                              <div className="label" style={{ marginBottom: 5 }}>Implements</div>
-                              <div style={{ display: 'flex', gap: 5, flexWrap: 'wrap' }}>
-                                {connector.implements.map(job => <span key={job} className="badge badge-info">{job}</span>)}
-                              </div>
-                            </div>
-                          )}
-                          {(connector.actionLabel || connector.removable || savedPlugin === connector.pluginId) && (
-                            <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-                              {connector.actionLabel && connector.actionType === 'brands' && (
-                                <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => navigate('/admin/brands')}>
-                                  {connector.actionLabel}
-                                </button>
-                              )}
-                              {connector.actionLabel && connector.actionType === 'plugin' && connector.pluginId && (
-                                <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => openConfigure(connector.pluginId!)}>
-                                  {connector.actionLabel}
-                                </button>
-                              )}
-                              {connector.removable && connector.pluginId && (
-                                <button className="btn btn-ghost" style={{ fontSize: 12, padding: '4px 10px', color: 'var(--text2)' }} onClick={() => handleRemoveCredentials(connector.pluginId!)}>
-                                  Remove
-                                </button>
-                              )}
-                              {savedPlugin === connector.pluginId && <span style={{ color: 'var(--success)', fontSize: 12 }}>✓ Saved</span>}
-                            </div>
-                          )}
-                        </div>
-                      ))}
+                {/* AI row — primary action */}
+                {hasAI && (
+                  <div style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontSize: 11, color: 'var(--text2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>AI model</div>
+                      <div style={{ fontSize: 13, color: aiNotSet ? 'var(--text2)' : 'inherit' }}>
+                        {aiLabel}
+                      </div>
                     </div>
-                  )}
-
-                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                    {s.llmModuleIds.length > 0 && (
-                      <button
-                        className="btn btn-ghost"
-                        style={{ fontSize: 12, padding: '4px 10px', alignSelf: 'flex-start' }}
-                        onClick={() => openConfigureAI(s)}
-                      >
-                        {currentAIValue(s) ? 'Update AI model' : 'Configure AI'}
-                      </button>
-                    )}
+                    <button
+                      className={`btn btn-sm ${aiNotSet ? 'btn-dark' : 'btn-ghost'}`}
+                      style={{ fontSize: 12, whiteSpace: 'nowrap' }}
+                      onClick={() => s.mediaModuleId ? openConfigureMediaAI(s) : openConfigureAI(s)}
+                    >
+                      {aiNotSet ? 'Set up' : 'Change'}
+                    </button>
                   </div>
+                )}
+
+                {/* Accounts / connectors */}
+                {s.connectors.length > 0 && (
+                  <div style={{ display: 'grid', gap: 6 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Accounts</div>
+                    {s.connectors.map(connector => (
+                      <div key={connector.id} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <div style={{ fontSize: 13, fontWeight: 600 }}>{connector.label}</div>
+                          <div style={{ color: 'var(--text2)', fontSize: 11, marginTop: 2, overflowWrap: 'anywhere' }}>{connector.detail}</div>
+                        </div>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                          <span className={`badge badge-${connectorBadgeClass(connector.status)}`}>{connector.statusText}</span>
+                          {connector.actionLabel && connector.actionType === 'brands' && (
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => navigate('/admin/brands')}>
+                              {connector.actionLabel}
+                            </button>
+                          )}
+                          {connector.actionLabel && connector.actionType === 'plugin' && connector.pluginId && (
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => openConfigure(connector.pluginId!)}>
+                              {connector.actionLabel}
+                            </button>
+                          )}
+                          {connector.removable && connector.pluginId && (
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--text2)' }} onClick={() => handleRemoveCredentials(connector.pluginId!)}>
+                              Remove
+                            </button>
+                          )}
+                          {savedPlugin === connector.pluginId && <span style={{ color: 'var(--success)', fontSize: 11 }}>✓</span>}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Footer — secondary info */}
+                <div style={{ marginTop: 'auto', paddingTop: 8, borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: 11, color: 'var(--text2)' }}>{s.readinessText}</span>
+                  <span className="badge badge-muted" style={{ fontSize: 11 }}>{s.moduleCount} tool{s.moduleCount !== 1 ? 's' : ''}</span>
                 </div>
+
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
 import { useLocation, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { BackendOverride, BrandResponse, KeyListItem, ProviderInfo, ProviderModelLive } from '../../api/types';
+import type { BackendOverride, KeyListItem, ProviderInfo, ProviderModelLive } from '../../api/types';
 
 type CheckState = { status: string; message: string };
 type LoginState = { login_id: string; authorize_url?: string };
@@ -96,15 +96,13 @@ type ModelChoice = {
   inputCost: number;
 };
 
-type ProviderNavState = { brand_id?: string; brand_name?: string };
-
 export function AdminProviders() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  const navState = (location.state || {}) as ProviderNavState;
+  // AI Providers is org-level infrastructure — never brand-scoped.
+  // Brand-specific nav state is intentionally ignored here.
+  void location.state;
 
-  const [brands, setBrands] = useState<BrandResponse[]>([]);
-  const [pickedBrandId] = useState('');
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [keys, setKeys] = useState<KeyListItem[]>([]);
   const [availableModels, setAvailableModels] = useState<ProviderModelLive[]>([]);
@@ -131,15 +129,6 @@ export function AdminProviders() {
   const [loginState, setLoginState] = useState<Record<string, LoginState>>({});
   const [callbackUrls, setCallbackUrls] = useState<Record<string, string>>({});
 
-  const selectedBrandId = navState.brand_id ?? (pickedBrandId || undefined);
-  const selectedBrandName = navState.brand_name ?? brands.find(b => b.id === pickedBrandId)?.name;
-
-  useEffect(() => {
-    if (!navState.brand_id) {
-      api.getBrands().then(r => setBrands(r.brands ?? [])).catch(() => {});
-    }
-  }, [navState.brand_id]);
-
   useEffect(() => {
     const gemini = searchParams.get('gemini');
     const account = searchParams.get('account');
@@ -157,8 +146,8 @@ export function AdminProviders() {
     setLoading(true);
     try {
       const [provResult, keyResult, modelResult, overrideResult] = await Promise.all([
-        api.getProviders(selectedBrandId).catch(() => ({ providers: [] as ProviderInfo[] })),
-        api.getProviderKeys(selectedBrandId).catch(() => [] as KeyListItem[]),
+        api.getProviders().catch(() => ({ providers: [] as ProviderInfo[] })),
+        api.getProviderKeys().catch(() => [] as KeyListItem[]),
         api.getAvailableModels().catch(() => ({ models: [] as ProviderModelLive[] })),
         api.getBackendOverrides().catch(() => ({ overrides: [] as BackendOverride[] })),
       ]);
@@ -173,7 +162,7 @@ export function AdminProviders() {
     }
   }
 
-  useEffect(() => { void load(); }, [selectedBrandId]);
+  useEffect(() => { void load(); }, []);
 
   // ── Computed ────────────────────────────────────────────────────────────────
 
@@ -309,7 +298,7 @@ export function AdminProviders() {
     setAdding(true);
     setError(null);
     try {
-      await api.registerKey(addProvider, addKey.trim(), selectedBrandId);
+      await api.registerKey(addProvider, addKey.trim());
       setAddProvider('');
       setAddKey('');
       await load();
@@ -336,7 +325,7 @@ export function AdminProviders() {
     setChecking(provider);
     setCheckResult(prev => { const next = { ...prev }; delete next[provider]; return next; });
     try {
-      const result = await api.checkKey(provider, selectedBrandId);
+      const result = await api.checkKey(provider);
       setCheckResult(prev => ({ ...prev, [provider]: { status: result.status, message: result.message } }));
       await load();
     } catch (e: unknown) {
@@ -396,14 +385,8 @@ export function AdminProviders() {
     <div className="admin-page">
       <div className="admin-page-header">
         <div>
-          <div className="admin-page-title">
-            {selectedBrandId ? `${selectedBrandName || 'Brand'} · AI Setup` : 'AI Setup'}
-          </div>
-          <div className="admin-page-subtitle">
-            {selectedBrandId
-              ? 'AI key saved here is scoped to this brand only.'
-              : 'Configure the AI that powers your CMO and specialists.'}
-          </div>
+          <div className="admin-page-title">AI Providers</div>
+          <div className="admin-page-subtitle">Configure the AI providers that power your CMO and all specialists.</div>
         </div>
       </div>
 

@@ -33,6 +33,75 @@ router = APIRouter(prefix="/plugins", tags=["plugins"])
 log = logging.getLogger("bos.plugins")
 
 
+class MediaModelOption(BaseModel):
+    value: str
+    label: str
+
+
+class MediaProviderOption(BaseModel):
+    provider: str
+    label: str
+    models: list[MediaModelOption]
+
+
+# Supported providers per media plugin — single source of truth.
+# Keys match plugin_id. Order determines display order in the UI.
+_MEDIA_PROVIDER_OPTIONS: dict[str, list[dict]] = {
+    "media.image": [
+        {
+            "provider": "openai",
+            "label": "OpenAI",
+            "models": [
+                {"value": "gpt-image-2", "label": "gpt-image-2 — flagship (2026)"},
+                {"value": "gpt-image-1", "label": "gpt-image-1 — deprecating Oct 2026"},
+                {"value": "gpt-image-1-mini", "label": "gpt-image-1-mini — cheapest"},
+            ],
+        },
+        {
+            "provider": "gemini",
+            "label": "Google Gemini",
+            "models": [
+                {"value": "gemini-2.5-flash-image", "label": "Gemini 2.5 Flash Image"},
+                {"value": "imagen-4.0-generate-001", "label": "Imagen 4.0 — paid Gemini plan"},
+            ],
+        },
+        {
+            "provider": "custom",
+            "label": "Custom Worker",
+            "models": [],
+        },
+    ],
+    "media.video": [
+        {
+            "provider": "local_ffmpeg",
+            "label": "Local FFmpeg",
+            "models": [],
+        },
+        {
+            "provider": "gemini",
+            "label": "Google Gemini (Veo)",
+            "models": [
+                {"value": "veo-3.0-generate-001", "label": "Veo 3.0 — preview"},
+                {"value": "veo-2.0-generate-001", "label": "Veo 2.0"},
+            ],
+        },
+        {
+            "provider": "seedance",
+            "label": "Seedance",
+            "models": [
+                {"value": "seedance-1-lite", "label": "Seedance 1 Lite"},
+                {"value": "seedance-1-pro", "label": "Seedance 1 Pro"},
+            ],
+        },
+        {
+            "provider": "custom",
+            "label": "Custom Provider",
+            "models": [],
+        },
+    ],
+}
+
+
 class PluginInfo(BaseModel):
     plugin_id: str
     name: str
@@ -42,6 +111,7 @@ class PluginInfo(BaseModel):
     credentials_configured: bool
     missing_vars: list[str]
     credential_source: str
+    media_provider_options: list[MediaProviderOption] = []
 
 
 class SaveCredentialsRequest(BaseModel):
@@ -108,6 +178,10 @@ async def list_plugins(
         else:
             source = "none"
 
+        media_opts = [
+            MediaProviderOption(**opt)
+            for opt in _MEDIA_PROVIDER_OPTIONS.get(plugin_id, [])
+        ]
         result.append(PluginInfo(
             plugin_id=plugin_id,
             name=m.name,
@@ -117,6 +191,7 @@ async def list_plugins(
             credentials_configured=not missing and bool(m.requires_platform_vars),
             missing_vars=missing,
             credential_source=source,
+            media_provider_options=media_opts,
         ).model_dump())
 
     return {"plugins": result}

@@ -429,6 +429,7 @@ These decisions are final. Any change requires explicit architectural review and
 - [x] INFRA: Production Docker nginx moved from port 80 to 8090; both domains live and isolated with separate DBs
 - [x] INFRA: `docker-compose.staging.yml` deployed to server; staging stack live at staging.klaroha.com with isolated `bos_staging` DB
 - [x] INFRA: GitHub Actions CI end-to-end verified — `Test & lint` (33/33) passes, `Deploy → staging` auto-deploys on push to staging branch
+- [-] INFRA: ~~Auto-deploy to staging on `staging` branch push~~ — **REMOVED 2026-06-01.** Caused unfinished features to go live on staging.klaroha.com without review. `deploy-staging` job commented out in `.github/workflows/ci.yml`. Staging deploys are **manual only** via `deploy-staging.sh` on the server. Never re-enable without a defined staging-ready gate separate from the working branch.
 - [x] BUG: 8 stale test files importing from deleted `capabilities.marketing.channel` path removed from `api/tests/`
 - [x] BUG: `test_brand_guidelines.py` had stale template path assertion (`brand_guidelines.j2` → `brand_guidelines/template.j2`) and section name mismatch (`Platform Rules` → `Multi-Platform Rules`)
 - [x] INFRA: Dev 2 (@kibanu) added as plugin specialist — GitHub collaborator with Write access, CODEOWNERS scoped to `api/plugins/`

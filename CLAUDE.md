@@ -4,6 +4,14 @@
 
 ---
 
+## Deployment Rules — Non-Negotiable
+
+**Never push to the `staging` branch to trigger a deploy.** The auto-deploy CI job (`deploy-staging` in `.github/workflows/ci.yml`) has been permanently disabled. Staging deploys are manual only, executed by the operator via `deploy-staging.sh` on the server. The `staging` branch is a working branch, not a release gate.
+
+**Never commit or push mid-feature work to any branch as a way to deploy or test on the server.** Use the local stack at `localhost:8090` for all development validation.
+
+---
+
 ## What This Project Is
 
 A ground-up rebuild of the Business Operating System (BOS). The POC lives at `~/cl_dm_os/` and is frozen — do not modify it. This directory is the production build.

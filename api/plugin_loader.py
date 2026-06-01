@@ -276,17 +276,43 @@ async def inject_channel_credentials(
         except Exception as exc:
             log.warning("inject_channel_credentials pm_config injection failed: %s", exc)
 
-    # For image/video modules: inject the platform key for openai/gemini providers
-    # so modules never touch settings or env directly.
+    # For image/video modules: resolve provider + model from BackendOverride (set via
+    # Specialists → Configure AI), then fall back to IMAGE_GEN_PROVIDER / VIDEO_GEN_PROVIDER
+    # env vars.  API key always comes from AI Providers (provider_keys table).
+    _is_image = module_id is not None and "image" in module_id
+    _is_video = module_id is not None and "video" in module_id
+    if (_is_image or _is_video) and db is not None:
+        try:
+            from routers.backend_settings import resolve_backend_override as _rbo
+            from routers.workspace import get_singleton as _get_ws
+            _ws = await _get_ws(db)
+            if _ws:
+                _override = await _rbo(db, _ws.id, module_id)
+                if _override and _override.modality in ("image", "video") and _override.provider:
+                    prov_key = "image_gen_provider" if _is_image else "video_gen_provider"
+                    credentials.setdefault(prov_key, _override.provider)
+                    if _override.model_id:
+                        credentials.setdefault("image_gen_model" if _is_image else "video_gen_model",
+                                               _override.model_id)
+        except Exception as exc:
+            log.warning("inject_channel_credentials backend override lookup failed: %s", exc)
+
     _media_provider = (
         credentials.get("image_gen_provider") or credentials.get("video_gen_provider") or ""
     ).lower().strip()
-    if _media_provider == "openai":
-        _pk = getattr(settings, "platform_openai_key", "") or os.getenv("PLATFORM_OPENAI_KEY", "")
-        if _pk:
-            credentials.setdefault("provider_api_key", _pk)
-    elif _media_provider == "gemini":
-        _pk = getattr(settings, "platform_gemini_key", "") or os.getenv("PLATFORM_GEMINI_KEY", "")
+    if _media_provider in ("openai", "gemini"):
+        _env_attr = f"platform_{_media_provider}_key"
+        _pk = getattr(settings, _env_attr, "") or os.getenv(_env_attr.upper(), "")
+        if not _pk and db is not None:
+            # Key comes from AI Providers (provider_keys table)
+            try:
+                from provider_auth import resolve_stored_provider_credential
+                from routers.workspace import get_singleton as _get_ws
+                _ws = await _get_ws(db)
+                if _ws:
+                    _pk, _ = await resolve_stored_provider_credential(db, _ws.id, _media_provider, settings)
+            except Exception:
+                pass
         if _pk:
             credentials.setdefault("provider_api_key", _pk)
 

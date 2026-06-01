@@ -9,6 +9,9 @@ from urllib.request import Request, urlopen
 from klaroha_sdk import ChannelModule
 
 _OPENAI_IMAGE_URL = "https://api.openai.com/v1/images/generations"
+# gpt-image-2 is the current flagship (as of May 2026); gpt-image-1 deprecates Oct 2026.
+# Override per-run via IMAGE_GEN_MODEL env var or image_gen_model brief field.
+_OPENAI_IMAGE_MODEL_DEFAULT = "gpt-image-2"
 # gemini-2.5-flash-image uses generateContent (same tier as text Gemini calls).
 # imagen-4.0-* uses predict but requires a paid Gemini plan — configure IMAGE_GEN_MODEL
 # to switch (e.g. imagen-4.0-generate-001).
@@ -133,10 +136,11 @@ class MediaImageGenerateModule(ChannelModule):
         with urlopen(req, timeout=timeout) as r:
             return json.loads(r.read())
 
-    def _generate_openai(self, api_key: str, prompt: str) -> tuple[bytes, str]:
+    def _generate_openai(self, api_key: str, prompt: str, model: str | None = None) -> tuple[bytes, str]:
+        m = (model or _OPENAI_IMAGE_MODEL_DEFAULT).strip()
         data = self._http_post(
             _OPENAI_IMAGE_URL,
-            {"model": "gpt-image-1", "prompt": prompt, "n": 1, "size": "1024x1024"},
+            {"model": m, "prompt": prompt, "n": 1, "size": "1024x1024"},
             {"Authorization": f"Bearer {api_key}"},
         )
         item = data["data"][0]
@@ -218,7 +222,8 @@ class MediaImageGenerateModule(ChannelModule):
                 api_key = str(creds.get("provider_api_key") or creds.get("image_gen_api_key") or "").strip()
                 if not api_key:
                     return self._failure(start, "missing_credentials", "OpenAI platform key not configured — set PLATFORM_OPENAI_KEY", provider)
-                image_bytes, mime = self._generate_openai(api_key, prompt)
+                openai_model = str(creds.get("image_gen_model") or "").strip() or None
+                image_bytes, mime = self._generate_openai(api_key, prompt, model=openai_model)
 
             elif provider == "gemini":
                 api_key = str(creds.get("provider_api_key") or creds.get("image_gen_api_key") or "").strip()
