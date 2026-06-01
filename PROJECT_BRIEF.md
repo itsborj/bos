@@ -839,12 +839,84 @@ Run this sync whenever a significant batch of tasks is completed or added. The s
 
 ---
 
+## 10. Deployment Model — Click-to-Deploy Software
+
+**Decision locked (2026-06-01).** BOS is packaged software that organizations deploy on their own cloud infrastructure. It is **not** a multi-tenant SaaS. Klaroha is the software vendor and central services operator; organizations own their data and their cloud environment.
+
+**The analogy:** An organization installs the software on their own server, but authenticates against Klaroha's central identity and integration services — they never register their own Google Cloud project or Meta Developer App. Klaroha runs the central auth relay and AI services; organizations run the application on their own infrastructure.
+
+**Active focus:** Before distribution to many orgs, the immediate goal is one clean end-to-end first org deploy. Getting that journey right once is the template that all future deployments clone.
+
+### What Each Org Gets
+- Their own server or cloud environment (DigitalOcean droplet, AWS EC2, VPS)
+- Their own isolated PostgreSQL database — no commingling with other orgs
+- Their own encryption keys, auto-generated at first boot
+- Their own domain or subdomain, their choice
+- No Klaroha access to their data at rest
+
+### What Klaroha Operates Centrally
+- **OAuth relay** (`connect.klaroha.com`) — holds the one Klaroha-verified Google app (all Google scopes) + Meta app + TikTok app; brokers token exchange for all deployed instances; one stable redirect URI per platform; no per-customer app registration ever required
+- **Platform inference** — pooled AI provider access for orgs that do not bring their own API keys; metered against each org's deployment key
+- **Deployment key issuance** — each org receives a `KLAROHA_DEPLOYMENT_KEY` at purchase; gates relay access and usage metering
+- **Software distribution** — Docker Hub image registry; `stable` and `latest` channels; Klaroha controls what is promoted to `stable`
+- **Update notifications** — in-app alert when a new version is available; org controls timing of their own update
+
+### Why Multi-Tenant SaaS Is Rejected
+- The target operator (agency owner, overloaded business leader) cannot accept their clients' marketing data on shared infrastructure alongside competitors
+- The product promise "your CMO, your server" requires the data layer to remain on the org's own infrastructure
+- The relay centralizes auth and inference — data isolation is maintained by keeping the data layer org-local
+
+### Target Deploy Experience (Zero-Setup)
+The full operator experience once the relay is built:
+
+1. Org purchases license → receives `KLAROHA_DEPLOYMENT_KEY`
+2. Clicks "Deploy to DigitalOcean" or runs `curl install.klaroha.com | bash`
+3. Sets domain name + deployment key — nothing else
+4. Container first boot: auto-generates `API_SECRET_KEY` and `ENCRYPTION_KEY`, runs `alembic upgrade head`, bootstraps admin
+5. First login → setup wizard (org name → import brand brief → CMO operational)
+
+No Google Cloud project. No Meta Developer App. No AI API keys required to get started.
+
+### Minimal `.env` at Deploy Time (Target)
+```env
+KLAROHA_DEPLOYMENT_KEY=dk_live_xxx     # issued at purchase — relay access + metering
+KLAROHA_RELAY_URL=https://connect.klaroha.com
+FRONTEND_URL=https://theirorg.com      # org's chosen domain
+```
+All other values (database URL, secret keys, encryption key) are auto-generated at first boot and stored in the container's persisted volume.
+
+### Current State vs. Target
+Today a deployment requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `META_APP_ID`, `META_APP_SECRET`, and all other platform credentials set manually in `.env`. The relay closes this gap entirely. Until the relay is built, new deployments require manual Google Cloud and Meta app setup, which blocks clean customer onboarding for any org that wants Gmail, Calendar, Drive, YouTube, or Facebook connected.
+
+### Distribution Targets
+| Platform | Priority | Notes |
+|---|---|---|
+| DigitalOcean Marketplace | Primary | 1-Click Droplet; right fit for non-technical operator audience |
+| Docker Compose + install script | Secondary | `curl install.klaroha.com \| bash`; dev-savvy operators |
+| AWS Marketplace | Enterprise | Larger agencies already on AWS infrastructure |
+
+### Build Order
+| Step | What | Why it unblocks |
+|---|---|---|
+| 1 | **OAuth relay** (`connect.klaroha.com`) | Zero-setup for all Google + Meta integrations; every deploy currently requires manual cloud project setup without it |
+| 2 | **First-boot init script** | Turns `docker compose up` into a real product install; no post-boot shell access required |
+| 3 | **Deployment key system** | Gates relay access; enables per-org usage metering and billing |
+| 4 | **DigitalOcean Marketplace listing** | Primary distribution channel for the target operator persona |
+| 5 | **In-app update notification** | Keeps deployed instances informed without forcing auto-updates |
+| 6 | **AWS Marketplace** | Enterprise distribution tier |
+
+### Update Strategy
+Each deployed instance checks a Klaroha version endpoint periodically. When a new version is available, the admin panel surfaces "Update available — vX.Y.Z" with a changelog. The admin triggers the update manually (pull new Docker image + run migrations). This gives Klaroha control over what is available on each channel while giving each org control over when they update. Auto-updates on the `stable` channel are available for orgs that opt in.
+
+---
+
 ## Appendix A — Historical Changelog
 
 > Historical record only. The **Current State & Locked Architecture** section at the top of this brief is the active source of truth. If an older changelog row conflicts with a locked rule, the locked rule wins.
 
 | Version | Date | Changes |
 |---|---|---|
+| 3.46 | 2026-06-01 | **Click-to-deploy deployment model locked:** BOS is packaged software orgs deploy on their own cloud — not multi-tenant SaaS. Klaroha operates the OAuth relay (`connect.klaroha.com`) and platform inference centrally; org data stays on org infrastructure. Multi-tenancy explicitly rejected and moved to Parking Lot. Build order: relay → first-boot init → deployment key system → DigitalOcean Marketplace → in-app update notification → AWS Marketplace. Active focus is one clean first-org deploy before distribution. Full model in Section 10. |
 | 3.45 | 2026-05-27 | **GTM upstream-contract workflow:** Added executable strategic substrate capabilities `reasoning.buyer_intelligence` (`buyer_map.v1`) and `marketing.messaging.architecture` (`message_architecture.v1`). `marketing.planning.gtm_plan` now enforces `required_upstream` generically through run orchestration: load successful prior contract artifact, generate missing producer output, inject actual upstream content, and block only when a required contract cannot be produced. Shorthand “GTM” now means go-to-market unless the user explicitly says Google Tag Manager/container/tags. GTM artifacts title as `GTM Strategy`, render through Stream, and chat Review focuses the inline Stream card rather than navigating to Workspace. Strict backend override credential/execution failures fall back to normal model routing so Brand Brief-driven substrate generation can complete. |
 | 3.44 | 2026-05-27 | **Specialists + connectors unified:** Admin Specialists (`/admin/modules`) is now the single readiness/setup surface for installed specialists and their connector rows. Connector rows show status, description, Implements, Missing vars, and Configure/Update/Remove actions. Brand-scoped OAuth connect/disconnect stays on Brands/Clients. `/admin/connectors` is only a compatibility alias and OAuth callback results now route to `/admin/modules`. The standalone `AdminConnectors` component was removed. |
 | 3.41 | 2026-05-24 | **CMO chat → creative → Drive (live):** `google-drive` plugin built (`drive_client.py` Drive REST v3 + `drive.folder.setup`/`asset.upload`/`asset.list`/`asset.get`); Google Drive OAuth connection (per-brand) + Google Picker root-folder selection. New `creative.post.image` capability (creative-factory, `allowed_from_chat`) generates a Meta-post visual via the image hook and stores it in the brand's Drive under `Creative Assets/Meta Posts/` — does NOT publish. Declarative `requires_generated_image` ClassVar on `ModuleBase` + generic `runs.py` hook (no capability hardcoded in core); `inject_channel_credentials` now surfaces `drive_root_folder_id` for google_drive. Validated live via `/chat` on the Klaroha brand. Per-brand isolation confirmed: a brand without a Drive connection correctly fails closed (no fallback to another brand's Drive). Detail: `CREATIVE_SUPPLY_CHAIN.md`. |

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { BackendOverride, CapabilityInfo, ModuleInfo, PluginInfo, ProviderInfo, SocialConnectionResponse } from '../../api/types';
+import type { BackendOverride, ModuleInfo, PluginInfo, ProviderInfo, ProviderModelLive, SocialConnectionResponse } from '../../api/types';
 
 const OAUTH_PLATFORMS: Record<string, { label: string; icon: string }> = {
   facebook:        { label: 'Facebook',        icon: '📘' },
@@ -144,9 +144,15 @@ function parseModelValue(value: string): { provider: string; model_id: string } 
   return provider && model_id ? { provider, model_id } : null;
 }
 
+const _PROVIDER_LABELS: Record<string, string> = {
+  openai: 'OpenAI',
+  openrouter: 'OpenRouter',
+  gemini: 'Google Gemini',
+  nvidia: 'NVIDIA',
+};
+
 function providerLabel(provider: string): string {
-  if (provider === 'openai') return 'OpenAI Chat';
-  return provider;
+  return _PROVIDER_LABELS[provider] ?? provider;
 }
 
 function providerConnected(provider: ProviderInfo): boolean {
@@ -545,7 +551,7 @@ export function AdminModules() {
   const [connections, setConnections] = useState<SocialConnection[]>([]);
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [capabilities, setCapabilities] = useState<CapabilityInfo[]>([]);
+  const [availableModels, setAvailableModels] = useState<ProviderModelLive[]>([]);
   const [backendOverrides, setBackendOverrides] = useState<BackendOverride[]>([]);
   const [loading, setLoading] = useState(true);
   const [configuringPlugin, setConfiguringPlugin] = useState<PluginInfo | null>(null);
@@ -554,6 +560,7 @@ export function AdminModules() {
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
   const [selectedModel, setSelectedModel] = useState('');
+  const [strictOverride, setStrictOverride] = useState(false);
   const [savedPlugin, setSavedPlugin] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -607,11 +614,11 @@ export function AdminModules() {
 
   useEffect(() => {
     async function load() {
-      const [{ verticals }, socialConnections, providerResult, capabilityResult, overrideResult] = await Promise.all([
+      const [{ verticals }, socialConnections, providerResult, modelResult, overrideResult] = await Promise.all([
         api.getVerticals(),
         api.listSocialConnections().catch(() => [] as SocialConnection[]),
         api.getProviders().catch(() => ({ providers: [] as ProviderInfo[] })),
-        api.getCapabilities().catch(() => ({ capabilities: [] as CapabilityInfo[] })),
+        api.getAvailableModels().catch(() => ({ models: [] as ProviderModelLive[] })),
         api.getBackendOverrides().catch(() => ({ overrides: [] as BackendOverride[] })),
       ]);
       const results = await Promise.all(
@@ -620,7 +627,7 @@ export function AdminModules() {
       setModules(results.flat());
       setConnections(socialConnections as SocialConnection[]);
       setProviders(providerResult.providers ?? []);
-      setCapabilities(capabilityResult.capabilities ?? []);
+      setAvailableModels(modelResult.models ?? []);
       setBackendOverrides(overrideResult.overrides ?? []);
       await refreshPlugins();
     }
@@ -645,29 +652,33 @@ export function AdminModules() {
   const modelChoices = useMemo(() => {
     const seen = new Set<string>();
     const choices: ModelChoice[] = [];
-    capabilities.forEach(capability => {
-      if (capability.modality !== 'text') return;
-      capability.model_options.forEach(option => {
-        if (option.status !== 'healthy' || !providerReady.has(option.provider)) return;
-        const value = modelValue(option.provider, option.model_id);
-        if (seen.has(value)) return;
-        seen.add(value);
-        choices.push({
-          value,
-          provider: option.provider,
-          model_id: option.model_id,
-          label: `${providerLabel(option.provider)} · ${option.model_id}`,
-          capability: capability.key,
-        });
+    availableModels.forEach(m => {
+      const value = modelValue(m.provider, m.model_id);
+      if (seen.has(value)) return;
+      seen.add(value);
+      const noKey = !providerReady.has(m.provider);
+      const name = m.provider === 'openrouter' ? m.name : `${providerLabel(m.provider)} · ${m.model_id}`;
+      const freeTag = m.is_free ? ' · Free' : '';
+      choices.push({
+        value,
+        provider: m.provider,
+        model_id: m.model_id,
+        label: `${name}${freeTag}${noKey ? ' — no key' : ''}`,
+        capability: undefined,
       });
     });
-    return choices.sort((a, b) => a.provider.localeCompare(b.provider) || a.model_id.localeCompare(b.model_id));
-  }, [capabilities, providerReady]);
+    return choices.sort((a, b) => {
+      const aReady = providerReady.has(a.provider) ? 0 : 1;
+      const bReady = providerReady.has(b.provider) ? 0 : 1;
+      // Free models first within same readiness tier
+      const aFree = availableModels.find(m => m.provider === a.provider && m.model_id === a.model_id)?.is_free ? 0 : 1;
+      const bFree = availableModels.find(m => m.provider === b.provider && m.model_id === b.model_id)?.is_free ? 0 : 1;
+      return aReady - bReady || aFree - bFree || a.provider.localeCompare(b.provider) || a.model_id.localeCompare(b.model_id);
+    });
+  }, [availableModels, providerReady]);
 
-  function choicesForSpecialist(s: SpecialistSummary): ModelChoice[] {
-    const allowed = new Set(s.capabilityKeys);
-    const scoped = modelChoices.filter(choice => choice.capability && allowed.has(choice.capability));
-    return scoped.length ? scoped : modelChoices;
+  function choicesForSpecialist(_s: SpecialistSummary): ModelChoice[] {
+    return modelChoices;
   }
 
   function overrideValue(target: string): string {
@@ -756,10 +767,15 @@ export function AdminModules() {
   }
 
   function openConfigureAI(s: SpecialistSummary) {
-    setSelectedModel(currentAIValue(s));
+    const current = currentAIValue(s);
+    setSelectedModel(current);
+    const firstOverride = s.llmModuleIds.map(t => overrideMap.get(t)).find(Boolean);
+    setStrictOverride(firstOverride?.strict ?? false);
     setSaveError('');
     setConfiguringAI(s);
   }
+
+
 
   async function handleSaveAIModel() {
     if (!configuringAI || selectedModel === '__mixed__') return;
@@ -776,7 +792,7 @@ export function AdminModules() {
           model_id: parsed.model_id,
           tool_id: null,
           modality: 'text',
-          strict: true,
+          strict: strictOverride,
         })));
       }
       await refreshBackendOverrides();
@@ -894,34 +910,67 @@ export function AdminModules() {
         </div>
       )}
 
-      {configuringAI && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-          <div className="admin-card" style={{ width: '100%', maxWidth: 520, margin: 0 }}>
-            <div style={{ fontWeight: 850, fontSize: 17, marginBottom: 4 }}>Configure AI for {configuringAI.name}</div>
-            <div style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 18 }}>
-              Choose the exact LLM/model this specialist should use. Leave on auto-route to let BOS choose the best available model.
-            </div>
-            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Model</label>
-            <select className="select" value={selectedModel} onChange={e => setSelectedModel(e.target.value)}>
-              <option value="">Auto-route best available</option>
-              {selectedModel === '__mixed__' && <option value="__mixed__">Mixed model settings</option>}
-              {choicesForSpecialist(configuringAI).map(choice => (
-                <option key={choice.value} value={choice.value}>{choice.label}</option>
-              ))}
-            </select>
-            <div style={{ color: 'var(--text2)', fontSize: 12, marginTop: 10 }}>
-              Applies to {configuringAI.llmModuleIds.length} LLM tool{configuringAI.llmModuleIds.length !== 1 ? 's' : ''} in this specialist.
-            </div>
-            {saveError && <div style={{ color: 'var(--error)', fontSize: 13, marginTop: 12 }}>{saveError}</div>}
-            <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
-              <button className="btn btn-ghost" onClick={() => { setConfiguringAI(null); setSaveError(''); }}>Cancel</button>
-              <button className="btn btn-primary" onClick={handleSaveAIModel} disabled={saving || selectedModel === '__mixed__'}>
-                {saving ? 'Saving…' : 'Save AI model'}
-              </button>
+      {configuringAI && (() => {
+        const isMixed = selectedModel === '__mixed__';
+        return (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.55)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+            <div className="admin-card" style={{ width: '100%', maxWidth: 520, margin: 0 }}>
+              <div style={{ fontWeight: 850, fontSize: 17, marginBottom: 4 }}>Configure AI for {configuringAI.name}</div>
+              <div style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 18 }}>
+                Choose the exact LLM/model this specialist should use. Leave on auto-route to let BOS choose the best available model.
+              </div>
+
+              {isMixed ? (
+                <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', marginBottom: 14 }}>
+                  <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Mixed model settings detected</div>
+                  <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 10 }}>
+                    The {configuringAI.llmModuleIds.length} tools in this specialist have different model overrides. Select a model below to apply one setting to all, or reset everything to auto-route.
+                  </div>
+                  <button className="btn btn-ghost btn-sm" onClick={() => setSelectedModel('')}>Reset all to auto-route</button>
+                </div>
+              ) : null}
+
+              <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Model</label>
+              <select className="select" value={selectedModel} onChange={e => setSelectedModel(e.target.value)}>
+                <option value="">Auto-route best available</option>
+                {isMixed && <option value="__mixed__" disabled>Mixed model settings</option>}
+                {choicesForSpecialist(configuringAI).map(choice => (
+                  <option key={choice.value} value={choice.value}>{choice.label}</option>
+                ))}
+              </select>
+              {selectedModel && !isMixed && (
+                <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                  <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={strictOverride}
+                      onChange={e => setStrictOverride(e.target.checked)}
+                      style={{ marginTop: 2 }}
+                    />
+                    <div>
+                      <div style={{ fontSize: 13, fontWeight: 600 }}>Strict pin</div>
+                      <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>
+                        When enabled, runs fail if this exact model is unavailable — no fallback. Leave unchecked to fall back to auto-route if the key is removed or the provider goes down.
+                      </div>
+                    </div>
+                  </label>
+                </div>
+              )}
+
+              <div style={{ color: 'var(--text2)', fontSize: 12, marginTop: 10 }}>
+                Applies to {configuringAI.llmModuleIds.length} LLM tool{configuringAI.llmModuleIds.length !== 1 ? 's' : ''} in this specialist.
+              </div>
+              {saveError && <div style={{ color: 'var(--error)', fontSize: 13, marginTop: 12 }}>{saveError}</div>}
+              <div style={{ display: 'flex', gap: 10, marginTop: 20, justifyContent: 'flex-end' }}>
+                <button className="btn btn-ghost" onClick={() => { setConfiguringAI(null); setSaveError(''); }}>Cancel</button>
+                <button className="btn btn-primary" onClick={handleSaveAIModel} disabled={saving || isMixed}>
+                  {saving ? 'Saving…' : selectedModel ? 'Save AI model' : 'Reset to auto-route'}
+                </button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
 
       {specialists.length === 0 ? (
         <div className="admin-card"><div className="empty-state"><div className="empty-state-icon">◎</div><div className="empty-state-title">No specialists installed</div><div className="empty-state-text">Install capability or plugin packages to see specialists here.</div></div></div>

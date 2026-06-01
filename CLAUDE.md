@@ -183,12 +183,15 @@ http://localhost/social/gmail/callback
 http://localhost/social/google-calendar/callback
 http://localhost/social/youtube/callback
 http://localhost/social/google-drive/callback
+http://localhost/social/gemini/callback
 https://hq.klaroha.com/social/gmail/callback
 https://hq.klaroha.com/social/google-calendar/callback
 https://hq.klaroha.com/social/youtube/callback
 https://hq.klaroha.com/social/google-drive/callback
+https://hq.klaroha.com/social/gemini/callback
 ```
-> Note: this deployment's `GOOGLE_REDIRECT_URI` uses `http://localhost:8090/...` locally (not port 80). Register the matching `:8090` Drive callback for local connect, plus the staging/prod hosts.
+> Note: this deployment's `GOOGLE_REDIRECT_URI` uses `http://localhost:8090/...` locally (not port 80). Register the matching `:8090` Gemini/Drive callbacks for local connect, plus the staging/prod hosts.
+> Gemini AI OAuth requires `https://www.googleapis.com/auth/generative-language` scope enabled in your Google Cloud project.
 
 **After OAuth changes:** `api/` hot-reloads via Watchfiles. `web/` is a static build — run `docker compose build web && docker compose up -d web` after any frontend change.
 

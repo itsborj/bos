@@ -1,6 +1,6 @@
 # BOS — Backlog
 
-**Last updated:** 2026-05-30
+**Last updated:** 2026-06-01
 **Active phase:** Phase 6 — Gate 2 Gmail-only objective loop
 ---
 ## How to Use This
@@ -1045,6 +1045,56 @@ CYCLE 2 — Intelligence to Optimization
 - [ ] Mobile-first layout: thumb-reachable approve/reject actions, single-column card stack
 - [ ] Digest notification: loop sends summary to BL after each run — email or Slack with direct approve links (see 6.16)
 
+### 6.20 — AI Provider Setup UX
+- [x] Redesign Admin AI Providers as operator-facing setup surface — remove 6-section confusion, replace with CMO Brain + Your API Keys + Sign in with Account + collapsed diagnostics
+- [x] CMO Brain card: single status line showing resolved model (not "auto-routing"), inline model picker, save action
+- [x] Model picker: live OpenRouter free models via `GET /providers/models`; direct-provider paid models (OpenAI, Gemini, NVIDIA) from seeded catalog; paid OpenRouter proxied entries excluded
+- [x] OpenRouter free models fetched from `openrouter.ai/api/v1/models` API; filtered by `pricing.prompt == "0"`; sorted high→medium→low quality; cached 1 hour in-memory
+- [x] Model picker uses optgroups: Free · OpenRouter / OpenAI Direct / Google Gemini / NVIDIA; "Latest" label assigned by version family after backend sort
+- [x] Restore OpenAI OAuth login to primary UI as "Sign in with an Account" section; 3-step flow visible without expanding diagnostics
+- [x] Your API Keys: simplified BYOK form — OpenRouter listed first with "(recommended)"; brand scope field removed; provider-specific hints shown on selection
+- [x] AdminModules Specialist AI picker also updated to use `GET /providers/models` — same live list as CMO Brain; no longer scoped by seeded capability-model links
+- [x] Migration 035: added 8 free OpenRouter models to catalog (DeepSeek R1, Llama 3.3 70B, Llama 3.1 70B/8B, Qwen 2.5 72B, Gemma 2 27B/9B, Mistral 7B) with input_cost=0
+- [x] `ProviderModelLive` schema added to backend and frontend types; `api.getAvailableModels()` method added to client
+
+### 6.19 — First Org Deploy & Distribution Foundation
+> Before 10K orgs, prove one clean end-to-end deploy. The first org deploy is the template every future deployment clones. Getting it right once is the whole game.
+
+**OAuth Relay (`connect.klaroha.com`) — blocks zero-setup for all Google + Meta integrations**
+- [ ] ARCH DECISION: Confirm relay design — single Google Cloud app (Klaroha-verified, all scopes), one stable redirect URI per platform, signed one-time token handoff back to each BOS instance, KLAROHA_RELAY_KEY for instance authentication
+- [ ] Relay service: FastAPI app on `connect.klaroha.com` — Google PKCE OAuth start/callback, token handoff endpoint (`POST /relay/claim`), token refresh endpoint (`POST /relay/refresh`), deployment key validation middleware
+- [ ] Relay holds: `GOOGLE_CLIENT_ID/SECRET`, `META_APP_ID/SECRET`, platform inference keys — never shipped in BOS Docker image
+- [ ] BOS instance configuration: `KLAROHA_RELAY_URL` + `KLAROHA_DEPLOYMENT_KEY` replace all per-platform OAuth env vars
+- [ ] `provider_auth.py` relay paths already coded (`relay_claim_handoff`, `relay_refresh_token`, `_google_redirect_uri` relay branch) — wire to live relay endpoints
+- [ ] `get_page_token()` in social.py: when relay is configured, delegate refresh to relay instead of calling Google directly
+- [ ] Meta OAuth relay path: same broker model as Google — BOS instance redirects to relay, relay runs Meta consent, hands token back
+- [ ] Relay deployment: standalone Docker service, Klaroha-managed VPS, SSL, Redis for one-time handoff token store (TTL 5 min)
+- [ ] Validate end-to-end: fresh BOS instance with only `KLAROHA_DEPLOYMENT_KEY` connects Gmail and Google Calendar without any Google Cloud Console setup
+
+**First-Boot Init Script — turns `docker compose up` into a real product install**
+- [ ] Detect first boot: check if `API_SECRET_KEY` and `ENCRYPTION_KEY` are unset in env; if so, generate and persist to a secrets volume
+- [ ] Auto-run `alembic upgrade head` on container start (already partially done — confirm idempotent and safe on clean DB)
+- [ ] Auto-bootstrap admin: call `POST /auth/bootstrap` on first boot if no admin key exists; write the one-time setup token to a startup log the operator can read
+- [ ] First-login redirect: if no workspace configured, redirect all admin routes to `/admin/onboarding` with a "Welcome, let's set up your workspace" step
+- [ ] Secrets volume: `API_SECRET_KEY`, `ENCRYPTION_KEY`, `DATABASE_URL` written to a persisted Docker volume on first boot — operator never edits these manually
+
+**Minimal `.env` for first org deploy (target)**
+- [ ] Audit current `.env.example` — identify every var that should be eliminated by the relay or first-boot init
+- [ ] Target `.env` for first org: `KLAROHA_DEPLOYMENT_KEY`, `KLAROHA_RELAY_URL`, `FRONTEND_URL` — nothing else required to get CMO operational
+- [ ] Document remaining optional vars clearly: BYOK keys (cost optimization), strict model overrides (quality tuning), Meta/TikTok plugin app creds (only until relay covers them)
+
+**Setup Wizard — first login to CMO-operational in one session**
+- [ ] Step 1: org name + admin email → workspace configured
+- [ ] Step 2: import brand brief → brand memory populated
+- [ ] Step 3: CMO chat opens with brand context loaded — no further config required to start
+- [ ] Optional step (surfaced but not blocking): "Connect your AI key for lower cost" → BYOK add form; skippable, platform key covers everything
+
+**Distribution**
+- [ ] BITE sample: DigitalOcean 1-Click app deploy experience — from Marketplace → first CMO message, zero console steps
+- [ ] `docker-compose.yml` review: confirm it works as a standalone install file with only the minimal vars above
+- [ ] Install script: `curl install.klaroha.com | bash` — pulls compose file, prompts for `KLAROHA_DEPLOYMENT_KEY` + domain, generates secrets, starts stack
+- [ ] DigitalOcean Marketplace listing preparation (post relay + first-boot init complete)
+
 ### 6.16 — Digest Notification
 > BL should not have to open BOS to know something needs their attention. The loop pushes to them; they pull only when they want detail.
 - [ ] `api/plugins/notify/` — lightweight notification plugin: email (SMTP) and/or Slack (webhook)
@@ -1251,6 +1301,9 @@ CYCLE 2 — Intelligence to Optimization
 ## Decisions Log
 | Date | Decision | Rationale |
 |---|---|---|
+| 2026-06-01 | BOS is click-to-deploy packaged software, not multi-tenant SaaS | Agencies and SMBs cannot accept client marketing data on shared infrastructure. Product promise is "your CMO, your server." Relay centralizes auth/inference; data stays on org infrastructure. Multi-tenancy moved to Parking Lot. Build order: relay → first-boot init → deployment key → DigitalOcean Marketplace. |
+| 2026-06-01 | OpenRouter free models fetched live via `GET /providers/models`; seeded model_options retained only for direct providers (OpenAI, Gemini, NVIDIA) | Hardcoded migrations were the wrong update mechanism for a live model catalog. OpenRouter's public API returns pricing; `prompt == "0"` identifies free tier. Cached 1 hour in-memory. |
+| 2026-06-01 | Admin AI Providers redesigned as operator-facing setup surface; diagnostics collapsed | Old page surfaced 6 confusing sections (Primary CMO Provider + CMO Chat Model split, Gemini special card, 4-provider health table, brand-required BYOK form). New page: CMO Brain (single card with live model picker), Your API Keys (simplified), Sign in with Account (OpenAI OAuth restored to primary UI), System/Diagnostics (collapsed). |
 | 2026-05-27 | Module execution enforces SKILL.md-declared required upstream contracts generically | GTM exposed that a dispatchable module can declare `required_upstream` while still receiving only Brand Brief context at execution. The run pipeline now looks up matching prior contract artifacts/documents, generates missing contracts through installed producer modules, injects actual upstream outputs into the module brief, and blocks execution if required upstream cannot be produced — keeping dependency enforcement in SKILL.md/module execution instead of CMO chat routing. |
 | 2026-05-27 | Admin Specialists is the single connector readiness/setup surface; standalone Connectors page is removed | Operators think in specialists/jobs, not connector catalogs. Each specialist card now owns its connector rows (status, description, Implements, Missing vars, Configure/Update/Remove). Brand-scoped OAuth account connect/disconnect remains on Brands/Clients; `/admin/connectors` is only a compatibility alias to Specialists for old links/callbacks. |
 | 2026-05-21 | Shortform video scale uses template rendering first; native platform posting comes after asset generation/export proof | Hundreds/thousands of shortform videos are fastest and cheapest as structured script → TTS → branded motion template → MP4 artifacts. Cinematic text-to-video is too slow/costly/inconsistent for volume. BOS should first generate reviewable `shortform_video_asset` artifacts with export packs, then add approval-gated platform plugins in order: YouTube Shorts, Meta/Instagram Reels, TikTok after API access. |
@@ -1551,3 +1604,15 @@ CYCLE 2 — Intelligence to Optimization
 
 - [x] FEATURE: Image artifact card now has publish buttons — `media.image.generate` module block now includes `action_modules: {publish_facebook: "marketing.channel.meta.posts.publish"}` and `allowed_actions` updated to include `publish_facebook`. Frontend `ApprovalBundle.tsx`: added `isImageAsset` flag, `imageCaption` state, `handleImagePublish` handler (passes `_image_data_b64` inline or `drive_file_id` when swapped), Caption textarea, Attachment section with Drive swap picker. Both image and video cards now use the same `action_modules` pattern — adding a new publish channel = one key in `action_modules`, no frontend changes needed.
 - [x] TEST: Image artifact card confirmed showing Caption + Attachment (Swap · Drive) + Publish to Facebook on localhost ✓
+
+### AI Provider Model Catalog + Gemini OAuth (2026-06-01)
+
+- [x] INFRA: Migration `035_update_model_catalog` — added top-3 recent models per provider to `model_options` for all text capabilities. New models: Gemini 2.5 Pro, Gemini 2.5 Flash (direct); claude-sonnet-4-5, gpt-4o, google/gemini-2.5-pro (OpenRouter); gpt-4o, gpt-4o-mini (OpenAI direct); nvidia/llama-3.1-nemotron-70b-instruct. Deprecated: gemini-1.5-pro, claude-3-haiku (OR), mistral-small (OR).
+- [x] FEATURE: Gemini OAuth login — `GeminiOAuthHandler` added to `provider_auth.py` using `generative-language` scope; `/social/gemini/callback` server-side OAuth callback stores credential in `ProviderKey` (workspace-level); `GOOGLE_RELAY_PLATFORMS` updated; Gemini redirect URI added to CLAUDE.md registration list.
+- [x] FEATURE: Admin Providers UX — brand picker added when navigating directly (no nav state); providerLabel map added; Google Gemini AI card with "Sign in with Google" flow; `?gemini=connected` redirect handling on page load.
+- [x] FIX: Non-admin Providers page — removed broken BYOK registration form (always failed BRAND_REQUIRED); replaced with clear instruction to use Admin → Providers.
+
+### Specialist model selection + Gemini auth UX (2026-06-01)
+
+- [x] BUG FIX: Specialist AI model dropdown was empty — `modelChoices` in `AdminModules.tsx` filtered by `providerReady` (only connected providers), so no options showed when no provider key was registered. Removed the `providerReady` gate; all healthy models now appear. Connected providers sort first; disconnected ones show "— no key" label.
+- [x] UX: Gemini AI card reworked — now shows two explicit paths: Option A (API key from aistudio.google.com, recommended) with a direct-link scroll to the BYOK form, and Option B (Google OAuth, requires Cloud credentials). OAuth button only shown on the disconnected state; connected state shows Test/Reconnect/Disconnect. Clears confusion about how to connect Gemini.

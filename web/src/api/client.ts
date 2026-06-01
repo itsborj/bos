@@ -185,6 +185,9 @@ export const api = {
   getCapabilities: () =>
     request<{ capabilities: CapabilityInfo[] }>('/capabilities'),
 
+  getAvailableModels: () =>
+    request<{ models: import('./types').ProviderModelLive[] }>('/providers/models'),
+
   getBackendOverrides: () =>
     request<{ overrides: BackendOverride[] }>('/settings/backends'),
 

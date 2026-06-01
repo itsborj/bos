@@ -1,7 +1,9 @@
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 
+import httpx
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,6 +36,7 @@ from schemas.providers import (
     LoginStartResponse,
     ProviderInfo,
     ProviderModelInfo,
+    ProviderModelLive,
 )
 
 router = APIRouter(prefix="/providers", tags=["providers"])
@@ -554,3 +557,110 @@ async def check_key(
         await db.commit()
 
     return CheckResponse(provider=body.provider, status=status, message=message, auth_mode=auth_mode)
+
+
+# ── GET /providers/models ──────────────────────────────────────────────────────
+# In-memory cache: {cache_key: (models_list, fetched_at_epoch)}
+_model_cache: dict[str, tuple[list[ProviderModelLive], float]] = {}
+_CACHE_TTL = 3600  # 1 hour
+
+
+def _openrouter_quality_tier(model_id: str) -> str:
+    mid = model_id.lower()
+    if any(x in mid for x in ["70b", "72b", "671b", "405b", "r1", "qwen-2.5-72"]):
+        return "high"
+    if any(x in mid for x in ["8b", "7b", "9b", "3b", "mini", "small", "phi-3"]):
+        return "low"
+    return "medium"
+
+
+async def _fetch_openrouter_free_models() -> list[ProviderModelLive]:
+    cache_key = "openrouter_free"
+    cached = _model_cache.get(cache_key)
+    if cached and time.time() - cached[1] < _CACHE_TTL:
+        return cached[0]
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://openrouter.ai/api/v1/models",
+                headers={"HTTP-Referer": "https://klaroha.com", "X-Title": "Klaroha BOS"},
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception as exc:
+        logger.warning("OpenRouter model list fetch failed: %s", exc)
+        return _model_cache.get(cache_key, ([], 0))[0]
+
+    models: list[ProviderModelLive] = []
+    for m in data.get("data", []):
+        pricing = m.get("pricing", {})
+        prompt_price = str(pricing.get("prompt", "1"))
+        completion_price = str(pricing.get("completion", "1"))
+        if prompt_price != "0" or completion_price != "0":
+            continue
+        model_id = m.get("id", "")
+        if not model_id:
+            continue
+        models.append(ProviderModelLive(
+            provider="openrouter",
+            model_id=model_id,
+            name=m.get("name", model_id),
+            is_free=True,
+            input_cost_per_token=0.0,
+            output_cost_per_token=0.0,
+            context_length=m.get("context_length") or 0,
+            quality_tier=_openrouter_quality_tier(model_id),
+            supports_json=True,
+        ))
+
+    # Sort high quality first, then alphabetically
+    tier_order = {"high": 0, "medium": 1, "low": 2}
+    models.sort(key=lambda m: (tier_order.get(m.quality_tier, 9), m.name.lower()))
+
+    _model_cache[cache_key] = (models, time.time())
+    return models
+
+
+@router.get("/models", summary="List available models from connected providers")
+async def list_provider_models(
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """
+    Returns available models for CMO Brain and Specialist selection.
+    - OpenRouter free models: fetched live from OpenRouter API, cached 1 hour.
+    - Direct providers (OpenAI, Gemini, NVIDIA): served from seeded model catalog.
+    Paid OpenRouter proxy entries are excluded — use direct provider keys for paid models.
+    """
+    # Live OpenRouter free models
+    free_models = await _fetch_openrouter_free_models()
+
+    # Seeded direct-provider models (exclude openrouter — we serve live free only)
+    direct_providers = ["openai", "gemini", "nvidia"]
+    seeded_opts = (await db.execute(
+        select(ModelOption)
+        .where(ModelOption.provider.in_(direct_providers))
+        .where(ModelOption.status == "healthy")
+    )).scalars().all()
+
+    seen: set[tuple[str, str]] = set()
+    direct_models: list[ProviderModelLive] = []
+    for o in seeded_opts:
+        key = (o.provider, o.model_id)
+        if key in seen:
+            continue
+        seen.add(key)
+        direct_models.append(ProviderModelLive(
+            provider=o.provider,
+            model_id=o.model_id,
+            name=o.model_id,  # frontend has friendlyModelName() for display
+            is_free=o.input_cost_per_token == 0.0,
+            input_cost_per_token=float(o.input_cost_per_token),
+            output_cost_per_token=float(o.output_cost_per_token),
+            context_length=0,
+            quality_tier=o.quality_tier,
+            supports_json=o.supports_json,
+        ))
+
+    return {"models": [m.model_dump() for m in free_models + direct_models]}

@@ -542,3 +542,19 @@ export interface BookingResponse {
   status: string;
   created_at: string;
 }
+
+export interface ProviderModelLive {
+  provider: string;
+  model_id: string;
+  name: string;
+  is_free: boolean;
+  input_cost_per_token: number;
+  output_cost_per_token: number;
+  context_length: number;
+  quality_tier: string;
+  supports_json: boolean;
+}
+
+export interface ProviderModelsResponse {
+  models: ProviderModelLive[];
+}

@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from auth import require_api_key
 from config import get_settings
 from db import get_db
-from models.provider import ProviderLoginSession
+from models.provider import ProviderKey, ProviderLoginSession
 from models.social import SocialConnection
 from models.workspace import Brand
 from plugin_loader import get_plugin_vars
@@ -83,6 +83,13 @@ def _admin_brands_redirect(frontend: str, **params: str | None) -> RedirectRespo
     qs = urlencode(clean)
     suffix = f"?{qs}" if qs else ""
     return RedirectResponse(url=f"{frontend}/admin/brands{suffix}")
+
+
+def _admin_providers_redirect(frontend: str, **params: str | None) -> RedirectResponse:
+    clean = {k: v for k, v in params.items() if v is not None and v != ""}
+    qs = urlencode(clean)
+    suffix = f"?{qs}" if qs else ""
+    return RedirectResponse(url=f"{frontend}/admin/providers{suffix}")
 
 
 # ── Start OAuth ───────────────────────────────────────────────────────────────
@@ -797,6 +804,123 @@ async def set_drive_root(
         "drive_root_name": body.folder_name,
         "drive_root_path": body.folder_path,
     }
+
+
+# ── Gemini OAuth Callback ────────────────────────────────────────────────────
+# Gemini auth is a workspace-level LLM credential, stored in ProviderKey (not
+# SocialConnection). The OAuth token is used as a Bearer credential for the
+# OpenAI-compat Gemini endpoint; it falls back for any brand with no brand-
+# specific Gemini key registered.
+
+@router.get("/gemini/callback")
+async def gemini_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    handoff_token: str = "",
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    frontend = settings.frontend_url.rstrip("/")
+
+    if handoff_token and settings.klaroha_relay_url:
+        try:
+            payload = await relay_claim_handoff(handoff_token, settings)
+        except Exception:
+            return _admin_providers_redirect(frontend, gemini="error", reason="relay_claim_failed")
+        meta = payload.get("metadata") or {}
+        email = meta.get("email", "")
+        ws = await get_singleton(db)
+        existing = (await db.execute(
+            select(ProviderKey).where(
+                ProviderKey.workspace_id == ws.id,
+                ProviderKey.brand_id == None,  # noqa: E711
+                ProviderKey.provider == "gemini",
+            )
+        )).scalar_one_or_none()
+        if existing:
+            existing.auth_mode = "oauth"
+            existing.key_encrypted = encrypt_secret(payload["access_token"], settings)
+            existing.refresh_token_encrypted = encrypt_secret(payload["refresh_token"], settings) if payload.get("refresh_token") else None
+            existing.expires_at = payload.get("expires_at")
+            existing.metadata_json = {"email": email, "name": meta.get("name")}
+        else:
+            db.add(ProviderKey(
+                workspace_id=ws.id,
+                brand_id=None,
+                provider="gemini",
+                auth_mode="oauth",
+                key_encrypted=encrypt_secret(payload["access_token"], settings),
+                refresh_token_encrypted=encrypt_secret(payload["refresh_token"], settings) if payload.get("refresh_token") else None,
+                expires_at=payload.get("expires_at"),
+                metadata_json={"email": email, "name": meta.get("name")},
+            ))
+        await db.commit()
+        return _admin_providers_redirect(frontend, gemini="connected", account=email)
+
+    if error or not code:
+        return _admin_providers_redirect(frontend, gemini="denied", reason=error or "no_code")
+
+    session = (await db.execute(
+        select(ProviderLoginSession).where(
+            ProviderLoginSession.provider == "gemini",
+            ProviderLoginSession.state == state,
+        )
+    )).scalar_one_or_none()
+
+    if not session:
+        return _admin_providers_redirect(frontend, gemini="error", reason="session_not_found")
+
+    stored_verifier = decrypt_secret(session.verifier_encrypted, settings)
+    ws = await get_singleton(db)
+    handler = get_oauth_handler("gemini")
+
+    try:
+        credential = await handler.complete_login(
+            code,
+            settings,
+            state=session.state,
+            verifier=stored_verifier,
+            redirect_uri=session.redirect_uri,
+        )
+    except Exception:
+        await db.delete(session)
+        await db.commit()
+        return _admin_providers_redirect(frontend, gemini="error", reason="token_exchange_failed")
+
+    metadata = credential.metadata or {}
+    email = metadata.get("email", "")
+
+    existing = (await db.execute(
+        select(ProviderKey).where(
+            ProviderKey.workspace_id == ws.id,
+            ProviderKey.brand_id == None,  # noqa: E711
+            ProviderKey.provider == "gemini",
+        )
+    )).scalar_one_or_none()
+
+    if existing:
+        existing.auth_mode = "oauth"
+        existing.key_encrypted = encrypt_secret(credential.access_token, settings)
+        existing.refresh_token_encrypted = encrypt_secret(credential.refresh_token, settings) if credential.refresh_token else None
+        existing.expires_at = credential.expires_at
+        existing.metadata_json = {"email": email, "name": metadata.get("name")}
+    else:
+        db.add(ProviderKey(
+            workspace_id=ws.id,
+            brand_id=None,
+            provider="gemini",
+            auth_mode="oauth",
+            key_encrypted=encrypt_secret(credential.access_token, settings),
+            refresh_token_encrypted=encrypt_secret(credential.refresh_token, settings) if credential.refresh_token else None,
+            expires_at=credential.expires_at,
+            metadata_json={"email": email, "name": metadata.get("name")},
+        ))
+
+    await db.delete(session)
+    await db.commit()
+    logger.info("Gemini OAuth login completed for account '%s'", email)
+    return _admin_providers_redirect(frontend, gemini="connected", account=email)
 
 
 # ── Facebook OAuth Callback ───────────────────────────────────────────────────
