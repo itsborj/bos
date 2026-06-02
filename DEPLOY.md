@@ -733,6 +733,7 @@ Three failure modes discovered manually during early staging setup:
 - **Debug approach:** Replaced the full Vite build with a plain static HTML file (no JS at all). That served 200 through Cloudflare with no issues — confirming the path (nginx → Cloudflare → browser) is clear and the problem was in the JS bundle handling specifically.
 - **Fix:** `web/nginx-spa.conf` now includes `gzip on`, `include /etc/nginx/mime.types`, proper `Cache-Control` headers for assets (`immutable`) and `index.html` (`no-cache`). Nginx serves pre-compressed assets directly; Cloudflare receives correctly encoded content and has nothing to transform.
 - **Rule:** `nginx-spa.conf` must always include gzip compression, MIME types, and explicit cache headers. A bare config that serves uncompressed static files to a CDN will cause the CDN to attempt its own transformations, which may fail for large files.
+- **Resolved (2026-06-02):** Full frontend deployed with corrected `nginx-spa.conf`. White screen gone, `staging.klaroha.com` loads correctly.
 
 ---
 
