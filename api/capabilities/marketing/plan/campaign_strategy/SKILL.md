@@ -3,9 +3,9 @@ id: marketing.plan.campaign_strategy
 name: campaign-strategy-planner
 description: Use only for lightweight campaign planning when the request is NOT a launch, GTM, go-to-market, market-entry, first-channel, first-users, or product/service launch strategy. For any launch/GTM request, use marketing.planning.gtm_plan instead. This creates a simple campaign plan artifact for a brand, offer, quarter, month, demand-capture motion, or channel mix. Do not use for drafting specific channel artifacts such as Facebook posts, social posts, emails, ads, images, or visual creative. Do not use for capability questions. Do not paste the full plan inline in chat; create a Workspace plan artifact.
 scope: module
-status: active
+status: retired
 version: 0.1.0
-allowed_from_chat: true
+allowed_from_chat: false
 module_id: marketing.plan.campaign_strategy
 requires_intent:
   - discussion
