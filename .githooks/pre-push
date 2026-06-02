@@ -26,12 +26,12 @@ while read -r _local_ref _local_sha _remote_ref _remote_sha; do
     echo "[pre-push] Start with: docker compose up -d api"
   fi
 
-  # TypeScript type check — requires web container to be running
-  if docker compose ps web --status running --quiet 2>/dev/null | grep -q .; then
+  # TypeScript type check — run on host (web container is nginx, no node)
+  if command -v npx &>/dev/null && [[ -f "web/tsconfig.json" ]]; then
     echo "[pre-push] Running TypeScript check..."
-    docker compose exec -T web npx tsc -b --noEmit || exit 1
+    (cd web && npx tsc --noEmit) || exit 1
   else
-    echo "[pre-push] WARNING: web container not running — skipping tsc"
+    echo "[pre-push] WARNING: npx not found on host — skipping tsc"
   fi
 
   echo "[pre-push] All checks passed."
