@@ -725,6 +725,17 @@ Three failure modes discovered manually during early staging setup:
 - **Prevention:** update GitHub secret `STAGING_ENV_FILE` to include `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`, and `ENV_FILE=.env.staging`. Until the secret is fixed, any push-triggered staging deploy can re-break the stack.
 - **Success criteria note:** this incident means the real deploy-parity success criteria is **not yet satisfied**. Manual VDS repair proves the stack can be recovered, but it does **not** prove localhost → commit → push → deploy is reliable. Success is only achieved after `STAGING_ENV_FILE` is corrected in GitHub Secrets and a subsequent small commit/push/deploy reaches `staging.klaroha.com` with **no manual post-deploy intervention**.
 
+#### INC-008 — 2026-06-02 — White screen on staging.klaroha.com; JS bundle returns 502 via Cloudflare
+
+- **Cause confirmed:** bare `web/nginx-spa.conf` — no gzip compression, no MIME types, no cache headers.
+- **Symptom:** `staging.klaroha.com` showed a white screen. Browser console showed `ERR_QUIC_PROTOCOL_ERROR`. The JS bundle (`/assets/index-*.js`) returned HTTP 502 when any `Accept-Encoding` header was present. Requests without `Accept-Encoding` returned 200 (served from Cloudflare cache). The origin returned 200 directly (confirmed via `curl http://127.0.0.1:8091/assets/...` on VDS).
+- **Root cause:** `nginx-spa.conf` had no gzip, no MIME types, and no cache headers. Nginx served the 613KB JS bundle uncompressed with no `Content-Encoding` header. Cloudflare received the raw uncompressed response and attempted to apply its own JS transformation (Auto Minify). The transformation failed on the large bundle, and Cloudflare returned 502 to the browser. The JS bundle never loaded, React never mounted, white screen.
+- **Debug approach:** Replaced the full Vite build with a plain static HTML file (no JS at all). That served 200 through Cloudflare with no issues — confirming the path (nginx → Cloudflare → browser) is clear and the problem was in the JS bundle handling specifically.
+- **Fix:** `web/nginx-spa.conf` now includes `gzip on`, `include /etc/nginx/mime.types`, proper `Cache-Control` headers for assets (`immutable`) and `index.html` (`no-cache`). Nginx serves pre-compressed assets directly; Cloudflare receives correctly encoded content and has nothing to transform.
+- **Rule:** `nginx-spa.conf` must always include gzip compression, MIME types, and explicit cache headers. A bare config that serves uncompressed static files to a CDN will cause the CDN to attempt its own transformations, which may fail for large files.
+
+---
+
 #### INC-007 — 2026-06-02 — CI deploy job fails; staging containers stuck in `Created` due to three compounding bugs
 
 - **Cause confirmed:** (a) `script_stop: true` invalid in `appleboy/ssh-action@v1`; (b) `docker compose down` tears down the bridge network, leaving containers with host-port bindings unable to start due to iptables not being ready when `up` immediately recreates the network; (c) staging PORT vars absent from `STAGING_ENV_FILE` secret, so containers are created with production default ports that conflict with the live `bos` stack.
@@ -755,6 +766,7 @@ Three failure modes discovered manually during early staging setup:
 - [x] Add `name:` field to the compose file so project name is explicit and never inferred — `name: bos` is in `docker-compose.yml`
 - [x] Write a `deploy.sh` script wrapping the full staging deploy sequence — `deploy-staging.sh` (env-fill → git reset → image pull → up → migrations → `check-staging.sh` smoke tests)
 - [x] `deploy-staging.sh` now enforces staging port overrides directly (2026-06-02) — containers can no longer be created with production default ports even if the secret is missing these vars
+- [x] `web/nginx-spa.conf` now has gzip, MIME types, and correct cache headers (2026-06-02) — bare config was causing Cloudflare to 502 on the large JS bundle (INC-008)
 - [ ] Update GitHub secret `STAGING_ENV_FILE` so it includes `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`, and `ENV_FILE=.env.staging` — the script enforcement is a safety net, not a replacement for fixing the secret
 - [ ] After the secret is updated, prove the real success criteria with one tiny localhost change → commit → push → CI builds image → trigger `workflow_dispatch` → `staging.klaroha.com` healthy **without** manual server repair
 - [ ] Set `git config pull.rebase false` (or `--ff-only`) on the server so `git pull` doesn't fail on divergence

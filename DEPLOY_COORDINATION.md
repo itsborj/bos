@@ -158,4 +158,5 @@ Full directive: `DEPLOY.md §Scale Directive`
 | H3: stale browser brand state | falsified + fixed — Layout.tsx evicts stale brand_id | 2026-06-02 |
 | pre-push hook: replaced smoke-local.sh with pytest+tsc against local containers | done — tests actual local code before push; `BOS_SKIP_PUSH=1` to bypass | 2026-06-02 |
 | deploy-staging CI: changed from push-triggered to workflow_dispatch (manual only) | done — push builds image, deploy is a separate explicit trigger | 2026-06-02 |
+| INC-008: white screen / ERR_QUIC_PROTOCOL_ERROR on staging | done — bare nginx-spa.conf caused Cloudflare to 502 on large JS bundle; fixed with gzip + MIME types + cache headers | 2026-06-02 |
 | C5a: manual deploy uses mutable `:staging` tag | validated — confirmed by script inspection | 2026-06-02 |
