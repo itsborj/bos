@@ -18,11 +18,19 @@ class CouncilSession(Base):
     brand_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True, index=True)
 
     brief: Mapped[str] = mapped_column(Text, nullable=False)
-    status: Mapped[str] = mapped_column(String(32), nullable=False, default="running")
+    # status: round_1_active | awaiting_c6 | round_N_active | finalizing | settled
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="round_1_active")
+    current_round: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
     rounds_completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    safety_ceiling: Mapped[int] = mapped_column(Integer, nullable=False, default=10)
 
-    # JSONB columns — list[list[dict]] for rounds, list[str] for orders, list[dict] for parked
+    # rounds[n] = list of {seat_id, display_name, round, content, timestamp}
     rounds: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    # [{round_boundary, content, timestamp}]
+    c6_injections: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
+    pending_c6_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    settlement: Mapped[str | None] = mapped_column(Text, nullable=True)
     marching_orders: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
     parked_decisions: Mapped[list] = mapped_column(JSONB, nullable=False, default=list)
 

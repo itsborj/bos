@@ -9,6 +9,10 @@ import type {
   ChatResponse,
   ChatStreamEvent,
   BrandKitResponse,
+  CouncilSeat,
+  CouncilSeatUpdate,
+  CouncilSessionState,
+  CouncilFinalizeResult,
   DecisionBriefListResponse,
   DecisionBriefOut,
   EvaluateOutcomeOut,
@@ -555,4 +559,25 @@ export const api = {
   // Gate 2 — Handoff brief
   getHandoffBrief: (brand_id?: string) =>
     request<HandoffBriefOut>('/handoff/brief' + buildQuery({ brand_id })),
+
+  // Council
+  getCouncilSeats: () =>
+    request<CouncilSeat[]>('/council/seats'),
+
+  putCouncilSeat: (seatId: string, body: CouncilSeatUpdate) =>
+    request<CouncilSeat>(`/council/seats/${seatId}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
+  councilC6Respond: (sessionId: string, input: string | null) =>
+    request<CouncilSessionState>(`/council/${sessionId}/c6-respond`, {
+      method: 'POST',
+      body: JSON.stringify({ input }),
+    }),
+
+  councilFinalize: (sessionId: string) =>
+    request<CouncilFinalizeResult>(`/council/${sessionId}/finalize`, {
+      method: 'POST',
+    }),
 };

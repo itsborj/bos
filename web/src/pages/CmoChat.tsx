@@ -2,11 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { useUI } from '../context/UIContext';
 import { useCmoChat } from '../context/CmoChatContext';
+import type { CouncilRoundMsg } from '../context/CmoChatContext';
 import { BlockRenderer } from '../components/blocks/BlockRenderer';
 import { SurfaceProvider } from '../surfaces/SurfaceContext';
 import type { ArtifactRef } from '../utils/artifacts';
 import { artifactStatusLabel, buildArtifactRef } from '../utils/artifacts';
-import type { HandoffBriefOut, ObjectiveOut } from '../api/types';
+import type { CouncilFinalizeResult, HandoffBriefOut, ObjectiveOut } from '../api/types';
 import type { BriefingBlock } from '../types/stream';
 
 const CARD_TYPE_LABELS: Record<string, string> = {
@@ -227,11 +228,83 @@ function HandoffBriefMessage({ brief }: { brief: HandoffBriefOut }) {
   );
 }
 
+function CouncilRoundMessage({ round }: { round: CouncilRoundMsg }) {
+  const [expanded, setExpanded] = useState<string | null>(null);
+  return (
+    <div className="council-round">
+      <div className="council-round-header">
+        <span className="council-badge">⬡ COUNCIL</span>
+        <span className="council-round-label">Round {round.round_num}</span>
+      </div>
+      <div className="council-seats">
+        {round.positions.map(pos => (
+          <div key={pos.seat_id} className="council-seat">
+            <button
+              className="council-seat-header"
+              onClick={() => setExpanded(e => e === pos.seat_id ? null : pos.seat_id)}
+            >
+              <span className="council-seat-id">{pos.seat_id.toUpperCase()}</span>
+              <span className="council-seat-name">{pos.display_name !== pos.seat_id ? pos.display_name : ''}</span>
+              <span className="council-seat-toggle">{expanded === pos.seat_id ? '▲' : '▼'}</span>
+            </button>
+            {expanded === pos.seat_id ? (
+              <div className="council-seat-body">{pos.content}</div>
+            ) : (
+              <div className="council-seat-preview">{pos.content.slice(0, 120)}{pos.content.length > 120 ? '…' : ''}</div>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function CouncilBriefMessage({ brief }: { brief: CouncilFinalizeResult }) {
+  const [transcriptOpen, setTranscriptOpen] = useState(false);
+  return (
+    <div className="council-brief">
+      <div className="council-brief-header">
+        <span className="council-badge">⬡ COUNCIL BRIEF</span>
+        <span className="council-brief-settled">✓ Settled · {brief.rounds_completed} round{brief.rounds_completed !== 1 ? 's' : ''}</span>
+      </div>
+      {brief.brief && <div className="council-brief-question">"{brief.brief}"</div>}
+      {brief.settlement && (
+        <div className="council-brief-section">
+          <div className="council-brief-label">Settlement</div>
+          <div className="council-brief-body">{brief.settlement}</div>
+        </div>
+      )}
+      {brief.marching_orders.length > 0 && (
+        <div className="council-brief-section">
+          <div className="council-brief-label">Marching orders</div>
+          <ol className="council-brief-list">
+            {brief.marching_orders.map((item, i) => <li key={i}>{item}</li>)}
+          </ol>
+        </div>
+      )}
+      {brief.parked_decisions.length > 0 && (
+        <div className="council-brief-section">
+          <div className="council-brief-label">Parked decisions</div>
+          <ul className="council-brief-list">
+            {brief.parked_decisions.map((item, i) => <li key={i}>{item}</li>)}
+          </ul>
+        </div>
+      )}
+      <button className="council-transcript-toggle" onClick={() => setTranscriptOpen(o => !o)}>
+        {transcriptOpen ? '▲ Hide transcript' : '▼ Full transcript'}
+      </button>
+      {transcriptOpen && (
+        <pre className="council-transcript">{brief.transcript}</pre>
+      )}
+    </div>
+  );
+}
+
 export function CmoChat() {
   const { openSettings, activeBrand } = useUI();
   const {
-    msgs, busy, pendingPlan, streamCardCtx, activeObjective,
-    setPendingPlan, send, handleOutcomeConfirm, handleOutcomeCancel,
+    msgs, busy, pendingPlan, streamCardCtx, activeObjective, activeCouncilSession,
+    setPendingPlan, send, councilPass, councilFinalize, handleOutcomeConfirm, handleOutcomeCancel,
   } = useCmoChat();
 
   const [input, setInput] = useState('');
@@ -272,6 +345,7 @@ export function CmoChat() {
     activeBrand?.name ? `Brand · ${activeBrand.name}` : null,
     activeObjective ? (activeObjective.summary.length > 40 ? `${activeObjective.summary.slice(0, 40)}…` : activeObjective.summary) : null,
     streamCardCtx ? `${CARD_TYPE_LABELS[streamCardCtx.type] ?? streamCardCtx.type}` : null,
+    activeCouncilSession ? `⬡ Council in session` : null,
   ].filter(Boolean) as string[];
 
   return (
@@ -377,6 +451,28 @@ export function CmoChat() {
               );
             }
 
+            if (msg.councilRound) {
+              return (
+                <div key={msg.id}>
+                  <div className="msg-label">Council · Round {msg.councilRound.round_num} · {fmtTime(msg.time)}</div>
+                  <div className="msg-ai">
+                    <CouncilRoundMessage round={msg.councilRound} />
+                  </div>
+                </div>
+              );
+            }
+
+            if (msg.councilBrief) {
+              return (
+                <div key={msg.id}>
+                  <div className="msg-label">Council · Brief · {fmtTime(msg.time)}</div>
+                  <div className="msg-ai">
+                    <CouncilBriefMessage brief={msg.councilBrief} />
+                  </div>
+                </div>
+              );
+            }
+
             if (msg.role === 'user') {
               return (
                 <div key={msg.id} className="msg-user">{msg.text}</div>
@@ -421,6 +517,16 @@ export function CmoChat() {
           </div>
         )}
 
+        {activeCouncilSession?.status === 'awaiting_c6' && (
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, padding: '10px 14px', background: 'var(--amber-bg, #fffbeb)', borderRadius: 8, border: '1px solid var(--amber-border, #fde68a)', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: '#92400e', flex: 1 }}>
+              {activeCouncilSession.pending_c6_prompt || 'The council is waiting for your input.'}
+            </span>
+            <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={councilPass} disabled={busy}>Continue</button>
+            <button className="btn btn-ghost" style={{ fontSize: 12, color: '#b45309' }} onClick={councilFinalize} disabled={busy}>Finalize</button>
+          </div>
+        )}
+
         {streamCardCtx && (
           <div style={{ marginBottom: 10 }}>
             <div className="msg-label" style={{ marginBottom: 6 }}>Context actions</div>
@@ -440,7 +546,9 @@ export function CmoChat() {
             ref={textareaRef}
             className="cmo-ta"
             rows={1}
-            placeholder="Direct your CMO — brief a campaign, request a revision, or ask for a report..."
+            placeholder={activeCouncilSession?.status === 'awaiting_c6'
+              ? 'Respond to the council, or use Pass / Finalize above…'
+              : 'Direct your CMO — brief a campaign, request a revision, or ask for a report...'}
             value={input}
             onChange={handleInput}
             onKeyDown={handleKeyDown}

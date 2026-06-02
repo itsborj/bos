@@ -638,6 +638,14 @@ async def list_provider_models(
 
     # Seeded direct-provider models (exclude openrouter — we serve live free only)
     direct_providers = ["openai", "gemini", "nvidia"]
+    # Providers with a platform key configured are "free" from the operator's perspective —
+    # they use the platform key, so the operator isn't paying additional per-token credits.
+    # Only BYOK-only providers (no platform key) are truly "paid" for the operator.
+    settings = get_settings()
+    providers_with_platform_key = {
+        p for p in direct_providers if bool(get_platform_key(p, settings))
+    }
+
     seeded_opts = (await db.execute(
         select(ModelOption)
         .where(ModelOption.provider.in_(direct_providers))
@@ -655,7 +663,7 @@ async def list_provider_models(
             provider=o.provider,
             model_id=o.model_id,
             name=o.model_id,  # frontend has friendlyModelName() for display
-            is_free=o.input_cost_per_token == 0.0,
+            is_free=o.provider in providers_with_platform_key,
             input_cost_per_token=float(o.input_cost_per_token),
             output_cost_per_token=float(o.output_cost_per_token),
             context_length=0,

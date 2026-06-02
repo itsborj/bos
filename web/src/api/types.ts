@@ -317,8 +317,40 @@ export interface ChatHistoryItem {
 }
 
 export interface KlarAction {
-  action: 'brand_switch' | 'brand_clear' | 'plan_draft' | 'plan_confirmed' | 'pending_klar' | 'evaluate_stub' | 'pending_summary' | 'brand_list';
+  action: 'brand_switch' | 'brand_clear' | 'plan_draft' | 'plan_confirmed' | 'pending_klar' | 'evaluate_stub' | 'pending_summary' | 'brand_list' | 'council_session';
   data: Record<string, unknown>;
+}
+
+export interface CouncilPosition {
+  seat_id: string;
+  display_name: string;
+  content: string;
+  timestamp: string;
+  round?: number;
+}
+
+export interface CouncilSessionState {
+  session_id: string;
+  status: string;
+  brief?: string;
+  current_round: number;
+  rounds_completed: number;
+  rounds: CouncilPosition[][];
+  c6_injections: Array<{ round_boundary: number; content: string; timestamp: string }>;
+  pending_c6_prompt: string | null;
+  safety_ceiling: number;
+}
+
+export interface CouncilFinalizeResult {
+  session_id: string;
+  status: string;
+  brief: string;
+  settlement: string;
+  marching_orders: string[];
+  parked_decisions: string[];
+  c6_injections: Array<{ round_boundary: number; content: string; timestamp: string }>;
+  rounds_completed: number;
+  transcript: string;
 }
 
 export interface ObjectiveOut {
@@ -569,4 +601,21 @@ export interface ProviderModelLive {
 
 export interface ProviderModelsResponse {
   models: ProviderModelLive[];
+}
+
+export interface CouncilSeat {
+  seat_id: string;
+  display_name: string;
+  status: string;
+  provider: string;
+  model_id: string | null;
+  ideology: string | null;
+}
+
+export interface CouncilSeatUpdate {
+  display_name: string;
+  status: string;
+  provider: string;
+  model_id: string | null;
+  ideology: string | null;
 }

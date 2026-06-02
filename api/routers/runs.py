@@ -704,6 +704,13 @@ async def _execute_module(
         await db.flush()
 
         attempt_data, result_data = tool_executor(brief)
+        # Guard: tool modules that fail early may omit provider/model_id, which
+        # are NOT NULL in run_attempts. Fill required fields so the row is valid.
+        attempt_data.setdefault("provider", module_id.split(".")[0])
+        attempt_data.setdefault("model_id", module_id)
+        attempt_data.setdefault("mode", "tool")
+        attempt_data.setdefault("status", "succeeded")
+        attempt_data.setdefault("latency_ms", 0)
         try:
             verdict, failures = module.self_check(result_data["content"], brief)
         except Exception as exc:

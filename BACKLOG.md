@@ -799,6 +799,8 @@ Deferred to Phase 4.
 ## Phase 6 — Full-Stack Marketing Automation
 > Goal: replace every role in a marketing department. CMO orchestrates. Plugins are the specialists. Owner approves decisions. BOS remembers what worked.
 
+- [x] BUG (2026-06-02): `execute_tool_result` early-error returns in plugin modules (creative.blueprint.assemble, creative.primitive.generate, others) were missing `provider`/`model_id` fields. `run_attempts.provider` is NOT NULL — null INSERT poisoned the SQLAlchemy session, making all subsequent DB operations in the same request fail with "Transaction has been rolled back." Fixed in `_execute_module` (runs.py): `attempt_data.setdefault('provider', ...)` after every `tool_executor(brief)` call so the row is always valid regardless of module early-exit path.
+
 ### UX Samples
 - [x] FRONTEND: `AdminObjectiveLoop.tsx` — `/admin/objective-loop` — loop readiness (Gmail/brand kit/objective), active objective detail, decision briefs, pending decisions, outcome records, memory ledger, generate brief button. Gate 2 API types + client methods added for all 7 Gate 2 endpoints.
 - [x] UX PROTOTYPE: `wireframes/bos-stream-first.html` is the canonical Gate 2 prototype — all three surfaces (Stream, CMO, Admin) merged. `bos-gate2-prototype.html` and `bos-gate2-prototype-agent-a.html` superseded. `bos-council-prototype.html` is a post-Gate 2 council UX sample only. Open design questions: council card color identity (amber vs purple), Watchpoints admin needs design pass, Council Seats section should move out of Gate 2 admin group.
@@ -1268,29 +1270,47 @@ CYCLE 2 — Intelligence to Optimization
 - [ ] PostgreSQL backup strategy
 ## Council — Deliberation Layer
 
-### Infrastructure (complete)
-- [x] Council seat structure: `api/capabilities/workspace/council/seats/c1–c5/SKILL.md`
-- [x] Seat schema: seat id, display_name, status (vacant/active), model (provider + model_id configurable), ideology, tools
-- [x] Council capability SKILL.md + template.j2
-- [x] Council orchestrator module.py: parallel seat calls, agentic loop, convergence check, settlement synthesis
-- [x] CouncilSession DB model + migration 028
-- [x] `@council <question>` routing in CMO chat (chat.py)
-- [x] Council router: POST /council/convene, GET /council/sessions, GET /council/sessions/{id}
-- [x] Output format: C1: C2: C3: C4: C5: labelled per round, marching orders, parked decisions
+### Complete as of 2026-06-02
 
-### Next — Recruitment
-- [ ] Recruit C1: set display_name, status: active, model_id, ideology in seats/c1/SKILL.md
-- [ ] Recruit C2–C5 same
-- [ ] Run migration 028 on staging
-- [ ] Smoke test @council with 1 active seat (vacant seats skipped gracefully)
-- [ ] Full 5-seat council test with real OpenRouter key
+**Backend**
+- [x] `api/capabilities/workspace/council/seats/c1–c5/SKILL.md` — seat config: id, display_name, status (vacant/active), model (provider + model_id), ideology
+- [x] `CouncilSession` DB model + migration 028 (original) + migration 036 (current_round, c6_injections, pending_c6_prompt, safety_ceiling, settlement)
+- [x] `module.py` — `start_session()` staggered Round 1 (2s between seats); `process_c6()` sequential Round N (each seat reads all prior seats in same round); `finalize()` extraction-only from transcript
+- [x] `routers/council.py` — `POST /council/convene`, `POST /council/{id}/c6-respond`, `POST /council/{id}/finalize`, `GET /council/sessions`, `GET /council/sessions/{id}`, `GET /council/seats`, `PUT /council/seats/{seat_id}`
+- [x] Seat identity injected in system prompt — each seat knows its own seat ID and display name; transcript entries attributed to their seat ID are flagged as their own prior statements (prevents third-person self-reference)
+- [x] Retry with backoff — `_call_seat` retries up to 3× on 429 (4s / 8s / 12s delays)
+- [x] Removed: ALIGNED/DISSENT signals, auto-convergence, synthesis LLM, AI-generated round-end prompts
 
-### Future
-- [ ] Human injection between rounds (POST /council/{id}/inject mid-session)
-- [ ] Streaming output: emit each round as SSE so operator sees C1/C2/C3 appear in real-time
-- [ ] council_brief artifact in Stream (card type: council_brief)
-- [ ] Access gate: operator flag `council_access: true` per workspace/brand
-- [ ] Tool grants per seat (data access, plugin calls)
+**Frontend**
+- [x] `@council <question>` in CMO chat → `klar_action: council_session` carries full Round 1 state; `CouncilRoundMessage` renders in chat
+- [x] `CmoChatContext` — `activeCouncilSession` state; `send()` routes to `/c6-respond` when session is `awaiting_c6`; `councilPass()` and `councilFinalize()` with step indicators
+- [x] `CouncilRoundMessage` — per-seat collapsible cards (120-char preview → full on expand), round number header
+- [x] `CouncilBriefMessage` — settlement, numbered marching orders, parked decisions bullets, expandable full transcript
+- [x] Continue / Finalize buttons + C6 prompt banner above input when session is active; "Convening next round…" step indicator on each cycle
+- [x] `⬡ Council in session` context chip
+- [x] `api.councilC6Respond()` and `api.councilFinalize()` in client.ts
+
+**Bug fix (runs.py)**
+- [x] `execute_tool_result` early-error returns in plugin modules were missing `provider`/`model_id` — `run_attempts.provider` NOT NULL poisoned the SQLAlchemy session. Fixed with `attempt_data.setdefault(...)` guards in `_execute_module`.
+
+**Verified**
+- 6-round session + finalize with 2 active seats (C1 Growth Strategist / C2 Brand Builder) — all rounds clean, settlement extracted correctly
+- Seat identity: no third-person self-reference in any round
+
+**Current seat config (2 active for testing)**
+- C1 active: `openrouter/poolside/laguna-xs.2:free` — Growth Strategist
+- C2 active: `openrouter/openai/gpt-oss-120b:free` — Brand Builder
+- C3–C5 vacant (re-enable via Admin → Council Seats)
+
+### Architecture decisions
+- **Deliberation in chat, not Stream** — live boardroom runs in CMO chat as a structured thread. Stream receives the settled `council_brief` (future). Chat is the natural surface; C6 injection is just replying; mobile works natively.
+- **Staggered Round 1** — 2s gap between seat calls instead of `asyncio.gather`. Free-tier OpenRouter rate-limits parallel bursts; stagger eliminates it without changing the round semantics.
+
+### Remaining
+- [ ] Memory: approved settlement → MemoryEvent; dismissed → decision_not_to_act
+- [ ] Re-enable C3–C5 with diverse models; assign ideologies; avoid duplicate models across seats
+- [ ] SSE seat streaming: real-time per-seat updates during a round (currently: full round appears when all seats complete)
+- [ ] Tool grants per seat (data access, plugin calls) — parking lot
 
 ## Parking Lot
 - Multi-tenancy (SaaS mode)
@@ -1310,6 +1330,9 @@ CYCLE 2 — Intelligence to Optimization
 ## Decisions Log
 | Date | Decision | Rationale |
 |---|---|---|
+| 2026-06-02 | Council deliberation lives in CMO chat, not a Stream card | Chat is already a conversation. C6 injection is just replying. Mobile works natively. No SSE polling or complex card state needed. Stream receives only the settled `council_brief` artifact (future). |
+| 2026-06-02 | Round 1 is staggered sequential (2s gap), not `asyncio.gather` | Free-tier OpenRouter rate-limits parallel bursts from the same IP. Stagger eliminates 429s without changing round semantics. Round 2+ was already sequential. |
+| 2026-06-02 | Seat identity injected in system prompt | Without it, seats referenced their own prior transcript entries in third person ("C1 said…"). Explicit `"You are C1. Entries attributed to C1 are YOUR prior statements."` in system prompt fixes self-reference. |
 | 2026-06-02 | GHCR_TOKEN moved to `~/.profile` (not `.bashrc`) so it loads in non-interactive shells (pre-push hooks, deploy scripts). `smoke-local.sh` port offsets added to prevent conflicts with running dev stack. `deploy-staging.sh` now polls all 3 images before pulling to eliminate CI build race. | `.bashrc` has an interactive-only guard; hooks and scripts never source it. CI builds api→web→relay sequentially; checking only api caused manifest unknown errors for web and relay. |
 | 2026-06-01 | Image gen uses `gemini-2.5-flash-image:generateContent` as the Gemini default; `imagen-4.0-*:predict` available via `IMAGE_GEN_MODEL` credential override (paid plan only) | `imagen-3.0-generate-001` does not exist on the Gemini API. Imagen 4+ requires a paid plan (HTTP 400 billing error). `gemini-2.5-flash-image` uses the standard `generateContent` endpoint on the same tier as text Gemini calls — no extra billing required. Both paths share `PLATFORM_GEMINI_KEY`. |
 | 2026-06-01 | Veo default is `veo-3.0-generate-001`; `veo-2.0-generate-001` is not the default | `veo-2.0-generate-001` requires GCP billing enabled on top of the Gemini API key (HTTP 400). `veo-3.0-generate-001` is accessible on the standard Gemini API plan (rate-limited on free tier, not billing-blocked). |

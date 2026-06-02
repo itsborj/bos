@@ -12,11 +12,12 @@
 
 > **Read this before making any change.** These decisions are final. Reversing any item requires an explicit architectural review and update to this table. The historical changelog now lives in Appendix A; it is a record, not the active architecture source.
 
-### Active Phase (as of 2026-05-21)
+### Active Phase (as of 2026-06-02)
 - **Phase:** Phase 6 — Full-Stack Marketing Automation
 - **Gate 2:** Passed 2026-05-20 (Gmail-only objective loop end-to-end proved via `api/scripts/prove_gate2_gmail_loop.py`)
 - **Current UI surface:** Stream (60%) + CMO chat (40%) split-screen. Mobile = single-panel with `translateX` slide transition. Reference: `wireframes/bos-stream-first.html` (read-only design spec — do not modify).
-- **Next active work:** Phase 6 subsections (6.1 paired creative bundle, 6.17 shortform video production/publishing infrastructure, 6.3 social publishing, Council recruitment) plus CMO loop synthesis-after-results after BITE samples are approved.
+- **Council:** Fully operational in CMO chat as of 2026-06-02. `@council <question>` → live boardroom in chat with collapsible per-seat round cards, C6 inject/Continue/Finalize, settled brief with settlement + marching orders + expandable transcript. 6-round test verified. See `BACKLOG.md ## Council` for full status and remaining work.
+- **Next active work:** Council memory integration (approved settlement → MemoryEvent), re-enable C3–C5 seats with diverse models, then Phase 6 subsections (creative bundle, shortform video, social publishing).
 
 ### Phase 6 Loop Direction — Summary
 
@@ -24,7 +25,7 @@ Klaroha is not becoming a generic chat agent or coding harness. Phase 6 applies 
 
 Two loops are distinct:
 - **CMO execution loop:** fast plan/execute/optimize steering; specialists create Stream artifacts; CMO synthesizes only after specialist results return; operator approves/revises/dismisses; memory closes the optimization loop.
-- **Council deliberation loop:** explicit `@council` invocation for high-stakes judgment such as GTM strategy, brand redesign, quarterly budget/resource allocation, major positioning shifts, or persistent disagreement. The final product is a `council_brief` artifact; the full transcript may be supporting detail, not primary chat output.
+- **Council deliberation loop:** explicit `@council <question>` invocation for high-stakes judgment — GTM strategy, brand redesign, quarterly budget allocation, major positioning shifts, persistent disagreement. Deliberation runs as a live boardroom conversation in CMO chat: round cards per seat (collapsible), C6 (operator) injects or passes between rounds, Finalize extracts settlement + marching orders + parked decisions from transcript. Seats are backed by different LLMs; the divergence is the value. The settled brief is the canonical output. Detail in `sample/bos_council_brief_planning.md`.
 
 Default creative production should run in parallel from a shared campaign brief for speed, with sequential chaining reserved for brand risk, compliance, high-ticket/long-sales-cycle dependency, failed self-checks, or Council recommendation. Details and code-dev marching orders live in `api/routers/chat_notes.md`.
 
@@ -782,6 +783,8 @@ Every renderable unit (e.g., `PerformanceReport`) is a self-contained component:
 ### Deployment Operations
 
 Both stacks run on one VDS from `~/bos/` using one compose file with different env vars. Production (`hq.klaroha.com`) uses project name `bos`; staging (`staging.klaroha.com`) uses project name `staging` with `--env-file .env.staging`. See **`DEPLOY.md`** for the full deploy runbook, correct commands, port topology, and the localhost ↔ staging breakage runbook (C1–C6 candidate causes, incident log).
+
+**Do not run smoke tests.** The pre-push smoke test (`smoke-local.sh`) and the post-deploy smoke check (`check-staging.sh`) are overhead — they do not replace observing the actual running app. Never invoke them, never treat a passing smoke test as a sign a deploy succeeded, and never report a task complete based on smoke test output alone. Verify by hitting the real endpoint or observing containers directly.
 
 ### Backlog → ClickUp Sync
 

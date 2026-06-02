@@ -1152,6 +1152,46 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
                     data={"brand_id": str(_matched.id), "brand_name": _matched.name},
                 )
 
+    # ── @council command ──────────────────────────────────────────────────────
+    if _is_council_command(body.message):
+        from capabilities.workspace.council.module import start_session as _council_start
+        from models.workspace import Brand as _Brand
+        _council_brief = _parse_council_brief(body.message)
+        if not _council_brief:
+            yield _sse({"type": "reply", "text": "What question should the council deliberate on?\n\nUsage: @council <question>", "klar_action": None})
+            yield _sse({"type": "done"})
+            return
+        yield _sse({"type": "step", "label": "Convening council…"})
+        _council_brand: _Brand | None = None
+        if body.brand_id:
+            _council_brand = (await db.execute(
+                select(_Brand).where(_Brand.id == UUID(body.brand_id))
+            )).scalar_one_or_none()
+        _council_result = await _council_start(
+            brief=_council_brief,
+            db=db,
+            ws=ws,
+            brand=_council_brand,
+        )
+        if _council_result.get("error"):
+            yield _sse({"type": "reply", "text": _council_result["error"], "klar_action": None})
+        else:
+            yield _sse({"type": "reply", "text": "", "klar_action": {
+                "action": "council_session",
+                "data": {
+                    "session_id": _council_result["session_id"],
+                    "brief": _council_brief,
+                    "status": _council_result["status"],
+                    "current_round": _council_result["current_round"],
+                    "rounds_completed": _council_result["rounds_completed"],
+                    "rounds": _council_result["rounds"],
+                    "c6_injections": _council_result["c6_injections"],
+                    "pending_c6_prompt": _council_result["pending_c6_prompt"],
+                },
+            }})
+        yield _sse({"type": "done"})
+        return
+
     # ── @klar commands ────────────────────────────────────────────────────────
     if _is_klar_command(body.message):
         yield _sse({"type": "step", "label": "Processing command..."})
@@ -1531,7 +1571,7 @@ async def chat(
 
     # ── @council command routing ──────────────────────────────────────────────
     if _is_council_command(body.message):
-        from capabilities.workspace.council.module import convene as _council_convene
+        from capabilities.workspace.council.module import start_session as _council_start
         _council_brief = _parse_council_brief(body.message)
         if not _council_brief:
             return ChatResponse(reply="What question should the council deliberate on?\n\nUsage: @council <question>")
@@ -1540,13 +1580,30 @@ async def chat(
             _council_brand = (await db.execute(
                 select(Brand).where(Brand.id == UUID(body.brand_id))
             )).scalar_one_or_none()
-        _council_result = await _council_convene(
+        _council_result = await _council_start(
             brief=_council_brief,
             db=db,
             ws=ws,
             brand=_council_brand,
         )
-        return ChatResponse(reply=_council_result["formatted_output"])
+        if _council_result.get("error"):
+            return ChatResponse(reply=_council_result["error"])
+        return ChatResponse(
+            reply="",
+            klar_action=KlarAction(
+                action="council_session",
+                data={
+                    "session_id": _council_result["session_id"],
+                    "brief": _council_brief,
+                    "status": _council_result["status"],
+                    "current_round": _council_result["current_round"],
+                    "rounds_completed": _council_result["rounds_completed"],
+                    "rounds": _council_result["rounds"],
+                    "c6_injections": _council_result["c6_injections"],
+                    "pending_c6_prompt": _council_result["pending_c6_prompt"],
+                },
+            ),
+        )
 
     # ── @klar command routing ─────────────────────────────────────────────────
     if _is_klar_command(body.message):
