@@ -1,8 +1,9 @@
 import { useEffect, useState, useCallback } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api, clearApiKey } from '../api/client';
 import { UIContext } from '../context/UIContext';
 import { CmoChatProvider } from '../context/CmoChatContext';
+import { CmoChat } from '../pages/CmoChat';
 import { WorkspacePanel } from './WorkspacePanel';
 import { SettingsModal } from './SettingsModal';
 import type { ActiveBrand, ActiveCampaign, SettingsTab, WorkspaceTab } from '../context/UIContext';
@@ -124,6 +125,9 @@ function readPendingRuns(): Record<string, RunResponse> {
 
 export function Layout() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const onCmo = location.pathname === '/cmo';
+  const [mobileStreamActive, setMobileStreamActive] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceTab, setWorkspaceTab]   = useState<WorkspaceTab>('campaigns');
   const [selectedRun, setSelectedRun]     = useState<RunResponse | null>(null);
@@ -158,12 +162,18 @@ export function Layout() {
       const run = (e as CustomEvent).detail;
       if (!run?.run_id) return;
       setPendingRunItems(prev => ({ ...prev, [run.run_id]: run }));
+      setMobileStreamActive(true);
       // Stream's own side panel handles bos:focus-artifact. Do not open the
       // WorkspacePanel slide-over here — that surface was retired.
     };
     window.addEventListener('bos:focus-artifact', handle);
     return () => window.removeEventListener('bos:focus-artifact', handle);
   }, []);
+
+  // When returning to /cmo, scroll chat to bottom in case messages arrived while hidden.
+  useEffect(() => {
+    if (onCmo) window.dispatchEvent(new CustomEvent('bos:chat-scroll-bottom'));
+  }, [onCmo]);
 
   useEffect(() => {
     writePendingRuns(pendingRunItems);
@@ -291,7 +301,21 @@ export function Layout() {
         </div>
 
         <div className={`bos-proto-page-area ${workspaceOpen ? 'bos-proto-page-area-ws-open' : ''}`}>
-          <Outlet />
+          {/* CmoChat is always mounted so in-flight streams survive navigation.
+              display:none hides it without unmounting — React state and async loops continue. */}
+          <div
+            className={`stream-cmo-shell${mobileStreamActive ? ' mobile-stream-active' : ''}`}
+            style={onCmo ? undefined : { display: 'none' }}
+          >
+            <div className="stream-cmo-chat-col">
+              <CmoChat />
+            </div>
+            <div className="stream-cmo-feed">
+              <button className="mobile-back-btn" onClick={() => setMobileStreamActive(false)}>← Chat</button>
+              {onCmo && <Outlet />}
+            </div>
+          </div>
+          {!onCmo && <Outlet />}
         </div>
 
         <WorkspacePanel

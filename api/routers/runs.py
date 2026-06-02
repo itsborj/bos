@@ -678,17 +678,33 @@ async def _execute_module(
     if brief.get("video_path") or brief.get("drive_file_id"):
         brief = await _resolve_drive_video(brief, brand_id, db, settings)
 
-    brief = await _hydrate_module_upstream_context(
-        db,
-        ws,
-        module_id,
-        brief,
-        brand_id,
-        settings=settings,
-        policy=eff_policy,
-        campaign_id=campaign_id,
-        upstream_stack=_upstream_stack,
-    )
+    try:
+        brief = await _hydrate_module_upstream_context(
+            db,
+            ws,
+            module_id,
+            brief,
+            brand_id,
+            settings=settings,
+            policy=eff_policy,
+            campaign_id=campaign_id,
+            upstream_stack=_upstream_stack,
+        )
+    except BosError as upstream_exc:
+        # Persist a failed Run so chat can surface an artifact reference instead of silence.
+        failed_run = Run(
+            workspace_id=ws.id, module_id=module_id, status="failed",
+            campaign_id=campaign_id, brand_id=brand_id,
+        )
+        db.add(failed_run)
+        await db.flush()
+        db.add(RunTrace(
+            run_id=failed_run.id,
+            routing_json={"error": upstream_exc.message, "code": upstream_exc.code},
+            lineage_json=None,
+        ))
+        await db.commit()
+        raise
 
     tool_executor = getattr(module, "execute_tool_result", None)
     if callable(tool_executor):

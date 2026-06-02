@@ -290,10 +290,11 @@ async def inject_channel_credentials(
                 _override = await _rbo(db, _ws.id, module_id)
                 if _override and _override.modality in ("image", "video") and _override.provider:
                     prov_key = "image_gen_provider" if _is_image else "video_gen_provider"
-                    credentials.setdefault(prov_key, _override.provider)
+                    # Backend override always wins over plugin DB vars — use assignment, not setdefault.
+                    credentials[prov_key] = _override.provider
                     if _override.model_id:
-                        credentials.setdefault("image_gen_model" if _is_image else "video_gen_model",
-                                               _override.model_id)
+                        model_key = "image_gen_model" if _is_image else "video_gen_model"
+                        credentials[model_key] = _override.model_id
         except Exception as exc:
             log.warning("inject_channel_credentials backend override lookup failed: %s", exc)
 

@@ -312,6 +312,12 @@ export function CmoChat() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
+  // Scroll to bottom when navigating back to /cmo after messages arrived while hidden.
+  useEffect(() => {
+    const handler = () => bottomRef.current?.scrollIntoView({ behavior: 'instant' });
+    window.addEventListener('bos:chat-scroll-bottom', handler);
+    return () => window.removeEventListener('bos:chat-scroll-bottom', handler);
+  }, []);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input).then(() => {}); setInput(''); }
