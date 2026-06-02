@@ -42,16 +42,14 @@ This is a draft plan for review; execution artifacts and external actions requir
 """
 
 
-def test_marketing_planning_skill_is_dispatchable_plan_artifact() -> None:
-    skill = next(s for s in list_skill_manifests() if s.id == "marketing.plan.campaign_strategy")
-
-    assert skill.allowed_from_chat is True
-    assert skill.module_id == "marketing.plan.campaign_strategy"
-    assert skill.metadata["implements"] == "marketing.plan"
-    assert skill.metadata["artifact_type"] == "plan_artifact"
-    assert skill.metadata["specialist"] == "planning"
-    assert "build another one" in skill.triggers
-    assert "same for" in skill.triggers
+def test_campaign_strategy_retired_not_in_active_manifests() -> None:
+    # campaign_strategy retired in favour of marketing.planning.gtm_plan.
+    # Must be absent from both the skill loader and the dispatchable manifest.
+    from capability_manifest import build_dispatchable_manifest
+    manifest_ids = {e.module_id for e in build_dispatchable_manifest()}
+    skill_ids = {s.id for s in list_skill_manifests()}
+    assert "marketing.plan.campaign_strategy" not in manifest_ids
+    assert "marketing.plan.campaign_strategy" not in skill_ids
 
 
 def test_marketing_planning_module_self_check_and_block() -> None:

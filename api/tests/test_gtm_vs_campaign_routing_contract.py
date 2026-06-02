@@ -5,14 +5,11 @@ from skills.loader import list_skill_manifests
 from skills.router import route_chat_skills
 
 
-def test_campaign_plan_visible_manifest_defers_launch_to_gtm() -> None:
-    entry = next(e for e in build_dispatchable_manifest() if e.module_id == "marketing.plan.campaign_strategy")
-    visible = " ".join(entry.excluded_triggers[:8]).lower()
-
-    assert "gtm" in visible
-    assert "launch" in visible
-    assert "market entry" in visible
-    assert "plan for" not in entry.triggers
+def test_campaign_strategy_retired_absent_from_dispatchable_manifest() -> None:
+    # campaign_strategy was retired (allowed_from_chat: false) in favour of
+    # marketing.planning.gtm_plan; it must not appear in the live capability list.
+    manifest_ids = {e.module_id for e in build_dispatchable_manifest()}
+    assert "marketing.plan.campaign_strategy" not in manifest_ids
 
 
 def test_gtm_plan_visible_manifest_owns_launch_language() -> None:
@@ -49,10 +46,8 @@ def test_need_gtm_with_brand_name_routes_to_go_to_market_plan() -> None:
     assert "marketing.analytics.google_tag_manager" not in skill_ids
 
 
-def test_campaign_skill_body_names_gtm_handoff() -> None:
-    skill = next(s for s in list_skill_manifests() if s.id == "marketing.plan.campaign_strategy")
-
-    assert "marketing.planning.gtm_plan" in skill.description
-    assert "launch strategy" in skill.excluded_triggers
-    assert "launch plan" in skill.excluded_triggers
-    assert "gtm plan" in skill.excluded_triggers
+def test_campaign_strategy_retired_absent_from_skill_manifests() -> None:
+    # Retired skills must not appear in list_skill_manifests() (status: retired
+    # or allowed_from_chat: false drops them from the loader's active set).
+    skill_ids = {s.id for s in list_skill_manifests()}
+    assert "marketing.plan.campaign_strategy" not in skill_ids
