@@ -1,6 +1,6 @@
 # BOS — Backlog
 
-**Last updated:** 2026-06-02
+**Last updated:** 2026-06-03
 **Active phase:** Phase 6 — Gate 2 Gmail-only objective loop
 ---
 ## How to Use This
@@ -1671,3 +1671,14 @@ CYCLE 2 — Intelligence to Optimization
 - [x] BUG: CMO chat state lost when navigating away from /cmo — `CmoChat` was mounted inside `CmoPage` and unmounted on every route change, losing in-flight stream steps and forcing full re-init on return. Fix: moved `CmoChat` into `Layout.tsx` at the shell level; hidden via `display:none` when not on /cmo so React keeps it mounted. `CmoPage` simplified to `<Stream embedded />`. Added `bos:chat-scroll-bottom` event to scroll to latest message on navigation return. (`web/src/components/Layout.tsx`, `web/src/pages/CmoPage.tsx`, `web/src/pages/CmoChat.tsx`)
 - [x] BUG: Deprecated `marketing.plan.campaign_strategy` module was still appearing alongside GTM plan — `status: active` and `allowed_from_chat: true` in SKILL.md kept it in the capability manifest. Retired it (`status: retired`, `allowed_from_chat: false`); CMO now routes all plan requests to `marketing.planning.gtm_plan` only. (`api/capabilities/marketing/plan/campaign_strategy/SKILL.md`)
 - [x] DEPLOY: P1-4 done — `deploy-staging.sh` final banner now fetches `/api/` post-deploy and prints `git_sha` + `uptime_seconds` alongside image tag. O2 closed.
+
+### Brand Identity System — Design Reference (2026-06-03)
+
+- [x] DESIGN: Klaroha brand identity system HTML page built at `http://localhost:8787/klaroha.html` (served from `/home/ubu/sample-web-ui/klaroha.html` via Python HTTP server on port 8787). This is a living design reference, not a BOS product feature.
+- [x] DESIGN: Typography system updated to brand guidelines v2.1 — Manrope 700/800 for all display and headline text; Inter for all body, UI, and data text; JetBrains Mono for code/data labels. Removed Cormorant (not in guidelines). Three CSS tokens: `--font-display`, `--font-ui`, `--font-mono`.
+- [x] DESIGN: Color palette corrected to v2.1 spec — 3 anchor colors (Racing Green #0B3D2E, Warm Gold #826D40, Oxblood #7A2E2E) + 3 Warm Colonial extensions (Linen #F2E8D0, Copper #B85C30, Light Gold #C8A870) + surfaces (White, Ivory, Obsidian). Removed Muted Plum and Forest Teal (not in approved palette).
+- [x] DESIGN: Applied 8 design philosophy principles — Scher (typography as identity, public presence), Bierut (systems), Haviv (simplicity, scale), Walsh (ownable assets, social-native), Millman (brand narrative), Neumeier (differentiation), Airey (show in context), Wheeler (brand ecosystem).
+- [x] DESIGN: Card surfaces section replaced with real Klaroha content — 6 cards in 3×2 grid: Strategy (Brand operating system, 5 min read), Growth (Systems for clarity, Mar 2026), AI Ops (CMO AI framework, Case study), Pricing (Starter plan, $99/mo), Workshop (Brand clarity sprint, Limited slots), Featured (BITE framework guide, Free guide). Each card has correct surface treatment (White/Ivory/Obsidian/Linen/Racing Green) with appropriate content hierarchy.
+- [x] DESIGN: Social posts section expanded to 6 Instagram 1:1 posts — "Build the machine, not just the campaign", "Clarity is a competitive advantage", "Your brand voice should not depend on your mood", "Agents that execute. Humans that decide.", "The system is the strategy.", "BITE framework. Download via link in bio." Three Racing Green, two White, one Linen. All with KLAROHA wordmark (uppercase, 0.22em tracking), category label, Warm Gold accent bar.
+- [x] DESIGN: Do/Don't section added — 11 paired brand rules drawn directly from brand guidelines section 19. Racing Green ✓ symbols, Oxblood ✗ symbols. Grid table with alternating ivory tint.
+- [x] DESIGN: Sample Messaging section added — tagline display treatment (Manrope + Inter italic Warm Gold), 4 message cards (Homepage Hero, Short Description, Operator-Facing, Enterprise-Facing), 3 audience voice cards from sections 6.1–6.3 of brand guidelines.
