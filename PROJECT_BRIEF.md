@@ -1,9 +1,9 @@
 # BOS — Business Operating System
 ## Unified Project Brief
 
-**Date:** 2026-05-22  
-**Status:** Phase 6 in progress — GTM upstream-contract workflow implemented
-**Version:** 3.45 (GTM Strategy consumes buyer-map/message-architecture substrate; Stream artifact focus restored)
+**Date:** 2026-06-03  
+**Status:** Phase 6 in progress — GTM upstream-contract workflow live; campaign_strategy retired
+**Version:** 3.47 (marketing.plan.campaign_strategy retired; CMO chat persists across navigation; upstream contract failures surface as error artifacts)
 
 > **MANDATORY READING:** Before any new system update, feature build, or architectural change, read `BITE.md`. It is both the Business Implementation by Example methodology and the BOS architecture constitution for minimal core, plugin/package extensibility, SKILL.md ownership, live manifests, MCP boundaries, lifecycle hooks, and command registration.
 ---
@@ -12,11 +12,12 @@
 
 > **Read this before making any change.** These decisions are final. Reversing any item requires an explicit architectural review and update to this table. The historical changelog now lives in Appendix A; it is a record, not the active architecture source.
 
-### Active Phase (as of 2026-06-02)
+### Active Phase (as of 2026-06-03)
 - **Phase:** Phase 6 — Full-Stack Marketing Automation
 - **Gate 2:** Passed 2026-05-20 (Gmail-only objective loop end-to-end proved via `api/scripts/prove_gate2_gmail_loop.py`)
-- **Current UI surface:** Stream (60%) + CMO chat (40%) split-screen. Mobile = single-panel with `translateX` slide transition. Reference: `wireframes/bos-stream-first.html` (read-only design spec — do not modify).
+- **Current UI surface:** Stream (60%) + CMO chat (40%) split-screen. `CmoChat` is mounted at Layout shell level and persists across navigation (hidden via `display:none` when not on /cmo). Mobile = single-panel with `translateX` slide transition. Reference: `wireframes/bos-stream-first.html` (read-only design spec — do not modify).
 - **Council:** Fully operational in CMO chat as of 2026-06-02. `@council <question>` → live boardroom in chat with collapsible per-seat round cards, C6 inject/Continue/Finalize, settled brief with settlement + marching orders + expandable transcript. 6-round test verified. See `BACKLOG.md ## Council` for full status and remaining work.
+- **Planning:** `marketing.planning.gtm_plan` is the sole plan module. `marketing.plan.campaign_strategy` is retired. GTM plan requires `buyer_map.v1` + `message_architecture.v1` upstream contracts; run orchestration auto-generates them when no prior successful artifact exists.
 - **Next active work:** Council memory integration (approved settlement → MemoryEvent), re-enable C3–C5 seats with diverse models, then Phase 6 subsections (creative bundle, shortform video, social publishing).
 
 ### Phase 6 Loop Direction — Summary
@@ -140,7 +141,7 @@ api/capabilities/{vertical}/{domain}/{atomic_task}/
 | Any comment/inbox manager for a named channel | Platform action, not BOS pipeline logic |
 
 **Native Marketing Planning Specialist:**
-`@klar plan` resolves the active/requested brand, builds a brand-scoped planning brief, and calls the first-party `marketing.plan.campaign_strategy` Transform. Chat stays a short control surface; the plan itself is a persisted Workspace/Stream `plan_artifact` with structured `marketing_plan` block data for review, revision, approval, or dismissal. The older `workspace.plan_mode` skill remains as a planning context/resource contract, but mobile CMO output must not paste full plans inline.
+`marketing.planning.gtm_plan` is the sole marketing plan module. `marketing.plan.campaign_strategy` is retired (`status: retired`). All plan requests — whether phrased as "marketing plan", "campaign plan", or any GTM/launch shorthand — route to `marketing.planning.gtm_plan`, which enforces the buyer-map + message-architecture substrate chain. Chat stays a short control surface; the plan itself is a persisted Workspace/Stream `plan_artifact` with structured `gtm_strategy` block data for review, revision, approval, or dismissal. `workspace.plan_mode` skill remains as a planning context/resource contract but does not dispatch modules.
 
 **GTM strategic substrate chain:**
 `marketing.planning.gtm_plan` is the go-to-market planning artifact for launch/GTM requests, including shorthand like “need GTM” or “another GTM.” It must consume `buyer_map.v1` and `message_architecture.v1`; these are produced by `reasoning.buyer_intelligence` and `marketing.messaging.architecture` as supporting upstream artifacts when no successful prior artifact exists for the active Brand. The CMO must not ask the user to supply internal substrate such as buyer maps, message architecture, or a primary objective when a Brand Brief exists. Run orchestration enforces `required_upstream` generically from `SKILL.md`: load successful prior contract artifact → generate missing producer output → inject actual output → block only if the contract cannot be produced. GTM artifacts render as `GTM Strategy` in Stream; Google Tag Manager only activates on explicit tag-manager/container language, not bare `GTM`.
@@ -603,7 +604,7 @@ api/capabilities/
   reasoning/buyer_intelligence/SKILL.md     # supporting substrate; outputs buyer_map.v1
   marketing/messaging/architecture/SKILL.md # supporting substrate; outputs message_architecture.v1
   marketing/planning/gtm_plan/SKILL.md      # GTM Strategy artifact; consumes buyer_map + message architecture
-  marketing/plan/campaign_strategy/SKILL.md # native campaign plan artifact; decide what to do
+  # marketing/plan/campaign_strategy/ — RETIRED (status: retired; use marketing.planning.gtm_plan)
   marketing/execute/SKILL.md                # make or prepare the work
   marketing/optimize/SKILL.md               # learn what works and improve it
 
@@ -919,6 +920,7 @@ Each deployed instance checks a Klaroha version endpoint periodically. When a ne
 
 | Version | Date | Changes |
 |---|---|---|
+| 3.47 | 2026-06-03 | **Bug fixes + planning module cleanup:** `marketing.plan.campaign_strategy` retired (`status: retired`, `allowed_from_chat: false`) — `marketing.planning.gtm_plan` is now the sole planning module; all plan triggers route there. `CmoChat` moved to Layout shell level (`display:none` when not on /cmo) so in-flight streams and React state survive navigation. Upstream contract failures in `_execute_module` now persist a failed Run before re-raising so chat surfaces an error artifact reference instead of silently yielding nothing. Backend override for `image_gen_provider`/`image_gen_model` in `plugin_loader.py` uses assignment (not `setdefault`) so operator config is never silently ignored. |
 | 3.46 | 2026-06-01 | **Click-to-deploy deployment model locked:** BOS is packaged software orgs deploy on their own cloud — not multi-tenant SaaS. Klaroha operates the OAuth relay (`connect.klaroha.com`) and platform inference centrally; org data stays on org infrastructure. Multi-tenancy explicitly rejected and moved to Parking Lot. Build order: relay → first-boot init → deployment key system → DigitalOcean Marketplace → in-app update notification → AWS Marketplace. Active focus is one clean first-org deploy before distribution. Full model in Section 10. |
 | 3.45 | 2026-05-27 | **GTM upstream-contract workflow:** Added executable strategic substrate capabilities `reasoning.buyer_intelligence` (`buyer_map.v1`) and `marketing.messaging.architecture` (`message_architecture.v1`). `marketing.planning.gtm_plan` now enforces `required_upstream` generically through run orchestration: load successful prior contract artifact, generate missing producer output, inject actual upstream content, and block only when a required contract cannot be produced. Shorthand “GTM” now means go-to-market unless the user explicitly says Google Tag Manager/container/tags. GTM artifacts title as `GTM Strategy`, render through Stream, and chat Review focuses the inline Stream card rather than navigating to Workspace. Strict backend override credential/execution failures fall back to normal model routing so Brand Brief-driven substrate generation can complete. |
 | 3.44 | 2026-05-27 | **Specialists + connectors unified:** Admin Specialists (`/admin/modules`) is now the single readiness/setup surface for installed specialists and their connector rows. Connector rows show status, description, Implements, Missing vars, and Configure/Update/Remove actions. Brand-scoped OAuth connect/disconnect stays on Brands/Clients. `/admin/connectors` is only a compatibility alias and OAuth callback results now route to `/admin/modules`. The standalone `AdminConnectors` component was removed. |
