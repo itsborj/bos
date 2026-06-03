@@ -148,7 +148,7 @@ function renderNativePreview(run: RunResponse) {
     const b = result.block as any;
     const succeeded = b.status === 'succeeded';
     return (
-      <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--ink-body)', border: '1px solid var(--border)', borderLeft: `2px solid ${succeeded ? 'var(--brand)' : 'var(--oxblood)'}`, borderRadius: 0, background: 'var(--white)' }}>
+      <div style={{ padding: '14px 16px', fontSize: 13, color: '#1f2937', border: `1px solid ${succeeded ? '#bbf7d0' : '#fca5a5'}`, borderRadius: 8, background: succeeded ? '#f0fdf4' : '#fef2f2' }}>
         <div style={{ fontWeight: 700, marginBottom: 4 }}>{succeeded ? 'Published to Facebook' : 'Facebook publish failed'}</div>
         {b.message_preview && <div style={{ color: '#4b5563', marginBottom: 6, lineHeight: 1.4 }}>{b.message_preview.slice(0, 120)}{b.message_preview.length > 120 ? '…' : ''}</div>}
         {b.post_id && <div style={{ color: '#6b7280', fontSize: 11, marginBottom: 4 }}>Post ID: {b.post_id}</div>}
@@ -160,7 +160,7 @@ function renderNativePreview(run: RunResponse) {
     const b = result.block as any;
     const succeeded = b.status === 'succeeded';
     return (
-      <div style={{ padding: '14px 16px', fontSize: 13, color: 'var(--ink-body)', border: '1px solid var(--border)', borderLeft: `2px solid ${succeeded ? 'var(--brand)' : 'var(--oxblood)'}`, borderRadius: 0, background: 'var(--white)' }}>
+      <div style={{ padding: '14px 16px', fontSize: 13, color: '#1f2937', border: `1px solid ${succeeded ? '#bbf7d0' : '#fca5a5'}`, borderRadius: 8, background: succeeded ? '#f0fdf4' : '#fef2f2' }}>
         <div style={{ fontWeight: 700, marginBottom: 4 }}>{succeeded ? 'Facebook video published' : 'Facebook video publish failed'}</div>
         {b.description_preview && <div style={{ color: '#4b5563', marginBottom: 6, lineHeight: 1.4 }}>{b.description_preview.slice(0, 120)}{b.description_preview.length > 120 ? '…' : ''}</div>}
         {b.video_id && <div style={{ color: '#6b7280', fontSize: 11, marginBottom: 4 }}>Video ID: {b.video_id}</div>}
@@ -314,18 +314,18 @@ function renderNativePreview(run: RunResponse) {
   if (result.block?.type === 'clickup_task_status') {
     const b = result.block as any;
     const buckets = [
-      { label: 'Blocked', count: (b.blocked || []).length, color: 'var(--oxblood)' },
-      { label: 'Overdue', count: (b.overdue || []).length, color: 'var(--status-warning-text)' },
-      { label: 'In Progress', count: (b.in_progress || []).length, color: 'var(--brand)' },
-      { label: 'To Do', count: b.todo_count || 0, color: 'var(--ink-muted)' },
-      { label: 'Done', count: b.done_count || 0, color: 'var(--brand)' },
+      { label: 'Blocked', count: (b.blocked || []).length, color: '#ef4444', bg: '#fef2f2' },
+      { label: 'Overdue', count: (b.overdue || []).length, color: '#f97316', bg: '#fff7ed' },
+      { label: 'In Progress', count: (b.in_progress || []).length, color: '#3b82f6', bg: '#eff6ff' },
+      { label: 'To Do', count: b.todo_count || 0, color: '#6b7280', bg: '#f9fafb' },
+      { label: 'Done', count: b.done_count || 0, color: '#16a34a', bg: '#f0fdf4' },
     ];
     return (
       <div style={{ padding: '14px 18px', fontSize: 13, color: '#1f2937', maxWidth: 520 }}>
         <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 10 }}>ClickUp · {b.space_count} space{b.space_count !== 1 ? 's' : ''} · {b.task_count} tasks</div>
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
           {buckets.map(bk => (
-            <div key={bk.label} style={{ background: 'var(--white)', border: '1px solid var(--border)', borderRadius: 0, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <div key={bk.label} style={{ background: bk.bg, border: `1px solid ${bk.color}22`, borderRadius: 6, padding: '4px 10px', display: 'flex', alignItems: 'center', gap: 5 }}>
               <span style={{ fontWeight: 700, color: bk.color }}>{bk.count}</span>
               <span style={{ color: '#374151', fontSize: 11 }}>{bk.label}</span>
             </div>
@@ -449,10 +449,10 @@ function StreamDataCard({ update, brandName, objectiveTitle, onDismiss, onAskCMO
       )}
       <div className="g2actions">
         {update.type === 'decision_brief' && (
-          <button className="btn btn-primary" onClick={() => onInvestigate(update)}>Investigate</button>
+          <button className="btn btn-accent" onClick={() => onInvestigate(update)}>Investigate</button>
         )}
         {update.type === 'setup_blocker' && (
-          <button className="btn btn-primary" onClick={() => onConfigure(update)}>Configure</button>
+          <button className="btn btn-accent" onClick={() => onConfigure(update)}>Configure</button>
         )}
         {update.type !== 'outcome' && (
           <button className="btn btn-ghost" onClick={() => onAskCMO(update)}>Ask CMO</button>
@@ -819,7 +819,7 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
               <div className="g2why" style={{ marginTop: 10, fontWeight: 700 }}>No decisions need attention right now.</div>
               <div className="g2why">BOS is watching the active objective, Gmail replies, pending outcomes, and setup readiness.</div>
               <div className="g2rec"><b>Next —</b>Leave Stream alone until a decision, outcome, or setup blocker appears.</div>
-              <button className="btn btn-primary" onClick={() => navigate('/admin/objective-loop')}>Set up the objective loop →</button>
+              <button className="btn btn-accent" onClick={() => navigate('/admin/objective-loop')}>Set up the objective loop →</button>
             </div>
           ) : (
             <div className="stream-artifact-feed">
