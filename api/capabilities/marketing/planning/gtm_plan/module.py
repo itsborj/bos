@@ -97,16 +97,37 @@ class MarketingGtmStrategyPlanModule(ModuleBase):
             failures.append("too_many_do_now_channels")
         do_now_channel_names = "\n".join(str(row.get("channel") or row.get("name") or "") for row in do_now_channels).lower()
         broad_or_late_channels = {
-            "affiliate": "unsupported_do_now_channel_without_context:affiliate",
-            "referral": "unsupported_do_now_channel_without_context:referral",
-            "community": "unsupported_do_now_channel_without_context:community",
-            "influencer": "unsupported_do_now_channel_without_context:influencer",
-            "paid social": "unsupported_do_now_channel_without_context:paid_social",
-            "paid media": "unsupported_do_now_channel_without_context:paid_media",
-            "tiktok": "unsupported_do_now_channel_without_context:tiktok",
+            "affiliate": (
+                "unsupported_do_now_channel_without_context:affiliate",
+                ("affiliate program", "existing affiliate", "affiliate network", "confirmed affiliate"),
+            ),
+            "referral": (
+                "unsupported_do_now_channel_without_context:referral",
+                ("referral program", "existing referral", "confirmed referral", "referral source", "happy customer"),
+            ),
+            "community": (
+                "unsupported_do_now_channel_without_context:community",
+                ("existing community", "owned community", "active community", "community member"),
+            ),
+            "influencer": (
+                "unsupported_do_now_channel_without_context:influencer",
+                ("influencer partner", "creator partner", "confirmed influencer", "existing creator"),
+            ),
+            "paid social": (
+                "unsupported_do_now_channel_without_context:paid_social",
+                ("proof asset", "budget signal", "ad budget", "confirmed budget"),
+            ),
+            "paid media": (
+                "unsupported_do_now_channel_without_context:paid_media",
+                ("proof asset", "budget signal", "ad budget", "confirmed budget"),
+            ),
+            "tiktok": (
+                "unsupported_do_now_channel_without_context:tiktok",
+                ("tiktok account", "tiktok presence", "tiktok audience"),
+            ),
         }
-        for needle, failure in broad_or_late_channels.items():
-            if needle in do_now_channel_names and needle not in context_lower:
+        for needle, (failure, affirmative_signals) in broad_or_late_channels.items():
+            if needle in do_now_channel_names and not any(sig in context_lower for sig in affirmative_signals):
                 failures.append(failure)
 
         owned_email_signals = (

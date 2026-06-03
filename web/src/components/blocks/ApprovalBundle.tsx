@@ -558,48 +558,113 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
       const assumptions = Array.isArray(block.assumptions) ? block.assumptions : [];
       const gaps = Array.isArray(block.critical_gaps) ? block.critical_gaps : [];
       const nextArtifacts = Array.isArray(block.next_artifacts) ? block.next_artifacts : [];
+      const sectionLabel: React.CSSProperties = { fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.08em', color: '#9ca3af', marginBottom: 8 };
+      const divider: React.CSSProperties = { borderTop: '1px solid #f3f4f6', margin: '16px 0' };
       return (
-        <div style={{ padding: '20px', textAlign: 'left', color: '#1f2937', fontSize: '13px', border: '1px solid #e5e7eb', borderRadius: 14, maxWidth: 620, background: '#fff' }}>
-          <div style={{ color: '#6b7280', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>GTM strategy</div>
-          <div style={{ fontWeight: 800, fontSize: 18, marginBottom: 8 }}>{block.title || title}</div>
-          {block.best_current_motion && <div style={{ lineHeight: 1.45, marginBottom: 12 }}><strong>Best motion:</strong> {block.best_current_motion}</div>}
-          {block.why_this_motion && <div style={{ color: '#4b5563', lineHeight: 1.45, marginBottom: 12 }}>{block.why_this_motion}</div>}
-          {block.positioning_angle && <div style={{ marginBottom: 12 }}><strong>Positioning:</strong> {block.positioning_angle}</div>}
+        <div style={{ padding: '20px 24px', textAlign: 'left', color: '#1f2937', fontSize: '13px', lineHeight: 1.55 }}>
+          <div style={sectionLabel}>GTM strategy</div>
+          <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 10 }}>{block.title || title}</div>
+
+          {block.best_current_motion && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={sectionLabel}>Best motion</div>
+              <div style={{ fontWeight: 500 }}>{block.best_current_motion}</div>
+            </div>
+          )}
+
+          {block.why_this_motion && (
+            <div style={{ marginBottom: 14 }}>
+              <div style={sectionLabel}>Active objective</div>
+              <div style={{ color: '#374151' }}>{block.why_this_motion}</div>
+            </div>
+          )}
+
+          {block.positioning_angle && (
+            <div style={{ marginBottom: 14, padding: '10px 14px', background: '#f9fafb', borderLeft: '3px solid #d1d5db', borderRadius: 4 }}>
+              <span style={{ fontWeight: 600 }}>Positioning: </span>{block.positioning_angle}
+            </div>
+          )}
+
           {doNow.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Do now</div>
+              <div style={sectionLabel}>Do now</div>
               {doNow.map((ch: any, idx: number) => (
-                <div key={idx} style={{ padding: '7px 0', borderTop: idx ? '1px solid #f3f4f6' : 'none' }}>
-                  <strong>{ch.channel || ch.name}</strong>{ch.role ? ` — ${ch.role}` : ''}
-                  {ch.reason && <div style={{ color: '#4b5563' }}>{ch.reason}</div>}
+                <div key={idx} style={{ paddingTop: idx ? 10 : 0, marginTop: idx ? 10 : 0, borderTop: idx ? '1px solid #f3f4f6' : 'none' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+                    <span style={{ fontWeight: 600 }}>{ch.channel || ch.name}</span>
+                    {ch.role && <span style={{ fontSize: 11, color: '#6b7280', background: '#f3f4f6', borderRadius: 3, padding: '1px 6px' }}>{ch.role}</span>}
+                  </div>
+                  {(ch.rationale || ch.reason) && <div style={{ color: '#4b5563', fontSize: 12 }}>{ch.rationale || ch.reason}</div>}
                 </div>
               ))}
             </div>
           )}
+
           {(hold.length > 0 || avoid.length > 0) && (
             <div style={{ marginBottom: 14 }}>
-              {hold.length > 0 && <div><strong>Hold</strong>{hold.slice(0, 3).map((item: any, idx: number) => <div key={idx} style={{ color: '#4b5563' }}>• {item.name || item.channel}{item.reason ? ` — ${item.reason}` : ''}</div>)}</div>}
-              {avoid.length > 0 && <div style={{ marginTop: 8 }}><strong>Avoid for now</strong>{avoid.slice(0, 3).map((item: any, idx: number) => <div key={idx} style={{ color: '#4b5563' }}>• {item.name || item.channel}{item.reason ? ` — ${item.reason}` : ''}</div>)}</div>}
+              {hold.length > 0 && (
+                <div style={{ marginBottom: 10 }}>
+                  <div style={sectionLabel}>Hold</div>
+                  {hold.slice(0, 4).map((item: any, idx: number) => (
+                    <div key={idx} style={{ color: '#4b5563', fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ fontWeight: 600, color: '#1f2937' }}>{item.name || item.channel}</span>
+                      {item.reason && <span> — {item.reason}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {avoid.length > 0 && (
+                <div>
+                  <div style={sectionLabel}>Avoid for now</div>
+                  {avoid.slice(0, 4).map((item: any, idx: number) => (
+                    <div key={idx} style={{ color: '#4b5563', fontSize: 12, marginBottom: 4 }}>
+                      <span style={{ fontWeight: 600, color: '#1f2937' }}>{item.name || item.channel}</span>
+                      {item.reason && <span> — {item.reason}</span>}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           )}
+
           {assumptions.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Assumptions</div>
-              <ul style={{ margin: 0, paddingLeft: 18 }}>{assumptions.slice(0, 4).map((item: string, idx: number) => <li key={idx}>{item}</li>)}</ul>
+              <div style={sectionLabel}>Assumptions</div>
+              {assumptions.slice(0, 3).map((item: string, idx: number) => (
+                <div key={idx} style={{ color: '#4b5563', fontSize: 12, marginBottom: 6 }}>{item}</div>
+              ))}
             </div>
           )}
+
           {gaps.length > 0 && (
             <div style={{ marginBottom: 14 }}>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Critical gaps</div>
-              {gaps.slice(0, 4).map((gap: any, idx: number) => <div key={idx} style={{ color: '#4b5563' }}>• {gap.gap || gap.name}{gap.unlocks ? ` — ${gap.unlocks}` : ''}</div>)}
+              <div style={sectionLabel}>Critical gaps</div>
+              {gaps.slice(0, 3).map((gap: any, idx: number) => {
+                const text = gap.gap || gap.name || '';
+                const short = text.length > 160 ? text.slice(0, 157) + '…' : text;
+                return (
+                  <div key={idx} style={{ color: '#4b5563', fontSize: 12, marginBottom: 6 }}>
+                    <span style={{ color: '#9ca3af', marginRight: 4 }}>•</span>{short}
+                  </div>
+                );
+              })}
             </div>
           )}
+
           {nextArtifacts.length > 0 && (
             <div>
-              <div style={{ fontWeight: 700, marginBottom: 6 }}>Next artifacts</div>
-              {nextArtifacts.slice(0, 4).map((item: any, idx: number) => <div key={idx} style={{ color: '#4b5563' }}>• {item.name || item.artifact}{item.reason || item.purpose ? ` — ${item.reason || item.purpose}` : ''}</div>)}
+              <div style={sectionLabel}>Next artifacts</div>
+              {nextArtifacts.slice(0, 4).map((item: any, idx: number) => (
+                <div key={idx} style={{ color: '#4b5563', fontSize: 12, marginBottom: 4 }}>
+                  <span style={{ fontWeight: 600, color: '#1f2937' }}>{item.name || item.artifact}</span>
+                  {(item.reason || item.purpose) && <span style={{ color: '#9ca3af' }}> — {item.reason || item.purpose}</span>}
+                </div>
+              ))}
             </div>
           )}
+
+          <div style={divider} />
+          <div style={{ fontSize: 11, color: '#9ca3af' }}>Active objective · {brandName}</div>
         </div>
       );
     }
@@ -1034,20 +1099,21 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
           </div>
         </div>
 
-        <div className="artifact-details-row">
-          <button className="artifact-link-btn" onClick={() => setDetailsOpen(v => !v)}>
-            {detailsOpen ? 'Hide system details' : 'System details'}
-          </button>
-        </div>
-
-        {detailsOpen && (
-          <div className="artifact-system-details">
-            <div><strong>BITE:</strong> Intent → Transform → Evaluate</div>
-            <div><strong>Self-check:</strong> {result.self_check || 'unknown'}</div>
-            <div><strong>Artifact ID:</strong> {run.run_id}</div>
-            <div><strong>Capability:</strong> {run.module_id}</div>
-            {run.execution && <div><strong>Execution:</strong> {run.execution.provider} · {run.execution.model} · {run.execution.latency_ms?.toLocaleString()} ms</div>}
-          </div>
+        {result.block?.type !== 'gtm_strategy' && (
+          <>
+            <div className="artifact-details-row">
+              <button className="artifact-link-btn" onClick={() => setDetailsOpen(v => !v)}>
+                {detailsOpen ? 'Hide system details' : 'System details'}
+              </button>
+            </div>
+            {detailsOpen && (
+              <div className="artifact-system-details">
+                <div><strong>Self-check:</strong> {result.self_check || 'unknown'}</div>
+                <div><strong>Artifact ID:</strong> {run.run_id}</div>
+                <div><strong>Capability:</strong> {run.module_id}</div>
+              </div>
+            )}
+          </>
         )}
       </div>
 

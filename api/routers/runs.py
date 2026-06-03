@@ -122,7 +122,7 @@ async def _find_upstream_contract_content(
         .join(RunResult, RunResult.run_id == Run.id, isouter=True)
         .join(RunTrace, RunTrace.run_id == Run.id, isouter=True)
         .where(Run.workspace_id == ws.id)
-        .where(Run.status == "success")
+        .where(Run.status.in_(["success", "partial"]))
         .order_by(Run.updated_at.desc())
         .limit(40)
     )

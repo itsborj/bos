@@ -14,10 +14,10 @@ Loaded upstream substrate:
 - Missing upstream contracts at execution: {{ missing_upstream_contracts | join(', ') if missing_upstream_contracts else 'none detected' }}
 
 Explicit buyer_map.v1:
-{{ buyer_map or buyer_map_v1 or 'No explicit buyer_map.v1 artifact was loaded. Infer it privately from the Brand Brief and upstream Buyer Intelligence contract before writing the GTM plan.' }}
+{{ buyer_map or buyer_map_v1 or 'No explicit buyer_map.v1 was loaded. Derive buyer-map signals from the Brand Brief. Every signal you use must be labeled (inferred) in Why this motion. Do not cite buyer_map.v1 as loaded. Add a Critical gap: buyer map not validated — all motion and channel decisions carry inferred confidence.' }}
 
 Explicit message_architecture.v1:
-{{ message_architecture or message_architecture_v1 or 'No explicit message_architecture.v1 artifact was loaded. Infer it privately from the buyer map and upstream Messaging contract before writing the GTM plan.' }}
+{{ message_architecture or message_architecture_v1 or 'No explicit message_architecture.v1 was loaded. Derive messaging signals from the Brand Brief and inferred buyer map. Label every messaging signal as (inferred) where it appears. Add a Critical gap: message architecture not validated — positioning angle and core promise carry inferred confidence.' }}
 
 Upstream dependency contracts available to this module:
 {{ upstream_dependency_instructions or 'No dependency contract text was injected. Use the GTM skill input contract and clearly mark inferred substrate.' }}
@@ -77,7 +77,7 @@ One opinionated sentence naming the selected primary motion and any secondary mo
 ## Why this motion
 Write the full reasoning for the motion selection. This section must do four things:
 
-1. Name the specific buyer-map signals that determined this motion — awareness level, buyer type, dominant blocking force, trust gap, adoption stage, ACV range. Cite them directly, not generically.
+1. Name the specific buyer-map signals that determined this motion. Quote the loaded buyer_map.v1 fields directly: awareness_level, buyer_type, dominant_blocking_force, trust_gap, adoption_stage, ACV range. Write "The buyer_map.v1 shows awareness_level: solution_aware" not "the buyer is solution aware". If buyer_map.v1 was not loaded, every signal must be labeled (inferred).
 
 2. Eliminate the alternatives explicitly. For each motion that was considered and rejected, name it and explain the specific reason it fails for this buyer at this stage. "Content-led was eliminated because..." "Paid-first was eliminated because..." A business leader reading this should know exactly why every other motion was ruled out before this one was selected.
 
@@ -120,11 +120,16 @@ Pending gate: [state the specific gate condition that must be met before this st
 ## Channel stack
 
 ### Do now
-Maximum three channels. Only include channels whose prerequisites are present in loaded context or directly created by Stage 0. For each channel use this format:
+Maximum three channels. Only include channels whose prerequisites are present in loaded context or directly created by Stage 0.
+
+Every channel entry MUST use exactly this format. No bullet points. No `*` or `-` prefixes. No inline dashes. The channel name on its own bold line, then Decision, then Rationale — nothing else:
 
 **[Channel name]**
-Decision: role — buyer-map signal — proof required
-Rationale: [One to two sentences of prose explaining the specific buyer behavior on this surface and why it fits this buyer at this awareness level. Name the channel behavior, not just the channel category. This is not a field — write it out.]
+Decision: [actual channel role e.g. acquisition / conversion hub / intent capture / trust-building] — [specific buyer_map.v1 field and value e.g. dominant_blocking_force: anxiety] — [what proof is required before this channel can scale]
+Rationale: [One to two sentences of prose. Name the specific buyer behavior on this surface and why it fits this buyer at this awareness level. Do not repeat the Decision line — add the reasoning behind it.]
+
+Replace every bracket placeholder with an actual value. "role", "buyer-map signal", and "proof required" are field labels — never write them literally in the output.
+The Decision line buyer-map value must come from the loaded buyer_map.v1 (e.g. `awareness_level: solution_aware`, `dominant_blocking_force: anxiety`, `trust_gap: integration proof`). Do not invent a signal that is not in the loaded map.
 
 ### Hold
 Use bullets. Each line must be `Channel — hold reason — specific unlock condition`.
