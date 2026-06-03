@@ -69,10 +69,10 @@ html, body, #root { height: 100%; }
   --r-sm: 2px;
   --r-md: 2px;
 
-  /* ── App aliases ── */
-  --bg:         #ffffff;
-  --bg-subtle:  #F5F1E8;
-  --surface:    #ffffff;
+  /* ── App aliases (always white default; tints via token) ── */
+  --bg:         #FFFFFF;
+  --bg-subtle:  rgba(11,61,46,.04);
+  --surface:    #FFFFFF;
   --surface2:   #F5F1E8;
   --border-ui:  rgba(11,61,46,.22);
   --text:       var(--brand);
@@ -80,6 +80,8 @@ html, body, #root { height: 100%; }
   --text2:      var(--ink-body);
   --text-muted: var(--ink-muted);
   --success:    var(--active-green);
+  --fill-active: #C8E8D8;
+  --fill-hover:  rgba(200,232,216,.35);
 }
 body {
   background: var(--bg);
@@ -1633,17 +1635,20 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
   min-height: 100%;
   display: flex; align-items: center; justify-content: center;
   padding: 40px 20px;
-  background: var(--bg);
+  background: var(--brand);
 }
 .auth-card {
   width: 100%; max-width: 360px;
-  background: var(--surface);
-  border: .5px solid var(--border);
+  background: var(--white);
+  border: none;
+  border-top: 2px solid var(--brand);
   border-radius: var(--r);
   padding: 32px;
 }
 .auth-logo  { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
-.auth-title { font-size: 20px; font-weight: 700; color: var(--racing-green); font-family: 'Manrope', sans-serif; }
+.auth-logo .logo-mark { border-radius: 0; }
+.auth-logo .logo-inner { font-family: var(--font-display); font-size: 14px; font-weight: 800; }
+.auth-title { font-size: 13px; font-weight: 700; color: var(--brand); font-family: var(--font-display); letter-spacing: .22em; text-transform: uppercase; }
 .auth-sub   { font-size: 13px; color: var(--stone-deep); margin-bottom: 20px; }
 .auth-error { padding: 10px 12px; background: #f5dada; border: 1px solid #e8c0c0; border-radius: 6px; font-size: 13px; color: var(--oxblood); margin-bottom: 14px; }
 
@@ -3180,7 +3185,15 @@ div.artifact-preview {
 .bos-module-badge { font-size: 9px; border: 1px solid var(--stone-deep); color: var(--stone-deep); padding: 1px 6px; text-transform: uppercase; letter-spacing: 1px; border-radius: 3px; }
 .bos-module-sub-label { font-size: 9px; color: var(--muted-stone); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 6px; }
 .bos-module-channels { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 8px; }
-.bos-module-chip { font-size: 9px; border: 1px solid var(--border-light); padding: 2px 7px; color: var(--stone-deep); text-transform: capitalize; border-radius: 3px; }
+.bos-module-chip {
+  font-size: 10px; font-weight: 600; letter-spacing: .04em;
+  border: .5px solid var(--border-warm);
+  padding: 2px 8px;
+  color: var(--ink-muted);
+  background: var(--linen);
+  text-transform: capitalize;
+  border-radius: var(--r);
+}
 .bos-module-last-run { font-size: 10px; color: var(--muted-stone); border-top: 1px solid var(--border); padding-top: 6px; margin-top: 6px; }
 
 /* Report sub-tabs */
@@ -3348,28 +3361,30 @@ div.artifact-preview {
 .status-badge {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border-radius: 4px;
+  gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--r);
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.5px;
+  letter-spacing: .12em;
   text-transform: uppercase;
+  font-family: var(--font-display);
+  border: .5px solid transparent;
 }
 .status-badge.approved {
-  background: #d4f0e4;
-  color: var(--active-green);
-  border: 1px solid #b8dfc9;
+  background: var(--status-active-fill, #C8E8D8);
+  color: var(--status-active-text, #0B3D2E);
+  border-color: var(--status-active-border, #8ABDA5);
 }
 .status-badge.changes-requested {
-  background: #f5dada;
-  color: var(--oxblood);
-  border: 1px solid #e8c0c0;
+  background: var(--status-error-fill, #E8C4C4);
+  color: var(--status-error-text, #5A1C1C);
+  border-color: var(--status-error-border, #C48080);
 }
 .status-badge.pending {
-  background: var(--bg-subtle);
-  color: var(--stone-deep);
-  border: 1px solid var(--border-light);
+  background: var(--status-draft-fill, #F2E8D0);
+  color: var(--status-draft-text, #0B3D2E);
+  border-color: var(--border-warm);
 }
 
 /* ══════════════════════════════════════
@@ -4212,17 +4227,26 @@ div.artifact-preview {
   --gold-light: #C8A870;
   --light-gold: #C8A870;
 
-  /* Approved surfaces */
+  /* ── Surfaces (light → warm → dark) ──
+     White:   default page bg, card bg
+     Ivory:   warm card fills only — never page bg
+     Linen:   featured/warm sections, value chips
+     Obsidian: cockpit data sections only           */
   --white: #FFFFFF;
   --ivory: #F5F1E8;
   --obsidian: #080B0D;
   --bg: #FFFFFF;
   --surface: #FFFFFF;
+  /* bg-subtle = lightest warm tint for alternating rows, hover fills */
+  --bg-subtle: rgba(11,61,46,.04);
   --surface2: #F5F1E8;
-  --bg-subtle: #F5F1E8;
   --admin-bg: #FFFFFF;
   --admin-surface: #FFFFFF;
   --admin-sidebar: #FFFFFF;
+
+  /* Active/hover fill token */
+  --fill-active: #C8E8D8;
+  --fill-hover:  rgba(200,232,216,.35);
 
   /* Dark stack on light surfaces */
   --ink: #0B3D2E;
@@ -4291,6 +4315,87 @@ body {
   font-family: var(--font-ui);
 }
 
+/* ── FONT SYSTEM ──────────────────────────────────────────────────
+   Manrope:  all display, headline, eyebrow, stat, label contexts
+   Inter:    body prose, nav items, captions, form fields
+   SF Mono:  IDs, tokens, code, monospaced data
+──────────────────────────────────────────────────────────────── */
+
+/* Base: Inter everywhere first */
+* { font-family: var(--font-ui); }
+
+/* Manrope: any headline or display context */
+h1, h2, h3, h4, h5, h6,
+.admin-page-title,
+.admin-card-title,
+.admin-stat-value,
+.admin-stat-label,
+.admin-section-title,
+.admin-logo,
+.logo-name,
+.bos-logo,
+.auth-title,
+.card-title,
+.stream-title,
+.stream-attention-title,
+.stream-kicker,
+.artifact-title,
+.bento-value,
+.bento-label,
+.topbar-title,
+.cmo-name,
+.bos-cmo-name,
+.ux-title,
+.ux-eyebrow,
+.section-title,
+.section-label,
+.sub-label,
+.label,
+.ws-label,
+.admin-nav-section,
+.snav-badge,
+.status-badge,
+.bos-module-chip,
+.stream-campaign-name,
+.stream-artifact-title,
+.g2type,
+.metric-card__label,
+.metric-card__value,
+.settings-group-label,
+.billing-num,
+.hero__wordmark,
+.hero__eyebrow {
+  font-family: var(--font-display) !important;
+}
+
+/* Eyebrow/label style applied to uppercase tracking labels */
+.admin-nav-section,
+.stream-kicker,
+.sub-label,
+.section-label,
+.admin-stat-label,
+.bento-label,
+.settings-group-label,
+.ws-label {
+  font-family: var(--font-display) !important;
+  font-weight: 700 !important;
+  letter-spacing: .12em !important;
+  text-transform: uppercase !important;
+  font-size: 10px !important;
+}
+
+/* Stat / display numerals: Manrope 700, tight tracking */
+.admin-stat-value,
+.bento-value,
+.billing-num,
+.stat-val {
+  font-family: var(--font-display) !important;
+  font-weight: 700 !important;
+  letter-spacing: -.03em !important;
+  line-height: 1 !important;
+}
+
+/* Brand color on headings */
 h1, h2, h3, h4,
 .admin-page-title,
 .admin-card-title,
@@ -4298,7 +4403,17 @@ h1, h2, h3, h4,
 .stream-title,
 .artifact-title {
   color: var(--brand) !important;
-  font-family: var(--font-display);
+}
+
+/* Monospaced contexts stay mono */
+code, pre, kbd,
+.td-mono, .module-id, .run-module,
+.g2mem-tag, .g2src,
+.stream-decision-evidence,
+.council-transcript,
+.api-key-display {
+  font-family: var(--font-mono) !important;
+  font-size: 11px;
 }
 
 /* White-dominant shell and admin cockpit discipline */
@@ -4316,10 +4431,13 @@ h1, h2, h3, h4,
 .admin-sidebar,
 .admin-content,
 .admin-page-wrap,
-.auth-page,
 .main,
 .main-topbar {
   background: var(--white) !important;
+}
+/* Auth page uses Racing Green as the full-page background. */
+.auth-page {
+  background: var(--brand) !important;
 }
 
 .bos-proto-shell {
@@ -4420,7 +4538,14 @@ details.artifact-preview,
 .cmo-typing,
 .flow-io,
 .admin-stat-grid,
-.admin-stat-card {
+.admin-stat-card,
+.performance-report-card,
+.key-row,
+.table-wrap,
+.bos-proto-history-menu,
+.ws-field,
+.api-key-display,
+.cmd-pill {
   border-radius: 0 !important;
 }
 
@@ -4451,6 +4576,8 @@ button,
 select,
 textarea,
 .badge,
+.status-badge,
+.bos-module-chip,
 .pill,
 .sp-pill,
 .g2type,
@@ -4589,6 +4716,42 @@ textarea,
   background: var(--white) !important;
   border: .5px solid var(--border) !important;
   box-shadow: none !important;
+}
+
+/* Klaroha card-white spec: 2px brand top rail on all structural cards. */
+.admin-card,
+.card,
+.artifact-card,
+.provider-card,
+.campaign-item {
+  border-top: 2px solid var(--brand) !important;
+}
+.admin-stat-card {
+  border-top: 2px solid var(--warm-gold) !important;
+}
+
+/* Status badges — flat, semantic, no pill shape. */
+.status-badge,
+.bos-module-chip {
+  border-radius: var(--r) !important;
+}
+.status-badge.approved,
+.status-badge.approved[style] {
+  background: var(--status-active-fill) !important;
+  border-color: var(--status-active-border) !important;
+  color: var(--status-active-text) !important;
+}
+.status-badge.pending,
+.status-badge.pending[style] {
+  background: var(--status-draft-fill) !important;
+  border-color: var(--border-warm) !important;
+  color: var(--status-draft-text) !important;
+}
+.status-badge.changes-requested,
+.status-badge.changes-requested[style] {
+  background: var(--status-error-fill) !important;
+  border-color: var(--status-error-border) !important;
+  color: var(--status-error-text) !important;
 }
 .admin-stat-grid {
   background: var(--obsidian) !important;
@@ -4876,49 +5039,55 @@ button[type="submit"].btn:disabled {
   color: rgba(245,241,232,.50) !important;
 }
 
-/* Reference nav: active state lives on links as Racing Green text + underline/rail, not filled blocks. */
+/* ── Active / current-page fill: soft green surface + brand text. ── */
 a.bos-proto-tab.active,
-a.admin-nav-item.active,
-a.snav-item.active,
-.bos-proto-tab.active,
-.admin-nav-item.active,
-.snav-item.active {
+.bos-proto-tab.active {
   position: relative !important;
-  background: transparent !important;
+  background: #C8E8D8 !important;
   color: var(--brand) !important;
   font-weight: 600 !important;
   box-shadow: none !important;
-  border-left-color: transparent !important;
-}
-a.bos-proto-tab.active *,
-a.admin-nav-item.active *,
-a.snav-item.active *,
-.bos-proto-tab.active *,
-.admin-nav-item.active *,
-.snav-item.active * {
-  color: inherit !important;
 }
 a.bos-proto-tab.active::after,
-.bos-proto-tab.active::after {
-  content: '';
-  position: absolute;
-  left: 13px;
-  right: 13px;
-  bottom: 1px;
-  height: 1.5px;
-  background: var(--brand);
+.bos-proto-tab.active::after { display: none !important; }
+
+a.admin-nav-item.active,
+.admin-nav-item.active,
+a.snav-item.active,
+.snav-item.active {
+  position: relative !important;
+  background: #C8E8D8 !important;
+  color: var(--brand) !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
 }
 a.admin-nav-item.active::before,
-a.snav-item.active::before,
 .admin-nav-item.active::before,
-.snav-item.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 7px;
-  bottom: 7px;
-  width: 1.5px;
-  background: var(--brand);
+a.snav-item.active::before,
+.snav-item.active::before { display: none !important; }
+
+/* Hover state: lighter green tint */
+.admin-nav-item:not(.active):hover,
+.snav-item:not(.active):hover {
+  background: rgba(200,232,216,.35) !important;
+  color: var(--brand) !important;
+}
+.bos-proto-tab:not(.active):hover {
+  background: rgba(200,232,216,.35) !important;
+  color: var(--brand) !important;
+}
+
+/* :active press feedback on all clickable links */
+a:active,
+button:active,
+.btn:active,
+.admin-nav-item:active,
+.snav-item:active,
+.bos-proto-tab:active,
+.filter-chip:active {
+  background: #8ABDA5 !important;
+  color: var(--brand) !important;
+  transition: none !important;
 }
 
 /* Reference gold button is reserved, not primary task execution. */
@@ -5236,4 +5405,107 @@ div.artifact-preview {
 .artifact-status {
   background: var(--white) !important;
   border-radius: var(--r) !important;
+}
+
+/* ═══════════════════════════════════════════════════════════════
+   LEGACY CLEANUP — removes non-compliant patterns from old CSS
+   All rules use !important so they defeat legacy specificity.
+═══════════════════════════════════════════════════════════════ */
+
+/* 1. Box-shadow ban: no elevation on flat surfaces */
+.admin-card, .card, .provider-card, .campaign-item,
+.stream-artifact-card, .stream-decision-card, .g2card,
+.artifact-card, .hb-card, .wp-form, .bos-proto-tab-group,
+.bento-tile, .admin-stat-card, .ux-hero, .ux-stat,
+.ux-lift-card, .ux-empty-card, .stream-block,
+.signal-card-shell, .signal-empty-card,
+.bos-proto-history-menu, .table-wrap,
+.link-preview, .ws-field, .run-output {
+  box-shadow: none !important;
+}
+
+/* 2. Radius enforcement — structural containers are square */
+.g2card,
+.stream-campaign-card,
+.stream-attention-card,
+.stream-attention-item,
+.signal-card-shell,
+.signal-empty-card,
+.bos-hb-card, .hb-card,
+.key-row,
+.product-chip,
+.filter-chip,
+.bos-proto-brand-chip,
+.bos-proto-context-chip,
+.snav-badge,
+.cmd-pill,
+.api-key-display,
+.run-output,
+.ws-field,
+.bos-proto-history-menu,
+.bos-module-chip,
+.status-badge,
+.settings-row,
+.settings-group {
+  border-radius: var(--r) !important;
+}
+
+/* 3. Pill patterns: no border-radius > 2px on any element except spinner */
+.pill, .pill-green, .pill-yellow, .pill-red, .pill-gray,
+.cmo-cmd-chip, .cmo-input, .cmo-send, .btn-send,
+.stream-signal-pill, .obj-anchor, .obj-anchor-setup,
+.snav-badge, .bos-proto-tab-badge {
+  border-radius: var(--r) !important;
+}
+
+/* 4. Legacy grey backgrounds → brand-tinted equivalents */
+.snav-item:hover,
+.admin-nav-item:hover,
+.campaign-item:hover,
+.run-row:hover,
+.clickable:hover td,
+.data-table tr:hover td,
+.activity-row:hover {
+  background: var(--fill-hover) !important;
+}
+
+/* 5. Legacy border widths: 1px → 0.5px on UI chrome */
+.admin-sidebar, .admin-content,
+.main-topbar, .bos-proto-topbar,
+.cmo-header, .cmo-input-bar, .cmo-commands,
+.stream-side-panel, .workspace-panel,
+.bos-proto-tab-group, .table-wrap,
+.admin-card, .card, .provider-card,
+.stream-artifact-card, .stream-decision-card,
+.g2card, .artifact-card {
+  border-width: .5px !important;
+}
+
+/* 6. Stale generic text colours → ink token system */
+.bento-delta .pos,
+.td-good, .check-pass,
+.stat-trend { color: var(--active-green) !important; }
+.td-bad, .check-fail,
+.stat-trend.neg { color: var(--error) !important; }
+.td-dim { color: var(--ink-subtle) !important; }
+
+/* 7. Table alternating row uses bg-subtle tint, not generic grey */
+.data-table tr:nth-child(even) td,
+.tbl-row.alt { background: var(--bg-subtle) !important; }
+
+/* 8. Stream attention card: white surface, left brand rail */
+.stream-attention-card {
+  background: var(--white) !important;
+  border-left: 2px solid var(--brand) !important;
+  color: var(--ink-body) !important;
+}
+
+/* 9. Signal stream: white feed background */
+.signal-stream,
+.signal-frame { background: var(--white) !important; }
+.signal-card-shell { background: var(--white) !important; border: .5px solid var(--border) !important; }
+
+/* 10. Smooth interactive transitions */
+a, button, .btn, .admin-nav-item, .snav-item, .bos-proto-tab, .filter-chip {
+  transition: background .12s, color .12s, border-color .12s !important;
 }

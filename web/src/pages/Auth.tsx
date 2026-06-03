@@ -40,7 +40,7 @@ export function Auth() {
       <div className="auth-page">
         <div className="auth-card">
           <div className="auth-logo">
-            <div className="logo-mark"><span className="logo-inner">B</span></div>
+            <div className="logo-mark"><span className="logo-inner">K</span></div>
             <span className="auth-title">Key created</span>
           </div>
           <p className="auth-sub">Save this key — it will not be shown again.</p>
@@ -59,10 +59,10 @@ export function Auth() {
     <div className="auth-page">
       <div className="auth-card">
         <div className="auth-logo">
-          <div className="logo-mark"><span className="logo-inner">B</span></div>
+          <div className="logo-mark"><span className="logo-inner">K</span></div>
           <div>
-            <div className="auth-title">BOS</div>
-            <div className="auth-sub" style={{ marginBottom: 0 }}>Business Operating System</div>
+            <div className="auth-title">Klaroha</div>
+            <div className="auth-sub" style={{ marginBottom: 0 }}>Marketing, Engineered for Clarity.</div>
           </div>
         </div>
 
