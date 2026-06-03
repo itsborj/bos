@@ -502,8 +502,8 @@ export function CmoChat() {
 
       <div className="cmo-input-wrap">
         {pendingPlan && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10, padding: '10px 14px', background: 'var(--green-bg)', borderRadius: 8, border: '1px solid var(--green-border)', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, color: 'var(--green-mid)', flex: 1 }}>Plan drafted — confirm to create the campaign and tag all runs to it.</span>
+          <div className="cmo-inline-notice cmo-inline-notice-plan">
+            <span>Plan drafted — confirm to create the campaign and tag all runs to it.</span>
             <button
               className="btn btn-primary"
               style={{ fontSize: 12 }}
@@ -524,8 +524,8 @@ export function CmoChat() {
         )}
 
         {activeCouncilSession?.status === 'awaiting_c6' && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10, padding: '10px 14px', background: 'var(--amber-bg, #fffbeb)', borderRadius: 8, border: '1px solid var(--amber-border, #fde68a)', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, color: '#92400e', flex: 1 }}>
+          <div className="cmo-inline-notice cmo-inline-notice-council">
+            <span>
               {activeCouncilSession.pending_c6_prompt || 'The council is waiting for your input.'}
             </span>
             <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={councilPass} disabled={busy}>Continue</button>

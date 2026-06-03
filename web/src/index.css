@@ -356,16 +356,15 @@ textarea { font-family: inherit; }
 .ux-hero {
   position: relative;
   overflow: hidden;
-  background: linear-gradient(135deg, #ffffff 0%, #f5f5f7 100%);
-  border: 1px solid var(--border-light);
-  border-radius: 18px;
-  padding: 22px 24px;
+  background: var(--brand);
+  border: none;
+  border-radius: 0;
+  padding: 32px 28px;
   margin-bottom: 18px;
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
   gap: 18px;
-  box-shadow: 0 10px 30px rgba(11, 61, 46, 0.04);
 }
 .ux-hero::after {
   content: '';
@@ -381,21 +380,24 @@ textarea { font-family: inherit; }
 .ux-eyebrow {
   font-size: 10px;
   font-weight: 700;
-  letter-spacing: 1.4px;
+  letter-spacing: .22em;
   text-transform: uppercase;
-  color: var(--warm-gold);
+  color: var(--on-brand-muted);
   margin-bottom: 6px;
+  font-family: var(--font-display);
 }
 .ux-title {
-  font-size: clamp(24px, 3vw, 36px);
-  line-height: 1.04;
-  letter-spacing: -0.5px;
-  color: var(--racing-green);
+  font-size: clamp(24px, 3vw, 40px);
+  line-height: .95;
+  letter-spacing: -.03em;
+  color: var(--on-brand);
   margin: 0;
-  font-family: 'Manrope', sans-serif;
+  font-family: var(--font-display);
+  font-weight: 800;
+  text-transform: uppercase;
 }
 .ux-subtitle {
-  color: var(--stone-deep);
+  color: rgba(245,241,232,.75);
   max-width: 680px;
   font-size: 14px;
   margin-top: 8px;
@@ -411,30 +413,28 @@ textarea { font-family: inherit; }
 }
 .ux-stat-row.compact .ux-stat { min-width: 82px; }
 .ux-stat {
-  background: rgba(255,255,255,0.78);
-  border: 1px solid var(--border-light);
-  border-radius: 12px;
-  padding: 10px 12px;
-  min-width: 96px;
-  backdrop-filter: blur(8px);
+  border-top: .5px solid var(--border-warm);
+  padding-top: 12px;
+  min-width: 90px;
 }
 .ux-stat span {
   display: block;
-  color: var(--racing-green);
+  color: var(--on-brand);
   font-weight: 700;
-  font-size: 18px;
+  font-size: 28px;
   line-height: 1;
-  letter-spacing: -0.4px;
-  font-family: 'Manrope', sans-serif;
+  letter-spacing: -.025em;
+  font-family: var(--font-display);
 }
 .ux-stat small {
   display: block;
-  color: var(--muted-stone);
+  color: var(--on-brand-muted);
   font-size: 10px;
-  font-weight: 700;
+  font-weight: 600;
   text-transform: uppercase;
-  letter-spacing: 0.5px;
+  letter-spacing: .13em;
   margin-top: 5px;
+  font-family: var(--font-display);
 }
 .ux-lift-card {
   border-radius: 14px !important;
@@ -507,8 +507,8 @@ textarea { font-family: inherit; }
 
 .table-wrap {
   background: var(--surface);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
+  border: .5px solid var(--border);
+  border-radius: var(--r);
   overflow: hidden;
   margin-bottom: 20px;
 }
@@ -647,13 +647,14 @@ textarea { font-family: inherit; }
 .filter-chip {
   padding: 4px 11px;
   background: var(--surface);
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 11px; color: var(--stone-deep);
+  border: .5px solid var(--border);
+  border-radius: var(--r);
+  font-size: 11px; color: var(--ink-muted);
   cursor: pointer;
+  transition: background .12s;
 }
-.filter-chip:hover  { background: var(--bg-subtle); }
-.filter-chip.active { background: var(--racing-green); border-color: var(--racing-green); color: var(--ivory); font-weight: 600; }
+.filter-chip:hover  { background: rgba(11,61,46,.05); color: var(--ink); }
+.filter-chip.active { background: var(--brand); border-color: var(--brand); color: var(--on-brand); font-weight: 600; }
 
 /* ═══════════════════════════════════════
    SETTINGS PAGE
@@ -1476,7 +1477,7 @@ details[open] .stream-artifact-preview-toggle::before { content: '▼ '; font-si
 }
 .cmo-header {
   padding: 12px 16px;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: .5px solid var(--border);
   display: flex;
   align-items: center;
   gap: 10px;
@@ -1485,14 +1486,15 @@ details[open] .stream-artifact-preview-toggle::before { content: '▼ '; font-si
 }
 .cmo-avatar {
   width: 32px; height: 32px;
-  border-radius: 50%;
-  background: var(--racing-green);
+  border-radius: 0;
+  background: var(--brand);
   display: flex; align-items: center; justify-content: center;
-  color: var(--ivory);
+  color: var(--on-brand);
   font-size: 13px; font-weight: 700;
+  font-family: var(--font-display);
   flex-shrink: 0;
 }
-.cmo-name   { font-size: 14px; font-weight: 700; color: var(--racing-green); font-family: 'Manrope', sans-serif; }
+.cmo-name   { font-size: 13px; font-weight: 700; color: var(--brand); font-family: var(--font-display); letter-spacing: .22em; text-transform: uppercase; }
 .cmo-status { font-size: 11px; color: var(--muted-stone); }
 
 .cmo-commands {
@@ -1521,9 +1523,9 @@ details[open] .stream-artifact-preview-toggle::before { content: '▼ '; font-si
 }
 .cmo-messages::-webkit-scrollbar { display: none; }
 
-.msg      { padding: 10px 12px; margin-bottom: 4px; font-size: 14px; line-height: 1.5; }
-.msg-ai   { background: var(--surface); border: 1px solid var(--border-light); margin-right: 40px; }
-.msg-user { background: var(--racing-green); color: var(--ivory); margin-left: 40px; text-align: right; }
+.msg      { padding: 10px 12px; margin-bottom: 4px; font-size: 13px; line-height: 1.6; border-radius: var(--r); }
+.msg-ai   { background: var(--surface); border: .5px solid var(--border); margin-right: 40px; color: var(--ink-body); }
+.msg-user { background: var(--brand); color: var(--on-brand); margin-left: 40px; text-align: right; }
 .msg-time { font-size: 10px; color: #999; text-align: center; margin: 8px 0 4px; }
 
 .cmo-typing { padding: 10px 12px; margin-bottom: 4px; display: flex; gap: 4px; align-items: center; margin-right: 40px; background: #fff; border: 1px solid #ddd; }
@@ -1587,15 +1589,17 @@ details[open] .stream-artifact-preview-toggle::before { content: '▼ '; font-si
 .label-hint { font-weight: 400; text-transform: none; letter-spacing: 0; color: var(--muted-stone); }
 .input {
   width: 100%;
-  padding: 8px 12px;
-  border: 1px solid var(--border-light);
-  border-radius: 6px;
-  font-size: 14px;
+  padding: 9px 12px;
+  border: .5px solid rgba(11,61,46,.3);
+  border-radius: var(--r);
+  font-size: 13px;
   font-family: inherit;
-  background: var(--surface); color: var(--racing-green);
+  background: var(--surface); color: var(--ink);
   outline: none;
+  transition: border-color .14s;
 }
-.input:focus { border-color: var(--muted-stone); }
+.input:focus { border-color: var(--accent); }
+.input::placeholder { color: var(--ink-subtle); }
 textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 
 .btn {
@@ -1634,8 +1638,8 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 .auth-card {
   width: 100%; max-width: 360px;
   background: var(--surface);
-  border: 1px solid var(--border-light);
-  border-radius: 8px;
+  border: .5px solid var(--border);
+  border-radius: var(--r);
   padding: 32px;
 }
 .auth-logo  { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
@@ -1754,13 +1758,23 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 }
 
 .admin-logo {
-  font-size: 20px;
+  font-size: 13px;
   font-weight: 700;
-  color: var(--admin-text);
+  color: var(--brand);
   padding: 4px 8px;
-  font-family: 'Manrope', sans-serif;
-  letter-spacing: 0.1em;
+  font-family: var(--font-display);
+  letter-spacing: .22em;
   text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.admin-logo::after {
+  content: '';
+  width: 5px; height: 5px;
+  background: var(--accent);
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .admin-nav {
@@ -1770,12 +1784,13 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 }
 
 .admin-nav-section {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 700;
-  letter-spacing: 0.08em;
+  letter-spacing: .12em;
   text-transform: uppercase;
-  color: #8a8a84;
+  color: var(--ink-muted);
   margin: 0 8px 8px;
+  font-family: var(--font-display);
 }
 
 .admin-nav-section.parked {
@@ -1786,31 +1801,35 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  color: var(--admin-text-2);
-  transition: background 0.15s ease, color 0.15s ease;
+  padding: 8px 12px;
+  border-radius: var(--r);
+  font-size: 13px;
+  font-weight: 450;
+  color: var(--ink-muted);
+  transition: background .14s, color .14s;
+  text-decoration: none;
 }
 
 .admin-nav-item:hover {
-  background: var(--bg-subtle);
-  color: var(--admin-text);
+  background: rgba(11,61,46,.05);
+  color: var(--ink);
 }
 
 .admin-nav-item.parked {
-  opacity: 0.7;
+  opacity: 0.55;
   font-style: italic;
   cursor: default;
 }
 
 .admin-nav-item.parked:hover {
   background: transparent;
-  color: var(--admin-text-2);
+  color: var(--ink-muted);
 }
 
 .admin-nav-item.active {
-  background: var(--racing-green);
-  color: var(--ivory);
+  background: var(--brand);
+  color: var(--on-brand);
+  font-weight: 600;
 }
 
 .admin-nav-icon {
@@ -1885,13 +1904,13 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 }
 
 .admin-page-title {
-  font-size: 30px;
+  font-size: 26px;
   line-height: 1.1;
   font-weight: 700;
-  color: var(--admin-text);
+  color: var(--brand);
   margin-bottom: 6px;
-  font-family: 'Manrope', sans-serif;
-  letter-spacing: 0.02em;
+  font-family: var(--font-display);
+  letter-spacing: -.02em;
 }
 
 .admin-page-subtitle {
@@ -1902,10 +1921,9 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 
 .admin-card {
   background: var(--admin-surface);
-  border: 1px solid var(--admin-border);
-  border-radius: 16px;
+  border: .5px solid var(--admin-border);
+  border-radius: var(--r);
   padding: 20px;
-  box-shadow: 0 1px 2px rgba(0,0,0,0.03);
 }
 
 .admin-card-title {
@@ -1913,10 +1931,12 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
   align-items: center;
   justify-content: space-between;
   gap: 10px;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 700;
   color: var(--admin-text);
   margin-bottom: 14px;
+  font-family: var(--font-display);
+  letter-spacing: -.01em;
 }
 
 .admin-two-col {
@@ -1929,36 +1949,47 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 .admin-stat-grid {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 16px;
+  gap: 12px;
+  background: var(--obsidian);
+  padding: 24px;
+  border-radius: 0;
 }
 
 .admin-stat-card {
-  background: var(--admin-surface);
-  border: 1px solid var(--admin-border);
-  border-radius: 16px;
-  padding: 18px 20px;
+  background: rgba(11,61,46,.25);
+  border: .5px solid var(--border-dark);
+  border-top: 2px solid var(--accent);
+  border-radius: 0;
+  padding: 24px;
 }
 
 .admin-stat-label {
-  font-size: 12px;
+  font-size: 10px;
+  font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: #8a8a84;
+  letter-spacing: .14em;
+  color: var(--on-dark-muted);
   margin-bottom: 10px;
+  font-family: var(--font-display);
 }
 
 .admin-stat-value {
-  font-size: 28px;
-  line-height: 1.1;
+  font-size: 38px;
+  line-height: 1;
   font-weight: 700;
-  color: var(--admin-text);
-  font-family: 'Manrope', sans-serif;
+  letter-spacing: -.03em;
+  color: var(--on-dark);
+  font-family: var(--font-display);
 }
 
 .admin-stat-sub {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   margin-top: 8px;
-  font-size: 12px;
-  color: var(--admin-text-2);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--gold-light);
 }
 
 .table {
@@ -1968,21 +1999,22 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 
 .table th {
   text-align: left;
-  font-size: 11px;
+  font-size: 9px;
   font-weight: 700;
-  letter-spacing: 0.04em;
+  letter-spacing: .14em;
   text-transform: uppercase;
-  color: var(--muted-stone);
-  padding: 12px 14px;
-  border-bottom: 1px solid var(--admin-border);
-  background: var(--bg-subtle);
+  color: var(--on-brand-muted);
+  padding: 10px 14px;
+  border-bottom: .5px solid rgba(11,61,46,.2);
+  background: var(--brand);
+  font-family: var(--font-display);
 }
 
 .table td {
-  padding: 14px;
+  padding: 12px 14px;
   font-size: 13px;
-  color: var(--admin-text);
-  border-bottom: 1px solid var(--border);
+  color: var(--ink-body);
+  border-bottom: .5px solid var(--border);
   vertical-align: top;
 }
 
@@ -2370,9 +2402,9 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
   border-right: 1px solid var(--border-light);
 }
 .bos-proto-topbar {
-  height: 48px;
+  height: 54px;
   flex-shrink: 0;
-  border-bottom: 1px solid var(--border-light);
+  border-bottom: .5px solid var(--border);
   background: #fff;
   display: flex;
   align-items: center;
@@ -2383,25 +2415,36 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 .bos-proto-logo {
   font-size: 13px;
   font-weight: 700;
-  color: var(--racing-green);
+  color: var(--brand);
   text-transform: uppercase;
-  letter-spacing: .06em;
+  letter-spacing: .22em;
   text-decoration: none;
+  font-family: var(--font-display);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bos-proto-logo::after {
+  content: '';
+  width: 5px; height: 5px;
+  background: var(--accent);
+  border-radius: 50%;
+  flex-shrink: 0;
 }
 .bos-proto-brand-chip,
 .bos-proto-context-chip {
   font-size: 11px;
   padding: 3px 10px;
-  border-radius: 20px;
-  background: #f0fdf4;
-  color: var(--racing-green);
+  border-radius: var(--r);
+  background: #C8E8D8;
+  color: var(--brand);
   font-weight: 600;
-  border: 1px solid #bbf7d0;
+  border: .5px solid #8ABDA5;
   display: inline-flex;
   align-items: center;
   gap: 6px;
 }
-.bos-proto-context-chip { background: var(--ivory-mid); border-color: var(--border-light); color: var(--stone-deep); }
+.bos-proto-context-chip { background: var(--linen); border-color: var(--border-warm); color: var(--ink-body); }
 .bos-proto-brand-select {
   cursor: pointer;
   padding-right: 6px;
@@ -2496,12 +2539,11 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 .bos-proto-tab-group {
   display: inline-flex;
   align-items: stretch;
-  gap: 3px;
+  gap: 2px;
   background: #fff;
-  border: 1px solid var(--border-light);
-  border-radius: 16px;
-  padding: 4px;
-  box-shadow: 0 4px 16px rgba(0,0,0,.10), 0 1px 4px rgba(0,0,0,.06);
+  border: .5px solid var(--border);
+  border-radius: 4px;
+  padding: 3px;
 }
 .bos-proto-tab {
   display: flex;
@@ -2509,21 +2551,21 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
   gap: 8px;
   text-decoration: none;
   font-size: 13px;
-  font-weight: 600;
-  color: var(--muted-stone);
-  padding: 9px 22px;
-  border-radius: 12px;
-  transition: all .15s;
+  font-weight: 500;
+  color: var(--ink-muted);
+  padding: 8px 20px;
+  border-radius: var(--r);
+  transition: all .14s;
 }
-.bos-proto-tab:hover { color: var(--stone-deep); background: #f8f7f5; }
-.bos-proto-tab.active { background: var(--racing-green); color: #fff; box-shadow: 0 2px 8px rgba(26,71,49,.25); }
+.bos-proto-tab:hover { color: var(--ink); background: rgba(11,61,46,.05); }
+.bos-proto-tab.active { background: var(--brand); color: var(--on-brand); font-weight: 600; }
 .bos-proto-tab-badge {
-  background: #d97706;
-  color: #fff;
+  background: var(--accent);
+  color: var(--on-brand);
   font-size: 9px;
   font-weight: 700;
   padding: 1px 5px;
-  border-radius: 8px;
+  border-radius: var(--r);
   min-width: 16px;
   text-align: center;
 }
@@ -4147,3 +4189,1051 @@ div.artifact-preview {
 .council-brief-list { margin: 0; padding-left: 18px; font-size: 13px; color: #1f2937; line-height: 1.6; }
 .council-transcript-toggle { width: 100%; padding: 8px 14px; background: none; border: none; border-top: 1px solid #d1fae5; cursor: pointer; font-size: 12px; color: #059669; font-weight: 600; font-family: inherit; text-align: left; }
 .council-transcript { padding: 12px 14px; font-size: 11.5px; font-family: 'SF Mono', 'Fira Mono', monospace; color: #374151; white-space: pre-wrap; word-break: break-word; background: #f9fafb; border-top: 1px solid #d1fae5; margin: 0; max-height: 400px; overflow-y: auto; }
+
+/* ══════════════════════════════════════
+   KLAROHA BRAND REFRESH — Approved May 2026 v2.2
+   Source sample: sample/klaroha_frontend_admin_brand_refresh_v1.md
+═══════════════════════════════════════ */
+:root {
+  color-scheme: light;
+
+  /* Anchors */
+  --brand: #0B3D2E;
+  --racing-green: #0B3D2E;
+  --accent: #826D40;
+  --warm-gold: #826D40;
+  --error: #7A2E2E;
+  --oxblood: #7A2E2E;
+
+  /* Warm Colonial extensions */
+  --linen: #F2E8D0;
+  --copper: #B85C30;
+  --copper-dark: #964926;
+  --gold-light: #C8A870;
+  --light-gold: #C8A870;
+
+  /* Approved surfaces */
+  --white: #FFFFFF;
+  --ivory: #F5F1E8;
+  --obsidian: #080B0D;
+  --bg: #FFFFFF;
+  --surface: #FFFFFF;
+  --surface2: #F5F1E8;
+  --bg-subtle: #F5F1E8;
+  --admin-bg: #FFFFFF;
+  --admin-surface: #FFFFFF;
+  --admin-sidebar: #FFFFFF;
+
+  /* Dark stack on light surfaces */
+  --ink: #0B3D2E;
+  --ink-body: #2C4A3E;
+  --ink-muted: #4A6B5C;
+  --ink-subtle: #6B8F7E;
+  --stone-deep: #2C4A3E;
+  --muted-stone: #4A6B5C;
+  --text: #0B3D2E;
+  --text-2: #2C4A3E;
+  --text2: #2C4A3E;
+  --text-muted: #4A6B5C;
+
+  /* Light stack on dark surfaces */
+  --on-dark: #F5F1E8;
+  --on-dark-muted: #C8A870;
+  --on-dark-sub: #826D40;
+  --on-brand: #F5F1E8;
+  --on-brand-muted: #C8A870;
+
+  /* Borders and CTA tokens */
+  --border: rgba(11,61,46,.15);
+  --border-light: rgba(11,61,46,.15);
+  --border-ui: rgba(11,61,46,.22);
+  --border-warm: rgba(130,109,64,.22);
+  --border-dark: rgba(200,168,112,.24);
+  --cta-primary: #B85C30;
+  --cta-primary-hover: #964926;
+  --cta-secondary-border: #0B3D2E;
+  --cta-secondary-hover-fill: rgba(11,61,46,.07);
+  --cta-ghost-border: rgba(11,61,46,.18);
+  --cta-gold: #826D40;
+  --cta-gold-hover: #6A5832;
+
+  /* Operational status tokens */
+  --status-active-fill: #C8E8D8;
+  --status-active-text: #0B3D2E;
+  --status-active-border: #8ABDA5;
+  --status-warning-fill: #EDE0C8;
+  --status-warning-text: #5A4520;
+  --status-warning-border: #C8A870;
+  --status-error-fill: #E8C4C4;
+  --status-error-text: #5A1C1C;
+  --status-error-border: #C48080;
+  --status-inactive-fill: #E0E8E4;
+  --status-inactive-text: #2C4A3E;
+  --status-draft-fill: #F2E8D0;
+  --status-draft-text: #0B3D2E;
+
+  /* Geometry: square by default; 2px maximum for true controls. */
+  --r: 2px;
+  --r-sm: 2px;
+  --r-md: 2px;
+  --radius-control: 2px;
+  --radius-structure: 0px;
+}
+
+html,
+body,
+#root {
+  background: var(--white) !important;
+}
+
+body {
+  color: var(--ink-body);
+  font-family: var(--font-ui);
+}
+
+h1, h2, h3, h4,
+.admin-page-title,
+.admin-card-title,
+.card-title,
+.stream-title,
+.artifact-title {
+  color: var(--brand) !important;
+  font-family: var(--font-display);
+}
+
+/* White-dominant shell and admin cockpit discipline */
+.bos-proto-shell,
+.bos-proto-topbar,
+.bos-proto-page-area,
+.stream-fullscreen,
+.stream-cmo-feed,
+.stream-cmo-chat-col,
+.cmo-screen,
+.cmo-header,
+.cmo-commands,
+.cmo-input-bar,
+.admin-shell,
+.admin-sidebar,
+.admin-content,
+.admin-page-wrap,
+.auth-page,
+.main,
+.main-topbar {
+  background: var(--white) !important;
+}
+
+.bos-proto-shell {
+  max-width: none;
+  border-left: 0;
+  border-right: 0;
+}
+
+.bos-proto-topbar,
+.admin-sidebar,
+.stream-cmo-chat-col,
+.main-topbar,
+.cmo-header,
+.cmo-input-bar {
+  border-color: var(--border) !important;
+}
+
+.bos-proto-logo,
+.admin-logo,
+.logo-name,
+.cmo-name,
+.topbar-title {
+  color: var(--brand) !important;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: .22em;
+  text-transform: uppercase;
+}
+
+.bos-proto-logo {
+  align-items: baseline;
+  gap: 10px;
+}
+
+.bos-proto-logo::after { display: none; }
+
+.bos-proto-logo em,
+.admin-logo-tagline {
+  color: var(--warm-gold);
+  font-family: var(--font-ui);
+  font-size: 11px;
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  white-space: nowrap;
+}
+
+.admin-logo-block {
+  padding: 2px 8px 0;
+}
+.admin-logo {
+  padding: 0;
+}
+.admin-logo::after {
+  background: var(--warm-gold);
+  border-radius: 50%;
+}
+.admin-logo-tagline {
+  margin-top: 3px;
+}
+
+/* Structural surfaces stay square. */
+.card,
+.admin-card,
+.auth-card,
+.provider-card,
+.campaign-item,
+.stream-campaign-card,
+.g2card,
+.stream-artifact-card,
+.stream-decision-card,
+.artifact-card,
+div.artifact-preview,
+details.artifact-preview,
+.stream-artifact-preview-details,
+.stream-side-panel,
+.workspace-panel,
+.modal,
+.panel,
+.hb-card,
+.wp-form,
+.flow-legend,
+.seat-card,
+.council-round,
+.council-brief,
+.bos-proto-history-menu,
+.bos-proto-tab-group,
+.signal-card-shell,
+.signal-card-surface,
+.signal-empty-card,
+.ux-lift-card,
+.ux-empty-card,
+.run-output,
+.alert,
+.link-preview,
+.msg,
+.cmo-typing,
+.flow-io,
+.admin-stat-grid,
+.admin-stat-card {
+  border-radius: 0 !important;
+}
+
+/* React inline styles frequently carried old SaaS radii; clamp them unless they are operational dots. */
+[style*="border-radius"],
+[style*="borderRadius"] {
+  border-radius: 0 !important;
+}
+
+/* Controls are the only rounded elements, capped at 2px. */
+button,
+.btn,
+.topbar-btn,
+.copy-btn,
+.stream-btn,
+.artifact-btn,
+.artifact-link-btn,
+.action-link,
+.bos-proto-brand-chip,
+.bos-proto-context-chip,
+.bos-proto-tab,
+.bos-proto-tab-badge,
+.cmo-cmd-chip,
+.cmo-input,
+.cmo-send,
+.btn-send,
+.input,
+select,
+textarea,
+.badge,
+.pill,
+.sp-pill,
+.g2type,
+.g2conf,
+.g2mem-tag,
+.g2src,
+.wp-state,
+.flow-tag,
+.seat-badge,
+.chip-vacant,
+.chip-active,
+.status-toggle,
+.stgl-btn,
+.council-badge {
+  border-radius: var(--radius-control) !important;
+}
+
+.logo-mark,
+.cmo-avatar,
+.sf-avatar,
+.admin-nav-icon,
+.snav-icon,
+.artifact-icon,
+.avatar {
+  border-radius: 0 !important;
+}
+
+/* CTA hierarchy: Copper executes; Racing Green structures; Gold is reserved. */
+.btn-dark,
+.btn-primary,
+.btn-accent,
+.topbar-btn.primary,
+.stream-btn-approve,
+.artifact-btn.primary,
+.btn-save,
+.cmo-send,
+.btn-send {
+  background: var(--cta-primary) !important;
+  border-color: var(--cta-primary) !important;
+  color: var(--ivory) !important;
+}
+.btn-dark:hover,
+.btn-primary:hover,
+.btn-accent:hover,
+.topbar-btn.primary:hover,
+.stream-btn-approve:hover,
+.artifact-btn.primary:hover,
+.btn-save:hover,
+.cmo-send:hover,
+.btn-send:hover {
+  background: var(--cta-primary-hover) !important;
+  border-color: var(--cta-primary-hover) !important;
+  color: var(--ivory) !important;
+}
+
+.btn-secondary,
+.stream-btn-revise,
+.stream-btn-view,
+.topbar-btn,
+.copy-btn,
+.bos-proto-top-btn,
+.bos-proto-history summary {
+  background: transparent !important;
+  border: .5px solid var(--cta-secondary-border) !important;
+  color: var(--brand) !important;
+}
+.btn-secondary:hover,
+.stream-btn-revise:hover,
+.stream-btn-view:hover,
+.topbar-btn:hover,
+.copy-btn:hover,
+.bos-proto-top-btn:hover,
+.bos-proto-history summary:hover {
+  background: var(--cta-secondary-hover-fill) !important;
+}
+
+.btn-ghost,
+.stream-btn-dismiss,
+.artifact-btn.ghost,
+.bos-proto-signout {
+  background: transparent !important;
+  border-color: var(--cta-ghost-border) !important;
+  color: var(--ink-muted) !important;
+}
+.btn-danger {
+  background: var(--status-error-fill) !important;
+  border-color: var(--status-error-border) !important;
+  color: var(--status-error-text) !important;
+}
+
+/* Brand selector and app navigation are structural, not candy pills. */
+.bos-proto-brand-chip {
+  background: var(--white) !important;
+  border: .5px solid var(--brand) !important;
+  color: var(--brand) !important;
+}
+.bos-proto-context-chip {
+  background: var(--linen) !important;
+  border: .5px solid var(--border-warm) !important;
+  color: var(--brand) !important;
+}
+.bos-proto-brand-select select {
+  color: var(--brand) !important;
+}
+.bos-proto-tab-group {
+  background: var(--white) !important;
+  border-color: var(--border) !important;
+}
+.bos-proto-tab.active,
+.admin-nav-item.active,
+.snav-item.active {
+  background: var(--brand) !important;
+  color: var(--on-brand) !important;
+}
+.bos-proto-tab-badge,
+.snav-badge {
+  background: var(--warm-gold) !important;
+  color: var(--ivory) !important;
+}
+
+/* Structural cards default to Pure White; Ivory/Linen are selective warm surfaces only. */
+.admin-card,
+.card,
+.stream-artifact-card,
+.stream-decision-card,
+.g2card,
+.artifact-card,
+.provider-card,
+.campaign-item,
+.hb-card,
+.wp-form,
+.seat-card,
+.council-round,
+.council-brief,
+.msg-ai {
+  background: var(--white) !important;
+  border: .5px solid var(--border) !important;
+  box-shadow: none !important;
+}
+.admin-stat-grid {
+  background: var(--obsidian) !important;
+}
+.admin-stat-card {
+  background: rgba(245,241,232,.04) !important;
+  border-color: rgba(200,168,112,.28) !important;
+  border-top-color: var(--warm-gold) !important;
+}
+.admin-stat-label { color: var(--light-gold) !important; }
+.admin-stat-value { color: var(--ivory) !important; }
+.admin-stat-sub { color: var(--light-gold) !important; }
+
+/* Status system — no default blue SaaS status styling. */
+.badge-success,
+.pill-green,
+.sp-live,
+.g2type.outcome,
+.g2conf.green,
+.chip-active,
+.flow-tag-op {
+  background: var(--status-active-fill) !important;
+  border-color: var(--status-active-border) !important;
+  color: var(--status-active-text) !important;
+}
+.badge-warning,
+.pill-yellow,
+.g2type.decision_brief,
+.g2conf.amber,
+.wp-state.warning,
+.chip-vacant,
+.council-c6-prompt {
+  background: var(--status-warning-fill) !important;
+  border-color: var(--status-warning-border) !important;
+  color: var(--status-warning-text) !important;
+}
+.badge-error,
+.pill-red,
+.sp-error,
+.g2type.setup_blocker,
+.wp-state.triggered,
+.alert-error {
+  background: var(--status-error-fill) !important;
+  border-color: var(--status-error-border) !important;
+  color: var(--status-error-text) !important;
+}
+.badge-muted,
+.pill-gray,
+.g2type.pending_artifact,
+.g2conf.blue,
+.wp-state.watching,
+.flow-tag-sys,
+.flow-tag-state {
+  background: var(--status-inactive-fill) !important;
+  border-color: var(--status-active-border) !important;
+  color: var(--status-inactive-text) !important;
+}
+.badge-info,
+.sp-run,
+.g2mem-tag,
+.g2src,
+.flow-io {
+  background: var(--linen) !important;
+  border-color: var(--border-warm) !important;
+  color: var(--brand) !important;
+}
+
+/* Text contrast guardrails on known light surfaces. */
+.admin-page-subtitle,
+.empty-state-text,
+.settings-row-desc,
+.cmo-status,
+.topbar-sub,
+.detail-label,
+.hint,
+.msg-time,
+.artifact-meta,
+.stream-artifact-meta,
+.stream-decision-boundary,
+.g2boundary,
+.g2ev-item,
+.bos-proto-date,
+.admin-back-link {
+  color: var(--ink-muted) !important;
+}
+.msg-ai,
+.artifact-copy-text,
+.stream-decision-why,
+.g2why,
+.council-brief-body,
+.council-brief-list,
+.council-seat-body,
+.council-seat-preview,
+.table td,
+.settings-row-name,
+.detail-value {
+  color: var(--ink-body) !important;
+}
+.msg-user {
+  background: var(--brand) !important;
+  color: var(--ivory) !important;
+}
+.cmo-input,
+.input,
+.seat-input,
+.seat-select,
+.ideology-area,
+.wp-field select,
+.wp-field input[type="number"],
+.wp-field input[type="text"] {
+  background: var(--white) !important;
+  border-color: rgba(11,61,46,.30) !important;
+  color: var(--brand) !important;
+}
+.cmo-input::placeholder,
+.input::placeholder {
+  color: var(--ink-subtle) !important;
+}
+
+/* Tables: Racing Green header, Ivory text; square grid. */
+.table th {
+  background: var(--brand) !important;
+  color: var(--ivory) !important;
+  border-color: rgba(245,241,232,.18) !important;
+}
+.clickable:hover td,
+.data-table tr:hover td,
+.admin-nav-item:hover,
+.snav-item:hover {
+  background: rgba(11,61,46,.05) !important;
+}
+
+/* Dark-surface contrast guardrails. */
+.admin-stat-grid,
+.admin-stat-card,
+.stream-attention-card {
+  color: var(--ivory) !important;
+}
+.stream-attention-card {
+  background: var(--obsidian) !important;
+  border-radius: 0 !important;
+}
+.stream-attention-card .stream-kicker,
+.stream-attention-card .stream-signal-pill {
+  color: var(--light-gold) !important;
+}
+.stream-attention-card .stream-title,
+.stream-attention-card h1,
+.stream-attention-card h2,
+.stream-attention-card h3 {
+  color: var(--ivory) !important;
+}
+
+/* Racing Green / Copper / Obsidian surfaces must invert to the approved light stack. */
+.ux-hero,
+.msg-user,
+.bos-proto-tab.active,
+.admin-nav-item.active,
+.snav-item.active,
+.btn-dark,
+.btn-primary,
+.btn-accent,
+.topbar-btn.primary,
+.stream-btn-approve,
+.artifact-btn.primary,
+.btn-save,
+.cmo-send,
+.btn-send {
+  color: var(--ivory) !important;
+}
+.ux-hero h1,
+.ux-hero h2,
+.ux-hero h3,
+.ux-hero .ux-title,
+.ux-hero .ux-stat span,
+.msg-user h1,
+.msg-user h2,
+.msg-user h3,
+.msg-user * {
+  color: var(--ivory) !important;
+}
+.ux-hero .ux-eyebrow,
+.ux-hero .ux-stat small,
+.admin-stat-grid .admin-stat-label,
+.admin-stat-grid .admin-stat-sub,
+.admin-stat-grid small {
+  color: var(--light-gold) !important;
+}
+.ux-hero .ux-subtitle,
+.ux-hero p {
+  color: rgba(245,241,232,.85) !important;
+}
+.admin-stat-grid h1,
+.admin-stat-grid h2,
+.admin-stat-grid h3,
+.admin-stat-grid h4,
+.admin-stat-grid .admin-page-title,
+.admin-stat-grid .admin-card-title,
+.admin-stat-grid .admin-stat-value,
+.stream-attention-card .stream-title,
+.stream-attention-card h1,
+.stream-attention-card h2,
+.stream-attention-card h3 {
+  color: var(--ivory) !important;
+}
+.btn-dark *,
+.btn-primary *,
+.btn-accent *,
+.topbar-btn.primary *,
+.stream-btn-approve *,
+.artifact-btn.primary *,
+.btn-save * {
+  color: inherit !important;
+}
+
+@media (max-width: 760px) {
+  .bos-proto-logo em { display: none; }
+  .bos-proto-bottom-tabs { background: var(--white) !important; border-top: .5px solid var(--border); }
+}
+
+/* Final CTA enforcement: task execution is Copper, not Racing Green. */
+button.btn-dark,
+a.btn-dark,
+.btn.btn-dark,
+button.btn-primary,
+a.btn-primary,
+.btn.btn-primary,
+button.primary,
+a.primary,
+.bos-header-btn.primary,
+.bos-cmo-send,
+.bos-byok-action.primary,
+.signal-action.primary,
+.stream-btn-approve,
+.artifact-btn.primary,
+.btn-save,
+.cmo-send,
+.btn-send,
+button[type="submit"].btn,
+button[aria-label="Send"],
+button[title="Send"] {
+  background: var(--cta-primary) !important;
+  border-color: var(--cta-primary) !important;
+  color: var(--ivory) !important;
+}
+button.btn-dark:hover,
+a.btn-dark:hover,
+.btn.btn-dark:hover,
+button.btn-primary:hover,
+a.btn-primary:hover,
+.btn.btn-primary:hover,
+button.primary:hover,
+a.primary:hover,
+.bos-header-btn.primary:hover,
+.bos-cmo-send:hover,
+.bos-byok-action.primary:hover,
+.signal-action.primary:hover,
+.stream-btn-approve:hover,
+.artifact-btn.primary:hover,
+.btn-save:hover,
+.cmo-send:hover,
+.btn-send:hover,
+button[type="submit"].btn:hover,
+button[aria-label="Send"]:hover,
+button[title="Send"]:hover {
+  background: var(--cta-primary-hover) !important;
+  border-color: var(--cta-primary-hover) !important;
+  color: var(--ivory) !important;
+}
+button.btn-dark:disabled,
+button.btn-primary:disabled,
+button.primary:disabled,
+.bos-header-btn.primary:disabled,
+.bos-cmo-send:disabled,
+.bos-byok-action.primary:disabled,
+.signal-action.primary:disabled,
+.stream-btn-approve:disabled,
+.artifact-btn.primary:disabled,
+.btn-save:disabled,
+.cmo-send:disabled,
+.btn-send:disabled,
+button[type="submit"].btn:disabled {
+  background: rgba(184,92,48,.28) !important;
+  border-color: transparent !important;
+  color: rgba(245,241,232,.50) !important;
+}
+
+/* Reference nav: active state lives on links as Racing Green text + underline/rail, not filled blocks. */
+a.bos-proto-tab.active,
+a.admin-nav-item.active,
+a.snav-item.active,
+.bos-proto-tab.active,
+.admin-nav-item.active,
+.snav-item.active {
+  position: relative !important;
+  background: transparent !important;
+  color: var(--brand) !important;
+  font-weight: 600 !important;
+  box-shadow: none !important;
+  border-left-color: transparent !important;
+}
+a.bos-proto-tab.active *,
+a.admin-nav-item.active *,
+a.snav-item.active *,
+.bos-proto-tab.active *,
+.admin-nav-item.active *,
+.snav-item.active * {
+  color: inherit !important;
+}
+a.bos-proto-tab.active::after,
+.bos-proto-tab.active::after {
+  content: '';
+  position: absolute;
+  left: 13px;
+  right: 13px;
+  bottom: 1px;
+  height: 1.5px;
+  background: var(--brand);
+}
+a.admin-nav-item.active::before,
+a.snav-item.active::before,
+.admin-nav-item.active::before,
+.snav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 7px;
+  bottom: 7px;
+  width: 1.5px;
+  background: var(--brand);
+}
+
+/* Reference gold button is reserved, not primary task execution. */
+.btn-accent,
+button.btn-accent,
+a.btn-accent {
+  background: var(--cta-gold) !important;
+  border-color: var(--cta-gold) !important;
+  color: var(--ivory) !important;
+}
+.btn-accent:hover,
+button.btn-accent:hover,
+a.btn-accent:hover {
+  background: var(--cta-gold-hover) !important;
+  border-color: var(--cta-gold-hover) !important;
+  color: var(--ivory) !important;
+}
+.btn-accent:disabled,
+button.btn-accent:disabled {
+  background: rgba(130,109,64,.25) !important;
+  border-color: transparent !important;
+  color: rgba(245,241,232,.45) !important;
+}
+
+/* Reference container: fixed centered system width so large screens do not overexpand. */
+.bos-proto-shell,
+.admin-shell {
+  max-width: 1280px !important;
+  width: 100% !important;
+  margin-left: auto !important;
+  margin-right: auto !important;
+  border-left: .5px solid var(--border) !important;
+  border-right: .5px solid var(--border) !important;
+}
+.bos-proto-page-area,
+.admin-page,
+.stream-fullscreen .stream-feed-col {
+  width: 100% !important;
+}
+@media (max-width: 1280px) {
+  .bos-proto-shell,
+  .admin-shell {
+    border-left: 0 !important;
+    border-right: 0 !important;
+  }
+}
+
+/* CMO restraint: white surfaces, thin rails; no filled green/amber chat panels. */
+.cmo-pane,
+.cmo-ctx,
+.cmo-msgs,
+.cmo-msgs-body,
+.cmo-input-wrap,
+.cmo-composer,
+.stream-cmo-chat-col,
+.cmo-screen,
+.cmo-header,
+.cmo-commands,
+.cmo-input-bar {
+  background: var(--white) !important;
+}
+.msg-ai,
+.msg-user,
+.cmo-typing,
+.bos-chat-artifact-ref,
+.cmo-inline-notice,
+.cmo-hb,
+.bos-hb-card,
+.council-round,
+.council-brief,
+.council-round-header,
+.council-brief-header,
+.council-c6-prompt,
+.council-transcript,
+.council-seat-header,
+.council-seat-header:hover {
+  background: var(--white) !important;
+  box-shadow: none !important;
+}
+.msg-ai,
+.msg-user {
+  border: .5px solid var(--border) !important;
+  color: var(--ink-body) !important;
+  border-radius: 0 !important;
+}
+.msg-ai {
+  border-left: 2px solid var(--brand) !important;
+}
+.msg-user {
+  border-right: 2px solid var(--copper) !important;
+  text-align: left !important;
+}
+.msg-user *,
+.msg-ai * {
+  color: inherit;
+}
+.cmo-inline-notice {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding: 10px 14px;
+  align-items: center;
+  border: .5px solid var(--border) !important;
+  border-left: 2px solid var(--brand) !important;
+  color: var(--ink-body) !important;
+  border-radius: 0 !important;
+}
+.cmo-inline-notice > span {
+  flex: 1;
+  font-size: 13px;
+  color: var(--ink-body) !important;
+}
+.cmo-inline-notice-council {
+  border-left-color: var(--warm-gold) !important;
+}
+.cmo-hb-header,
+.bos-hb-header,
+.council-round-header,
+.council-brief-header {
+  background: var(--white) !important;
+  color: var(--brand) !important;
+  border-bottom: .5px solid var(--border) !important;
+}
+.cmo-hb-action,
+.bos-hb-footer,
+.council-brief-question,
+.council-brief-section,
+.council-transcript {
+  background: var(--white) !important;
+}
+.cmo-hb-action {
+  border-left: 2px solid var(--brand) !important;
+}
+.council-badge {
+  background: transparent !important;
+  border: .5px solid var(--border-warm) !important;
+  color: var(--warm-gold) !important;
+}
+.council-brief-settled,
+.council-round-label,
+.council-transcript-toggle,
+.council-seat-id {
+  color: var(--brand) !important;
+}
+.cmo-composer {
+  border: .5px solid var(--border) !important;
+  border-radius: 0 !important;
+}
+.cmo-cmd-chip,
+.cmo-chips .btn,
+.cmo-hint-link {
+  background: transparent !important;
+}
+
+/* Stream restraint: white structural surfaces; color appears as text, badges, or thin rails. */
+.signal-stream-lite,
+.stream-fullscreen,
+.stream-cmo-feed,
+.stream-artifact-feed,
+.stream-content-inner,
+.stream-screen {
+  background: var(--white) !important;
+}
+.stream-campaign-card,
+.g2card,
+.stream-artifact-card,
+.stream-decision-card,
+.stream-artifact-actions,
+.stream-artifact-fallback,
+.obj-anchor,
+.obj-anchor-setup,
+.stream-attention-card,
+.stream-attention-item,
+details.artifact-preview,
+.stream-artifact-preview-details {
+  background: var(--white) !important;
+  border-color: var(--border) !important;
+  box-shadow: none !important;
+}
+.stream-attention-card {
+  color: var(--ink-body) !important;
+  padding: 14px !important;
+}
+.stream-attention-card .stream-kicker,
+.stream-kicker {
+  color: var(--warm-gold) !important;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: .14em;
+}
+.stream-attention-title,
+.stream-attention-card .stream-title,
+.stream-title {
+  color: var(--brand) !important;
+}
+.stream-attention-card .stream-signal-pill,
+.stream-signal-pill {
+  background: transparent !important;
+  border: .5px solid var(--border) !important;
+  color: var(--ink-muted) !important;
+  border-radius: var(--r) !important;
+}
+.g2card.featured,
+.stream-artifact-card.stream-artifact-pending,
+.stream-decision-card.stream-decision-decision_brief {
+  border-color: var(--brand) !important;
+  border-left: 2px solid var(--brand) !important;
+}
+.stream-decision-card.stream-decision-outcome {
+  border-color: var(--status-active-border) !important;
+  border-left: 2px solid var(--brand) !important;
+}
+.stream-decision-card.stream-decision-setup_blocker {
+  border-color: var(--status-error-border) !important;
+  border-left: 2px solid var(--oxblood) !important;
+}
+.spd-rec,
+.g2rec,
+.stream-decision-next {
+  background: transparent !important;
+  border: 0 !important;
+  border-left: 2px solid var(--brand) !important;
+  color: var(--ink-body) !important;
+  padding: 6px 0 6px 10px !important;
+  border-radius: 0 !important;
+}
+.stream-artifact-title,
+.stream-decision-decision_brief .stream-artifact-title,
+.stream-decision-outcome .stream-artifact-title,
+.stream-decision-setup_blocker .stream-artifact-title,
+.g2type,
+.g2type.decision_brief,
+.g2type.pending_artifact,
+.g2type.outcome,
+.g2type.setup_blocker,
+.g2conf,
+.g2conf.amber,
+.g2conf.green,
+.g2conf.blue {
+  background: transparent !important;
+  border: 0 !important;
+  color: var(--warm-gold) !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+}
+.stream-decision-setup_blocker .stream-artifact-title,
+.g2type.setup_blocker {
+  color: var(--oxblood) !important;
+}
+.stream-decision-outcome .stream-artifact-title,
+.g2type.outcome {
+  color: var(--brand) !important;
+}
+.stream-artifact-status {
+  background: transparent !important;
+  border: .5px solid var(--border-warm) !important;
+  color: var(--status-warning-text) !important;
+  border-radius: var(--r) !important;
+}
+.g2mem-tag,
+.g2src {
+  background: var(--white) !important;
+  border-color: var(--border) !important;
+}
+.stream-artifact-preview-details,
+details.artifact-preview {
+  border-style: dashed !important;
+}
+
+/* Contrast audit fix: no dark copper/gold text on dark green badges. */
+.seat-badge {
+  background: var(--white) !important;
+  border: .5px solid var(--border-warm) !important;
+  color: var(--warm-gold) !important;
+}
+
+/* Artifact review surface: white on light, no warm/gray fallback panels. */
+div.artifact-preview,
+.artifact-copy-panel,
+.artifact-review-bar,
+.artifact-details-row,
+.artifact-system-details,
+.artifact-revision-box,
+.artifact-revision-result,
+.artifact-native-fallback {
+  background: var(--white) !important;
+  color: var(--ink-body) !important;
+}
+div.artifact-preview {
+  border-bottom: .5px solid var(--border) !important;
+}
+.artifact-native-fallback {
+  padding: 20px;
+  text-align: left;
+  font-size: 12px;
+  border: .5px dashed var(--border) !important;
+  max-width: 520px;
+  border-radius: 0 !important;
+}
+.artifact-native-label {
+  color: var(--warm-gold) !important;
+  margin-bottom: 10px;
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+.artifact-system-details,
+.artifact-revision-box,
+.artifact-revision-result {
+  border-top-color: var(--border) !important;
+  border-left-color: var(--warm-gold) !important;
+}
+.artifact-status {
+  background: var(--white) !important;
+  border-radius: var(--r) !important;
+}

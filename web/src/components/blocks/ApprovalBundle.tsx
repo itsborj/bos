@@ -38,8 +38,8 @@ function artifactTitle(run: RunResponse, platformLabel: string): string {
   const moduleId = run.module_id.toLowerCase();
   if (moduleId.includes('gtm_plan') || moduleId.includes('gtm')) return 'GTM Strategy';
   if (moduleId.includes('marketing.plan')) return 'Marketing Plan';
-  if (moduleId.includes('email') && moduleId.includes('plan')) return 'Email Campaign Plan';
-  if (moduleId.includes('email') || platformLabel.toLowerCase().includes('email')) return 'Email Draft';
+  if ((moduleId.includes('email') || moduleId.includes('gmail')) && moduleId.includes('plan')) return 'Email Campaign Plan';
+  if (moduleId.includes('email') || moduleId.includes('gmail') || platformLabel.toLowerCase().includes('email') || platformLabel.toLowerCase().includes('gmail')) return 'Email Draft';
   if (moduleId.includes('plan')) return 'Campaign Plan';
   if (moduleId.includes('report') || moduleId.includes('analytics')) return 'Marketing Report';
   if (moduleId.includes('shortform.video')) return 'Shortform Video Draft';
@@ -64,10 +64,22 @@ function statusLabel(status: ReviewStatus): string {
 }
 
 function statusColor(status: ReviewStatus): string {
-  if (status === 'approved') return '#16a34a';
-  if (status === 'dismissed') return '#6b7280';
-  if (status === 'draft') return '#6366f1';
-  return '#111827';
+  if (status === 'approved') return '#0B3D2E';
+  if (status === 'dismissed') return '#4A6B5C';
+  if (status === 'draft') return '#0B3D2E';
+  return '#5A4520';
+}
+
+function parseEmailDraft(content?: string): { subject: string; body: string; preheader: string } {
+  const raw = String(content || '').trim();
+  const subjectMatch = raw.match(/^Subject:\s*(.+)$/im);
+  const subject = subjectMatch?.[1]?.trim() || 'Subject Missing';
+  const body = raw
+    .replace(/^Subject:\s*.+\n?/im, '')
+    .replace(/^Body:\s*/im, '')
+    .trim() || raw || 'Body missing';
+  const preheader = body.split(/\n+/).map(line => line.trim()).find(Boolean) || 'Preheader missing';
+  return { subject, body, preheader };
 }
 
 function hasArtifactAction(run: RunResponse, action: string): boolean {
@@ -662,16 +674,18 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
         </div>
       );
     }
-    if (channel.includes('email') && moduleId.includes('plan')) {
+    const isEmailArtifact = channel.includes('email') || channel.includes('gmail') || moduleId.includes('gmail');
+    if (isEmailArtifact && moduleId.includes('plan')) {
       return (
-        <div style={{ padding: '20px', textAlign: 'left', color: '#333', fontSize: '12px', border: '1px dashed #ccc', maxWidth: 520 }}>
-          <div style={{ color: '#666', marginBottom: 10 }}>Email campaign plan</div>
+        <div className="artifact-native-fallback">
+          <div className="artifact-native-label">Email campaign plan</div>
           <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{result.content || 'Plan content unavailable.'}</div>
         </div>
       );
     }
-    if (channel.includes('email')) {
-      return <EmailPreview senderName={brandName} subject={result.subject || 'Subject Missing'} preheader={result.preheader || 'Preheader missing'} body={result.content || 'Body missing'} />;
+    if (isEmailArtifact) {
+      const parsed = parseEmailDraft(result.content);
+      return <EmailPreview senderName={brandName} subject={result.subject || parsed.subject} preheader={result.preheader || parsed.preheader} body={parsed.body} />;
     }
     if (channel.includes('pinterest')) {
       return <PinterestPreview title={result.headline || 'Title Missing'} description={result.content || 'Description missing'} />;
@@ -808,8 +822,8 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     }
 
     return (
-      <div style={{ padding: '20px', textAlign: 'left', color: '#333', fontSize: '12px', border: '1px dashed #ccc', maxWidth: 520 }}>
-        <div style={{ color: '#666', marginBottom: 10 }}>Preview is not available for this artifact type yet.</div>
+      <div className="artifact-native-fallback">
+        <div className="artifact-native-label">Preview is not available for this artifact type yet.</div>
         <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{result.content}</div>
       </div>
     );

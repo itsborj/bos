@@ -273,7 +273,10 @@ export function Layout() {
       <CmoChatProvider>
       <div className="bos-proto-shell">
         <div className="bos-proto-topbar">
-          <NavLink to="/stream" className="bos-proto-logo">Klaroha</NavLink>
+          <NavLink to="/stream" className="bos-proto-logo" aria-label="Klaroha Stream">
+            <span>Klaroha</span>
+            <em>Marketing, Engineered for Clarity.</em>
+          </NavLink>
           <label className="bos-proto-brand-chip bos-proto-brand-select" title="Filter CMO and Stream by brand">
             <span>Brand</span>
             <select

@@ -103,7 +103,10 @@ export function AdminLayout() {
   return (
     <div className="admin-shell">
       <aside className="admin-sidebar">
-        <div className="admin-logo">Klaroha</div>
+        <div className="admin-logo-block">
+          <div className="admin-logo">Klaroha</div>
+          <div className="admin-logo-tagline">Marketing, Engineered for Clarity.</div>
+        </div>
         <nav className="admin-nav">
           {NAV_SECTIONS.map(section => (
             <div key={section.label}>
