@@ -7,6 +7,10 @@ import { Stream } from './pages/Stream';
 import { Workspace } from './pages/Workspace';
 import { WorkspaceMobile } from './pages/WorkspaceMobile';
 import { WorkspaceArtifact } from './pages/WorkspaceArtifact';
+import { StrategyDraftPrototype } from './pages/StrategyDraftPrototype';
+import { GoldenGateStrategyWorkflow } from './pages/GoldenGateStrategyWorkflow';
+import { MotorMotoStrategyWorkflow } from './pages/MotorMotoStrategyWorkflow';
+import { StrategyWorkflowPage } from './pages/StrategyWorkflowPage';
 import { Ops } from './pages/Ops';
 import { Intelligence } from './pages/Intelligence';
 import { History } from './pages/History';
@@ -64,6 +68,10 @@ export default function App() {
             <Route path="settings"     element={<Settings />} />
             <Route path="stream"       element={<Stream />} />
             <Route path="cmo"          element={<CmoPage />} />
+            <Route path="prototype/strategy-draft" element={<StrategyDraftPrototype />} />
+            <Route path="prototype/golden-gate-plan" element={<GoldenGateStrategyWorkflow />} />
+            <Route path="prototype/motormoto" element={<MotorMotoStrategyWorkflow />} />
+            <Route path="strategy-workflows/:workflowId" element={<StrategyWorkflowPage />} />
           </Route>
           <Route path="admin" element={<AdminLayout />}>
             <Route index element={<Navigate to="/admin/brands" replace />} />

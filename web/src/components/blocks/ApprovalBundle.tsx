@@ -36,6 +36,7 @@ function titleCase(value: string): string {
 function artifactTitle(run: RunResponse, platformLabel: string): string {
   if (!run?.module_id) return 'Artifact';
   const moduleId = run.module_id.toLowerCase();
+  if (moduleId.includes('strategy_workflow')) return 'Strategy Workflow';
   if (moduleId.includes('gtm_plan') || moduleId.includes('gtm')) return 'GTM Strategy';
   if (moduleId.includes('marketing.plan')) return 'Marketing Plan';
   if (moduleId.includes('email') && moduleId.includes('plan')) return 'Email Campaign Plan';
@@ -668,6 +669,22 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
         </div>
       );
     }
+    if (result.block?.type === 'strategy_workflow' || moduleId.includes('strategy_workflow')) {
+      const block = result.block as any;
+      const thesis = (block?.components || []).find((c: any) => c.type === 'strategic_thesis')?.data || {};
+      const wedge = thesis.wedge || block?.wedge || '';
+      const motion = thesis.primary_motion || block?.primary_motion || '';
+      const archetype = (block?.archetype || '').replace(/_/g, ' ');
+      const componentCount = (block?.components || []).filter((c: any) => c.status === 'complete').length;
+      return (
+        <div style={{ padding: '14px 16px', fontSize: 13, color: '#1f2937', border: '1px solid #e5dccb', borderRadius: 12, background: '#fffdf8' }}>
+          <div style={{ fontSize: 11, color: '#826D40', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>Strategy Workflow{archetype ? ` · ${archetype}` : ''}</div>
+          {motion && <div style={{ fontWeight: 700, marginBottom: 6 }}>{motion} motion</div>}
+          {wedge && <div style={{ color: '#4b5563', lineHeight: 1.45, fontStyle: 'italic', marginBottom: 8 }}>"{wedge}"</div>}
+          {componentCount > 0 && <div style={{ fontSize: 11, color: '#166534', background: '#dcfce7', borderRadius: 999, padding: '2px 8px', display: 'inline-block', fontWeight: 700 }}>{componentCount} components</div>}
+        </div>
+      );
+    }
     if (result.block?.type === 'marketing_plan' || moduleId.includes('marketing.plan')) {
       const block = result.block || {};
       const channels = Array.isArray(block.recommended_channels) ? block.recommended_channels : [];
@@ -888,7 +905,9 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
             <div className="artifact-eyebrow">Artifact</div>
             <div className="artifact-title">{title}</div>
             <div className="artifact-meta">
-              {moduleId.includes('marketing.plan')
+              {moduleId.includes('strategy_workflow')
+                ? 'Strategy Workflow · Draft for review'
+                : moduleId.includes('marketing.plan')
                 ? 'Plan artifact · Draft for review'
                 : `${activeCampaign?.name ? `Campaign: ${activeCampaign.name}` : 'Campaign: Unassigned'} · ${platformLabel}`}
 

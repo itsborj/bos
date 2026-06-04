@@ -251,18 +251,27 @@ def _chat_modules() -> list[dict]:
 
 
 def _marketing_plan_module_id() -> str | None:
-    """Find the installed native marketing.plan artifact capability from SKILL.md metadata."""
+    """Find the installed native marketing.plan artifact capability from SKILL.md metadata.
+
+    Prefer the Strategy Workflow contract. This keeps @klar plan generic while
+    letting SKILL.md metadata, not chat phrase rules, own which module implements
+    the top-level planning artifact.
+    """
+    fallback: str | None = None
     for skill in list_skill_manifests():
         metadata = getattr(skill, "metadata", {}) or {}
-        if (
+        if not (
             skill.allowed_from_chat
             and skill.module_id
             and metadata.get("implements") == "marketing.plan"
             and metadata.get("artifact_type") == "plan_artifact"
-            and metadata.get("specialist") == "planning"
         ):
+            continue
+        if metadata.get("output_contract") == "strategy_workflow":
             return skill.module_id
-    return None
+        if metadata.get("platform") == "planning" or metadata.get("specialist") in {"planning", "gtm_planning"}:
+            fallback = fallback or skill.module_id
+    return fallback
 
 
 def _module_label_from_manifest(module_id: str) -> str:
@@ -1071,7 +1080,12 @@ async def _continue_cmo_loop_after_results(
 
         conversation_lines = [f"{h.role.upper()}: {h.text}" for h in body.history[-12:]] + [f"USER: {body.message}"]
         brief = await _brand_scoped_brief(
-            db, ws, execution_brand or active_brand, {"conversation_context": "\n".join(conversation_lines)}
+            db, ws, execution_brand or active_brand, {
+                "request": body.message,
+                "objective": body.message,
+                "message": body.message,
+                "conversation_context": "\n".join(conversation_lines),
+            }
         )
         run_inline_params = _parse_run_inline_params(reply_without_scope)
         yield {"type": "step", "label": "Routing to specialists..."}
@@ -1452,6 +1466,9 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
         try:
             conversation_lines = [f"{h.role.upper()}: {h.text}" for h in body.history[-12:]] + [f"USER: {body.message}"]
             brief = await _brand_scoped_brief(db, ws, execution_brand or active_brand, {
+                "request": body.message,
+                "objective": body.message,
+                "message": body.message,
                 "conversation_context": "\n".join(conversation_lines),
                 "cmo_directive_text": reply_without_scope,
             })
@@ -1959,6 +1976,9 @@ async def chat(
                 f"{h.role.upper()}: {h.text}" for h in body.history[-12:]
             ] + [f"USER: {body.message}"]
             chat_overrides = {
+                "request": body.message,
+                "objective": body.message,
+                "message": body.message,
                 "conversation_context": "\n".join(conversation_lines),
                 "cmo_directive_text": reply_without_scope,
             }

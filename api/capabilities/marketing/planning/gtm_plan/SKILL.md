@@ -1,20 +1,15 @@
 ---
+# DEPRECATED — replaced by marketing.planning.strategy_workflow (2026-06-04)
+# All CMO chat GTM/launch/strategy requests now route to strategy_workflow.
+# This module is retired and will not be dispatched. Do not re-enable.
 id: marketing.planning.gtm_plan
 name: gtm-plan
 version: 1.0.0
 description: >
-  Generate a structured go-to-market plan from the buyer intelligence map and
-  message architecture. Also use for shorthand requests like "GTM", "another GTM",
-  "new GTM", or "do another GTM" when the conversation is about go-to-market
-  planning rather than Google Tag Manager containers. Select the right motion for the product, buyer, and
-  company stage. Produce a dependency-ordered launch sequence, a channel stack
-  with do-now/hold/avoid logic, a conversion path, a proof-building plan, and
-  a leading-indicator measurement frame. All execution artifacts, publishing,
-  spending, and external actions require separate approval. The GTM plan is a
-  strategy artifact — not an execution order.
+  RETIRED. Replaced by marketing.planning.strategy_workflow. Do not activate.
 scope: module
-status: active
-allowed_from_chat: true
+status: retired
+allowed_from_chat: false
 module_id: marketing.planning.gtm_plan
 requires_intent:
   - discussion

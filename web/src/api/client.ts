@@ -229,6 +229,9 @@ export const api = {
       include_assets: options?.includeAssets === false ? 'false' : options?.includeAssets === true ? 'true' : undefined,
     })),
 
+  getStrategyWorkflow: (workflowId: string) =>
+    request<Record<string, unknown>>(`/strategy-workflows/${workflowId}`),
+
   getAgentState: () =>
     request<AgentStateResponse>('/agent/state'),
 
@@ -305,6 +308,7 @@ export const api = {
     const reader = resp.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let sawDone = false;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -315,12 +319,20 @@ export const api = {
         const line = part.trim();
         if (line.startsWith('data: ')) {
           try {
-            yield JSON.parse(line.slice(6)) as ChatStreamEvent;
+            const event = JSON.parse(line.slice(6)) as ChatStreamEvent;
+            if (event.type === 'done') sawDone = true;
+            yield event;
           } catch {
             // malformed event — skip
           }
         }
       }
+    }
+    if (!sawDone) {
+      yield {
+        type: 'error',
+        message: 'Chat stream ended before completion. Please retry; the request may still be running.',
+      };
     }
   },
 

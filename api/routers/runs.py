@@ -25,6 +25,7 @@ from provider_auth import resolve_stored_provider_credential
 from routers.backend_settings import resolve_backend_override
 from models.document import WorkspaceDocument
 from models.run import Run, RunAttempt, RunResult, RunTrace
+from models.workflow import WorkflowComponent, WorkflowRun
 from models.workspace import Audience, Brand, Campaign, Product, Workspace
 from registry import get_module
 from routers.workspace import get_singleton
@@ -623,6 +624,118 @@ async def _update_pm_task_status(run: Run, new_bos_status: str, brand: Brand, db
         logger.exception("PM task status update failed for run %s plugin=%s", run.id, plugin)
 
 
+# ── Strategy workflow persistence ──────────────────────────────────────────────
+
+# Component types that are generated in the initial full-chain run
+_WIRED_COMPONENTS = [
+    "buyer_map",
+    "strategic_thesis",
+    "offer_architecture",
+    "channel_stack",
+    "tactical_funnel",
+    "work_orders",
+]
+
+# Component types that are placeholders (not_wired) in the initial run
+_NOT_WIRED_COMPONENTS = [
+    "market_context",
+    "framework_lenses",
+    "channel_content_matrix",
+    "measurement_model",
+]
+
+
+async def _persist_workflow_record(
+    db: AsyncSession,
+    ws: "Workspace",
+    run: "Run",
+    brand_id: "Optional[UUID]",
+    brief: dict,
+    block: dict,
+) -> dict:
+    """Create WorkflowRun + WorkflowComponent rows from a strategy_workflow block.
+
+    Returns the block with workflow_id and workflow_url injected.
+    """
+    try:
+        archetype = block.get("archetype") or "direct_sales"
+        request = brief.get("request") or brief.get("message") or brief.get("objective") or ""
+
+        wf = WorkflowRun(
+            workspace_id=ws.id,
+            brand_id=brand_id,
+            run_id=run.id,
+            archetype=archetype,
+            request=str(request)[:2000],
+            status="complete",
+        )
+        db.add(wf)
+        await db.flush()  # populate wf.id before creating components
+
+        # Wired components from block data
+        component_list = block.get("components") or []
+        comp_map = {c.get("type"): c for c in component_list if c.get("type")}
+
+        for ctype in _WIRED_COMPONENTS:
+            comp_data = comp_map.get(ctype, {})
+            db.add(WorkflowComponent(
+                workflow_run_id=wf.id,
+                component_type=ctype,
+                status="complete",
+                version=1,
+                data=comp_data.get("data") or {},
+                summary=_component_summary(ctype, comp_data.get("data") or {}),
+                run_id=run.id,
+            ))
+
+        for ctype in _NOT_WIRED_COMPONENTS:
+            db.add(WorkflowComponent(
+                workflow_run_id=wf.id,
+                component_type=ctype,
+                status="not_wired",
+                version=1,
+                data={},
+                summary=None,
+                run_id=None,
+            ))
+
+        block = {**block, "workflow_id": str(wf.id), "workflow_url": f"/strategy-workflows/{wf.id}"}
+        logger.info("WorkflowRun created: %s (archetype=%s)", wf.id, archetype)
+    except Exception:
+        logger.exception("Failed to persist WorkflowRun — block returned without workflow_id")
+
+    return block
+
+
+def _component_summary(component_type: str, data: dict) -> str | None:
+    """One-sentence summary for Stream card / CMO chat from component data."""
+    if component_type == "buyer_map":
+        al = data.get("awareness_level", "")
+        bt = data.get("buyer_type", "")
+        tg = data.get("trust_gap", "")
+        if al and bt:
+            return f"{bt.replace('_', ' ').title()} buyer at {al.replace('_', ' ')} stage — trust gap: {tg}" if tg else f"{bt.replace('_', ' ').title()} buyer at {al.replace('_', ' ')} stage."
+    if component_type == "strategic_thesis":
+        motion = data.get("primary_motion", "")
+        wedge = data.get("wedge", "")
+        return f"{motion.replace('-', ' ').title()} motion — {wedge}" if motion and wedge else None
+    if component_type == "offer_architecture":
+        mc = data.get("micro_commitment", "")
+        return f"Entry: {mc}" if mc else None
+    if component_type == "channel_stack":
+        do_now = data.get("do_now") or []
+        if do_now:
+            channels = ", ".join(c.get("channel", "") for c in do_now[:3] if c.get("channel"))
+            return f"Do now: {channels}." if channels else None
+    if component_type == "tactical_funnel":
+        cta = data.get("action_cta", "")
+        return f"CTA: {cta}" if cta else None
+    if component_type == "work_orders":
+        briefs = data.get("briefs") or []
+        return f"{len(briefs)} work order{'s' if len(briefs) != 1 else ''} generated." if briefs else None
+    return None
+
+
 # ── Core execution (shared by /runs and /chat) ─────────────────────────────────
 
 async def _execute_module(
@@ -1063,6 +1176,10 @@ async def _execute_module(
         brand_name=brief.get("brand_name"),
         brand_handle=brief.get("brand_handle"),
     )
+
+    # Persist WorkflowRun + WorkflowComponents for strategy_workflow artifacts
+    if block and block.get("type") == "strategy_workflow":
+        block = await _persist_workflow_record(db, ws, run, brand_id, brief, block)
 
     db.add(RunTrace(
         run_id=run.id,

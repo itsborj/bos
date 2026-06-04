@@ -25,6 +25,7 @@ export function artifactTitle(run: RunResponse): string {
   const id = run.module_id.toLowerCase();
   const platform = titleCase(run.result?.platform || run.module_id.split('.').pop() || 'asset');
   const platformKey = platform.toLowerCase();
+  if (id.includes('strategy_workflow')) return 'Strategy Workflow';
   if (id.includes('gtm_plan') || id.includes('gtm')) return 'GTM Strategy';
   if ((id.includes('email') || id.includes('gmail') || platformKey.includes('email')) && id.includes('plan')) return 'Email Campaign Plan';
   if (id.includes('email') || id.includes('gmail') || platformKey.includes('email')) return 'Email Draft';
@@ -60,6 +61,7 @@ export function artifactRenderer(run: RunResponse): string {
   if (!run?.module_id) return 'artifact_detail';
   const id = run.module_id.toLowerCase();
   const channel = `${id} ${(run.result?.platform || '').toLowerCase()}`;
+  if (id.includes('strategy_workflow')) return 'strategy_workflow_preview';
   if (id.includes('gtm_plan') || id.includes('gtm')) return 'gtm_strategy_preview';
   if (channel.includes('email')) return 'email_preview';
   if (id.includes('google') && (id.includes('text') || id.includes('search'))) return 'google_search_preview';
@@ -74,13 +76,15 @@ export function artifactRenderer(run: RunResponse): string {
 }
 
 export function buildArtifactRef(run: RunResponse): ArtifactRef {
+  const renderer = artifactRenderer(run);
+  const workflowUrl = renderer === 'strategy_workflow_preview' ? (run.result?.block?.workflow_url as string | undefined) : undefined;
   return {
     artifact_id: run.run_id,
     title: artifactTitle(run),
     type: artifactType(run),
     status: artifactStatus(run),
-    renderer: artifactRenderer(run),
-    workspace_url: `/workspace/artifacts/${run.run_id}`,
+    renderer,
+    workspace_url: workflowUrl || `/workspace/artifacts/${run.run_id}`,
   };
 }
 

@@ -62,7 +62,6 @@ export function Auth() {
           <div className="logo-mark"><span className="logo-inner">K</span></div>
           <div>
             <div className="auth-title">Klaroha</div>
-            <div className="auth-sub" style={{ marginBottom: 0 }}>Marketing, Engineered for Clarity.</div>
           </div>
         </div>
 

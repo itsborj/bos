@@ -29,6 +29,7 @@ function artifactTitle(run: RunResponse): string {
   if (!run?.module_id) return 'Artifact';
   const id = run.module_id.toLowerCase();
   const platform = titleCase(run.result?.platform || run.module_id.split('.').pop() || 'asset');
+  if (id.includes('strategy_workflow')) return 'Strategy Workflow';
   if (id.includes('gtm_plan') || id.includes('gtm')) return 'GTM Strategy';
   if (id.includes('email') && id.includes('plan')) return 'Email Campaign Plan';
   if (id.includes('email')) return 'Email Draft';
@@ -106,6 +107,38 @@ function statusText(status: ArtifactStatus): string {
 
 function artifactBrandName(run: RunResponse, fallback: string): string {
   return run.result?.block?.brand_name || run.result?.brand_name || run.brand_name || fallback;
+}
+
+function StrategyWorkflowStreamCard({ block, onOpen }: { block: any; onOpen: () => void }) {
+  const archetype = (block.archetype || 'direct_sales').replace(/_/g, ' ');
+  const thesis = (block.components || []).find((c: any) => c.type === 'strategic_thesis')?.data || {};
+  const wedge = thesis.wedge || block.wedge || '';
+  const motion = thesis.primary_motion || block.primary_motion || '';
+  const componentCount = (block.components || []).filter((c: any) => c.status === 'complete').length;
+  const workOrders = (block.components || []).find((c: any) => c.type === 'work_orders');
+  const briefCount = workOrders?.data?.briefs?.length || 0;
+
+  return (
+    <div style={{ marginTop: 12, border: '1px solid #e5dccb', borderRadius: 12, overflow: 'hidden', background: '#fffdf8' }}>
+      <div style={{ background: '#0B3D2E', color: '#d8c9a8', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.1em' }}>Strategy Workflow · {archetype}</span>
+        {motion && <span style={{ fontSize: 11, background: '#1a5c42', borderRadius: 6, padding: '2px 8px', fontWeight: 700 }}>{motion}</span>}
+      </div>
+      <div style={{ padding: '12px 14px' }}>
+        {wedge && <div style={{ fontSize: 13, lineHeight: 1.5, color: '#374151', fontStyle: 'italic', marginBottom: 10 }}>"{wedge}"</div>}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {componentCount > 0 && <span style={{ fontSize: 11, background: '#dcfce7', color: '#166534', borderRadius: 999, padding: '2px 8px', fontWeight: 700 }}>{componentCount} components active</span>}
+          {briefCount > 0 && <span style={{ fontSize: 11, background: '#f0eadc', color: '#826D40', borderRadius: 999, padding: '2px 8px', fontWeight: 700 }}>{briefCount} work orders</span>}
+        </div>
+        <button
+          onClick={onOpen}
+          style={{ background: '#0B3D2E', color: '#fff', border: 0, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 850, cursor: 'pointer', width: '100%' }}
+        >
+          Open Strategy Workflow →
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function renderNativePreview(run: RunResponse) {
@@ -226,6 +259,20 @@ function renderNativePreview(run: RunResponse) {
             <div style={{ color: '#6b7280', fontSize: 12 }}>{p.category}{p.followers != null ? ` · ${p.followers.toLocaleString()} followers` : ''}</div>
           </div>
         ))}
+      </div>
+    );
+  }
+  if (result.block?.type === 'strategy_workflow') {
+    const block = result.block as any;
+    const thesis = (block.components || []).find((c: any) => c.type === 'strategic_thesis')?.data || {};
+    const wedge = thesis.wedge || block.wedge || '';
+    const motion = thesis.primary_motion || block.primary_motion || '';
+    const archetype = (block.archetype || '').replace(/_/g, ' ');
+    return (
+      <div style={{ padding: '14px 16px', fontSize: 13, color: '#1f2937', border: '1px solid #e5dccb', borderRadius: 12, background: '#fffdf8' }}>
+        <div style={{ fontSize: 11, color: '#826D40', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>Strategy Workflow{archetype ? ` · ${archetype}` : ''}</div>
+        {motion && <div style={{ fontWeight: 700, marginBottom: 6 }}>{motion} motion</div>}
+        {wedge && <div style={{ color: '#4b5563', lineHeight: 1.45, fontStyle: 'italic' }}>"{wedge}"</div>}
       </div>
     );
   }
@@ -477,6 +524,7 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, focused = false, r
   const [hydrating, setHydrating] = useState(false);
   const [hasEnteredView, setHasEnteredView] = useState(false);
   const cardRef = useRef<HTMLElement | null>(null);
+  const navigate = useNavigate();
   const status = artifactStatus(run);
   const displayRun = hydratedRun || run;
   const displayBrandName = artifactBrandName(displayRun, brandName);
@@ -525,6 +573,11 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, focused = false, r
       <div className="g2brand">{displayBrandName}</div>
       {hydrating && !hydratedRun ? (
         <div className="stream-artifact-fallback" style={{ marginTop: 10 }}><span className="spinner" /> Loading artifact…</div>
+      ) : displayRun.result?.block?.type === 'strategy_workflow' ? (
+        <StrategyWorkflowStreamCard block={displayRun.result.block as any} onOpen={() => {
+          const url = (displayRun.result?.block as any)?.workflow_url;
+          if (url) navigate(url);
+        }} />
       ) : status === 'pending' ? (
         <ApprovalBundle
           run={displayRun}

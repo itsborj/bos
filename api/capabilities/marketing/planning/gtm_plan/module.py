@@ -1,3 +1,5 @@
+# DEPRECATED 2026-06-04 — replaced by marketing.planning.strategy_workflow
+# SKILL.md status: retired — module is not dispatched from CMO chat.
 from __future__ import annotations
 
 import re

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useUI } from '../context/UIContext';
 import { useCmoChat } from '../context/CmoChatContext';
@@ -41,18 +42,26 @@ function textToBlock(text: string): BriefingBlock {
 }
 
 function ArtifactReferenceCard({ refData, onOpen }: { refData: ArtifactRef; onOpen: (artifactId: string) => void }) {
+  const navigate = useNavigate();
+  const isWorkflow = refData.renderer === 'strategy_workflow_preview';
   return (
     <div className="bos-chat-artifact-ref">
       <div>
-        <div className="artifact-eyebrow">Stream artifact</div>
+        <div className="artifact-eyebrow">{isWorkflow ? 'Strategy Workflow' : 'Stream artifact'}</div>
         <div className="artifact-title">{refData.title}</div>
         <div className="artifact-meta">
-          {artifactStatusLabel(refData.status)} · {refData.type.replace(/_/g, ' ')} · Preview in Stream
+          {artifactStatusLabel(refData.status)} · {refData.type.replace(/_/g, ' ')} · {isWorkflow ? 'Modular workflow' : 'Preview in Stream'}
         </div>
       </div>
-      <button className="artifact-btn primary" onClick={() => onOpen(refData.artifact_id)}>
-        Review in Stream →
-      </button>
+      {isWorkflow ? (
+        <button className="artifact-btn primary" onClick={() => navigate(refData.workspace_url)}>
+          Open Strategy Workflow →
+        </button>
+      ) : (
+        <button className="artifact-btn primary" onClick={() => onOpen(refData.artifact_id)}>
+          Review in Stream →
+        </button>
+      )}
     </div>
   );
 }

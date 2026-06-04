@@ -78,18 +78,12 @@ This is a draft strategy for review; execution artifacts and external actions re
 """
 
 
-def test_gtm_strategy_skill_is_dispatchable_plan_artifact() -> None:
-    skill = next(s for s in list_skill_manifests() if s.id == "marketing.planning.gtm_plan")
+def test_gtm_strategy_skill_is_retired_from_dispatchable_manifests() -> None:
+    # The module file remains for historical/parser regression coverage below,
+    # but CMO chat must dispatch marketing.planning.strategy_workflow instead.
+    skill_ids = {s.id for s in list_skill_manifests()}
 
-    assert skill.allowed_from_chat is True
-    assert skill.module_id == "marketing.planning.gtm_plan"
-    assert skill.metadata["implements"] == "marketing.plan"
-    assert skill.metadata["artifact_type"] == "plan_artifact"
-    assert skill.metadata["output_contract"] == "gtm_strategy"
-    assert skill.depends_on == ["reasoning.buyer_intelligence", "marketing.messaging.architecture", "brand_brief"]
-    assert skill.required_upstream == ["buyer_map.v1", "message_architecture.v1"]
-    assert skill.outputs == ["gtm_plan.v1"]
-    assert "plan a launch" in skill.triggers
+    assert "marketing.planning.gtm_plan" not in skill_ids
 
 
 def test_gtm_strategy_module_self_check_and_block() -> None:

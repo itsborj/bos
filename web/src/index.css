@@ -5522,3 +5522,14 @@ div.artifact-preview {
 a, button, .btn, .admin-nav-item, .snav-item, .bos-proto-tab, .filter-chip {
   transition: background .12s, color .12s, border-color .12s !important;
 }
+
+/* Strategy Workflow dark header overrides global brand-colored h1 rules. */
+.strategy-workflow-kicker,
+.strategy-workflow-headline {
+  color: #FFFFFF !important;
+  -webkit-text-fill-color: #FFFFFF;
+}
+
+.strategy-workflow-headline {
+  text-shadow: 0 1px 2px rgba(0, 0, 0, .22);
+}

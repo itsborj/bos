@@ -39,6 +39,8 @@ def artifact_title(run: Any) -> str:
     module_id = run.module_id.lower()
     platform = _title_case((run.result.platform if run.result and run.result.platform else run.module_id.rsplit(".", 1)[-1]) or "asset")
     platform_key = platform.lower()
+    if "strategy_workflow" in module_id:
+        return "Strategy Workflow"
     if "gtm_plan" in module_id or "marketing.planning.gtm" in module_id:
         return "GTM Strategy"
     if ("email" in module_id or "gmail" in module_id or "email" in platform_key) and "plan" in module_id:
@@ -68,6 +70,8 @@ def artifact_renderer(run: Any) -> str:
     module_id = run.module_id.lower()
     platform = (run.result.platform if run.result and run.result.platform else "").lower()
     channel = f"{module_id} {platform}"
+    if "strategy_workflow" in module_id:
+        return "strategy_workflow_preview"
     if "gtm_plan" in module_id or "marketing.planning.gtm" in module_id:
         return "gtm_strategy_preview"
     if "email" in channel:
@@ -106,11 +110,17 @@ def artifact_status(run: Any) -> str:
 
 
 def artifact_ref_from_run(run: Any) -> ArtifactRef:
+    block = (run.result.block or {}) if run.result else {}
+    renderer = artifact_renderer(run)
+    if renderer == "strategy_workflow_preview" and block.get("workflow_url"):
+        ws_url = block["workflow_url"]
+    else:
+        ws_url = f"/workspace/artifacts/{run.run_id}"
     return ArtifactRef(
         artifact_id=run.run_id,
         title=artifact_title(run),
         type=artifact_type(run),
         status=artifact_status(run),
-        renderer=artifact_renderer(run),
-        workspace_url=f"/workspace/artifacts/{run.run_id}",
+        renderer=renderer,
+        workspace_url=ws_url,
     )
