@@ -816,6 +816,9 @@ Deferred to Phase 4.
 - [x] BUG (2026-06-03): CMO panel still overuses green/amber/ivory backgrounds in chat bubbles, inline notices, handoff/council cards. Aligned CMO to reference restraint: white surfaces with thin rails and color as text/accent only.
 - [x] BUG (2026-06-03): Gmail draft artifact was falling through to generic preview with gray dashed fallback and "Preview is not available" instead of native EmailPreview; artifact preview/system detail panels still used warm backgrounds. Fixed Gmail detection and light-surface contrast.
 - [x] BRAND SYSTEM MAP (2026-06-03): Document and apply `klaroha.html` color/container/font mapping across frontend and backend-rendered surfaces. Frontend map: app/admin/stream/CMO/artifacts. Backend map: calendar booking widget.
+- [x] UX (2026-06-04): Make the Stream / CMO / Admin footer the default primary navigation across app and admin pages.
+- [x] UX (2026-06-04): Admin footer/nav refinement — remove legacy sidebar footer links (`Getting Started`, `CMO App`, `Sign out`) and make the admin shell use the same full-height footer sizing as Stream/CMO.
+- [x] BUG (2026-06-04): Stream pending counter is missing from the shared footer on Admin because AdminLayout renders outside `UIContext` and passes no pending count. Fixed by letting shared `FooterNav` read the persisted pending-run cache when no count prop is supplied.
 
 ### Gate 2 — Gmail-only Objective Loop
 - [x] GATE 2.1: Add minimal Objective anchor. Fields: `objective_id`, `brand_ref`, `status` (draft|active|paused|completed|archived), `summary`, `success_metric`, `horizon`, `created_from`.

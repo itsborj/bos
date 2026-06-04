@@ -6,14 +6,9 @@ import { CmoChatProvider } from '../context/CmoChatContext';
 import { CmoChat } from '../pages/CmoChat';
 import { WorkspacePanel } from './WorkspacePanel';
 import { SettingsModal } from './SettingsModal';
+import { FooterNav } from './FooterNav';
 import type { ActiveBrand, ActiveCampaign, SettingsTab, WorkspaceTab } from '../context/UIContext';
 import type { BrandResponse, RunResponse } from '../api/types';
-
-const PROTOTYPE_NAV = [
-  { to: '/stream', label: 'Stream', icon: '▶' },
-  { to: '/cmo', label: 'CMO', icon: '◎' },
-  { to: '/admin/objective-loop', label: 'Admin', icon: '⚙' },
-];
 
 const CHAT_MESSAGES_KEY = 'bos_chat_messages';
 const CHAT_CONVERSATIONS_KEY = 'bos_chat_conversations';
@@ -275,7 +270,6 @@ export function Layout() {
         <div className="bos-proto-topbar">
           <NavLink to="/stream" className="bos-proto-logo" aria-label="Klaroha Stream">
             <span>Klaroha</span>
-            <em>Marketing, Engineered for Clarity.</em>
           </NavLink>
           <label className="bos-proto-brand-chip bos-proto-brand-select" title="Filter CMO and Stream by brand">
             <span>Brand</span>
@@ -337,21 +331,7 @@ export function Layout() {
           onClose={() => setSettingsOpen(false)}
         />
 
-        <div className="bos-proto-bottom-tabs">
-          <div className="bos-proto-tab-group">
-            {PROTOTYPE_NAV.map(({ to, label, icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) => `bos-proto-tab${isActive ? ' active' : ''}`}
-              >
-                <span>{icon}</span>
-                <span>{label}</span>
-                {label === 'Stream' && pendingRunList.length > 0 && <span className="bos-proto-tab-badge">{pendingRunList.length}</span>}
-              </NavLink>
-            ))}
-          </div>
-        </div>
+        <FooterNav pendingCount={pendingRunList.length} />
 
       </div>
       </CmoChatProvider>

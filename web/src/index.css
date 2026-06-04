@@ -1746,10 +1746,21 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
   --admin-accent:  var(--accent);
 }
 
-.admin-shell {
+.admin-app-frame {
+  height: 100vh;
   min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--admin-bg);
+}
+
+.admin-shell {
+  min-height: 0;
+  flex: 1;
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
+  overflow: hidden;
   background: var(--admin-bg);
 }
 
@@ -1864,6 +1875,7 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 
 .admin-content {
   min-width: 0;
+  overflow-y: auto;
 }
 
 .gs-banner {
@@ -4427,6 +4439,7 @@ code, pre, kbd,
 .cmo-header,
 .cmo-commands,
 .cmo-input-bar,
+.admin-app-frame,
 .admin-shell,
 .admin-sidebar,
 .admin-content,
@@ -5114,7 +5127,7 @@ button.btn-accent:disabled {
 
 /* Reference container: fixed centered system width so large screens do not overexpand. */
 .bos-proto-shell,
-.admin-shell {
+.admin-app-frame {
   max-width: 1280px !important;
   width: 100% !important;
   margin-left: auto !important;
@@ -5129,7 +5142,7 @@ button.btn-accent:disabled {
 }
 @media (max-width: 1280px) {
   .bos-proto-shell,
-  .admin-shell {
+  .admin-app-frame {
     border-left: 0 !important;
     border-right: 0 !important;
   }
