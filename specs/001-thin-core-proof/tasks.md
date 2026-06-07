@@ -55,7 +55,7 @@
 - [-] T014 Rewrite `api/routers/chat.py` from scratch — DEFERRED per plan.md note (A6): "not needed for validation; existing chat.py dispatches correctly." Plugin names in chat.py are in a display-name dict, not routing logic. `pipeline/context.py` and `pipeline/llm.py` must be created first as extraction targets. Schedule as a dedicated follow-on task after V5/V7 delete stability is proven.
 - [-] T015 [US1] Verify `chat.py` line count — blocked on T014 (deferred)
 - [-] T016 [US1] Verify zero plugin routing names in `chat.py` — blocked on T014 (deferred)
-- [ ] T017 [US1] Verify `hello` dispatches via CMO — send `"run a pipeline test"` via CMO chat; confirm `pipeline_test_result` artifact appears in Stream (does NOT require chat.py rewrite)
+- [-] T017 [US1] Verify `hello` dispatches via CMO — retired; GBP (T019) proves the identical path with higher signal (OAuth + artifact + brand scoping). hello stays in bos-plugins as a reference implementation only.
 
 **Checkpoint**: US1 complete. Thin core proven. Adding any new plugin to `~/bos-plugins/` requires zero edits to `api/routers/chat.py`.
 
