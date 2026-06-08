@@ -246,3 +246,9 @@ open http://localhost:8000/docs
 - POC (frozen, read-only reference): `~/cl_dm_os/`
 - System shape sample: `./sample/bos_v1.md`
 - Project brief: `./PROJECT_BRIEF.md`
+
+<!-- SPECKIT START -->
+For additional context about technologies to be used, project structure,
+shell commands, and other important information, read the current plan
+at specs/001-thin-core-proof/plan.md
+<!-- SPECKIT END -->

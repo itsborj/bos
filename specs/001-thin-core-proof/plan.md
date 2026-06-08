@@ -1,4 +1,4 @@
-# Implementation Plan: Thin Core + SDK Plugin Architecture
+# Implementation Plan: Plugin Host MVP — WordPress / VS Code Model
 
 **Branch**: `001-thin-core-proof` | **Date**: 2026-06-08 | **Spec**: [spec.md](spec.md)
 
@@ -6,13 +6,35 @@
 
 ## Summary
 
-Strip `chat.py` from 2,146 lines to ~150 (7-step BITE harness). Build `klaroha_sdk`
-as a pip-installable Python package. Wire a hook system so brand scoping, memory
-hydration, and credential injection run as hook subscribers — not as branches in
-core. Scan plugins from an external volume-mounted directory (`~/bos-plugins/`)
-in addition to the deprecated `api/plugins/`. Prove the architecture with `hello`
-(SDK boundary) and `gbp-completeness` (OAuth credential injection + approval_bundle
-+ pending_review flow) as the first two external plugins. Deploy live to hq.klaroha.com.
+Make BOS core behave like a **WordPress / VS Code style plugin host**.
+
+**The one rule** (from `api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md`):
+
+```text
+If a plugin is not installed and activated, BOS should act like it does not exist.
+```
+
+This means no CMO manifest entry, no Specialist card, no connector warning, no
+readiness debt, and no RUN-able capability for uninstalled or inactive plugins.
+
+The governing document for this feature is `api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md`.
+That document defines 8 deliverables (D1–D8). D1–D3 and D7 are done and verified.
+D8 is implemented but requires end-to-end verification. D4, D5, and D6 are the
+remaining build work.
+
+**Explicitly out of scope for this feature** (deferred per recommendation):
+- `chat.py` 7-step rewrite
+- Hook subscription system
+- Full migration of existing plugins (Meta, TikTok, LinkedIn, YouTube)
+- Marketplace / Available UI
+- Full installed-state lockfile with source hashes
+- SDK ABI compatibility adapters
+- Plugin-owned migrations, hot reload, subprocess sandbox
+
+The in-process hook infrastructure (A2/A3) and `klaroha_sdk` package (A1) were
+built as supporting infrastructure and are complete. They are not themselves the
+deliverable — they exist to support the plugin boundary. The primary deliverable
+is the WordPress/VS Code lifecycle model.
 
 > **Decision 2026-06-08**: `gbp-completeness` replaces `gmail` as the second proof
 > plugin. GBP is already written, lives in `bos-plugins/`, exercises the full OAuth
@@ -221,7 +243,8 @@ echo "pip install klaroha-sdk" > README.md
 - Commit to bos-plugins repo (`git add gbp-completeness && git commit`)
 - Strengthen SKILL.md `excluded_triggers` to differentiate from Google Analytics triggers
   (add: `google analytics`, `ga4`, `search console`, `on-page seo`, `google ads`, `tag manager`)
-- Confirm `requires_social_connection: ["google_business"]` credential injection works via hook
+- Confirm `requires_social_connection: ["google_business"]` credential injection works via hook (host-managed OAuth path)
+- Note: `requires_social_connection` is only valid for platforms the host already has an OAuth handler for. 3rd party plugins on new platforms must use `requires_platform_vars` instead — host reads env vars and injects them; plugin owns validation via its declared `connection.validate` capability.
 - Prove end-to-end: CMO dispatch → `setup_blocker` artifact (no account connected) or
   full `gbp_completeness_result` with `approval_bundle` renderer when GBP is connected
 
@@ -242,28 +265,33 @@ Gate to deploy: V8 live deploy passes.
 
 ## Implementation Status (as of 2026-06-08)
 
-| Task | Status | Notes |
+### D-Deliverable Status (governing: `api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md`)
+
+| Deliverable | Status | Notes |
 |---|---|---|
-| A1 — `klaroha_sdk` package | ✅ Done | `packages/klaroha_sdk/` exists; SDK installs clean (V1 ✓) |
-| A2 — `hooks.py` HookRegistry | ✅ Done | `api/pipeline/hooks.py` in place |
-| A3 — `system_hooks.py` | ✅ Done | Brand scope + memory hydration subscribers registered |
-| A4 — migration 038 | ✅ Done | `plugin_activations` table live |
-| A5 — `plugin_loader.py` external scan | ✅ Done | Scans `/external_plugins/` first; activation check in place |
-| A6 — `chat.py` rewrite | ⏳ Deferred | Existing chat.py dispatches correctly; rewrite deferred to keep scope tight |
-| A7 — `runs.py` async execute + hook | ✅ Done | Async execute() detection added; inject_channel_credentials preserved for now |
-| A8 — `docker-compose.yml` volume mount | ✅ Done | Volume added; **bug fixed**: tilde in default replaced with absolute path |
-| B1 — init bos-plugins repo | ✅ Done | `~/bos-plugins/` on `master`; hello committed |
-| B2 — `hello` plugin migrated | ✅ Done | `~/bos-plugins/hello/` confirmed loading as `[external]` |
-| B3 — `gbp-completeness` plugin | ✅ Done | Loads [external]; SKILL.md `excluded_triggers` hardened; `requires_intent` fixed (research→diagnostic); dispatches correctly via CMO |
-| B4 — `gmail` plugin | ⏳ Deferred | Follow-on after GBP proof |
-| V1 — SDK installs clean | ✅ Done | |
-| V2 — empty dir start | ⏳ Pending | |
-| V3 — hello in manifest | ✅ Done | Both hello + gbp-completeness confirmed `[external]` |
+| D1 — External plugin root is runtime source | ✅ Done | `EXTERNAL_PLUGINS_DIR` + `KLAROHA_LOAD_INTERNAL_PLUGINS` wired; V2 confirmed (T013) |
+| D2 — Installed plugins API: installed packages only | ✅ Done | `GET /plugins` from external-root scan; bundled api/plugins excluded unless flag set |
+| D3 — Basic quarantine | ✅ Done | Invalid plugin reported as `status=error`; valid plugins unaffected (T026) |
+| D4 — Per-brand activation (build) | ⏳ Pending | `plugin_activations` table live (migration 038); ORM model + API endpoints missing (T041–T043) |
+| D5 — CMO manifest filtered by brand activation (build) | ⏳ Pending | Currently global manifest; `brand_id` filter missing (T044) |
+| D6 — Specialists UI activation toggle (build/patch) | ⏳ Pending | Hardcoded platform cards present; manifest-driven render + toggle missing (T045–T046) |
+| D7 — Generic credential injection only | ✅ Done | SDK boundary verified clean; zero `api.*` imports across bos-plugins (T021) |
+| D8 — Generic plugin-declared OAuth | ⚠️ Verify | Partial implementation exists; end-to-end verification of new-platform flow required (T047) |
+
+### Supporting Infrastructure Status
+
+| Item | Status | Notes |
+|---|---|---|
+| `packages/klaroha_sdk/` package | ✅ Done | Installs clean; `ChannelModule`, types, hook decorator |
+| `api/pipeline/hooks.py` HookRegistry | ✅ Done | In-process async; brand scope + memory hydration subscribers registered |
+| `api/migrations/versions/038_plugin_activations.py` | ✅ Done | `plugin_activations` table live |
+| `~/bos-plugins/hello` | ✅ Done | Loads `[external]`; SDK boundary clean |
+| `~/bos-plugins/gbp-completeness` | ✅ Done | Loads `[external]`; dispatches via CMO; `setup_blocker` artifact confirmed |
+| `chat.py` rewrite (A6) | ⏳ Deferred | Out of scope per recommendation; follow-on feature |
+| Gmail migration to bos-plugins (B4) | ⏳ Deferred | Follow-on after D4–D6 complete |
+| V2 — empty dir start | ⏳ Pending | quickstart step |
 | V4 — hello dispatches via CMO | ⏳ Pending | Requires UI test |
-| V5 — delete hello, BOS stable | ✅ Done | hello deleted → hello loads [internal] fallback; gbp-completeness unaffected; BOS ok |
-| V6 — GBP plugin end-to-end | ✅ Done | `setup_blocker` artifact returned; GBP dispatch confirmed |
-| V7 — delete GBP, BOS + hello stable | ✅ Done | gbp deleted → hello stable; restore → both [external]; broken plugin quarantine proven |
-| V8 — live deploy | ⏳ Pending | |
+| V8 — live deploy | ⏳ Pending | Gate: D4–D6 + V2/V4 complete |
 
 ---
 

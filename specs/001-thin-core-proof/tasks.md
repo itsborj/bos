@@ -21,7 +21,7 @@
 - [x] T002 Create `api/pipeline/hooks.py` — `HookRegistry` singleton with `subscribe(event, handler)` and `async fire(event, payload)`
 - [x] T003 Create `api/pipeline/system_hooks.py` — brand scope + memory hydration subscribers on `brief.before_dispatch`
 - [x] T004 Add Alembic migration `api/migrations/versions/038_plugin_activations.py` — `plugin_activations` table per `data-model.md`
-- [x] T005 Extend `api/plugin_loader.py` — scan `EXTERNAL_PLUGINS_DIR` first, then `api/plugins/`; check `plugin_activations` activation state; mark `source: "external" | "internal"`
+- [x] T005 Extend `api/plugin_loader.py` — scan `EXTERNAL_PLUGINS_DIR` first, then `api/plugins/`; mark `source: "external" | "internal"`. NOTE: activation state check marked done but NOT wired — `plugin_activations` table exists (migration 038) but `plugin_loader.py` does not read it. Corrected by T041–T043.
 - [x] T006 Update `docker-compose.yml` — `EXTERNAL_PLUGINS_PATH` volume mount to `api` service with `EXTERNAL_PLUGINS_DIR=/external_plugins` env var
 - [x] T007 Fix `EXTERNAL_PLUGINS_PATH` tilde expansion bug — change default from `~/bos-plugins` to `/home/ubu/bos-plugins` in `docker-compose.yml` and `.env.example`; set absolute path in `.env`
 - [x] T008 Init `~/bos-plugins/` as separate git repo on `master` branch
@@ -45,11 +45,13 @@
 
 ---
 
-## Phase 3: User Story 1 — Thin Core (Priority: P1) 🎯 MVP
+## Phase 3: User Story 1 — Thin Core
 
-**Goal**: `chat.py` under 200 lines with exactly 7 steps and zero plugin/channel/platform logic.
+**Goal**: BOS starts and dispatches plugins correctly without platform-specific logic in core.
 
-**Independent Test**: `wc -l ~/bos/api/routers/chat.py` → under 200. `grep -c "hello\|gmail\|google\|meta\|clickup\|tiktok\|gbp" ~/bos/api/routers/chat.py` → `0`.
+> **Scope note**: The `chat.py` 7-step rewrite is explicitly deferred per `api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md` ("Explicitly deferred" list). T014–T016 are permanently deferred to a follow-on feature. T017 is retired. The Phase 3 acceptance condition is met by the plugin host model itself (D1–D8), not by a line count in chat.py.
+
+**Independent Test**: `grep -c "hello\|gmail\|meta\|clickup\|tiktok\|gbp" ~/bos/api/routers/chat.py` → any matches must be display-name strings, not routing conditionals. `KLAROHA_LOAD_INTERNAL_PLUGINS=false` → zero plugin capabilities.
 
 - [x] T013 Validate BOS starts cleanly with empty `~/bos-plugins/` directory (V2) — confirmed: `GET /api/` returns `{"status":"ok"}` with `EXTERNAL_PLUGINS_PATH=/tmp/empty-plugins`
 - [-] T014 Rewrite `api/routers/chat.py` from scratch — DEFERRED per plan.md note (A6): "not needed for validation; existing chat.py dispatches correctly." Plugin names in chat.py are in a display-name dict, not routing logic. `pipeline/context.py` and `pipeline/llm.py` must be created first as extraction targets. Schedule as a dedicated follow-on task after V5/V7 delete stability is proven.
@@ -67,7 +69,7 @@
 
 **Independent Test**: `grep -r "from api\|import api\|from config\|from db" ~/bos-plugins/` → no output. CMO dispatches `gbp-completeness` → artifact appears.
 
-- [x] T018 [US2] Activate `gbp-completeness` plugin — formal `/activate` endpoint deferred (plugin_activations table not yet wired to manifest); GBP appears in CMO dispatchable manifest implicitly when loaded. BUG fixed: SKILL.md `requires_intent: research` rejected by SkillManifest validator — changed to `diagnostic`; GBP now confirmed in manifest.
+- [x] T018 [US2] Activate `gbp-completeness` plugin — GBP appears in CMO manifest implicitly (directory presence = active, activation not yet enforced). Formal per-brand activation via plugin_activations table is corrected by T041–T043. BUG fixed: SKILL.md `requires_intent: research` rejected by SkillManifest validator — changed to `diagnostic`; GBP now confirmed in manifest.
 - [x] T019 [US2] Trigger GBP via CMO chat — send `"gbp audit"` with `brand_id=Klaroha`; CMO dispatched `marketing.intelligence.gbp.completeness_score` correctly (not Google Analytics). BUG fixed: SKILL.md `requires_intent: research` → `diagnostic` (SkillManifest rejected 'research'; GBP was silently absent from manifest until fixed).
 - [x] T020 [US2] Verify artifact appears — `gbp_completeness_result` block with `renderer_hint: setup_blocker`, `status: failed/partial` (GBP OAuth not connected for Klaroha brand as expected); artifact carries correct brand scoping.
 - [x] T021 [US2] SDK boundary check across all bos-plugins — confirmed CLEAN: zero `api.*`, `config`, `db`, `models`, `routers`, or `skills` imports across `~/bos-plugins/`
@@ -124,7 +126,85 @@
 
 ---
 
-## Phase 8: Polish & Cross-Cutting Concerns
+## Phase 8: Plugin Host MVP — Remaining Deliverables (D4, D5, D6, D8 verify)
+
+**Purpose**: Wire the plugin_activations table into the manifest and UI. This is the remaining build work to achieve the WordPress/VS Code model — installed ≠ active, active = in manifest. Also verify D8 (generic plugin-declared OAuth), which the architecture recommendation flags as "previously attempted — must verify before relying on it."
+
+**Reference**: `api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md` — "Remaining build — D4, D5, D6" and "Previously attempted — D8"
+
+**Architecture gate** — before merging any change in this phase, answer these questions from the recommendation. Any `yes` means stop and redesign:
+
+```text
+Does this make a platform visible before its plugin is installed?
+Does this add platform-specific behavior to core?
+Does this require a core edit to install/remove a plugin?
+Does this show connector setup warnings for uninstalled plugins?
+Does this put inactive plugin capabilities in the CMO manifest?
+Does this treat api/plugins/ source folders as runtime-installed plugins?
+```
+
+---
+
+### D4 — Per-brand activation (build)
+
+- [ ] T041 Create `api/models/plugin_activation.py` — `PluginActivation` SQLAlchemy ORM model mapping the existing `plugin_activations` table (migration 038). Fields: `id`, `plugin_id`, `brand_id` (nullable UUID FK → brands), `status` (active | inactive | error), `reason`, `activated_at`, `updated_at`.
+- [ ] T042 Wire activation read path in `api/plugin_loader.py` — on scan, for each successfully loaded plugin auto-insert an `inactive` row if no row exists for the scanned `plugin_id`; expose `get_active_plugin_ids(db, brand_id)` async function that LEFT JOINs org-level rows (brand_id=NULL) with per-brand rows, returning plugin_ids with `status='active'`. Precedence rule: activation row present + directory missing → log stale warning, never inject.
+- [ ] T043 Add activate/deactivate endpoints to `api/routers/plugins.py` — `POST /plugins/{plugin_id}/activate` (body: optional `brand_id`; null = org-wide) and `DELETE /plugins/{plugin_id}/activate` (body: optional `brand_id`). Both write to `plugin_activations` table. Return 404 if plugin_id not in loaded plugins.
+
+**Acceptance**:
+```text
+Installed but inactive plugin appears in GET /plugins but not in CMO manifest.
+POST /plugins/channel.hello/activate → hello capabilities appear in manifest for that brand.
+DELETE /plugins/channel.hello/activate → hello capabilities removed from manifest for that brand.
+```
+
+---
+
+### D5 — CMO manifest filtered by brand activation (build)
+
+- [ ] T044 Update `api/capability_manifest.py` — add `brand_id` parameter to the manifest generation function. Filter plugin capabilities against `get_active_plugin_ids(db, brand_id)`: include plugin capability only if plugin is active for the brand. First-party (non-plugin) capabilities are unaffected. This is the single filter point — no second gate in `chat.py`.
+
+**Acceptance**:
+```text
+Inactive plugin module_id cannot be RUN from CMO chat.
+Active plugin with missing credentials appears in manifest and returns setup_blocker artifact at execution time — not excluded from manifest.
+Brand A activates hello → manifest includes hello. Brand B does not → manifest excludes hello.
+```
+
+---
+
+### D6 — Specialists UI activation toggle (build/patch)
+
+- [ ] T045 Audit `web/src/pages/admin/AdminModules.tsx` — identify any hardcoded platform cards that render regardless of GET /plugins response. Remove them. Specialists page must be a pure view over GET /plugins data only.
+- [ ] T046 Add Activate/Deactivate toggle to `web/src/pages/admin/AdminModules.tsx` — per brand per installed plugin card, calling `POST /plugins/{id}/activate` and `DELETE /plugins/{id}/activate` (T043). Show current activation status per brand inline on each plugin card.
+
+**Acceptance**:
+```text
+No TikTok plugin installed → no TikTok Specialist card.
+No LinkedIn plugin installed → no LinkedIn Specialist card.
+Activate toggle visible per Brand per installed plugin card.
+Toggling activation updates CMO manifest immediately on next chat turn.
+```
+
+---
+
+### D8 — Generic plugin-declared OAuth (verify)
+
+The architecture recommendation marks D8 as "Previously attempted — must verify before relying on it." The acceptance check is: a plugin declaring a *new* OAuth platform in `channel.json` can start auth, complete callback, store token, and receive injected credentials without any platform-specific handler added to core.
+
+- [ ] T047 Verify D8 end-to-end — trace the generic OAuth flow for a plugin-declared connection: (1) identify the generic OAuth start/callback path in `api/routers/social.py` or equivalent that reads `connections[*]` from `channel.json` without a platform-specific `OAuthHandler` subclass; (2) confirm a synthetic or real test plugin declaring `connections[0].type=oauth2` with a new platform can complete the flow; (3) if partial/missing — document the gap and create a follow-on task rather than implementing it here. Do not implement every OAuth edge case; `requires_platform_vars` is acceptable for MVP on non-standard providers.
+
+**Acceptance**:
+```text
+A plugin-declared OAuth platform can start auth, complete callback, store token, and receive
+injected credentials in brief["_channel_credentials"] without adding a platform-specific core handler.
+If the generic path does not exist or is broken, a clear gap report is filed as a follow-on task
+and existing plugins are not broken.
+```
+
+---
+
+## Phase 9: Polish & Cross-Cutting Concerns
 
 - [x] T037 [P] Update `~/bos-plugins/README.md` — added Known Constraints section: absolute path requirement, `requires_intent` canonical values, CMO fallback dispatch guidance
 - [ ] T038 [P] Update `specs/001-thin-core-proof/plugin-dev-onboarding.md` — add volume mount absolute path requirement and CMO dispatch accuracy guidance (SKILL.md `excluded_triggers` best practices)
@@ -138,14 +218,15 @@
 ### Phase Dependencies
 
 ```
-Phase 1 (Setup)          → No dependencies — start immediately [COMPLETE]
-Phase 2 (Foundational)   → Depends on Phase 1 [COMPLETE except T010–T012]
-Phase 3 (US1 Thin Core)  → Depends on Phase 2 — T013 can run independently; T014 is the core rewrite
-Phase 4 (US2 SDK Bound.) → Depends on Phase 2 (T010–T012) + Phase 3 (T014 preferred but not blocking)
-Phase 5 (US3 Delete)     → Depends on Phase 3 + Phase 4
-Phase 6 (US4 GBP E2E)   → Depends on Phase 4 (T018–T020)
-Phase 7 (US5 Deploy)     → Depends on Phase 5 + Phase 6
-Phase 8 (Polish)         → Depends on Phase 7
+Phase 1 (Setup)               → No dependencies — start immediately [COMPLETE]
+Phase 2 (Foundational)        → Depends on Phase 1 [COMPLETE]
+Phase 3 (US1 Thin Core)       → Depends on Phase 2 — T014 deferred
+Phase 4 (US2 SDK Boundary)    → Depends on Phase 2 [COMPLETE]
+Phase 5 (US3 Delete Stability)→ Depends on Phase 3 + Phase 4 [COMPLETE]
+Phase 6 (US4 GBP E2E)        → Depends on Phase 4 (T018–T020)
+Phase 7 (US5 Deploy)          → Depends on Phase 5 + Phase 6
+Phase 8 (Plugin Host MVP)     → D4: depends on migration 038 (done); D5: depends on T041–T042; D6: depends on T043–T044; D8 verify: independent
+Phase 9 (Polish)              → Depends on Phase 7 + Phase 8
 ```
 
 ### User Story Dependencies
@@ -162,6 +243,9 @@ Phase 8 (Polish)         → Depends on Phase 7
 - T015, T016 can run in parallel after T014
 - T030, T031 can run in parallel (server prep)
 - T037, T038, T039 can all run in parallel
+- T041, T042 can run in parallel (different files)
+- T045, T046 can run in parallel after T043 is complete
+- T047 (D8 verify) can run in parallel with T041–T046 — it is a verification task with no file changes required
 
 ---
 
