@@ -45,80 +45,6 @@ class MediaProviderOption(BaseModel):
     models: list[MediaModelOption]
 
 
-# Supported providers per media plugin — single source of truth.
-# Keys match plugin_id. Order determines display order in the UI.
-_MEDIA_PROVIDER_OPTIONS: dict[str, list[dict]] = {
-    "media.image": [
-        {
-            "provider": "openai",
-            "label": "OpenAI",
-            "models": [
-                {"value": "gpt-image-2", "label": "gpt-image-2 — flagship (2026)"},
-                {"value": "gpt-image-1", "label": "gpt-image-1 — deprecating Oct 2026"},
-                {"value": "gpt-image-1-mini", "label": "gpt-image-1-mini — cheapest"},
-            ],
-        },
-        {
-            "provider": "gemini",
-            "label": "Google Gemini",
-            "models": [
-                {"value": "gemini-2.5-flash-image", "label": "Gemini 2.5 Flash Image"},
-                {"value": "imagen-4.0-generate-001", "label": "Imagen 4.0 — paid Gemini plan"},
-            ],
-        },
-        {
-            "provider": "bytedance",
-            "label": "ByteDance ModelArk",
-            "models": [
-                {"value": "seedream-4-0-250828", "label": "Seedream 4.0"},
-                {"value": "seedream-4-5-251128", "label": "Seedream 4.5"},
-                {"value": "seedream-5-0-260128", "label": "Seedream 5.0"},
-            ],
-        },
-        {
-            "provider": "local",
-            "label": "Local Sample Renderer",
-            "models": [
-                {"value": "local-sample-renderer", "label": "Local sample PNG renderer"},
-            ],
-        },
-        {
-            "provider": "custom",
-            "label": "Custom Worker",
-            "models": [],
-        },
-    ],
-    "media.video": [
-        {
-            "provider": "local_ffmpeg",
-            "label": "Local FFmpeg",
-            "models": [],
-        },
-        {
-            "provider": "gemini",
-            "label": "Google Gemini (Veo)",
-            "models": [
-                {"value": "veo-3.0-generate-001", "label": "Veo 3.0 — preview"},
-                {"value": "veo-2.0-generate-001", "label": "Veo 2.0"},
-            ],
-        },
-        {
-            "provider": "seedance",
-            "label": "Seedance",
-            "models": [
-                {"value": "seedance-1-lite", "label": "Seedance 1 Lite"},
-                {"value": "seedance-1-pro", "label": "Seedance 1 Pro"},
-            ],
-        },
-        {
-            "provider": "custom",
-            "label": "Custom Provider",
-            "models": [],
-        },
-    ],
-}
-
-
 class PluginConnectionInfo(BaseModel):
     platform: str
     type: str = "oauth2"
@@ -184,6 +110,7 @@ async def _db_vars(db: AsyncSession, workspace_id, plugin_id: str, settings) -> 
 
 @router.get("")
 async def list_plugins(
+    brand_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
     _=Depends(require_api_key),
@@ -194,26 +121,23 @@ async def list_plugins(
     errors = get_error_plugins()
     result = []
 
-    # Preload connected social platforms across all brands (display-level, not security gate)
+    # C5: filter social connections by brand when provided so readiness is brand-scoped
     from models.social import SocialConnection as _SC
+    import uuid as _uuid
+    _sc_query = select(_SC.platform).where(_SC.status == "connected")
+    if brand_id:
+        try:
+            _sc_query = _sc_query.where(_SC.brand_id == _uuid.UUID(brand_id))
+        except ValueError:
+            pass
     connected_social_platforms: set[str] = set(
-        (await db.execute(select(_SC.platform).where(_SC.status == "connected"))).scalars().all()
+        (await db.execute(_sc_query)).scalars().all()
     )
 
-    # Load activation rows for all plugins in one query
+    # C1: read-only — load existing activation rows without writing new ones.
+    # Missing rows are synthesised as installed/inactive in the response only.
     from models.plugin_activation import PluginActivation
     activation_rows = (await db.execute(select(PluginActivation))).scalars().all()
-
-    # D4: directory present + no activation row means installed/inactive. Persist
-    # an org-level inactive row so Admin can show explicit lifecycle state.
-    existing_keys = {(row.plugin_id, str(row.brand_id) if row.brand_id else None) for row in activation_rows}
-    for plugin_id in list(loaded.keys()):
-        if (plugin_id, None) not in existing_keys:
-            row = PluginActivation(plugin_id=plugin_id, brand_id=None, status="inactive")
-            db.add(row)
-            activation_rows.append(row)
-    if any((pid, None) not in existing_keys for pid in loaded.keys()):
-        await db.commit()
 
     activation_by_plugin: dict[str, list[ActivationState]] = {}
     for row in activation_rows:
@@ -268,10 +192,7 @@ async def list_plugins(
         )
         credentials_configured = not missing and social_configured
 
-        media_opts = [
-            MediaProviderOption(**opt)
-            for opt in _MEDIA_PROVIDER_OPTIONS.get(plugin_id, [])
-        ]
+        media_opts = [MediaProviderOption(**opt) for opt in m.provider_options]
         result.append(PluginInfo(
             plugin_id=plugin_id,
             name=m.name,
@@ -317,18 +238,17 @@ async def list_plugins(
     return {"plugins": result}
 
 
-_WORKSPACE_RESOLVERS: dict[str, str] = {
-    "channel.clickup": "https://api.clickup.com/api/v2/team",
-}
-
-
 @router.post("/{plugin_id}/resolve-workspaces")
 async def resolve_workspaces(
     plugin_id: str,
     body: ResolveWorkspacesRequest,
     _=Depends(require_api_key),
 ):
-    url = _WORKSPACE_RESOLVERS.get(plugin_id)
+    # T091: URL comes from plugin manifest workspace_discovery_url, not a hardcoded dict
+    loaded = get_loaded_plugins()
+    if plugin_id not in loaded:
+        raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' not installed")
+    url = loaded[plugin_id].manifest.workspace_discovery_url
     if not url:
         raise HTTPException(status_code=404, detail=f"Workspace discovery not supported for plugin '{plugin_id}'")
     try:
@@ -336,9 +256,9 @@ async def resolve_workspaces(
         with urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
     except HTTPError as exc:
-        raise HTTPException(status_code=400, detail=f"ClickUp returned HTTP {exc.code} — check your API token")
+        raise HTTPException(status_code=400, detail=f"Plugin returned HTTP {exc.code} — check your API token")
     except URLError:
-        raise HTTPException(status_code=502, detail="Could not reach ClickUp API")
+        raise HTTPException(status_code=502, detail=f"Could not reach {url}")
     teams = [{"id": t["id"], "name": t["name"]} for t in data.get("teams", [])]
     return {"workspaces": teams}
 
@@ -417,10 +337,13 @@ async def delete_credentials(
         log.info("Plugin credentials removed: %s", plugin_id)
 
 
-# ── D4: Per-brand activation ──────────────────────────────────────────────────
+# ── Per-brand activation ──────────────────────────────────────────────────────
 
 class ActivateRequest(BaseModel):
-    brand_id: Optional[str] = None  # None = org-level activation
+    brand_id: Optional[str] = None
+    # C2: org-wide activation requires explicit opt-in to prevent accidental leakage
+    scope: Optional[str] = None          # must be "org" for org-wide
+    confirm_org_wide: bool = False        # must be True when scope="org"
 
 
 @router.post("/{plugin_id}/activate")
@@ -430,13 +353,24 @@ async def activate_plugin(
     db: AsyncSession = Depends(get_db),
     _=Depends(require_api_key),
 ):
-    """Activate a plugin for a Brand (or org-wide when brand_id is omitted).
+    """Activate a plugin for a Brand.
 
-    Directory present + no row → installed/inactive by default.
-    This endpoint creates or flips the activation row to status='active'.
+    brand_id is required for normal activation. Org-wide activation (brand_id
+    omitted) requires scope='org' and confirm_org_wide=true to prevent
+    accidental cross-brand capability leakage.
     """
     if body is None:
         body = ActivateRequest()
+
+    # C2: block silent org-wide activation
+    if body.brand_id is None and not (body.scope == "org" and body.confirm_org_wide):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "brand_id is required for plugin activation. "
+                "To activate org-wide pass scope='org' and confirm_org_wide=true."
+            ),
+        )
 
     loaded = get_loaded_plugins()
     if plugin_id not in loaded:
@@ -502,6 +436,20 @@ async def deactivate_plugin(
         row.error_reason = None
     else:
         db.add(PluginActivation(plugin_id=plugin_id, brand_id=brand_uuid, status="inactive"))
+
+    # C3: when deactivating for a specific brand, also demote any org-wide active
+    # row so the plugin stops bleeding into brands that haven't been explicitly scoped.
+    if brand_id:
+        org_row = (await db.execute(
+            select(PluginActivation).where(
+                PluginActivation.plugin_id == plugin_id,
+                PluginActivation.brand_id.is_(None),
+            )
+        )).scalar_one_or_none()
+        if org_row and org_row.status == "active":
+            org_row.status = "inactive"
+            log.info("Org-wide active row demoted to inactive: %s", plugin_id)
+
     await db.commit()
     log.info("Plugin deactivated: %s (brand=%s)", plugin_id, brand_id or "org-level")
 

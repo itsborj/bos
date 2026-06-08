@@ -1,9 +1,9 @@
 # BOS — Business Operating System
 ## Unified Project Brief
 
-**Date:** 2026-06-04
-**Status:** Phase 6 in progress — Strategy Workflow fully live; CMO GTM/marketing-plan dispatch fixed; workflow page header contrast fixed; public lead-capture demo direction parked
-**Version:** 3.51 (public website-to-plan lead-capture mini brief added; parked until revisited. Critical constraint: the public demo must call/reuse the internal `marketing.planning.strategy_workflow` capability server-side, not recreate a second public planning capability.)
+**Date:** 2026-06-08
+**Status:** Phase 6 in progress — Strategy Workflow fully live; Creative Supply Chain brand-locked media generation policy documented; managed provisioning + pricing model locked; plugin lifecycle architecture expanded into Extension Host + compatibility/release-integrity model; regression loop root cause and thin-core invariant locked (v3.56)
+**Version:** 3.56 (regression loop named + root-caused; thin-core invariant locked; current core escapees catalogued; spec-kit build governance direction added)
 
 > **MANDATORY READING:** Before any new system update, feature build, or architectural change, read `BITE.md`. It is both the Business Implementation by Example methodology and the BOS architecture constitution for minimal core, plugin/package extensibility, SKILL.md ownership, live manifests, MCP boundaries, lifecycle hooks, and command registration.
 ---
@@ -12,13 +12,17 @@
 
 > **Read this before making any change.** These decisions are final. Reversing any item requires an explicit architectural review and update to this table. The historical changelog now lives in Appendix A; it is a record, not the active architecture source.
 
+> **Agent harness note:** Official Spec Kit Pi integration installs prompt commands under `.pi/prompts/`; keep that integration installed whenever Spec Kit is used from pi. If Claude Code skills are installed or updated under `.claude/skills/`, also duplicate the matching skill directories into `.agents/skills/` for skill-based pi harness parity. Do not leave pi with only partial extension skills.
+
 ### Active Phase (as of 2026-06-04)
 - **Phase:** Phase 6 — Full-Stack Marketing Automation
 - **Gate 2:** Passed 2026-05-20 (Gmail-only objective loop end-to-end proved via `api/scripts/prove_gate2_gmail_loop.py`)
 - **Current UI surface:** Stream (60%) + CMO chat (40%) split-screen. `CmoChat` is mounted at Layout shell level and persists across navigation (hidden via `display:none` when not on /cmo). Mobile = single-panel with `translateX` slide transition. Reference: `wireframes/bos-stream-first.html` (read-only design spec — do not modify).
 - **Council:** Fully operational in CMO chat as of 2026-06-02. `@council <question>` → live boardroom in chat with collapsible per-seat round cards, C6 inject/Continue/Finalize, settled brief with settlement + marching orders + expandable transcript. 6-round test verified. See `BACKLOG.md ## Council` for full status and remaining work.
 - **Planning:** `marketing.planning.strategy_workflow` is the sole plan module as of 2026-06-04. `marketing.planning.gtm_plan` is **retired** (`status: retired`, `allowed_from_chat: false`) — do not re-enable. `marketing.plan.campaign_strategy` is also retired. All CMO chat GTM/launch/strategy/marketing-plan requests route to `marketing.planning.strategy_workflow`. The Strategy Workflow decomposes the plan into 10 independently revisable components with typed JSON output contracts, archetype weighting (golden_gate / gold_smelting / teko / direct_sales), and a cascade model. Each run persists a `WorkflowRun` record with `WorkflowComponent` rows. `StrategyWorkflowPage` at `/strategy-workflows/:workflowId` fetches live data from `GET /strategy-workflows/:id` (including `brand_name`) and renders the dark header as `{BrandName} Marketing Strategy` with white text. Prototypes at `/prototype/strategy-draft`, `/prototype/golden-gate-plan`, `/prototype/motormoto` remain as static reference builds only. Pre-build contract: `STRATEGY_WORKFLOW.md`. Read before touching any strategy workflow capability or component module.
+- **Agent Marketplace concept:** Parked in `AGENT_MARKETPLACE_CONCEPT.md`. Stripe business model ported to marketing execution — AI workflows as API-invocable composable primitives, escrow-on-delivery payment rails, schema registry, agent-calls-agent supply chain. No implementation until BOS plugin lifecycle, Extension Host, and composable pipeline are proven.
 - **Public lead-capture demo:** Parked mini-project in `PUBLIC_LEAD_CAPTURE_DEMO.md`. Direction: a public website/PDF/text intake can create a provisional Business Profile Draft, allow public correction chat, then call the existing internal Strategy Workflow server-side for a Marketing Plan Preview. It must not duplicate/recreate planning prompts or output logic outside the logged-in BOS capability. The rough HTML at `sample/public_website_to_plan_demo_klaroha.html` is a visual/conversation artifact only, not an approved implementation sample.
+- **Creative Supply Chain:** Full media generation is now brand-locked by contract. The CMO brain generates the text, image, audio, video, and stitching prompts from active Brand guidelines / `BRAND.md`; specialists execute those prompts; `CompositionSpec` applies final logo, typography, captions, CTA, color treatment, safe zones, timing, and transitions. Brand alignment is a hard gate before provider calls, before render, and before Creative Bundle review. Sample: `sample/brand_locked_media_production_blueprint_v1.json`; architecture: `CREATIVE_SUPPLY_CHAIN.md`.
 - **Next active work:** Council memory integration (approved settlement → MemoryEvent), re-enable C3–C5 seats with diverse models. Then: not-wired strategy workflow components (`market_context`, `framework_lenses`, `channel_content_matrix`, `measurement_model`). Then Phase 6 subsections (creative bundle, shortform video, social publishing).
 
 ### Phase 6 Loop Direction — Summary
@@ -36,7 +40,7 @@ Default creative production should run in parallel from a shared campaign brief 
 | # | Topic | ✓ Current (locked) | ✗ Do Not Revert To |
 |---|---|---|---|
 | 1 | **CMO routing** | LLM reads `capability_manifest.py`; zero routing logic in `chat.py` | `_explicit_platforms()`, `_is_broad_sample_ads_request()`, `_has_generation_intent()`, `_requested_module_ids()`, phrase-matching — all removed 2026-05-12 |
-| 2 | **Channel capabilities** | `api/plugins/{channel}/` only | `api/capabilities/marketing/channel/` — deleted; must never be recreated |
+| 2 | **Channel capabilities** | Installed channel capabilities come from external plugin packages (`/external_plugins` / `~/bos-plugins`) via the Extension Host; bundled `api/plugins/` is SDK/example source only unless explicitly enabled for local compatibility | `api/capabilities/marketing/channel/` — deleted; must never be recreated; source-tree plugin folders treated as production-installed by default |
 | 3 | **CMO artifact output** | Chat returns artifact refs/links only; Workspace + Stream own native preview, approval, revision | Inline Subject/Body, Headline/Description, copy, targeting, budgets, fake proof in CMO chat replies |
 | 4 | **Brand dispatch** | `_brand_scoped_brief(db, ws, active_brand, overrides)` when `brand_id` is set | `_resolve_brief(db, ws, overrides)` in an active-brand context (causes cross-brand bleed) |
 | 5 | **Brand memory hydration** | `hydrate_memory_slots(brand=active_brand)` — filters products, audiences, docs, run memory by `brand_id` | Workspace-wide memory in active-brand turns |
@@ -50,6 +54,16 @@ Default creative production should run in parallel from a shared campaign brief 
 | 13 | **`_brand_scoped_brief()` contract** | Builds from overrides + Brand rows only; must not call `_resolve_brief()` first | Calling `_resolve_brief()` as a fallback inside `_brand_scoped_brief()` |
 | 14 | **Revise endpoint brand** | Resolves Brand from `original_run.brand_id` before building execution brief | Using workspace context for revision runs |
 | 15 | **Plan module** | `marketing.planning.strategy_workflow` is the sole CMO-dispatchable plan module. `marketing.planning.gtm_plan` is retired and must not be re-enabled. | Re-setting `gtm_plan` to `allowed_from_chat: true`; adding any new single-shot GTM plan module that bypasses the WorkflowRun/WorkflowComponent persistence model |
+| 16 | **Brand-locked media generation** | For full media production, CMO brain generates all text/image/audio/video/stitch prompts from active Brand guidelines / `BRAND.md`; every artifact and final CompositionSpec must pass brand gates before render/review. | Generic provider prompts, logo/text baked into AI plates, off-brand audio/video, rendering despite missing brand slots, final MP4 without editable JSON |
+| 17 | **Plugin cross-cutting behavior** | Hook subscriptions on published pipeline lifecycle events declared in `channel.json` | Hardcoded credential injection, brand scoping, memory hydration, or directive logic added to `chat.py` / `runs.py` for a specific plugin |
+| 18 | **Plugin activation** | Explicit per-brand activation state stored in DB; directory presence = installed, not active | Auto-activating any installed plugin; treating directory presence as live for production runs |
+| 19 | **Plugin contribution** | Declarative registration of capabilities, hook subscriptions, and credential injectors via `channel.json` | Imperative injection into core routes, models, prompt builders, or system prompt logic from plugin code |
+| 20 | **Extension host boundary** | Plugins bind only to the stable public Klaroha SDK/ABI and host-published contracts; the Extension Host loads, validates, adapts, executes, and quarantines plugins | Plugins importing BOS internals, DB models, routers, settings, private registries, or current core implementation shape |
+| 21 | **Compatibility layer** | Core contract evolution is additive by default; old plugin contract versions are adapted through shims until formally deprecated | Renaming/removing fields, changing semantics, or forcing all plugins to update whenever Bridge/Run/Artifact schemas change |
+| 22 | **Plugin installed-state registry** | The installed/active plugin registry or lockfile is operational truth; the external install root is validated against recorded plugin id/version/hash/manifest state; bundled core examples do not create capabilities | Treating whatever directory happens to exist under `api/plugins/` as the whole truth after a git checkout, deploy, or branch switch |
+| 23 | **Capability release integrity** | System updates compare before/after capability manifests and block/warn on unexpected removals, downgrades, duplicate IDs, or manifest hash drift | Silent capability disappearance that looks like a rollback; unintentional retirement without an explicit ledger entry |
+| 24 | **Plugin failure quarantine** | Invalid/incompatible plugins are marked installed-but-disabled with reason; one bad plugin must not crash core, erase the manifest, or hide unrelated capabilities | Import-time side effects, scan-wide failures, or plugin errors that break CMO startup or capability discovery |
+| 25 | **Everything is a package — no module concept** | All capabilities are packages. Built-in packages (`api/capabilities/`) ship with BOS and auto-activate org-wide. Installed packages (`~/bos-plugins/`) require explicit per-brand activation. Same contract for both: `SKILL.md` + `module.py` + `channel.json`. No package imports BOS internals. Source: BITE.md § Everything is a Package; pi.dev / WordPress / VS Code reference model. | Treating `api/capabilities/` entries as core code with special privileges; allowing any package to import `db`/`models`/`routers`; maintaining a module vs plugin distinction in any runner, manifest, or dispatch path |
 
 ### Key File Ownership
 | File | Owns |
@@ -61,12 +75,14 @@ Default creative production should run in parallel from a shared campaign brief 
 | `api/plugins/PLUGIN_SDK.md` | Complete plugin developer contract |
 | `api/capabilities/workspace/council/` | CMO Council deliberation layer (post-Gate 2) |
 | `CREATIVE_SUPPLY_CHAIN.md` | Creative supply chain mini project brief — concept → primitives → blueprints → render targets → Drive; all detail lives there |
+| `sample/brand_locked_media_production_blueprint_v1.json` | BITE sample for CMO-brain-generated, brand-locked text/image/audio/video/stitch production blueprint and compliance gates |
 | `sample/creative_factory_ux_v1.md` | Creative Factory user experience documentation — setup, conversation flow, and approval workflow |
 | `STRATEGY_WORKFLOW.md` | Strategy Workflow pre-build contract — component DAG, field contracts per component, archetype weight table, cascade rules, workflow record schema, and build prerequisites. Read before touching any strategy workflow capability or component module. |
 | `PUBLIC_LEAD_CAPTURE_DEMO.md` | Parked mini project brief for public website/PDF/text → Business Profile Draft → correction chat → Marketing Plan Preview → email/waitlist capture. The public demo must call/reuse `marketing.planning.strategy_workflow` server-side and must not recreate a second marketing-planning capability. |
 | `api/models/workflow.py` | `WorkflowRun` + `WorkflowComponent` SQLAlchemy models — one row per strategy run, one component row per component type. |
 | `api/routers/strategy_workflows.py` | `GET /strategy-workflows/:id` (full workflow + components + `brand_name`) + `PATCH /strategy-workflows/:id/components/:type` (per-component LLM re-run: routes via `capability_router`, executes live, parses typed component data, cascades stale, bumps version). Not-wired components (`market_context`, `framework_lenses`, `channel_content_matrix`, `measurement_model`) fall back to stale-marking only until their modules are built. |
 | `web/src/pages/StrategyWorkflowPage.tsx` | Production strategy workflow page — fetches from `GET /strategy-workflows/:id`, renders all 10 components with live data, locks not-wired components, and shows the header as `{BrandName} Marketing Strategy` in white on the Racing Green header. |
+| `AGENT_MARKETPLACE_CONCEPT.md` | Parked concept: Stripe business model ported to AI agent workflows — marketing micro-tasks as API-invocable composable primitives, escrow-on-delivery, schema registry, agent-calls-agent supply chain. No implementation until BOS core plugin lifecycle and Extension Host are proven in production. |
 
 ---
 
@@ -107,15 +123,259 @@ Credential injection: the host resolves social page tokens and env vars before e
 
 Developer documentation: `api/plugins/PLUGIN_SDK.md` is the complete guide.
 
+### Plugin Lifecycle: Hooks, Activation State, and Contribution Points
+
+The plugin contract above defines what a plugin **is**. This section defines how a plugin **extends** the system without touching it. It is the layer that separates a plugin system (host calls plugins) from an extensible system (plugins subscribe to host events). Without it, every new plugin capability requires a core change.
+
+**The repeating problem this solves**
+
+`chat.py` has grown past 1,000 lines despite the stated target of a fixed 7-step, ~100-line contract (documented in `api/routers/chat_notes.md` and v3.27). Locked Rule #1 — no capability logic in CMO chat — is violated repeatedly, not through carelessness but because the structural alternative does not yet exist. Cross-cutting plugin behaviors (credential injection, brand scoping, memory hydration, directive parsing) have nowhere else to live, so each new plugin need forces a new branch into core.
+
+Three recurring patterns in this codebase trace directly to the absence of a hook system:
+
+- **The `chat.py` monolith accumulation** — every new plugin that needs context in its brief or needs to react to pipeline events ends up as new logic in `chat.py` or `runs.py`. The 7-step contract target is unreachable until each of these concerns has a hook to live in instead.
+- **`inject_channel_credentials()` in `runs.py` as a manually-maintained list** — this function grows with every new plugin that needs credentials. A hook-based credential injection would make this plugin-declared, not host-maintained.
+- **Brand scoping and memory hydration hardcoded in `chat.py`** — these are cross-cutting concerns that belong to the pipeline, not to individual route handlers. They are there because there is no `run.before_execute` hook for a plugin to subscribe to.
+
+**Hooks — the core mechanism**
+
+A hook is a named event point that core publishes at a pipeline lifecycle boundary. Plugins subscribe to hook names. Core fires the event and does not know or care which plugins are listening. The hook name is the API contract — removing or renaming a hook name is a breaking change subject to the same deprecation policy as brief fields.
+
+*Action hooks* — something happened; plugins may react. Core fires; plugins run handlers.
+
+Natural hook points in the BOS pipeline:
+
+```
+run.before_execute      → enrich the brief before dispatch
+run.after_complete      → trigger notifications, logging, or downstream actions
+artifact.before_persist → validate or annotate before storage
+manifest.built          → annotate a capability entry at scan time
+plugin.activated        → plugin sets up its resources for the brand
+plugin.deactivated      → plugin tears down cleanly
+```
+
+*Filter hooks* — data is passing through; plugins may transform it. Core fires with a value; each registered handler receives and returns the (possibly modified) value; core uses the final result.
+
+```
+brief.before_dispatch   → plugin injects its own context fields
+artifact.output         → plugin normalises its own output shape before validation
+```
+
+Filters are ordered and composable. A plugin that modifies a brief field it does not own is a bug in the plugin, not a core problem.
+
+**Activation state — installed is not active**
+
+A plugin package present in the external installed plugin root (for example `/external_plugins` or `~/bos-plugins/`) and recorded by the installed-state registry = installed. A bundled directory under `api/plugins/` is **not** installed; it is SDK/example/deprecated source unless explicitly loaded with a local compatibility flag. A `PluginActivation` DB row = active. These are separate states. The Extension Host discovers installed plugins from the external install root / registry; the capability manifest serves only active ones. Activation is explicit and can be scoped per brand — a plugin active for Brand A is invisible to Brand B's pipeline runs.
+
+`on_activate(brand_id)` — plugin runs setup: validates required credentials, creates any plugin-owned tables, seeds defaults.
+`on_deactivate(brand_id)` — plugin tears down: removes scheduled work, releases connections.
+
+This is the safety valve for third-party plugins. Any plugin from an external source should be installable and reviewable before it touches a single production run. Activation is the gate.
+
+**Contribution points — declarative, not imperative**
+
+A plugin declares in `channel.json` what it contributes: capability IDs, hook subscriptions, credential injector keys, CMO manifest entries. The host reads these declarations at activation time and wires them up. A plugin that imperatively injects itself into core routes, models, or system prompt logic is violating this boundary — the contribution must be declared, not performed at import or execution time.
+
+**Guidelines**
+
+- Core publishes the event surface. Plugins subscribe. The direction of knowledge is one-way: plugins know about core events; core never knows about specific plugins.
+- The 7-step chat contract (receive → context → LLM → strip-directives → dispatch → persist → return) maps directly to hook fire points. New cross-cutting behavior belongs in a hook subscription, not a new if-branch in `chat.py`.
+- First-party cross-cutting behaviors currently hardcoded in `chat.py` and `runs.py` (credential injection, brand scoping, memory hydration) are migration targets — each should progressively move to a first-party system plugin that subscribes to the appropriate hook. This is the path to the 7-step contract, not a rewrite but a series of extractions.
+- A plugin that needs to add pipeline behavior must do so via a hook subscription declared in `channel.json`. It must not modify any file outside its own plugin directory.
+- Activation state is not optional for third-party plugins. The sequence is always: install → review → activate per brand. Never activate on discovery.
+- These are architecture principles. No implementation until a BITE sample of the hook contract and activation model is approved.
+
+### Extension Host, Compatibility Layer, and Release Integrity
+
+The plugin lifecycle model above is necessary but not sufficient for true backwards compatibility. The missing mature-extensibility concept is an **Extension Host**: a dedicated runtime boundary between BOS core and plugins.
+
+**Analogy:** BOS core is the operating-system kernel. Plugins are apps/drivers. Apps do not import kernel internals; they call a stable system API/ABI. Old apps keep working because the OS preserves old public contracts or provides compatibility shims. Unsupported or faulty apps are isolated; they do not rewire or crash the kernel.
+
+Target shape:
+
+```text
+BOS Kernel
+  owns pipeline, state, security, hooks, audit, Evaluate gates
+
+Extension Host
+  discovers plugin packages
+  validates manifests and SDK compatibility
+  reconciles installed-state registry against filesystem
+  loads plugins without import-time side effects
+  fires hook handlers and Transform execution
+  applies compatibility adapters
+  bounds outputs and failures
+  quarantines invalid/incompatible plugins
+
+Public SDK / ABI
+  stable types and helper functions plugins may use
+  e.g. ChannelModule, BridgeEnvelopeV1, RunResultV1, ArtifactBlockV1, HookPayloadV1
+
+Compatibility Layer
+  adapts old plugin contract versions to current core contracts
+  e.g. BridgeEnvelopeV2 → V1 plugin input, RunResultV1 → current RunResult, ArtifactBlockV1 → current renderer contract
+
+Plugin Registry / Lockfile
+  records installed plugin id/version/source hash/manifest hash/schema/sdk range
+  records activation state per brand
+  records plugin-owned migrations/resources already applied
+  provides rollback and drift detection
+```
+
+**Core principle:** Do not let plugins bind to the current shape of core. Let them bind only to a stable, versioned extension API.
+
+#### Stable public contracts
+
+Public plugin contracts must be versioned and treated like an API:
+
+```text
+channel.json schema v1
+SKILL.md frontmatter schema v1
+BridgeEnvelope v1
+HookPayload v1
+RunResult v1
+ArtifactBlock v1
+klaroha_sdk v1
+```
+
+Safe changes:
+- add optional fields
+- add new hook points
+- add new artifact types with fallback renderer behavior
+- add SDK helper functions
+- add manifest metadata that old plugins may ignore
+
+Breaking changes:
+- remove fields
+- rename fields
+- change field meaning
+- change hook payload semantics
+- change credential resolution order
+- make installed plugins automatically active
+- require plugins to import new core internals
+
+Unknown fields must be ignored by older plugins. Missing optional fields must receive safe defaults. Required-field changes require a new major contract version plus an adapter or formal deprecation path.
+
+#### Plugin installed-state registry / lockfile
+
+A folder scanner alone says: whatever exists in a source directory right now is truth. That is fragile under git checkout, branch switching, deploy image drift, and partial plugin updates.
+
+A real extension platform says: the installed plugin registry/lockfile is operational truth; the external installed plugin root is an artifact to validate against; bundled core-source examples are not runtime truth.
+
+Example target shape:
+
+```json
+{
+  "plugins": {
+    "google-drive": {
+      "version": "1.3.0",
+      "source_hash": "sha256:abc...",
+      "manifest_schema": "1",
+      "sdk_range": ">=1.0 <2.0",
+      "status": "installed",
+      "active_brands": ["brand_123"],
+      "manifest_hash": "sha256:def...",
+      "migrations_applied": ["001_drive_assets", "002_root_folder"]
+    }
+  }
+}
+```
+
+This prevents rollback-looking behavior where a plugin folder disappears, downgrades, or changes manifest shape without the system noticing. Removing a plugin must be an explicit uninstall/deactivation event, not a side effect of a git operation.
+
+#### Capability release integrity
+
+Every deploy/system update should produce a capability integrity report before the operator trusts the new runtime.
+
+Sample target report:
+
+```json
+{
+  "release": {
+    "git_sha": "abc123",
+    "branch": "main",
+    "image_tag": "klaroha/bos:2026-06-07-abc123",
+    "frontend_build_sha": "abc123",
+    "db_migration_head": "20260607_plugin_hooks",
+    "manifest_hash": "sha256:92af..."
+  },
+  "capability_diff": {
+    "added": [
+      {
+        "module_id": "media.shortform.generate",
+        "source": "api/plugins/media-shortform/SKILL.md",
+        "status": "active",
+        "allowed_from_chat": true
+      }
+    ],
+    "changed": [
+      {
+        "module_id": "creative.post.image",
+        "field": "output_contract",
+        "before": "draft_artifact.v1",
+        "after": "creative_asset.v1"
+      }
+    ],
+    "removed": []
+  },
+  "blocked": false,
+  "warnings": [
+    {
+      "type": "plugin_not_ready",
+      "plugin_id": "google-ads",
+      "reason": "missing GOOGLE_ADS_CUSTOMER_ID"
+    }
+  ]
+}
+```
+
+Forbidden release outcome:
+
+```json
+{
+  "capability_diff": {
+    "removed": ["marketing.planning.strategy_workflow"]
+  },
+  "blocked": false
+}
+```
+
+A previously active capability disappearing after a system update must block or loudly warn unless it has an explicit retirement/uninstall ledger entry with replacement/migration notes. This is separate from `capability_manifest.py`: the manifest remains runtime truth for CMO dispatch, while the release-integrity ledger prevents accidental disappearance, downgrade, duplicate IDs, and rollback-looking drift.
+
+#### Failure quarantine
+
+One bad plugin must never break unrelated capabilities or CMO startup. Invalid plugins are quarantined as data:
+
+```text
+installed: true
+active: false
+status: error
+reason: invalid SKILL.md / incompatible sdk_range / duplicate module_id / import failed
+```
+
+Scanner/import failures must be isolated per plugin. The live manifest should continue to serve all valid active capabilities and surface the faulty plugin as a setup/system warning.
+
+#### Build target, not immediate implementation
+
+This section records the architecture direction. No implementation should begin until a BITE sample is approved for:
+
+1. `channel.json` contribution/compatibility fields
+2. plugin activation record
+3. plugin registry/lockfile state
+4. hook subscription execution
+5. compatibility adapter behavior
+6. capability integrity report
+7. failure quarantine output
+
 ### CMO Capability Registry
 
 `api/capability_manifest.py` is the single source of truth for what the CMO can deploy.
 
-- Generated at runtime from all installed SKILL.md files with `allowed_from_chat: true` and a `module_id`.
+- Generated at runtime from all eligible active SKILL.md files with `allowed_from_chat: true` and a `module_id`.
 - `format_manifest_for_prompt()` produces the deployable capability list injected into the CMO system prompt. Each entry is a `RUN: <module_id>  [Label] — description` line the LLM can copy directly.
 - `build_dispatchable_manifest()` returns typed `CapabilityEntry` objects for API use.
 - **No hardcoded module IDs, platform names, phrase triggers, or dispatch conditions exist anywhere in `routers/chat.py` or `skills/router.py`.** The LLM reads the manifest and uses its own judgment. Each module's SKILL.md owns its activation policy.
-- Adding a new dispatchable capability = add a plugin or capability directory with a valid SKILL.md (`allowed_from_chat: true`, `module_id: <id>`). The manifest and CMO system prompt update automatically on next restart.
+- Adding a new dispatchable capability = add a plugin or capability directory with a valid SKILL.md (`allowed_from_chat: true`, `module_id: <id>`), validate it through the Extension Host, then activate it for the relevant brand/scope. The manifest and CMO system prompt update from active registry state rather than hardcoded route edits.
 - **Target architecture (Phase 4+):** `chat.py` should be a fixed 7-step contract (~100 lines); all cross-cutting concerns (brand-scoping, memory hydration, connector context, `@klar` commands) move into packages subscribing to `bridge.before_transform` and other lifecycle hooks. This eliminates the regression pattern caused by the current monolithic chat endpoint. Full model and BITE mapping: `api/routers/chat_notes.md` § *Architecture Direction — Pi-Pattern Target*.
 
 ### First-party capability shape (non-channel only)
@@ -241,7 +501,9 @@ content atom
 
 **Approval boundary:** generating a video asset is safe; publishing to any external platform is an approved external action. Native publish modules must produce `action_result` artifacts with platform IDs/URLs and changed resources. Bulk publishing without approval is forbidden.
 
-**Creative supply chain (manufacturing layer):** The full architecture for the layer between campaign strategy and channel distribution — Creative Director concept capability, primitive generation, blueprint assembly, render targets, BRAND.md injection, Google Drive as the asset library, and agency role mapping — lives in **`CREATIVE_SUPPLY_CHAIN.md`**. Do not duplicate that detail here.
+**Brand-locked media generation:** For any full media bundle, the CMO brain owns the production blueprint and generates every prompt: text/script, image plates, audio/voice/music, video plates, and stitching instructions. Those prompts must inherit the active Brand's `BRAND.md` / Campaign Brand Kit. Brand alignment is a hard gate: missing brand slots, unsupported claims, fake text in generated media, baked-in logos, off-brand audio/video, unsafe logo/caption placement, or low-contrast rendering block the job before the output reaches review. The final editable `CompositionSpec` JSON is required alongside rendered MP4/PNG/HTML outputs.
+
+**Creative supply chain (manufacturing layer):** The full architecture for the layer between campaign strategy and channel distribution — Creative Director concept capability, primitive generation, blueprint assembly, render targets, BRAND.md injection, Google Drive as the asset library, agency role mapping, and the brand-locked media blueprint — lives in **`CREATIVE_SUPPLY_CHAIN.md`**. Do not duplicate that detail here. BITE sample: `sample/brand_locked_media_production_blueprint_v1.json`.
 
 ---
 
@@ -417,6 +679,14 @@ Backend configuration should support scopes such as:
 
 Provider/model/tool IDs are never shown as normal CMO-facing language. The user experiences business jobs and artifacts — planning, execution, optimization, drafts, findings, recommendations, approvals — while backend routing remains operational infrastructure.
 
+**Google AI Pro as a routing tier (parked direction):** Google One AI Pro (Gemini Advanced, Imagen 3, Veo 2, 2TB Drive) is a candidate provider tier with two models:
+- **Klaroha-pooled:** Klaroha buys Google AI Pro seats; routes image/video generation through Imagen 3 / Veo 2 as pooled capacity. Quota and cost are Klaroha-controlled.
+- **Client-connected:** If a client has Google AI Pro entitlements via their connected Google account, their Imagen / Veo quota becomes an available routing option at no provider cost to Klaroha. Entitlements verified via OAuth scope at routing time.
+
+The 2TB Drive from AI Pro aligns directly with the creative supply chain asset library (Drive integration already in production). Veo 2 slots into the `media.video.generate` routing path; Imagen 3 into `media.image.generate`. Routing would extend the existing precedence chain, checking client-connected entitlements before Klaroha-pooled capacity, before the existing OpenRouter / Runway / BYOK chain.
+
+**Do not build until a BITE sample is approved and the API access model (consumer subscription vs. Vertex AI) is validated.**
+
 ---
 
 ## 4. System Hierarchy: Org $\to$ Brand $\to$ Market Unit $\to$ Campaign
@@ -530,12 +800,28 @@ Lean Admin IA:
 Admin
 ├── Brands / Clients        # brand memory, products, audiences, guidelines, brand kit, per-brand OAuth accounts
 ├── Campaign Plans          # marketing.plan intent setup, not channel checkboxes
-├── Specialists             # installed plugins/capabilities; implemented jobs/readiness/risk + connector status/setup
+├── Specialists             # installed+active specialists only; implemented jobs/readiness/risk + connector status/setup
 ├── Outcomes                # monthly reviews, campaign reports, approved learnings
 └── System                  # AI providers, billing, run logs/debug
 ```
 
 Run logs, raw module IDs, provider/model choices, and BITE traces are system/debug information. They must not be the normal owner-facing marketing workflow.
+
+**Specialists UX rule:** normal Admin and CMO surfaces show installed/active plugins only. Like WordPress, a plugin's capabilities do not appear until the plugin is installed. Like VS Code, extension commands do not appear until the extension is enabled. Bundled SDK examples, available marketplace packages, and source-tree plugin folders must not create Specialist cards, missing-credential warnings, CMO manifest entries, or RUN-able capabilities.
+
+Recommended split:
+
+```text
+Specialists / Installed
+  installed packages only
+  active/readiness/connector status per Brand
+  configure, validate, activate/deactivate, uninstall
+
+Marketplace / Available
+  optional discovery catalog
+  install action only
+  not dispatchable, not in CMO manifest, no connector prompts
+```
 
 ### Chat Bridge & REST API
 - **Chat Bridge:** Translates external messages (WhatsApp, etc.) into BOS API calls.
@@ -899,6 +1185,40 @@ All other values (database URL, secret keys, encryption key) are auto-generated 
 ### Current State vs. Target
 Today a deployment requires `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `META_APP_ID`, `META_APP_SECRET`, and all other platform credentials set manually in `.env`. The relay closes this gap entirely. Until the relay is built, new deployments require manual Google Cloud and Meta app setup, which blocks clean customer onboarding for any org that wants Gmail, Calendar, Drive, YouTube, or Facebook connected.
 
+### Managed Provisioning Path (Near-Term)
+Before the relay and first-boot-init are built, Klaroha provisions client instances using a managed wizard-of-oz model. From the client's perspective it looks like automated provisioning; internally a Klaroha operator runs a playbook.
+
+**Flow:**
+1. Client signs up on klaroha.com — enters business name, preferred subdomain slug, brand brief (upload or short form), selects plan, pays via Stripe
+2. Stripe webhook on payment confirmation notifies Klaroha operator
+3. Operator spins up VPS, deploys stack, runs brand onboarding wizard, tests golden path (CMO chat → artifact → Stream)
+4. Client receives login URL at `slug.klaroha.com` — SLA: 24 hours; internal ops target: 10–15 minutes
+
+**Subdomain default:** `clientname.klaroha.com` is the default endpoint. Klaroha controls this DNS — propagation is instant. Custom domain is a post-signup optional step. Clients never need to touch their domain registrar to go live.
+
+**VPS provider abstraction:** The underlying VPS provider (Contabo, DigitalOcean, Hetzner, etc.) is an internal Klaroha ops decision, not a client concern. The install script targets standard Ubuntu + Docker Compose — provider can be switched per deployment without client awareness. Client-facing language: "Klaroha manages your infrastructure."
+
+**Runbook is the automation spec:** As provisioning volume grows, each manual operator step is a candidate for scripting. The wizard-of-oz model runs until each step is reliably automatable, then that step is replaced. This is the build-toward path for first-boot-init and the relay.
+
+**Light SaaS / multi-tenant deprioritized:** The managed provisioning + subdomain model achieves the same zero-friction UX goal — no VPS management, no DNS friction, no OAuth setup for the client — without multi-tenancy. Multi-tenant SaaS remains rejected (data isolation requirement stands). Revisit only if a clear segment emerges that needs fully hosted shared infrastructure with no data-isolation requirement.
+
+### Pricing Model
+Flat monthly subscription with bundled AI credits. Clients pay one number; Klaroha buys provider capacity wholesale and bundles it at a markup.
+
+**Credit transparency:** The pricing page shows approximate generation counts per plan tier, not raw tokens. Clients understand "~200 images / ~20 videos / ~500 marketing copy runs per month" — they do not need to understand token counts or provider costs.
+
+**Cost layers (internal):**
+
+| Layer | Cost to Klaroha | Bundled into plan |
+|---|---|---|
+| VPS per client instance | ~$12–24/mo depending on provider | Yes |
+| AI provider credits (OpenRouter, Runway, ElevenLabs, Kling, etc.) | Variable, pay-per-use at API rate | Yes — at markup |
+| Klaroha software + support + ops margin | Internal target | Yes |
+
+**Provider model:** Klaroha buys AI generation capacity wholesale from providers and resells it bundled in plans — same model as Higgsfield and similar AI generation platforms. Clients never see provider names or manage API credentials under this model.
+
+**Payment layer:** Stripe handles subscription billing, card capture, SCA/3DS compliance, and usage metering webhooks. Near-term: Stripe Payment Links (no custom checkout UI required to start). Stripe webhook on payment confirmation triggers the provisioning workflow. Usage is tracked per `KLAROHA_DEPLOYMENT_KEY`; significant overage is surfaced via in-app notification.
+
 ### Distribution Targets
 | Platform | Priority | Notes |
 |---|---|---|
@@ -927,6 +1247,10 @@ Each deployed instance checks a Klaroha version endpoint periodically. When a ne
 
 | Version | Date | Changes |
 |---|---|---|
+| 3.55 | 2026-06-07 | **Extension Host + compatibility/release integrity architecture:** Captured the missing mature-extensibility layer behind repeated plugin/capability breakage and rollback-looking behavior. BOS needs an Extension Host between core and plugins, a stable public SDK/ABI, compatibility adapters for old contract versions, an installed-state registry/lockfile as operational truth, before/after capability integrity diffing, explicit retirement/uninstall ledger behavior, and per-plugin failure quarantine. Locked Rules 20–24 added. Appendix B.16–B.19 added. This is architecture direction only — no implementation until a BITE sample covers manifest fields, activation state, lockfile state, hook execution, compatibility adapters, integrity report, and quarantine output. |
+| 3.54 | 2026-06-07 | **Plugin lifecycle architecture — hooks, activation state, contribution points:** Documented the missing layer above the plugin contract. Three concepts: (1) Hook system (action + filter) — core publishes named lifecycle events, plugins subscribe; core never imports plugins; plugins never modify core. (2) Activation state — installed ≠ active; per-brand `PluginActivation` DB record required before a plugin touches any pipeline run; `on_activate`/`on_deactivate` lifecycle events. (3) Contribution points — plugins declare hook subscriptions, capability IDs, and credential injector keys in `channel.json`; host wires at activation; no imperative injection into core. Locked Rules 17–19 added. Root-cause connection made explicit: the `chat.py` monolith accumulation, the manually-maintained `inject_channel_credentials()` list, and repeated Locked Rule #1 violations all trace to the absence of a hook system. B.13–B.15 added to Appendix B; gaps 4–6 added to B.12. These are architecture principles and guidelines, not a build spec — no implementation until a BITE sample of the hook contract and activation model is approved. |
+| 3.53 | 2026-06-07 | **Managed provisioning model + pricing direction:** Locked near-term client onboarding as wizard-of-oz managed provisioning — client signs up on klaroha.com, Klaroha provisions VPS and deploys instance within 24hrs (10–15min ops target). Subdomain default (`slug.klaroha.com`) eliminates DNS registrar friction; custom domain is post-signup optional. VPS provider abstracted from client — standard Ubuntu + Docker Compose install script; Klaroha switches providers without client awareness. Stripe for payment (Payment Links near-term, subscription + metering long-term). Pricing: flat monthly with consumption transparency (generation counts on pricing page, not raw tokens); Klaroha buys AI credits wholesale and bundles at markup (Higgsfield model). Light SaaS / multi-tenant path deprioritised in favour of this model — same zero-friction UX without shared infrastructure. Google AI Pro (Gemini, Veo 2, Imagen 3, 2TB Drive) added as a parked routing tier direction — client-connected or Klaroha-pooled; requires BITE sample and API access model validation before build. |
+| 3.52 | 2026-06-06 | **Brand-locked media production direction:** Added `sample/brand_locked_media_production_blueprint_v1.json` as the BITE sample for CMO-brain-generated text/image/audio/video/stitch prompts. Full media generation now treats active Brand guidelines / `BRAND.md` as a hard gate: required brand slots must be present; specialists execute CMO-generated prompts; AI plates may not bake in logos/text; final logo, typography, captions, CTA, colors, safe zones, timing, and transitions are applied through editable `CompositionSpec` JSON; render/review is blocked when brand compliance fails. Full detail in `CREATIVE_SUPPLY_CHAIN.md`. |
 | 3.51 | 2026-06-04 | **Public lead-capture demo direction parked:** Added `PUBLIC_LEAD_CAPTURE_DEMO.md` for the public website/PDF/text → Business Profile Draft → correction chat → Marketing Plan Preview → email/waitlist flow. Critical constraint recorded: the public wrapper must call/reuse the internal `marketing.planning.strategy_workflow` capability server-side; it must not duplicate planning prompts, output structure, or maintain a second public planning capability. The rough HTML sample at `sample/public_website_to_plan_demo_klaroha.html` is visual/conversation exploration only, not an approved implementation sample. |
 | 3.49 | 2026-06-04 | **Strategy Workflow: per-component re-run + parser fixes + web rebuild.** `PATCH /strategy-workflows/:id/components/:type` now executes real LLM calls: routes via `capability_router.route()` + `execute_live()`, builds a per-component prompt injecting brand context + upstream component data from DB, parses typed field dicts per component type (buyer_map, strategic_thesis, offer_architecture, channel_stack, tactical_funnel, work_orders), cascades stale to dependents per the DAG in `STRATEGY_WORKFLOW.md`, and bumps `version`. Not-wired components fall back to stale-marking only. **Bug fix — channel_stack.do_now always empty:** `_do_now_channels()` in `StrategyWorkflowModule` only handled the template-spec format (`Do now:\n**Channel**`). LLMs generate two additional formats: `Do now: **Channel**` (label + channel inline) and `### Do now: **Channel**` (heading merged with channel name). Fixed by checking the inline pattern first (horizontal-whitespace-only between label and `**`) before falling back to the template-spec parser. Same fix applied to the per-component PATCH parser. Channel_stack summaries now populate correctly for new runs. Existing DB records retain `do_now: []` — the `raw` field is correct and can be re-parsed if needed. **Bug fix — Stream showed "Campaign Plan" + ApprovalBundle for strategy_workflow artifacts:** Web container was built on 2026-06-03, before `StrategyWorkflowStreamCard` and the `artifactTitle` strategy_workflow check were committed. The old build fell through to `includes('plan') → "Campaign Plan"` and rendered standard ApprovalBundle (Dismiss/Revise/Approve). Fixed by rebuilding web container. Stream now correctly renders `StrategyWorkflowStreamCard` (archetype chip, motion, wedge, component count, "Open Strategy Workflow →" nav button). Known open data issue: `WorkflowRun.request` is always `""` — the CMO chat message is not captured in the brief when the module is dispatched. |
 | 3.47 | 2026-06-03 | **Bug fixes + planning module cleanup:** `marketing.plan.campaign_strategy` retired (`status: retired`, `allowed_from_chat: false`) — `marketing.planning.gtm_plan` is now the sole planning module; all plan triggers route there. `CmoChat` moved to Layout shell level (`display:none` when not on /cmo) so in-flight streams and React state survive navigation. Upstream contract failures in `_execute_module` now persist a failed Run before re-raising so chat surfaces an error artifact reference instead of silently yielding nothing. Backend override for `image_gen_provider`/`image_gen_model` in `plugin_loader.py` uses assignment (not `setdefault`) so operator config is never silently ignored. |
@@ -1134,3 +1458,87 @@ Pi's async factory pattern allows one-time startup work before the pipeline runs
 1. Typed JSONL event lifecycle (run_start → step_start → delta → step_end → run_end) is not yet consistently enforced across all run types.
 2. Explicit `AbortSignal` / cancellation propagation into `module.py` `execute()` is not implemented.
 3. Output truncation with annotation is ad hoc — no standard utility function shared across modules.
+4. Hook / event system not yet implemented — cross-cutting plugin behaviors are hardcoded in `chat.py` and `runs.py` rather than declared as plugin hook subscriptions.
+5. Plugin activation state not yet fully modelled — externally installed plugins can still become runtime-visible without a complete per-brand activation lifecycle.
+6. Contribution points not yet declarative — plugins do not declare hook subscriptions in `channel.json`; the host manually wires credential injection and context enrichment.
+7. Extension Host not yet implemented — plugin loading, manifest validation, compatibility adaptation, hook execution, and failure quarantine are not isolated from core.
+8. Stable public SDK/ABI versioning is not yet formalized — plugins can still couple to current core contract shape.
+9. Plugin installed-state registry/lockfile does not exist — external install-root scans can still create rollback-looking behavior after deploy or partial plugin updates.
+10. Capability release-integrity diffing is not yet implemented — unexpected capability removals/downgrades are not blocked before runtime.
+
+### B.13 Hook system — extension points, not injection points
+
+WordPress, VSCode, and pi.dev all share the same core mechanism: the host publishes a stable event surface; extensions subscribe. The host never imports extensions; extensions never modify the host.
+
+The distinction matters because without hooks, every new plugin behavior that touches the pipeline requires a core file change. With hooks, the pipeline is a fixed spine of named events; new behaviors are subscriptions that appear and disappear without core knowing.
+
+**BOS guideline:** Any behavior a plugin needs to add to the pipeline should be expressed as a hook subscription. The hook name is the API contract. Adding a new hook point is always safe. Renaming or removing one is a breaking change subject to the same deprecation policy as brief fields. When cross-cutting concerns accumulate in `chat.py` or `runs.py`, the correct diagnosis is a missing hook point, not a larger core function.
+
+Action hooks fire at lifecycle boundaries and carry data the plugin may read. Filter hooks fire when data is in transit and expect the plugin to return a (possibly modified) copy. Both follow the same subscription pattern — the difference is whether the return value matters.
+
+### B.14 Activation state — installed is not the same as active
+
+Pi loads extensions lazily on declared activation events. VSCode activates extensions when their contribution points are first needed. WordPress requires explicit admin activation per site.
+
+The shared principle: presence in the file system is not permission to run. An extension must pass through an explicit activation gate before it participates in any production operation.
+
+**BOS guideline:** A plugin package in the external installed plugin root and recorded by the installed-state registry is installed. A bundled directory under `api/plugins/` is SDK/example source, not installed runtime state. A `PluginActivation` DB record is active. The capability manifest serves only active plugins. Activation is per-brand — a plugin active for one brand is invisible to another. The `on_activate` and `on_deactivate` lifecycle events are the plugin's only opportunity for setup and teardown; they must not be simulated by logic inside `execute()`.
+
+Treating directory presence as live activation is the pattern that makes third-party plugin development unsafe. An external developer should be able to install and test a plugin against a staging brand without it touching any other brand's pipeline.
+
+### B.15 Contribution points — declare, don't inject
+
+WordPress plugins declare contributions (`register_post_type`, `add_menu_page`). VSCode extensions declare a `contributes` block in `package.json`. The host reads the declaration and wires the contribution — the plugin never touches the host's internal registry, route table, or prompt builder directly.
+
+**BOS guideline:** A plugin declares in `channel.json` what it contributes: capability IDs, hook subscriptions, credential injector key names, and CMO manifest entries. The host reads these at activation time and wires them. A plugin that instead imperatively injects itself into core routes, models, or system prompt logic is bypassing this boundary.
+
+The practical test: if removing an installed plugin requires editing any core file, the contribution boundary has been violated. A clean plugin leaves core unchanged whether it is active or not.
+
+### B.16 Extension Host — plugin runtime, not just folder scanning
+
+A filesystem scanner discovers candidates; an Extension Host governs runtime participation. Mature extensible systems separate these concerns. VSCode has an extension host process; WordPress has activation + plugin APIs; operating systems expose stable syscalls/drivers APIs rather than letting apps call kernel internals directly.
+
+**BOS guideline:** Introduce an Extension Host boundary responsible for manifest validation, SDK compatibility checks, activation-state reconciliation, hook dispatch, Transform invocation, output bounding, and failure quarantine. Core routes should call the Extension Host through stable methods rather than importing or inspecting plugin internals.
+
+The Extension Host is not a new strategy brain. It is infrastructure: the protective runtime boundary that lets plugins come and go without rewriting the BOS kernel.
+
+### B.17 Compatibility adapters — old plugins bind to old contracts safely
+
+Backwards compatibility requires more than version numbers. When core evolves from one Bridge/Run/Artifact shape to another, older plugins must either keep receiving their declared contract version or be explicitly marked incompatible.
+
+**BOS guideline:** Plugins declare the contract/schema/SDK versions they support. The Extension Host adapts current core payloads into the plugin's declared input version and adapts plugin outputs back into the current core output version where safe.
+
+Example:
+
+```text
+BridgeEnvelopeV2 → adapter → BridgeEnvelopeV1 plugin input
+RunResultV1 plugin output → adapter → current RunResult
+ArtifactBlockV1 → adapter/fallback renderer → current artifact plane
+```
+
+Adding optional fields is compatible. Removing, renaming, or changing semantics is not. Compatibility shims may be removed only through a formal deprecation policy and visible readiness report.
+
+### B.18 Installed-state registry / lockfile — operational truth beats directory truth
+
+Directory presence is an implementation detail, not the whole installed state. Core source directories are not runtime plugin truth. Git branch switching, stale deploy images, or partial plugin updates can make filesystem scans look like capability rollback.
+
+**BOS guideline:** Track installed plugins in a registry/lockfile with plugin id, version, source hash, manifest hash, manifest schema, SDK range, activation state per brand, and plugin-owned migrations/resources. On startup/deploy, reconcile filesystem against this registry and report drift.
+
+Removing a plugin should be an explicit uninstall/deactivation event. Downgrading a plugin should be visible. A plugin folder that disappears unexpectedly should not silently erase active capabilities from the CMO manifest without a release-integrity warning/block.
+
+### B.19 Capability release integrity and failure quarantine
+
+A system update should be able to answer: what capabilities existed before, what exists after, which changed, which disappeared, and whether each disappearance was intentional.
+
+**BOS guideline:** Every deploy/update should generate a manifest hash and capability diff. Unexpected removals, duplicate module IDs, incompatible SDK ranges, manifest parse failures, or plugin hash drift should block or loudly warn according to risk. A capability retirement/uninstall ledger is required for intentional removals.
+
+One faulty plugin must never crash core or hide unrelated capabilities. Bad plugins are quarantined with structured status:
+
+```text
+installed: true
+active: false
+status: error
+reason: invalid SKILL.md / incompatible sdk_range / duplicate module_id / import failed
+```
+
+The live CMO manifest continues serving valid active capabilities while the faulty plugin appears as an Admin/System readiness issue.

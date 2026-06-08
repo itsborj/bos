@@ -239,9 +239,9 @@ Inactive plugin capabilities do not appear in the manifest response.
 > D1 and D2 fix Admin noise immediately. D3 is the staging gate — must complete before any staging deploy.
 > Full analysis: `api/plugins/PLUGIN_LIFECYCLE_GAPS.md § Agreed deliverables`.
 
-- [ ] T110 · D1 (operator): Copy 6 workflow plugins from `api/plugins/` → `~/bos-plugins/`: `youtube`, `meta`, `media-image`, `media-video`, `creative-factory`, `google-drive`. Commands in `PLUGIN_LIFECYCLE_GAPS.md § Phase 0 — Containment`. After copy, Admin should show only externally installed plugins.
-- [ ] T111 · D2 (operator): Remove `KLAROHA_LOAD_INTERNAL_PLUGINS=true` from `.env`. Run `docker compose up -d api`. Confirm Admin → Specialists shows ≤8 plugin cards (external installs only).
-- [ ] T112 · D3 (staging gate): Clear 6 org-wide `plugin_activations` rows (`brand_id=null`, `status=active`). Recreate brand-scoped for Klaroha brand `c1cb6603-e8d4-4e63-8995-640453d5b50b` via `POST /api/plugins/{id}/activate`. Affected plugin IDs: `media.image`, `media.video`, `creative.factory`, `channel.meta`, `google.drive`, `channel.youtube`. SQL to verify: `SELECT plugin_id, brand_id, status FROM plugin_activations WHERE status = 'active' AND brand_id IS NULL`.
+- [x] T110 · D1 (operator): Copy 6 workflow plugins from `api/plugins/` → `~/bos-plugins/`. Done — 8 external plugins load (6 + hello + gbp-completeness). All `source: external`, bundled api/plugins/ no longer appear.
+- [x] T111 · D2 (operator): Remove `KLAROHA_LOAD_INTERNAL_PLUGINS=true` from `.env`. Done — set to `false`; API restarted; 8 external-only plugins confirmed. Fixed `gbp-completeness/channel.json` missing `key` field in credential_slot.
+- [x] T112 · D3 (staging gate): Clear org-wide rows + recreate brand-scoped. Done — 0 org-wide active rows; 6 brand-scoped active rows for Klaroha brand `c1cb6603-e8d4-4e63-8995-640453d5b50b`.
 
 Acceptance:
 ```text
@@ -255,9 +255,9 @@ A second Brand created on staging sees no plugins active unless explicitly activ
 
 ## Phase 8 — Final Validation
 
-- [ ] T080 Run `specs/001-thin-core-proof/quickstart.md` V1–V7.
-- [ ] T081 Record pass/fail notes in the implementation PR or task log.
-- [ ] T082 Confirm architecture tests all answer `no`:
+- [x] T080 Run `specs/001-thin-core-proof/quickstart.md` V1–V7. **Done — all 7 checks pass (see T081).**
+- [x] T081 Record pass/fail notes in the implementation PR or task log. **Done — V1: 3 tests (empty root, no error_states, dirs without channel.json), PASS. V2: channel.hello shows installed+inactive, PASS. V3: 6 brand-scoped active plugins for Klaroha, PASS. V4: deactivate with query param works (brand-scoped inactive row confirmed), PASS. V5: 0 quarantined plugins, 8 installed, covered by T023 quarantine tests, PASS. V6: AdminModules.tsx derives entirely from plugin manifests, no hardcoded platform names, PASS. V7: no forbidden BOS internal imports in ~/bos-plugins/ (only klaroha_sdk which is allowed), PASS.**
+- [x] T082 Confirm architecture tests all answer `no`. **Done — all 13 answer no: no platform-before-install, no platform-specific core, no core edit required, no uninstalled-plugin warnings, no inactive capabilities in manifest, KLAROHA_LOAD_INTERNAL_PLUGINS=false, no workflow opinion in core, no chat-router platform branches, no new primitives, council/capabilities have no BOS internal imports, sample-first followed, artifact types not confused, no artifact banning.**
 
 ```text
 Does this make a platform visible before its plugin is installed?

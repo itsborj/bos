@@ -171,6 +171,20 @@ export function AdminBrands() {
         showToast(`⚠️ Google Drive connection failed — ${reason.replace(/_/g, ' ')}`);
       }
     }
+    const gbp = searchParams.get('google_business');
+    if (gbp) {
+      setSearchParams({}, { replace: true });
+      if (gbp === 'connected') {
+        const account = searchParams.get('account') || 'Google Business Profile';
+        showToast(`✅ Google Business Profile "${account}" connected`);
+        api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
+      } else if (gbp === 'denied') {
+        showToast('Google Business Profile connection cancelled');
+      } else {
+        const reason = searchParams.get('reason') || 'unknown';
+        showToast(`⚠️ Google Business Profile connection failed — ${reason.replace(/_/g, ' ')}`);
+      }
+    }
   }, []);
 
   async function handleCreate() {
@@ -318,6 +332,19 @@ export function AdminBrands() {
     }
   }
 
+  async function handleConnectGoogleBusiness(brandId: string) {
+    setConnectingId(brandId + '_google_business');
+    try {
+      const res = await api.startSocialConnect(brandId, 'google_business');
+      window.location.href = res.authorize_url;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'check Google OAuth settings';
+      showToast(`⚠️ Could not start Google Business Profile connect — ${msg}`);
+    } finally {
+      setConnectingId(null);
+    }
+  }
+
   async function handleDisconnectTikTok(brandId: string) {
     const conn = connections.find(c => c.brand_id === brandId && c.platform === 'tiktok');
     if (!conn) return;
@@ -340,6 +367,19 @@ export function AdminBrands() {
       setConnections(prev => prev.filter(c => c.id !== conn.id));
       setDriveRoots(prev => { const next = { ...prev }; delete next[brandId]; return next; });
       showToast('Google Drive disconnected');
+    } catch {
+      showToast('⚠️ Could not disconnect — try again');
+    }
+  }
+
+  async function handleDisconnectGoogleBusiness(brandId: string) {
+    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'google_business');
+    if (!conn) return;
+    if (!window.confirm(`Disconnect Google Business Profile "${conn.page_name || conn.page_id}"?`)) return;
+    try {
+      await api.disconnectSocial(conn.id);
+      setConnections(prev => prev.filter(c => c.id !== conn.id));
+      showToast('Google Business Profile disconnected');
     } catch {
       showToast('⚠️ Could not disconnect — try again');
     }
@@ -441,7 +481,7 @@ export function AdminBrands() {
   return (
     <div className="admin-page">
       {toast && (
-        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--fg)', color: 'var(--bg)', padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 9999, boxShadow: '0 4px 20px rgba(0,0,0,.2)' }}>
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--obsidian)', color: 'var(--ivory)', padding: '10px 20px', borderRadius: 0, fontSize: 13, fontWeight: 600, zIndex: 9999, border: '.5px solid var(--border-dark)' }}>
           {toast}
         </div>
       )}
@@ -472,11 +512,11 @@ export function AdminBrands() {
             <button className="btn btn-dark btn-sm" onClick={handleCreate} disabled={saving || !newName.trim()}>
               {saving ? '…' : 'Create'}
             </button>
-            <button className="btn btn-secondary btn-sm" onClick={() => { setAdding(false); setNewName(''); }}>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setAdding(false); setNewName(''); }}>
               Cancel
             </button>
           </div>
-          {error && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 8 }}>{error}</div>}
+          {error && <div style={{ fontSize: 12, color: 'var(--error)', marginTop: 8 }}>{error}</div>}
           <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 8 }}>
             Create the brand first, then import a Brand Brief to set voice, tone, products, and audiences.
           </div>
@@ -527,7 +567,7 @@ export function AdminBrands() {
               </button>
             )}
           </div>
-          {error && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 12 }}>{error}</div>}
+          {error && <div style={{ fontSize: 12, color: 'var(--error)', marginTop: 12 }}>{error}</div>}
           <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 16 }}>
             "Import from workspace" promotes your existing brand profile, products, audiences, and documents into a named brand.
           </div>
@@ -595,6 +635,7 @@ export function AdminBrands() {
                   const ytConn = connections.find(c => c.brand_id === brand.id && c.platform === 'youtube');
                   const ttConn = connections.find(c => c.brand_id === brand.id && c.platform === 'tiktok');
                   const gdConn = connections.find(c => c.brand_id === brand.id && c.platform === 'google_drive');
+                  const gbpConn = connections.find(c => c.brand_id === brand.id && c.platform === 'google_business');
                   return (
                     <>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
@@ -691,6 +732,35 @@ export function AdminBrands() {
                         )}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <span style={{ fontSize: 13 }}>📍</span>
+                        {gbpConn ? (
+                          <>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{gbpConn.page_name || gbpConn.page_id}</span>
+                            <span className={`status-badge ${gbpConn.status === 'connected' ? 'approved' : 'pending'}`} style={{ fontSize: 10 }}>
+                              {gbpConn.status === 'connected' ? 'Connected' : 'Setup blocked'}
+                            </span>
+                            {gbpConn.status !== 'connected' && (
+                              <button className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleConnectGoogleBusiness(brand.id)} disabled={connectingId === brand.id + '_google_business'}>
+                                {connectingId === brand.id + '_google_business' ? 'Redirecting…' : 'Reconnect'}
+                              </button>
+                            )}
+                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectGoogleBusiness(brand.id)}>Disconnect</button>
+                          </>
+                        ) : (
+                          <>
+                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>Google Business Profile</span>
+                            <button
+                              className="btn btn-secondary btn-sm"
+                              style={{ fontSize: 11, padding: '3px 10px' }}
+                              onClick={() => handleConnectGoogleBusiness(brand.id)}
+                              disabled={connectingId === brand.id + '_google_business'}
+                            >
+                              {connectingId === brand.id + '_google_business' ? 'Redirecting…' : 'Connect'}
+                            </button>
+                          </>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
                         <span style={{ fontSize: 13 }}>✉️</span>
                         {gmConn ? (
                           <>
@@ -748,20 +818,20 @@ export function AdminBrands() {
 
                 <div style={{ display: 'flex', gap: 8, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
                   <button
-                    className="btn btn-dark btn-sm"
+                    className="btn btn-ghost btn-sm"
                     onClick={() => navigate(`/admin/brands/${brand.id}`)}
                   >
                     Manage
                   </button>
                   <button
-                    className="btn btn-secondary btn-sm"
+                    className="btn btn-ghost btn-sm"
                     onClick={() => navigate('/admin/campaigns', { state: { brand_id: brand.id, brand_name: brand.name } })}
                   >
                     Campaigns
                   </button>
                   <button
-                    className="btn btn-ghost btn-sm"
-                    style={{ marginLeft: 'auto', color: '#dc2626' }}
+                    className="btn btn-danger btn-sm"
+                    style={{ marginLeft: 'auto' }}
                     onClick={() => handleDelete(brand.id)}
                     disabled={deletingId === brand.id}
                   >

@@ -126,14 +126,17 @@ class DriveClient:
         r.raise_for_status()
         return r.json().get("files", [])
 
-    def search_files(self, mime_types: list[str]) -> list[dict]:
-        """Search the entire connected Drive for files matching any of the given MIME types.
+    def search_files(self, mime_types: list[str], parent_id: Optional[str] = None) -> list[dict]:
+        """Search the connected Drive for files matching any of the given MIME types.
 
-        No parent constraint — works across all subfolders. Use when the caller wants to
-        pick any matching file from the brand's Drive (e.g. the image/video swap picker).
+        If parent_id is supplied, constrain the search to that folder's direct children.
+        Without parent_id it searches across Drive, which is useful for global asset
+        lookup and backward-compatible picker behavior.
         """
         mime_q = " or ".join(f"mimeType = '{m}'" for m in mime_types)
         q = f"({mime_q}) and trashed = false"
+        if parent_id:
+            q += f" and '{parent_id}' in parents"
         params: dict = {
             "q": q,
             "fields": "files(id,name,mimeType,size,webViewLink,thumbnailLink)",

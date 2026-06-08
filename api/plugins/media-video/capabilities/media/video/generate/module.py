@@ -30,8 +30,13 @@ _VEO_POLL_BASE = "https://generativelanguage.googleapis.com/v1beta"
 _VEO_POLL_INTERVAL = 8   # seconds between polls
 _VEO_MAX_POLLS = 45      # ~6 minutes total
 
+# ByteDance ModelArk — Seedance via async task API
+_MODELARK_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3"
+_MODELARK_POLL_INTERVAL = 4   # seconds
+_MODELARK_MAX_POLLS = 45      # ~3 minutes
+
 # Providers — kling reserved for future
-_KNOWN_PROVIDERS = frozenset({"gemini", "seedance", "local_ffmpeg", "custom", "custom_http"})
+_KNOWN_PROVIDERS = frozenset({"gemini", "seedance", "local_ffmpeg", "custom", "custom_http", "bytedance"})
 
 _ASPECT_SIZES: dict[str, tuple[int, int]] = {
     "9:16": (1080, 1920),
@@ -211,6 +216,58 @@ def _generate_gemini_veo(api_key: str, prompt: str, aspect_ratio: str, duration:
     raise ValueError(f"Veo prediction has no recognisable video field: {list(pred)}")
 
 
+def _generate_bytedance_modelark(api_key: str, model_id: str, prompt: str, aspect_ratio: str, duration: float, output_path: str) -> str:
+    """Submit a video generation task to BytePlus ModelArk and poll until done.
+    Returns the temporary video URL; does not save to disk (caller handles download if needed)."""
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+        "User-Agent": "BOS/1.1",
+    }
+    # Clamp duration to ModelArk accepted range
+    ark_duration = int(max(4, min(10, duration)))
+    payload = {
+        "model": model_id,
+        "content": [{"type": "text", "text": prompt}],
+        "resolution": "480p",
+        "ratio": aspect_ratio.replace(":", "x") if ":" in aspect_ratio else "16x9",
+        "duration": ark_duration,
+        "generate_audio": False,
+        "watermark": True,
+    }
+    # Use ratio format ModelArk expects
+    payload["ratio"] = aspect_ratio  # e.g. "16:9" is accepted by ModelArk
+    create_req = Request(
+        f"{_MODELARK_BASE}/contents/generations/tasks",
+        data=json.dumps(payload).encode("utf-8"),
+        headers=headers,
+        method="POST",
+    )
+    with urlopen(create_req, timeout=30) as r:
+        task_id = json.loads(r.read())["id"]
+
+    for _ in range(_MODELARK_MAX_POLLS):
+        time.sleep(_MODELARK_POLL_INTERVAL)
+        poll_req = Request(
+            f"{_MODELARK_BASE}/contents/generations/tasks/{task_id}",
+            headers={"Authorization": f"Bearer {api_key}", "User-Agent": "BOS/1.1"},
+        )
+        with urlopen(poll_req, timeout=15) as r:
+            data = json.loads(r.read())
+        status = data.get("status")
+        if status == "succeeded":
+            video_url = data["content"]["video_url"]
+            vid_req = Request(video_url, headers={"User-Agent": "BOS/1.1"})
+            with urlopen(vid_req, timeout=120) as r:
+                with open(output_path, "wb") as fh:
+                    fh.write(r.read())
+            return video_url
+        if status in ("failed", "cancelled"):
+            raise RuntimeError(f"ModelArk task {status}: {data.get('error', {})}")
+
+    raise TimeoutError(f"ModelArk video task did not complete in {_MODELARK_MAX_POLLS * _MODELARK_POLL_INTERVAL}s")
+
+
 def _generate_http_provider(provider_url: str, api_key: str, payload: dict, output_path: str) -> str | None:
     """Generic HTTP video provider (Seedance, custom). Returns external URL if available."""
     req = Request(
@@ -343,6 +400,15 @@ class MediaVideoGenerateModule(ChannelModule):
                     return self._fail(start, provider, "missing_credentials", "Gemini platform key not configured — set PLATFORM_GEMINI_KEY")
                 external_video_url = _generate_gemini_veo(_pk, prompt, aspect_ratio, duration, output_path)
 
+            elif provider == "bytedance":
+                _pk = str(creds.get("provider_api_key") or creds.get("video_gen_api_key") or "").strip()
+                if not _pk:
+                    return self._fail(start, provider, "missing_credentials", "ByteDance ModelArk API key not configured — add it via Admin → AI Providers")
+                model_id = str(creds.get("video_gen_model") or "").strip()
+                if not model_id:
+                    return self._fail(start, provider, "missing_credentials", "No ByteDance model selected — choose one via Admin → AI Providers → Media Generation")
+                external_video_url = _generate_bytedance_modelark(_pk, model_id, prompt, aspect_ratio, duration, output_path)
+
             elif provider in ("seedance", "custom", "custom_http"):
                 if not provider_url.startswith("http"):
                     return self._fail(start, provider, "missing_credentials", f"VIDEO_GEN_API_URL not configured for {provider} provider")
@@ -428,6 +494,8 @@ class MediaVideoGenerateModule(ChannelModule):
     def self_check(self, content: str, brief: dict) -> tuple[str, list[str]]:
         failures = []
         lowered = content.lower() if isinstance(content, str) else ""
+        if "video generation failed" in lowered:
+            failures.append("generation_failed")
         if "video generated" not in lowered and "video generation failed" not in lowered:
             failures.append("missing_video_status")
         return ("fail" if failures else "pass"), failures

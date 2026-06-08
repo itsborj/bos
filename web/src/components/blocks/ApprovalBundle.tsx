@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { api } from '../../api/client';
 import { useUI } from '../../context/UIContext';
 import { GoogleSearchPreview } from './previews/GoogleSearchPreview';
@@ -12,6 +12,9 @@ import { TwitterFeedPreview } from './previews/TwitterFeedPreview';
 import type { ChatHistoryItem, RunResponse } from '../../api/types';
 
 type DriveFile = { id: string; name: string; mimeType: string; size?: number; webViewLink?: string; thumbnailLink?: string };
+type DriveFolder = { id: string; name: string };
+type SocialConnection = { id: string; brand_id: string | null; platform: string; page_id: string; page_name: string | null; page_handle: string | null; status: string };
+type PublishOption = { action: string; moduleId: string; label: string; platform: string; connected: boolean; accountLabel?: string };
 
 interface ApprovalBundleProps {
   run: RunResponse;
@@ -22,7 +25,7 @@ interface ApprovalBundleProps {
   revisionHistory?: ChatHistoryItem[];
 }
 
-type ReviewStatus = 'pending' | 'draft' | 'dismissed' | 'approved';
+type ReviewStatus = 'pending' | 'draft' | 'dismissed' | 'approved' | 'failed';
 
 function titleCase(value: string): string {
   return value
@@ -41,6 +44,7 @@ function artifactTitle(run: RunResponse, platformLabel: string): string {
   if (moduleId.includes('marketing.plan')) return 'Marketing Plan';
   if (moduleId.includes('email') && moduleId.includes('plan')) return 'Email Campaign Plan';
   if (moduleId.includes('email') || platformLabel.toLowerCase().includes('email')) return 'Email Draft';
+  if (moduleId.includes('gbp') || platformLabel.toLowerCase().includes('google business')) return 'Google Business Profile Audit';
   if (moduleId.includes('plan')) return 'Campaign Plan';
   if (moduleId.includes('report') || moduleId.includes('analytics')) return 'Marketing Report';
   if (moduleId.includes('shortform.video')) return 'Shortform Video Draft';
@@ -57,10 +61,19 @@ function artifactTitle(run: RunResponse, platformLabel: string): string {
   return `${titleCase(platformLabel)} Draft`;
 }
 
+function initialReviewStatus(run: RunResponse): ReviewStatus {
+  const status = run.approval_status || (run as any).approval_status || (run.result as any)?.approval_status;
+  if (run.status === 'failed' || (run.result?.block as any)?.status === 'failed' || status === 'failed') return 'failed';
+  if (status === 'approved') return 'approved';
+  if (status === 'rejected' || status === 'dismissed') return 'dismissed';
+  return 'pending';
+}
+
 function statusLabel(status: ReviewStatus): string {
   if (status === 'approved') return 'Approved';
   if (status === 'dismissed') return 'Dismissed';
   if (status === 'draft') return 'Saved draft';
+  if (status === 'failed') return 'Failed';
   return 'Needs review';
 }
 
@@ -68,6 +81,7 @@ function statusColor(status: ReviewStatus): string {
   if (status === 'approved') return '#16a34a';
   if (status === 'dismissed') return '#6b7280';
   if (status === 'draft') return '#6366f1';
+  if (status === 'failed') return '#dc2626';
   return '#111827';
 }
 
@@ -78,9 +92,44 @@ function hasArtifactAction(run: RunResponse, action: string): boolean {
     && typeof block?.action_modules?.[action] === 'string';
 }
 
+function publishPlatform(action: string, moduleId: string): string {
+  const key = `${action} ${moduleId}`.toLowerCase();
+  if (key.includes('youtube')) return 'youtube';
+  if (key.includes('tiktok')) return 'tiktok';
+  if (key.includes('instagram')) return 'instagram';
+  if (key.includes('facebook') || key.includes('meta')) return 'facebook';
+  return action.replace(/^publish_/, '');
+}
+
+function publishLabel(action: string, moduleId: string, blockType?: string): string {
+  const platform = publishPlatform(action, moduleId);
+  const isVideo = blockType === 'video_asset' || blockType === 'creative_shortform_video';
+  if (platform === 'youtube') return isVideo ? 'YouTube Shorts' : 'YouTube';
+  if (platform === 'facebook') return isVideo ? 'Facebook Reels' : 'Facebook';
+  if (platform === 'instagram') return isVideo ? 'Instagram Reels' : 'Instagram';
+  if (platform === 'tiktok') return 'TikTok';
+  return titleCase(action.replace(/^publish_/, ''));
+}
+
+function buildPublishOptions(actionModules: Record<string, string> | undefined, connections: SocialConnection[], blockType?: string): PublishOption[] {
+  if (!actionModules) return [];
+  return Object.entries(actionModules).map(([action, moduleId]) => {
+    const platform = publishPlatform(action, moduleId);
+    const connection = connections.find(c => c.status === 'connected' && c.platform === platform);
+    return {
+      action,
+      moduleId,
+      platform,
+      label: publishLabel(action, moduleId, blockType),
+      connected: Boolean(connection),
+      accountLabel: connection?.page_name || connection?.page_handle || connection?.page_id,
+    };
+  });
+}
+
 export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, onDismissed, revisionHistory = [] }: ApprovalBundleProps) {
   const { removePendingRun, addPendingRun, activeCampaign, activeBrand } = useUI();
-  const [reviewStatus, setReviewStatus] = useState<ReviewStatus>('pending');
+  const [reviewStatus, setReviewStatus] = useState<ReviewStatus>(() => initialReviewStatus(run));
   const [modifying, setModifying] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [feedback, setFeedback] = useState('');
@@ -95,6 +144,9 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
   const [drivePickerOpen, setDrivePickerOpen] = useState(false);
   const [drivePickerMediaType, setDrivePickerMediaType] = useState<string>('image');
   const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
+  const [driveFolders, setDriveFolders] = useState<DriveFolder[]>([]);
+  const [driveCurrentFolder, setDriveCurrentFolder] = useState<DriveFolder | null>(null);
+  const [driveFolderStack, setDriveFolderStack] = useState<DriveFolder[]>([]);
   const [driveLoading, setDriveLoading] = useState(false);
   const [driveError, setDriveError] = useState<string | null>(null);
   const [attachedImage, setAttachedImage] = useState<DriveFile | null>(null);
@@ -128,6 +180,36 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
 
   // Editable state for image_asset review
   const [imageCaption, setImageCaption] = useState<string>('');
+
+  // Omni-channel publish selection: options come from the artifact's declared
+  // action_modules, readiness comes from the active brand's connected accounts.
+  const [brandConnections, setBrandConnections] = useState<SocialConnection[]>([]);
+  const [publishSelections, setPublishSelections] = useState<Record<string, boolean>>({});
+  const [publishOptionsLoading, setPublishOptionsLoading] = useState(false);
+  const actionModules = (result.block as any)?.action_modules as Record<string, string> | undefined;
+  const publishOptions = buildPublishOptions(actionModules, brandConnections, result.block?.type);
+  const selectedPublishOptions = publishOptions.filter(opt => opt.connected && publishSelections[opt.action]);
+  const isOmniPublishAsset = (isShortformVideo || isImageAsset) && Boolean(actionModules);
+
+  useEffect(() => {
+    if (!isOmniPublishAsset || !activeBrand?.id) {
+      setBrandConnections([]);
+      return;
+    }
+    setPublishOptionsLoading(true);
+    api.listSocialConnections(activeBrand.id)
+      .then(rows => setBrandConnections(rows as SocialConnection[]))
+      .catch(() => setBrandConnections([]))
+      .finally(() => setPublishOptionsLoading(false));
+  }, [isOmniPublishAsset, activeBrand?.id, run.run_id]);
+
+  useEffect(() => {
+    setPublishSelections(prev => {
+      const next: Record<string, boolean> = {};
+      for (const opt of publishOptions) next[opt.action] = Boolean(prev[opt.action] && opt.connected);
+      return next;
+    });
+  }, [publishOptions.map(opt => `${opt.action}:${opt.connected}`).join('|')]);
 
   const handleApprove = async () => {
     if (isShortformVideo) {
@@ -182,35 +264,20 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     }
   };
 
-  const handleVideoPublish = async (action: string) => {
-    setPublishing(true);
-    setRevisionError(null);
-    try {
-      const b = result.block as any;
-      const overrides: Record<string, unknown> = {
-        video_path: b?.video_path,
-        drive_file_id: swappedVideo ? swappedVideo.id : (b?.drive_file_id || undefined),
-        drive_file_mime: swappedVideo ? swappedVideo.mimeType : 'video/mp4',
-        // Signal to the backend that the user picked a different Drive file.
-        // _resolve_drive_video uses this to bypass the local-file-exists early exit.
-        ...(swappedVideo ? { _video_swapped: true } : {}),
-        hook_text: editedHookText || b?.hook_text,
-        cta_text: editedCtaText || b?.cta_text,
-        description: editedHookText || b?.hook_text || b?.cta_text || '',
-        title: editedHookText || b?.hook_text || 'Shortform video',
-      };
-      const resp = await api.executeRunAction(run.run_id, action, { confirm: true, overrides });
-      setReviewStatus('approved');
-      removePendingRun(run.run_id);
-      addPendingRun(resp.action_run);
-      onApproved?.(run);
-      window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: resp.action_run }));
-    } catch (e) {
-      setReviewStatus('pending');
-      setRevisionError(e instanceof Error ? e.message : 'Could not publish video.');
-    } finally {
-      setPublishing(false);
-    }
+  const buildVideoPublishOverrides = (): Record<string, unknown> => {
+    const b = result.block as any;
+    return {
+      video_path: b?.video_path,
+      drive_file_id: swappedVideo ? swappedVideo.id : (b?.drive_file_id || undefined),
+      drive_file_mime: swappedVideo ? swappedVideo.mimeType : 'video/mp4',
+      // Signal to the backend that the user picked a different Drive file.
+      // _resolve_drive_video uses this to bypass the local-file-exists early exit.
+      ...(swappedVideo ? { _video_swapped: true } : {}),
+      hook_text: editedHookText || b?.hook_text,
+      cta_text: editedCtaText || b?.cta_text,
+      description: editedHookText || b?.hook_text || b?.cta_text || '',
+      title: editedHookText || b?.hook_text || 'Shortform video',
+    };
   };
 
   const handleVideoApprove = async () => {
@@ -229,29 +296,42 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     }
   };
 
-  const handleImagePublish = async (action: string) => {
+  const buildImagePublishOverrides = (): Record<string, unknown> => {
+    const b = result.block as any;
+    return swappedAttachment ? {
+      drive_file_id: swappedAttachment.id,
+      drive_file_mime: swappedAttachment.mimeType,
+      message: imageCaption.trim() || b?.prompt || '',
+    } : {
+      _image_data_b64: b?.image_data_b64,
+      _image_mime: b?.mime_type || 'image/png',
+      message: imageCaption.trim() || b?.prompt || '',
+    };
+  };
+
+  const handlePublishSelected = async () => {
+    if (selectedPublishOptions.length === 0) {
+      setRevisionError('Select at least one connected publishing destination.');
+      return;
+    }
     setPublishing(true);
     setRevisionError(null);
+    const publishedRuns: RunResponse[] = [];
     try {
-      const b = result.block as any;
-      const overrides: Record<string, unknown> = swappedAttachment ? {
-        drive_file_id: swappedAttachment.id,
-        drive_file_mime: swappedAttachment.mimeType,
-        message: imageCaption.trim() || b?.prompt || '',
-      } : {
-        _image_data_b64: b?.image_data_b64,
-        _image_mime: b?.mime_type || 'image/png',
-        message: imageCaption.trim() || b?.prompt || '',
-      };
-      const resp = await api.executeRunAction(run.run_id, action, { confirm: true, overrides });
+      const overrides = isImageAsset ? buildImagePublishOverrides() : buildVideoPublishOverrides();
+      for (const opt of selectedPublishOptions) {
+        const resp = await api.executeRunAction(run.run_id, opt.action, { confirm: true, overrides });
+        publishedRuns.push(resp.action_run);
+        addPendingRun(resp.action_run);
+        window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: resp.action_run }));
+      }
       setReviewStatus('approved');
       removePendingRun(run.run_id);
-      addPendingRun(resp.action_run);
       onApproved?.(run);
-      window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: resp.action_run }));
     } catch (e) {
       setReviewStatus('pending');
-      setRevisionError(e instanceof Error ? e.message : 'Could not publish image.');
+      const suffix = publishedRuns.length > 0 ? ` (${publishedRuns.length} destination${publishedRuns.length === 1 ? '' : 's'} published before the error.)` : '';
+      setRevisionError((e instanceof Error ? e.message : 'Could not publish selected destinations.') + suffix);
     } finally {
       setPublishing(false);
     }
@@ -291,13 +371,10 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     api.rejectRun(run.run_id, 'Dismissed from panel.').catch(() => {});
   };
 
-  const openDrivePicker = useCallback(async (mediaType?: string, force?: boolean) => {
-    const mt = mediaType || 'image';
-    setDrivePickerOpen(true);
-    setDrivePickerMediaType(mt);
+  const loadDrivePickerFolder = useCallback(async (mediaType: string, folder?: DriveFolder | null, stack?: DriveFolder[]) => {
     setDriveError(null);
-    if (!force && driveFiles.length > 0) return;
     setDriveFiles([]);
+    setDriveFolders([]);
     setDriveLoading(true);
     try {
       const brandId = activeBrand?.id || run.result?.block?.brand_id || '';
@@ -305,14 +382,29 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
         setDriveError('No active brand — select a brand first.');
         return;
       }
-      const res = await api.listDriveImages(brandId, undefined, mt);
-      setDriveFiles(res.files);
+      const foldersRes = await api.listDriveFolders(brandId, folder?.id);
+      const currentFolder = folder || {
+        id: (foldersRes as any).folder_id || 'root',
+        name: (foldersRes as any).folder_name || 'Drive assets',
+      };
+      const filesRes = await api.listDriveImages(brandId, currentFolder.id, mediaType);
+      setDriveCurrentFolder(currentFolder);
+      setDriveFolderStack(stack || []);
+      setDriveFolders(foldersRes.folders || []);
+      setDriveFiles(filesRes.files || []);
     } catch (e) {
       setDriveError(e instanceof Error ? e.message : 'Could not load Drive files.');
     } finally {
       setDriveLoading(false);
     }
-  }, [activeBrand, driveFiles.length, run.result?.block?.brand_id]);
+  }, [activeBrand?.id, run.result?.block?.brand_id]);
+
+  const openDrivePicker = useCallback(async (mediaType?: string) => {
+    const mt = mediaType || 'image';
+    setDrivePickerOpen(true);
+    setDrivePickerMediaType(mt);
+    await loadDrivePickerFolder(mt, null, []);
+  }, [loadDrivePickerFolder]);
 
   const selectDriveImage = async (file: DriveFile) => {
     if (isShortformVideo) {
@@ -415,6 +507,37 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
       );
     }
     const blockType = result.block?.type as string | undefined;
+
+    if (blockType === 'gbp_completeness_result') {
+      const b = result.block as any;
+      if (b.status === 'failed' || b.error) {
+        return (
+          <div style={{ padding: '22px', textAlign: 'left', color: '#7f1d1d', fontSize: 13, border: '1px solid #fecaca', borderRadius: 14, background: '#fef2f2', maxWidth: 560 }}>
+            <div style={{ fontWeight: 900, fontSize: 16, marginBottom: 6 }}>Google Business Profile not connected</div>
+            <div style={{ lineHeight: 1.5 }}>{b.error || result.content || 'Connect Google Business Profile in Admin → Brands.'}</div>
+          </div>
+        );
+      }
+      const fields: any[] = Array.isArray(b.fields) ? b.fields : [];
+      return (
+        <div style={{ padding: '20px', textAlign: 'left', color: '#1f2937', fontSize: 13, border: '1px solid #dbeafe', borderRadius: 14, maxWidth: 560, background: '#eff6ff' }}>
+          <div style={{ color: '#1d4ed8', fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>Google Business Profile audit</div>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 12 }}>
+            <span style={{ fontSize: 36, fontWeight: 900 }}>{b.score ?? 0}</span>
+            <span style={{ fontWeight: 800 }}>{b.rating || 'Unscored'}</span>
+            {b.raw_score != null && <span style={{ color: '#6b7280' }}>{b.raw_score}/{b.max_score || 16} pts</span>}
+          </div>
+          {b.business_name && <div style={{ marginBottom: 10 }}><strong>Business:</strong> {b.business_name}</div>}
+          {fields.map((field, idx) => (
+            <div key={idx} style={{ padding: '8px 0', borderTop: idx ? '1px solid #bfdbfe' : 'none' }}>
+              <div><strong>{field.name}</strong> · {field.status}{field.points != null ? ` · ${field.points} pt${field.points === 1 ? '' : 's'}` : ''}</div>
+              {field.note && <div style={{ color: '#4b5563', fontSize: 12, marginTop: 2 }}>{field.note}</div>}
+            </div>
+          ))}
+          {b.note && <div style={{ marginTop: 10, color: '#6b7280', fontSize: 11 }}>{b.note}</div>}
+        </div>
+      );
+    }
 
     if (blockType === 'fb_page_post_draft') {
       const message = result.block.message || result.content || 'Post text missing';
@@ -909,6 +1032,8 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
                 ? 'Strategy Workflow · Draft for review'
                 : moduleId.includes('marketing.plan')
                 ? 'Plan artifact · Draft for review'
+                : moduleId.includes('gbp')
+                ? 'Read-only local SEO audit'
                 : `${activeCampaign?.name ? `Campaign: ${activeCampaign.name}` : 'Campaign: Unassigned'} · ${platformLabel}`}
 
             </div>
@@ -1016,7 +1141,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
                     ? <video src={src} muted preload="metadata" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid #e5e7eb', flexShrink: 0 }} />
                     : <div style={{ width: 56, height: 56, borderRadius: 6, border: '1px dashed #d1d5db', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 20, flexShrink: 0 }}>🎬</div>;
                 })()}
-                <button className="artifact-btn ghost" onClick={() => openDrivePicker('video', true)}>Swap · Drive</button>
+                <button className="artifact-btn ghost" onClick={() => openDrivePicker('video')}>Swap · Drive</button>
               </div>
             </div>
           </>
@@ -1055,10 +1180,41 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
                     ? <img src={`data:${b.mime_type || 'image/png'};base64,${b.image_data_b64}`} alt="Generated" style={{ width: 56, height: 56, objectFit: 'cover', borderRadius: 6, border: '1px solid #e5e7eb', flexShrink: 0 }} />
                     : <div style={{ width: 56, height: 56, borderRadius: 6, border: '1px dashed #d1d5db', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 20, flexShrink: 0 }}>🖼</div>;
                 })()}
-                <button className="artifact-btn ghost" onClick={() => openDrivePicker('image', true)}>Swap · Drive</button>
+                <button className="artifact-btn ghost" onClick={() => openDrivePicker('image')}>Swap · Drive</button>
               </div>
             </div>
           </>
+        )}
+
+        {isOmniPublishAsset && reviewStatus !== 'approved' && reviewStatus !== 'dismissed' && reviewStatus !== 'failed' && (
+          <div className="artifact-copy-panel">
+            <div className="artifact-section-label">Publishing destinations</div>
+            {publishOptionsLoading ? (
+              <div style={{ fontSize: 12, color: '#6b7280' }}>Checking connected brand channels…</div>
+            ) : publishOptions.length === 0 ? (
+              <div style={{ fontSize: 12, color: '#6b7280' }}>No publishing destinations are declared for this artifact yet.</div>
+            ) : (
+              <div style={{ display: 'grid', gap: 8 }}>
+                {publishOptions.map(opt => (
+                  <label key={opt.action} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', border: '1px solid #e5e7eb', borderRadius: 8, background: opt.connected ? '#fff' : '#f9fafb', color: opt.connected ? '#111827' : '#9ca3af' }}>
+                    <input
+                      type="checkbox"
+                      checked={Boolean(publishSelections[opt.action])}
+                      disabled={!opt.connected || publishing}
+                      onChange={e => setPublishSelections(prev => ({ ...prev, [opt.action]: e.target.checked }))}
+                    />
+                    <span style={{ fontWeight: 700, fontSize: 13 }}>{opt.label}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: 11, color: opt.connected ? '#16a34a' : '#dc2626' }}>
+                      {opt.connected ? `Connected${opt.accountLabel ? ` · ${opt.accountLabel}` : ''}` : 'Not connected'}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
+            <div style={{ marginTop: 8, fontSize: 11, color: '#6b7280' }}>
+              Select every connected channel you want. BOS will publish to all selected destinations after approval.
+            </div>
+          </div>
         )}
 
         <div className="artifact-review-bar">
@@ -1066,10 +1222,18 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
             {reviewStatus === 'approved' && 'Approved and removed from needs-attention.'}
             {reviewStatus === 'draft' && 'Saved as a draft. It will not block approvals.'}
             {reviewStatus === 'dismissed' && 'Dismissed from the review queue.'}
+            {reviewStatus === 'failed' && 'Generation failed. Configure credentials, retry, or dismiss.'}
             {reviewStatus === 'pending' && (selfCheckPassed ? 'Self-check passed. Waiting for your review.' : 'Self-check flagged this. Review before approving.')}
           </div>
           <div className="artifact-actions">
-            {reviewStatus !== 'approved' && (
+            {reviewStatus === 'failed' && (
+              <>
+                <button className="artifact-btn ghost" onClick={handleDismiss}>Dismiss</button>
+                <button className="artifact-btn ghost" onClick={() => { window.location.href = '/admin/modules'; }}>Configure</button>
+                <button className="artifact-btn primary" onClick={() => { setModifying(v => !v); addPendingRun(run); }}>Retry</button>
+              </>
+            )}
+            {reviewStatus !== 'approved' && reviewStatus !== 'failed' && (
               <>
                 <button className="artifact-btn ghost" onClick={handleDismiss}>Dismiss</button>
                 {!isCreativePost && !isShortformVideo && !isImageAsset && <button className="artifact-btn ghost" onClick={handleSaveDraft}>Save draft</button>}
@@ -1080,28 +1244,15 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
                   </button>
                 )}
                 {(() => {
-                  const actionModules = (result.block as any)?.action_modules as Record<string, string> | undefined;
-                  const channelLabel: Record<string, string> = {
-                    publish_youtube: 'YouTube',
-                    publish_facebook: 'Facebook',
-                    publish_tiktok: 'TikTok',
-                    publish_instagram: 'Instagram',
-                  };
-                  if ((isShortformVideo || isImageAsset) && actionModules) {
-                    const handler = isImageAsset ? handleImagePublish : handleVideoPublish;
+                  if (isOmniPublishAsset) {
                     return (
-                      <>
-                        {Object.keys(actionModules).map(action => (
-                          <button
-                            key={action}
-                            className="artifact-btn primary"
-                            onClick={() => handler(action)}
-                            disabled={publishing}
-                          >
-                            {publishing ? 'Publishing…' : `Publish to ${channelLabel[action] || action.replace('publish_', '')}`}
-                          </button>
-                        ))}
-                      </>
+                      <button
+                        className="artifact-btn primary"
+                        onClick={handlePublishSelected}
+                        disabled={publishing || selectedPublishOptions.length === 0}
+                      >
+                        {publishing ? 'Publishing…' : 'Approve & Publish Selected'}
+                      </button>
                     );
                   }
                   return (
@@ -1174,17 +1325,47 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
               </div>
               <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#6b7280' }} onClick={() => setDrivePickerOpen(false)}>✕</button>
             </div>
-            {driveLoading && <div style={{ color: '#6b7280', fontSize: 13 }}>Loading {drivePickerMediaType === 'video' ? 'videos' : 'images'} from Drive…</div>}
-            {driveError && <div style={{ color: '#ef4444', fontSize: 13 }}>{driveError}</div>}
-            {!driveLoading && !driveError && driveFiles.length === 0 && (
-              <div style={{ color: '#6b7280', fontSize: 13 }}>No {drivePickerMediaType === 'video' ? 'video files' : 'images'} found in your connected Drive folder.</div>
+            {driveCurrentFolder && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: '#6b7280', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '7px 9px' }}>
+                {driveFolderStack.length > 0 && (
+                  <button
+                    className="artifact-btn ghost"
+                    style={{ padding: '2px 8px', fontSize: 11 }}
+                    onClick={() => {
+                      const nextStack = driveFolderStack.slice(0, -1);
+                      const parent = nextStack[nextStack.length - 1] || null;
+                      loadDrivePickerFolder(drivePickerMediaType, parent, nextStack);
+                    }}
+                    disabled={driveLoading}
+                  >
+                    Back
+                  </button>
+                )}
+                <span>Folder: <strong style={{ color: '#111827' }}>{driveCurrentFolder.name}</strong></span>
+              </div>
             )}
-            {!driveLoading && driveFiles.length > 0 && (
+            {driveLoading && <div style={{ color: '#6b7280', fontSize: 13 }}>Loading folders and {drivePickerMediaType === 'video' ? 'videos' : 'images'} from Drive…</div>}
+            {driveError && <div style={{ color: '#ef4444', fontSize: 13 }}>{driveError}</div>}
+            {!driveLoading && !driveError && driveFolders.length === 0 && driveFiles.length === 0 && (
+              <div style={{ color: '#6b7280', fontSize: 13 }}>No folders or {drivePickerMediaType === 'video' ? 'video files' : 'images'} found in this Drive folder.</div>
+            )}
+            {!driveLoading && (driveFolders.length > 0 || driveFiles.length > 0) && (
               <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {driveFolders.map(folder => (
+                  <button key={folder.id}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 7, cursor: 'pointer', textAlign: 'left', fontSize: 13 }}
+                    onClick={() => loadDrivePickerFolder(drivePickerMediaType, folder, [...driveFolderStack, folder])}>
+                    <span style={{ fontSize: 20, flexShrink: 0 }}>📁</span>
+                    <div style={{ minWidth: 0 }}>
+                      <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{folder.name}</div>
+                      <div style={{ color: '#9a3412', fontSize: 11 }}>Open folder</div>
+                    </div>
+                  </button>
+                ))}
                 {driveFiles.map(f => {
                   const isSelected = isShortformVideo
                     ? swappedVideo?.id === f.id
-                    : isCreativePost
+                    : (isCreativePost || isImageAsset)
                       ? swappedAttachment?.id === f.id
                       : attachedImage?.id === f.id;
                   const isVideo = f.mimeType?.startsWith('video/');

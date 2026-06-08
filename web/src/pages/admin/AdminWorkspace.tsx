@@ -43,7 +43,7 @@ function BrandReadOnly({ workspace }: { workspace: WorkspaceResponse }) {
         <span style={{ fontSize: 12, color: 'var(--text2)' }}>
           Set by document ingestion — edit by submitting an updated brief
         </span>
-        <button className="btn btn-secondary btn-sm" onClick={() => navigate('/admin/onboarding')}>
+        <button className="btn btn-ghost btn-sm" onClick={() => navigate('/admin/onboarding')}>
           Update via Brand Brief →
         </button>
       </div>
@@ -116,7 +116,7 @@ function BrandGuidelinesTab() {
     return (
       <div style={{ textAlign: 'center', padding: '32px 0', color: 'var(--text2)' }}>
         No long-form Brand Guidelines document has been created yet.
-        {error && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 12 }}>{error}</div>}
+        {error && <div style={{ fontSize: 12, color: 'var(--error)', marginTop: 12 }}>{error}</div>}
       </div>
     );
   }
@@ -131,8 +131,8 @@ function BrandGuidelinesTab() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <button className="btn btn-secondary btn-sm" onClick={handleCopy}>{copied ? 'Copied' : 'Copy Markdown'}</button>
-          <button className="btn btn-secondary btn-sm" onClick={() => setEditing(!editing)}>{editing ? 'Cancel Edit' : 'Edit'}</button>
+          <button className="btn btn-ghost btn-sm" onClick={handleCopy}>{copied ? 'Copied' : 'Copy Markdown'}</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setEditing(!editing)}>{editing ? 'Cancel Edit' : 'Edit'}</button>
           {doc.status !== 'approved' && (
             <button className="btn btn-dark btn-sm" onClick={handleApprove} disabled={saving}>{saving ? 'Saving…' : 'Approve'}</button>
           )}
@@ -149,15 +149,15 @@ function BrandGuidelinesTab() {
           />
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
             <button className="btn btn-dark btn-sm" onClick={handleSave} disabled={saving || !draft.trim()}>{saving ? 'Saving…' : 'Save as Draft'}</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => { setDraft(doc.content_markdown); setEditing(false); }}>Discard</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setDraft(doc.content_markdown); setEditing(false); }}>Discard</button>
           </div>
         </div>
       ) : (
-        <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7, background: '#f9fafb', border: '1px solid var(--border)', borderRadius: 10, padding: 16, maxHeight: '72vh', overflow: 'auto' }}>
+        <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7, background: 'var(--ivory)', border: '.5px solid var(--border)', borderRadius: 0, padding: 16, maxHeight: '72vh', overflow: 'auto' }}>
           {doc.content_markdown}
         </div>
       )}
-      {error && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 12 }}>{error}</div>}
+      {error && <div style={{ fontSize: 12, color: 'var(--error)', marginTop: 12 }}>{error}</div>}
     </div>
   );
 }
@@ -232,7 +232,7 @@ function CampaignBrandKitTab() {
         <button className="btn btn-dark" onClick={() => navigate('/admin/onboarding')}>
           Generate in Onboarding →
         </button>
-        {error && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 12 }}>{error}</div>}
+        {error && <div style={{ fontSize: 12, color: 'var(--error)', marginTop: 12 }}>{error}</div>}
       </div>
     );
   }
@@ -247,8 +247,8 @@ function CampaignBrandKitTab() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <button className="btn btn-secondary btn-sm" onClick={handleCopy}>{copied ? 'Copied' : 'Copy Markdown'}</button>
-          <button className="btn btn-secondary btn-sm" onClick={() => setEditing(!editing)}>{editing ? 'Cancel Edit' : 'Edit'}</button>
+          <button className="btn btn-ghost btn-sm" onClick={handleCopy}>{copied ? 'Copied' : 'Copy Markdown'}</button>
+          <button className="btn btn-ghost btn-sm" onClick={() => setEditing(!editing)}>{editing ? 'Cancel Edit' : 'Edit'}</button>
           {kit.status !== 'approved' && (
             <button className="btn btn-dark btn-sm" onClick={handleApprove} disabled={saving}>{saving ? 'Saving…' : 'Approve'}</button>
           )}
@@ -265,15 +265,15 @@ function CampaignBrandKitTab() {
           />
           <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
             <button className="btn btn-dark btn-sm" onClick={handleSave} disabled={saving || !draft.trim()}>{saving ? 'Saving…' : 'Save as Draft'}</button>
-            <button className="btn btn-secondary btn-sm" onClick={() => { setDraft(kit.content_markdown); setEditing(false); }}>Discard</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => { setDraft(kit.content_markdown); setEditing(false); }}>Discard</button>
           </div>
         </div>
       ) : (
-        <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7, background: '#f9fafb', border: '1px solid var(--border)', borderRadius: 10, padding: 16, maxHeight: '70vh', overflow: 'auto' }}>
+        <div style={{ whiteSpace: 'pre-wrap', fontSize: 13, lineHeight: 1.7, background: 'var(--ivory)', border: '.5px solid var(--border)', borderRadius: 0, padding: 16, maxHeight: '70vh', overflow: 'auto' }}>
           {kit.content_markdown}
         </div>
       )}
-      {error && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 12 }}>{error}</div>}
+      {error && <div style={{ fontSize: 12, color: 'var(--error)', marginTop: 12 }}>{error}</div>}
     </div>
   );
 }
@@ -346,7 +346,7 @@ export function AdminWorkspace() {
           ) : (
             <div className="flex items-center gap-2">
               <div className="admin-page-title">{workspace.name}</div>
-              <button className="btn btn-secondary btn-sm" onClick={() => setNameEditing(true)}>Rename</button>
+              <button className="btn btn-ghost btn-sm" onClick={() => setNameEditing(true)}>Rename</button>
             </div>
           )}
           <div className="admin-page-subtitle">Brand memory — profile, products, audiences, Brand Guidelines, and Campaign Brand Kit</div>

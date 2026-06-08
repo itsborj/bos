@@ -1,4 +1,4 @@
-# Implementation Plan: Plugin Host MVP — WordPress / VS Code Model
+# Implementation Plan: Plugin Host MVP — WordPress / VS Code / pi.dev Model
 
 **Branch**: `001-thin-core-proof` | **Date**: 2026-06-08 | **Spec**: [spec.md](spec.md)
 
@@ -6,304 +6,291 @@
 
 ## Summary
 
-Make BOS core behave like a **WordPress / VS Code style plugin host**.
+Implement the MVP plugin-host primitives agreed in:
 
-**The one rule** (from `api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md`):
+```text
+api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md
+```
+
+The one rule:
 
 ```text
 If a plugin is not installed and activated, BOS should act like it does not exist.
 ```
 
-This means no CMO manifest entry, no Specialist card, no connector warning, no
-readiness debt, and no RUN-able capability for uninstalled or inactive plugins.
+This feature is **not** the full thin-core rewrite. It is the lean WordPress / VS Code / pi.dev plugin-host layer:
 
-The governing document for this feature is `api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md`.
-That document defines 8 deliverables (D1–D8). D1–D3 and D7 are done and verified.
-D8 is implemented but requires end-to-end verification. D4, D5, and D6 are the
-remaining build work.
+```text
+WordPress  → install/activate/deactivate lifecycle
+VS Code    → enabled extension contribution points
+pi.dev     → thin host, loaded resources, live manifest, no platform branches
+```
 
-**Explicitly out of scope for this feature** (deferred per recommendation):
-- `chat.py` 7-step rewrite
-- Hook subscription system
-- Full migration of existing plugins (Meta, TikTok, LinkedIn, YouTube)
-- Marketplace / Available UI
-- Full installed-state lockfile with source hashes
-- SDK ABI compatibility adapters
-- Plugin-owned migrations, hot reload, subprocess sandbox
+```text
+external install root → installed/quarantined → activate per Brand → CMO manifest
+```
 
-The in-process hook infrastructure (A2/A3) and `klaroha_sdk` package (A1) were
-built as supporting infrastructure and are complete. They are not themselves the
-deliverable — they exist to support the plugin boundary. The primary deliverable
-is the WordPress/VS Code lifecycle model.
+---
 
-> **Decision 2026-06-08**: `gbp-completeness` replaces `gmail` as the second proof
-> plugin. GBP is already written, lives in `bos-plugins/`, exercises the full OAuth
-> credential path, approval_bundle renderer, and pending_review status — without
-> adding SMTP send complexity. Gmail migration remains a follow-on validation step.
-> See research.md Decision 9.
+## MVP Deliverables
+
+This plan implements D1–D8 from the recommendation.
+
+| ID | Deliverable | Status Target |
+|---|---|---|
+| D1 | External plugin root is runtime source | Verify / patch |
+| D2 | Installed plugins API shows installed packages only | Build / patch |
+| D3 | Basic quarantine | Build / patch |
+| D4 | Minimal per-brand activation | Build |
+| D5 | CMO manifest filters by activation | Build |
+| D6 | Specialists UI is manifest-driven | Build / patch |
+| D7 | Generic credential injection is the only plugin credential path | Verify / patch |
+| D8 | Minimal generic plugin-declared OAuth | Verify / patch only if missing |
+
+---
+
+## Explicitly Out of Scope
+
+Do not implement these in this feature:
+
+```text
+Marketplace / Available UI
+full installed-state lockfile with source hashes
+capability release-integrity diff
+SDK ABI compatibility adapters
+hook subscription system
+plugin-owned migrations
+hot reload
+separate sandbox/subprocess extension host
+full OAuth provider edge-case framework
+chat.py 7-step rewrite
+full migration of existing plugins
+```
+
+If current code contains partial attempts at these, do not expand them as part of this MVP.
 
 ---
 
 ## Technical Context
 
-**Language/Version**: Python 3.11, TypeScript (React/Vite for any Admin UI changes)
+**Language/Version**: Python 3.11 target, TypeScript/React for Admin UI  
+**Backend**: FastAPI, SQLAlchemy async, Pydantic  
+**Storage**: PostgreSQL; `plugin_activations` table via migration 038  
+**Plugin source**: external volume mounted at `/external_plugins` from `~/bos-plugins`  
+**Bundled examples**: `api/plugins/` is SDK/example/deprecated source, not runtime source by default
 
-**Primary Dependencies**: FastAPI, SQLAlchemy 2.x async, Alembic, Pydantic v2,
-Docker Compose (volume mount for external plugins)
+---
 
-**Storage**: PostgreSQL — one new table (`plugin_activations`, migration 038)
+## Architecture Rules
 
-**Testing**: pytest (existing), manual quickstart validation per `quickstart.md`
-
-**Target Platform**: Linux server (Docker Compose, same stack as current production)
-
-**Project Type**: Architectural extraction + new Python package
-
-**Performance Goals**: No regression on CMO chat response time. Hook fire overhead
-must be < 5ms per subscriber (in-process async, no I/O in brand/memory hooks).
-
-**Constraints**: Zero downtime on hq.klaroha.com during deploy. All existing
-Gmail functionality must survive migration to `~/bos-plugins/`. `api/plugins/`
-internal directories are not deleted — scanner continues to find them but marks
-them as deprecated source.
-
-**Scale/Scope**: Single operator deployment. Plugin count at launch: 2 external
-(`hello`, `gmail`). All other current plugins stay in `api/plugins/` (deprecated,
-not loaded externally) until migrated in a follow-on pass.
+1. Core must be plugin-ready, not platform-ready.
+2. Uninstalled plugins are invisible.
+3. Installed does not mean active.
+4. Activation is explicit and Brand-scoped.
+5. Active plugin capabilities appear in the CMO manifest.
+6. Missing credentials are handled by plugin-owned `setup_blocker` artifacts, not by hardcoded core platform branches.
+7. Specialists UI is a view over installed plugins, not a hardcoded platform catalog.
+8. `api/plugins/` must not create runtime capabilities unless `KLAROHA_LOAD_INTERNAL_PLUGINS=true`.
+9. Core must preserve the pi.dev thin-host invariant: loaded plugin resources change behavior; core code does not grow a branch per plugin.
+10. There is no module concept. Everything is a package. Built-in packages (`api/capabilities/`) and installed packages (`~/bos-plugins/`) share an identical contract and identical trust level. No package imports BOS internals. This follows the WordPress/VS Code model: the loader discovers packages from one or more source roots; the contract is uniform regardless of who wrote the package or where it ships from.
 
 ---
 
 ## Constitution Check
 
 | Principle | Check | Status |
-|-----------|-------|--------|
-| I. Minimal Core | This work REMOVES logic from `chat.py` and `runs.py`. New pipeline helpers go to `api/pipeline/` (not routers). Net result: core shrinks. | ✅ Pass |
-| II. Capability-as-Package | `klaroha_sdk` goes to `packages/klaroha_sdk/`. External plugins go to `~/bos-plugins/` (outside this repo). No new capabilities added to `api/capabilities/marketing/channel/`. | ✅ Pass |
-| III. SKILL.md as Contract | Existing SKILL.md contract preserved unchanged. External plugins must include SKILL.md — scanner validates. | ✅ Pass |
-| IV. CMO Integrity | `chat.py` rewrite removes all phrase-matching, platform detection, and canned reply logic that was accumulating. Result is strictly less routing logic. | ✅ Pass |
-| V. Brand Isolation | Brand scoping moves to a hook subscriber that produces identical output to current `_brand_scoped_brief()`. Behavior preserved, location changed. | ✅ Pass |
-| VI. Channel Agnosticism | No creative module changes. Distribution logic unaffected. | ✅ Pass |
-| VII. Spec-First | `spec.md` agreed before this plan. | ✅ Pass |
-| VIII. Persistence | New `plugin_activations` table uses SQLAlchemy ORM + Alembic migration 038. No SQLite. No inline SQL. | ✅ Pass |
+|---|---|---|
+| Minimal Core | Adds generic plugin-host primitives only; no platform-specific routing; follows pi.dev thin-host discipline. | Pass |
+| Capability-as-Package | Runtime plugin packages come from external install root. | Pass |
+| SKILL.md Contract | Manifest remains generated from plugin/skill declarations. | Pass |
+| CMO Integrity | CMO manifest filters by active plugin state; no hardcoded platform cards. | Pass |
+| Brand Isolation | Activation is Brand-scoped. | Pass |
+| Persistence | Uses `plugin_activations` table; no inline ad-hoc state. | Pass |
+| Lean Scope | Marketplace, hooks, lockfile, sandbox, and chat rewrite deferred. | Pass |
 
 ---
 
-## Project Structure
+## Project Structure Changes
+
+Expected core files touched for MVP:
 
 ```text
-~/bos/                                    ← BOS core repo (this repo)
-├── api/
-│   ├── routers/
-│   │   └── chat.py                       REWRITTEN — 7 steps, ~150 lines
-│   ├── pipeline/                          NEW directory
-│   │   ├── __init__.py
-│   │   ├── hooks.py                       NEW — HookRegistry
-│   │   ├── system_hooks.py                NEW — brand scope + memory hydration subscribers
-│   │   ├── context.py                     NEW — _load_turn_context() extracted from chat.py
-│   │   └── llm.py                         NEW — _cmo_llm_call() extracted from chat.py
-│   ├── plugin_loader.py                   MODIFIED — add external dir scan + activation check
-│   ├── plugins/                           DEPRECATED — no new work, not deleted
-│   └── migrations/versions/
-│       └── 038_plugin_activations.py      NEW migration
-├── packages/
-│   └── klaroha_sdk/                       NEW pip package
-│       ├── pyproject.toml
-│       └── klaroha_sdk/
-│           ├── __init__.py
-│           ├── channel.py                  ChannelModule base class
-│           ├── types.py                    BridgeEnvelope, RunResult, ArtifactBlock, HookPayload
-│           └── hooks.py                    hook_subscriber decorator
-├── docker-compose.yml                     MODIFIED — add external plugin volume mount
-└── Dockerfile.api                         MODIFIED — pip install klaroha_sdk
-
-~/bos-plugins/                             SEPARATE git repo (new)
-├── README.md                              "Install: pip install klaroha-sdk"
-├── hello/
-│   ├── channel.json                       v2 (adds sdk_version, hook_subscriptions)
-│   ├── SKILL.md
-│   └── capabilities/marketing/channel/hello/pipeline_test/
-│       └── module.py                      from klaroha_sdk import ChannelModule only
-└── gmail/
-    ├── channel.json                       v2 (adds credential_injectors)
-    ├── SKILL.md
-    └── capabilities/marketing/channel/gmail/outreach/draft/
-        └── module.py                      from klaroha_sdk import ChannelModule only
+api/plugin_loader.py                 # external root, installed/quarantine state, plugin mapping
+api/models/plugin_activation.py       # ORM model for migration 038
+api/routers/plugins.py                # installed plugin API + activate/deactivate endpoints
+api/capability_manifest.py            # brand-aware active plugin filtering
+api/routers/chat.py                   # only call manifest with brand context if needed; no platform logic
+api/routers/runs.py                   # verify credential injection remains generic
+web/src/pages/admin/AdminModules.tsx  # installed-only Specialists UI + activation toggle
+web/src/api/types.ts                  # plugin activation/status types
+web/src/api/client.ts                 # activate/deactivate API calls
 ```
 
----
+Files explicitly **not** targeted:
 
-## Complexity Tracking
-
-No constitution violations. No complexity justification needed.
-
----
-
-## Phase 0: Research Summary
-
-All decisions resolved. See `research.md` for full rationale.
-
-| Question | Decision |
-|---|---|
-| Hook system design | In-process async HookRegistry — no external dependency |
-| SDK distribution | `packages/klaroha_sdk/` local pip package; PyPI later |
-| External plugin loading | Docker volume mount — `EXTERNAL_PLUGINS_PATH` must be absolute path (tilde not expanded by Docker) |
-| Activation persistence | PostgreSQL `plugin_activations` table (migration 038) |
-| First-party hooks | `system_hooks.py` — brand scope + memory hydration as hook subscribers |
-| channel.json evolution | Additive v2 fields — v1 plugins unaffected |
-| chat.py rewrite boundary | 7 steps; @klar and @council parsers stay as deterministic utilities |
-| runs.py scope | Only `inject_channel_credentials` call site removed; replaced with hook fire |
-| Second proof plugin | `gbp-completeness` replaces `gmail` — simpler, already written, exercises OAuth + approval flow |
-| CMO dispatch accuracy | Degrades on fallback models; GBP SKILL.md needs stronger `excluded_triggers` vs Google Analytics |
-
----
-
-## Phase 1: Design Artifacts
-
-All Phase 1 artifacts generated. See:
-- `data-model.md` — PluginActivation entity, HookRegistry, SDK types, channel.json v2
-- `contracts/hook-events.md` — all v1 hook event payload schemas
-- `contracts/klaroha-sdk-api.md` — full public SDK API contract
-- `quickstart.md` — 8-step validation sequence from empty to live deploy
+```text
+api/routers/chat.py full rewrite
+api/pipeline/hooks.py expansion
+marketplace UI
+all plugin migrations
+```
 
 ---
 
 ## Implementation Sequence
 
-### Stream A — BOS Core (`~/bos/`)
+### Phase 1 — Verify/Patch D1, D2, D3
 
-**A1: `packages/klaroha_sdk/`** — build SDK package
-- `pyproject.toml` with `name = "klaroha-sdk"`, `version = "1.0.0"`
-- `types.py` — `BridgeEnvelope`, `RunResult`, `ArtifactBlock`, `HookPayload`, `CredentialPayload`
-- `channel.py` — `ChannelModule` base class with abstract `execute()`
-- `hooks.py` — `hook_subscriber` decorator (stores metadata on method, read at activation)
-- `__init__.py` — exports all public symbols
-- Install into Dockerfile.api: `RUN pip install -e packages/klaroha_sdk`
+1. Confirm `EXTERNAL_PLUGINS_DIR` is the runtime plugin root.
+2. Confirm `api/plugins/` is skipped unless `KLAROHA_LOAD_INTERNAL_PLUGINS=true`.
+3. Ensure `GET /plugins` returns installed external packages only.
+4. Ensure invalid plugins are quarantined per plugin and do not crash startup.
 
-**A2: `api/pipeline/hooks.py`** — hook registry
-- `HookRegistry` class with `subscribe(event, handler)` and `async fire(event, payload)`
-- Module-level singleton `hooks = HookRegistry()`
-- Handlers run in registration order; exceptions are caught per-handler, logged, payload passed through
+Acceptance:
 
-**A3: `api/pipeline/system_hooks.py`** — first-party subscribers
-- `brand_scope_subscriber` — extracted from `_brand_scoped_brief()` in chat.py
-  - Subscribes to `brief.before_dispatch`
-  - Resolves active brand, loads brand_json, products, audiences
-  - Injects into `payload.brief` identically to current behavior
-- `memory_hydration_subscriber` — extracted from `hydrate_memory_slots()` call in chat.py
-  - Subscribes to `brief.before_dispatch`
-  - Loads declared memory slots for the active skill
-  - Injects into `payload.brief`
-- Both registered at app startup via `hooks.subscribe()`
-
-**A4: `api/migrations/versions/038_plugin_activations.py`** — new table
-- `plugin_activations` table per `data-model.md`
-- `alembic upgrade head` in Dockerfile entrypoint (already wired)
-
-**A5: `api/plugin_loader.py`** — extend scanner
-- Add `EXTERNAL_PLUGINS_DIR` env var (default: `/external_plugins/`)
-- Scan `EXTERNAL_PLUGINS_DIR` first, then `api/plugins/` (deprecated)
-- Check `plugin_activations` table — skip plugins with no active row
-- Mark loaded state with `source: "external" | "internal"`
-- Quarantine: invalid manifest → log warning, skip, do not raise
-
-**A6: `api/routers/chat.py`** — rewrite
-- Delete file, write from scratch to ~150 lines
-- 7 steps only (per research.md Decision 7)
-- `@klar` and `@council` parsers kept as small inline helpers
-- All brand/memory logic removed — handled by `brief.before_dispatch` hook
-- `inject_channel_credentials` call removed from dispatch path — hook handles it
-
-**A7: `api/routers/runs.py`** — targeted edit
-- Remove `inject_channel_credentials(...)` call from `_execute_module()`
-- Replace with `await hooks.fire("brief.before_dispatch", payload)`
-- No other changes to runs.py in this phase
-
-**A8: `docker-compose.yml`** — volume mount
-- Add `~/bos-plugins:/external_plugins` volume to `api` service
-- Add `EXTERNAL_PLUGINS_DIR=/external_plugins` env var
-
----
-
-### Stream B — External Plugins (`~/bos-plugins/`)
-
-**B1: Init repo**
-```bash
-mkdir ~/bos-plugins && cd ~/bos-plugins && git init
-echo "pip install klaroha-sdk" > README.md
+```text
+Empty /external_plugins → zero plugin capabilities.
+No external LinkedIn plugin → no LinkedIn plugin in GET /plugins.
+Broken plugin does not hide valid plugin.
 ```
 
-**B2: `hello` plugin — SDK proof**
-- Copy structure from `api/plugins/hello/`
-- Rewrite `module.py` to extend `ChannelModule` using only `from klaroha_sdk import ...`
-- Update `channel.json` to v2 format (add `sdk_version: "1.0"`)
-- No credentials needed — simplest possible proof
+---
 
-**B3: `gbp-completeness` plugin — full OAuth + approval flow proof**
-- Already written and in `~/bos-plugins/gbp-completeness/` — uses only `klaroha_sdk` imports ✓
-- Commit to bos-plugins repo (`git add gbp-completeness && git commit`)
-- Strengthen SKILL.md `excluded_triggers` to differentiate from Google Analytics triggers
-  (add: `google analytics`, `ga4`, `search console`, `on-page seo`, `google ads`, `tag manager`)
-- Confirm `requires_social_connection: ["google_business"]` credential injection works via hook (host-managed OAuth path)
-- Note: `requires_social_connection` is only valid for platforms the host already has an OAuth handler for. 3rd party plugins on new platforms must use `requires_platform_vars` instead — host reads env vars and injects them; plugin owns validation via its declared `connection.validate` capability.
-- Prove end-to-end: CMO dispatch → `setup_blocker` artifact (no account connected) or
-  full `gbp_completeness_result` with `approval_bundle` renderer when GBP is connected
+### Phase 2 — Build D4 Activation
 
-**B4: `gmail` plugin — follow-on validation (post GBP)**
-- Migrate from `api/plugins/gmail/` to `~/bos-plugins/gmail/`
-- Rewrite `module.py` to extend `ChannelModule`, add `@hook_subscriber("brief.before_dispatch")` for credential injection
-- Prove end-to-end: CMO chat → draft artifact → Stream → approve
+1. Add `PluginActivation` ORM model for existing migration 038.
+2. Add activation read helper:
+
+```text
+get_active_plugin_ids(db, brand_id)
+```
+
+3. Add endpoints:
+
+```text
+POST   /plugins/{plugin_id}/activate
+DELETE /plugins/{plugin_id}/activate
+```
+
+4. Default: installed + no activation row = inactive.
+
+Acceptance:
+
+```text
+Installed but inactive plugin appears in Admin / Installed but not in CMO manifest.
+```
 
 ---
 
-### Stream C — Validation
+### Phase 3 — Build D5 Manifest Filtering
 
-Run `quickstart.md` V1 through V8 in sequence.
-Gate to merge: V5 (delete stability) and V6 (gmail SDK-only) both pass.
-Gate to deploy: V8 live deploy passes.
+1. Make capability manifest generation brand-aware.
+2. Filter plugin capabilities by active plugin IDs.
+3. Do not add a second platform-specific gate in `chat.py`.
+4. First-party non-plugin capabilities remain unaffected.
 
----
+Acceptance:
 
-## Implementation Status (as of 2026-06-08)
-
-### D-Deliverable Status (governing: `api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md`)
-
-| Deliverable | Status | Notes |
-|---|---|---|
-| D1 — External plugin root is runtime source | ✅ Done | `EXTERNAL_PLUGINS_DIR` + `KLAROHA_LOAD_INTERNAL_PLUGINS` wired; V2 confirmed (T013) |
-| D2 — Installed plugins API: installed packages only | ✅ Done | `GET /plugins` from external-root scan; bundled api/plugins excluded unless flag set |
-| D3 — Basic quarantine | ✅ Done | Invalid plugin reported as `status=error`; valid plugins unaffected (T026) |
-| D4 — Per-brand activation (build) | ⏳ Pending | `plugin_activations` table live (migration 038); ORM model + API endpoints missing (T041–T043) |
-| D5 — CMO manifest filtered by brand activation (build) | ⏳ Pending | Currently global manifest; `brand_id` filter missing (T044) |
-| D6 — Specialists UI activation toggle (build/patch) | ⏳ Pending | Hardcoded platform cards present; manifest-driven render + toggle missing (T045–T046) |
-| D7 — Generic credential injection only | ✅ Done | SDK boundary verified clean; zero `api.*` imports across bos-plugins (T021) |
-| D8 — Generic plugin-declared OAuth | ⚠️ Verify | Partial implementation exists; end-to-end verification of new-platform flow required (T047) |
-
-### Supporting Infrastructure Status
-
-| Item | Status | Notes |
-|---|---|---|
-| `packages/klaroha_sdk/` package | ✅ Done | Installs clean; `ChannelModule`, types, hook decorator |
-| `api/pipeline/hooks.py` HookRegistry | ✅ Done | In-process async; brand scope + memory hydration subscribers registered |
-| `api/migrations/versions/038_plugin_activations.py` | ✅ Done | `plugin_activations` table live |
-| `~/bos-plugins/hello` | ✅ Done | Loads `[external]`; SDK boundary clean |
-| `~/bos-plugins/gbp-completeness` | ✅ Done | Loads `[external]`; dispatches via CMO; `setup_blocker` artifact confirmed |
-| `chat.py` rewrite (A6) | ⏳ Deferred | Out of scope per recommendation; follow-on feature |
-| Gmail migration to bos-plugins (B4) | ⏳ Deferred | Follow-on after D4–D6 complete |
-| V2 — empty dir start | ⏳ Pending | quickstart step |
-| V4 — hello dispatches via CMO | ⏳ Pending | Requires UI test |
-| V8 — live deploy | ⏳ Pending | Gate: D4–D6 + V2/V4 complete |
+```text
+Brand A activates hello → Brand A manifest includes hello.
+Brand B does not activate hello → Brand B manifest excludes hello.
+Inactive module_id cannot be RUN from CMO chat.
+```
 
 ---
 
-## Agent Assignment
+### Phase 4 — Build/Patch D6 Specialists UI
 
-Stream A (core) and Stream B (plugins) can run in parallel once the SDK package
-(A1) is complete — B2 and B3 depend on A1 being installable.
+1. Remove hardcoded cards for uninstalled platforms.
+2. Render Specialists from `GET /plugins` data.
+3. Show activation state per Brand.
+4. Add activate/deactivate controls.
+5. Show setup/validation status only for installed plugins.
 
-**For the validation agent on Stream B:**
-- Install `klaroha_sdk` from `~/bos/packages/klaroha_sdk` (editable)
-- Work only in `~/bos-plugins/`
-- Write plugins with zero BOS internal imports
-- The SDK contract is in `contracts/klaroha-sdk-api.md`
-- The hook event payloads are in `contracts/hook-events.md`
-- Validation steps are in `quickstart.md`
+Acceptance:
+
+```text
+No TikTok plugin installed → no TikTok Specialist card.
+No LinkedIn plugin installed → no LinkedIn Specialist card.
+Uninstalled platforms create no warnings/readiness debt.
+```
+
+---
+
+### Phase 5 — Verify/Patch D7 and D8
+
+D7:
+
+```text
+Plugins receive credentials only via brief["_channel_credentials"].
+```
+
+D8:
+
+```text
+A standard plugin-declared OAuth2 connection can start auth, complete callback, store token, and inject credentials without a platform-specific core handler.
+```
+
+If D8 is partial, document the gap and keep `requires_platform_vars` as the MVP escape hatch for unusual providers.
+
+---
+
+## Testing Strategy
+
+Run the quickstart validations in [quickstart.md](quickstart.md):
+
+```text
+V1 empty root
+V2 install/inactive
+V3 activate/manifest
+V4 quarantine
+V5 installed-only UI
+V6 generic credential path
+V7 generic OAuth verification
+```
+
+Also run targeted tests for:
+
+```text
+plugin_loader external/internal flag behavior
+plugins API installed/error output
+PluginActivation precedence
+capability_manifest brand filtering
+AdminModules installed-only rendering
+```
+
+---
+
+## Deployment Plan
+
+Local:
+
+```text
+~/bos              # core
+~/bos-plugins      # external plugins
+/external_plugins  # container mount
+```
+
+Production uses the same shape.
+
+Before deploy:
+
+```text
+1. Verify /external_plugins empty → no plugin capabilities.
+2. Verify installed inactive plugin → Admin only.
+3. Verify activation → manifest entry.
+4. Verify uninstalled platforms absent from UI.
+```
+
+---
+
+## Rollback
+
+If activation filtering breaks dispatch:
+
+```text
+Disable external plugins by emptying /external_plugins or deactivating plugin rows.
+Core should continue running with first-party capabilities only.
+```
+
+Do not re-enable `api/plugins/` runtime loading in production as rollback unless explicitly approved.

@@ -48,6 +48,7 @@ class ProviderModelLive(BaseModel):
     context_length: int
     quality_tier: str  # "high" | "medium" | "low"
     supports_json: bool
+    modality: str = "text"  # "text" | "image" | "video"
 
 
 class ProviderInfo(BaseModel):

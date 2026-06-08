@@ -12,17 +12,29 @@ from pathlib import Path
 
 import pytest
 import plugin_loader as pl
+import registry as reg
 
 
 @pytest.fixture(autouse=True)
 def reset_plugin_loader_state():
-    """Clear all module-level plugin loader state before and after each test."""
+    """Clear plugin loader and registry scan state before and after each test.
+
+    The registry's _scanned flag is reset too so that the next test that calls
+    list_all() / get_module() triggers a fresh scan and repopulates
+    _module_to_plugin.  Without this, tests that run after the invariant tests
+    see an empty _module_to_plugin even though the registry thinks it has
+    already scanned (because _scanned remained True).
+    """
     def _clear():
         pl._loaded.clear()
         pl._error_states.clear()
         pl._module_to_plugin.clear()
         pl._connection_to_plugin.clear()
         pl._EXTERNAL_PLUGIN_ROOT = None
+        # Reset the registry so subsequent tests get a fresh scan with fully
+        # populated _module_to_plugin / _loaded state.
+        reg._scanned = False
+        reg._registry.clear()
 
     _clear()
     yield

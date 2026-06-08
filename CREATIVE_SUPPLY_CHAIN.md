@@ -215,13 +215,16 @@ Stage 2 — Creative Concept  [creative.concept capability]
   BITE sample required: sample/creative_concept_artifact_v1.md
 
 Stage 3 — Primitive Generation  [creative.primitive.generate]
-  BOS does: reads primitive requirements from Creative Brief → builds prompt per
-            primitive → sends to configured provider → receives result → uploads to Drive
+  BOS does: reads primitive requirements from Creative Brief + BRAND.md → builds a
+            brand-locked prompt per primitive → sends to configured provider → receives
+            result → uploads to Drive
   Provider does: generates the image / video / audio
   Produces: image plates, video plates, motion cards stored in Drive; creative_assets
             rows written with approval_status=draft
   Gate: production Creative Director auto-validates against BRAND.md craft rules;
-        passing primitives → approved; failing → retry or rejected (BL never sees this)
+        passing primitives → approved; failing → retry or rejected (BL never sees this).
+        Any primitive with fake text/logo, off-brand tone, unsupported claims, or missing
+        required brand slots fails closed.
 
 Stage 4 — Blueprint Assembly  [creative.blueprint.assemble]
   Runs: takes a JSON template skeleton + approved primitives → fills slots → emits a
@@ -387,6 +390,35 @@ The render provider pulls each file, composites the layers frame by frame, and r
 
 Templates define **where** the layers go. Brand Kit defines **how** they look (colors, fonts, CTA style). AI providers produce **what** the content layers contain. The compositor assembles all three into the final output. BOS directs all of it.
 
+### Brand-Locked Media Generation Policy
+
+All media production prompts are owned by the CMO brain, but they are **not free-form creative writing prompts**. They are brand-locked production instructions derived from the active Brand's `BRAND.md` / Campaign Brand Kit. Text, images, audio, video, and stitching all inherit the same brand contract before execution.
+
+The approved BITE sample is `sample/brand_locked_media_production_blueprint_v1.json`.
+
+**Hard rule:** brand alignment is a gate, not a style suggestion. No text, image, audio, video, CompositionSpec, render, or Creative Bundle may be generated or surfaced if required brand slots are missing.
+
+Required brand slots for full media production:
+- `brand_voice`
+- `tone_adjectives`
+- `color_primary`, `color_secondary`
+- `typography_heading`, `typography_body`
+- `logo_asset_id`
+- `cta_style`
+- `visual_mood`
+- `forbidden_elements`
+- `safe_zones`
+
+**CMO brain owns the production blueprint:**
+- text prompt → script, hook, captions, CTA
+- image prompt → clean image plates only; no text/logo baked in
+- audio prompt → voiceover/music tone aligned to Brand Kit
+- video prompt → clean video plates only; no text/logo/caption baked in
+- stitching prompt → CompositionSpec that applies logo, typography, captions, CTA, color treatment, safe zones, and transitions
+- validation rules → pre-prompt, post-generation, pre-render, and bundle-review brand gates
+
+**Forbidden:** generic prompts without brand slots; logo baked into AI media; off-brand sound beds; unsupported claims; fake text in generated images/video; final MP4 without editable CompositionSpec JSON; channel-specific publishing inside creative generation.
+
 ### Render Provider Abstraction
 
 ```
@@ -451,7 +483,7 @@ This is what makes 50-creative batch production possible within the async job mo
 
 ## BRAND.md Injection Architecture
 
-Before any creative production capability runs, the executor generates `BRAND.md` from the active brand's Campaign Brand Kit and injects it.
+Before any creative production capability runs, the executor generates `BRAND.md` from the active brand's Campaign Brand Kit and injects it. For full media production, this injection is mandatory and blocks execution when required slots are missing.
 
 Skills declare what they need:
 
@@ -470,6 +502,8 @@ bos.craft.requires:
   - anti-ai-slop
   - safe-zones
 ```
+
+Full text/image/audio/video/stitch jobs additionally require the brand-locked production blueprint contract in `sample/brand_locked_media_production_blueprint_v1.json`. The CMO brain must generate every downstream provider prompt from `BRAND.md`; providers do not improvise brand identity.
 
 Shared craft rules live at:
 
@@ -688,13 +722,13 @@ Order matters. Each phase gates the next.
 
 5. **`creative.pack.generate`** — creates `creative_job` row, returns `creative_job` artifact immediately; starts the async job; CMO chat is freed
 
-6. **`creative.primitive.generate`** — reads primitive requirements from Creative Brief; builds prompt per primitive type; calls configured image gen provider; receives result; uploads to Drive; writes `creative_assets` row; production CD auto-validates against BRAND.md
+6. **`creative.primitive.generate`** — reads primitive requirements from Creative Brief + `BRAND.md`; builds a brand-locked prompt per primitive type; calls configured image/audio/video provider; receives result; uploads to Drive; writes `creative_assets` row; production CD auto-validates against BRAND.md
 
 7. **`creative.blueprint.assemble`** — loads template CompositionSpec skeleton; fills slots with approved primitive `asset_id`s and brand slot references; validates all slots filled; writes completed CompositionSpec to `creative_blueprints` + Drive
 
 ### Phase C — Stitch and surface
 
-8. **`creative.render` / FFmpeg adapter** — translates CompositionSpec to FFmpeg `filter_complex` command; resolves `asset_id`s to Drive URLs; resolves `brand_slot`s to Brand Kit values; executes FFmpeg; uploads output to Drive; writes Export Package record
+8. **`creative.render` / FFmpeg adapter** — translates CompositionSpec to FFmpeg `filter_complex` command; resolves `asset_id`s to Drive URLs; resolves `brand_slot`s to Brand Kit values; applies typography/logo/CTA/caption/safe-zone rules; executes FFmpeg; uploads output to Drive; writes Export Package record. Render is blocked if brand validation fails.
 
 9. **Creative Bundle assembly** — curates top Export Packages from a completed job; writes `creative_bundle` artifact; surfaces in Stream for BL approval
 

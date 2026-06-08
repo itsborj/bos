@@ -10,6 +10,16 @@
 
 **Never commit or push mid-feature work to any branch as a way to deploy or test on the server.** Use the local stack at `localhost:8090` for all development validation.
 
+## Plugin Lifecycle Rules — Non-Negotiable
+
+**Never use `KLAROHA_LOAD_INTERNAL_PLUGINS=true` as a production or staging restore mechanism.** It is a local dev compatibility shim only. Setting it loads all 18+ bundled `api/plugins/` examples as installed plugins, polluting Admin and the CMO manifest. Production plugins belong in `~/bos-plugins/`.
+
+**Never activate a plugin with `brand_id: null` as a shortcut.** `brand_id=null` means org-wide — active for every current and future brand. Always activate with an explicit brand ID unless org-wide is consciously intended and documented.
+
+**`api/plugins/` is SDK examples and reference code, not a runtime plugin install root.** If a plugin needs to run in production, copy it to `~/bos-plugins/`. The canonical decision doc is `api/plugins/PLUGIN_LIFECYCLE_GAPS.md`.
+
+**Before any staging deploy: clear org-wide activation rows.** Run `SELECT plugin_id, brand_id, status FROM plugin_activations WHERE status = 'active' AND brand_id IS NULL` and convert any unintended org-wide rows to brand-scoped activations via the API.
+
 ---
 
 ## What This Project Is
@@ -108,15 +118,17 @@ This keeps the `Klaroha BOS` ClickUp list in sync automatically. The script is i
 |---|---|
 | PostgreSQL from day one | No SQLite anywhere. All persistence via SQLAlchemy + Alembic migrations. |
 | BYOK + Platform routing | Executor has two paths. Keys stored AES-256 encrypted. Key values never logged or returned via API. |
-| Capability = directory, not split across trees | Each capability lives in `api/capabilities/{vertical}/{domain}/{task}/` with `SKILL.md` + `module.py` + `template.j2` co-located. Discovery scans for `module.py` (modules) and `SKILL.md` (skills) — same root, one scan each. Adding a capability = one new directory. |
-| Channel capabilities are plugins only | `api/capabilities/marketing/channel/` is deleted and must never be recreated. All channel Transform nodes live in `api/plugins/{channel}/`. No exceptions. |
+| Everything is a package | Two concepts only: **Core** (`workspace.*`, `onboarding.*` — auto-activate, cannot deactivate) and **Plugin** (everything else — same contract, explicit activation for installed plugins). The plugin directory is the skill bundle: install/remove/upgrade is per-directory. No orphaned skills scattered outside the plugin. See `BITE.md § Everything is a Package`. |
+| Package taxonomy — namespaces signal type | `workspace.*` and `onboarding.*` = Core (cannot deactivate). `channel.*` = distribution only. `analytics.*` = read-only data connectors. `tool.*` = generic cross-vertical tools (Drive, ClickUp, Calendar). `media.*` = creative primitive generators. `creative.*` = creative orchestration. Do not name a storage tool `channel.*` or a data connector `tool.*`. |
+| All capabilities live in plugins — no capabilities/marketing/ | `api/capabilities/` contains Core only (`workspace/` and `onboarding/`). All other capabilities — channel, analytics, tool, media, creative, and marketing skill bundles — live in `api/plugins/`. When a plugin is deleted, all its SKILL.md files go with it. No orphans in `api/capabilities/marketing/`. |
+| Credential injection via `credential_slots` | Plugins declare what they need in `channel.json` as `credential_slots` typed objects. Core resolves each slot generically by type — no platform names in core. Slot types: `social_token`, `social_meta_field`, `platform_var`, `brand_json_path`, `backend_override_provider`, `backend_override_model`, `backend_provider_api_key`. See `PLUGIN_SDK.md § 7`. |
 | CMO reads a capability manifest, not hardcoded rules | `api/capability_manifest.py` generates the CMO's deployable capability list from installed SKILL.md files. The CMO LLM decides when to invoke each capability — no mechanical routing in chat.py. |
 | Chat agent is a client | No agent framework inside BOS. The API is the interface. Agents call it like any other HTTP client. |
 | Frontend is first-class | `web/` is React + Vite (decided 2026-05-02). Component tests required before Phase 3 is complete. |
 | One workspace per deployment | No tenant_id columns yet. The workspace table has one row. SaaS tenancy is a later addition. |
 | FastAPI for BOS core | Async, typed, OpenAPI spec generated automatically at `/docs`. |
 | Stream artifact cards are inline approval surfaces | `StreamArtifactCard` embeds `ApprovalBundle` directly for pending runs — full platform preview, editable copy, attachment, Dismiss/Revise/Approve inline. Do not re-add `StreamRunPanel`, `onOpenPanel` prop, or `requiresReview → panel` pattern. `stream-side-panel` is for `StreamUpdateOut` types only (decision_brief, outcome, setup_blocker). `bos:focus-artifact` injects runs into the feed state — it must not call `setPanelItem` with a `RunResponse`. |
-| Creative assets are channel-agnostic; distribution is never hardwired | BOS is omni-channel, multi-location, multi-brand. A generated image or video is a Drive asset — not a Facebook post, not a YouTube video. Creative modules must not hardwire channel publish logic. Channel distribution = CMO dispatches the appropriate channel capability with the asset reference (`drive_file_id` / `run_id`). Available channels = installed plugins × connected brand accounts. Native channel settings (page, ad account, playlist, recipient list) stay inside each channel plugin — never cross-injected into creative modules. The `publish_facebook` / `publish_youtube` buttons in Phase 6 are pragmatic shortcuts, not architecture. Do not model future creative modules after them. |
+| Creative assets are channel-agnostic; distribution is never hardwired | BOS is omni-channel, multi-location, multi-brand. A generated image or video is a Drive asset — not a Facebook post, not a YouTube video. Creative modules must not hardwire channel publish logic. Channel distribution = CMO dispatches the appropriate channel capability with the asset reference (`drive_file_id` / `run_id`). Available channels = installed plugins × connected brand accounts. Native channel settings (page, ad account, playlist, recipient list) stay inside each channel plugin — never cross-injected into creative modules. |
 
 ---
 
@@ -127,31 +139,82 @@ cl_bos/
 ├── PROJECT_BRIEF.md      source of truth — read first
 ├── BACKLOG.md            kanban — what to work next
 ├── CLAUDE.md             this file
+├── BITE.md               architecture constitution — overrides all else
 ├── sample/               agreed shape samples (T2/T3 artifacts)
-├── api/                  BOS core (FastAPI)
-│   ├── capabilities/     unified capability tree — each dir has SKILL.md + module.py + template.j2
-│   │   ├── marketing/
-│   │   │   ├── channel/email/outreach/cold/     ← email outreach (copywriting)
-│   │   │   ├── channel/email/outreach/sequence/
-│   │   │   └── ... (seo, analytics, launch, etc.)
-│   │   ├── onboarding/   brand_setup/, campaign_brand_kit/, brand_guidelines/
-│   │   ├── copywriting/  copywriting_30_second_milo_frank/
-│   │   ├── workspace/    cmo_context/, approval_review/, plan_mode/
-│   │   └── workflows/    client_onboarding/ — checklist templates, not modules
-│   ├── plugins/          channel plugins — each is a self-contained package
-│   │   ├── gmail/        ← Gmail outreach draft (BYOK SMTP path)
-│   │   ├── gmail-auth/   ← Gmail send + receive (OAuth per brand)
-│   │   └── test_stub/    ← test harness
-│   ├── capability_manifest.py   ← CMO capability registry (generated from SKILL.md)
-│   ├── skills/           loader.py, router.py, memory.py
-│   ├── providers/        one adapter file per provider (shared infrastructure)
-│   ├── migrations/       Alembic migrations
-│   └── main.py           FastAPI entry point
+├── api/
+│   ├── capabilities/     TIER 1 + TIER 2 — built-in packages (auto-activate org-wide)
+│   │   │
+│   │   ├── workspace/    TIER 1 BOS CORE — CMO primitives; cannot be deactivated
+│   │   │   ├── cmo_context/          loads brand/workspace context into CMO
+│   │   │   ├── scope_resolution/     manages active brand / SCOPE: directive
+│   │   │   ├── approval_review/      approve / revise / dismiss artifact decisions
+│   │   │   ├── council/              @council deliberation (+ seats/c1–c5)
+│   │   │   ├── marketing_jobs/       CMO job model contract (plan/execute/optimize)
+│   │   │   ├── plan_mode/            planning context skill
+│   │   │   ├── cmo_artifact_boundary/ artifact/reply boundary rules
+│   │   │   ├── email_specialist_overview/
+│   │   │   └── search_console_specialist_overview/
+│   │   │
+│   │   ├── onboarding/   TIER 1 BOS CORE — brand initialization
+│   │   │   ├── brand_setup/          extract brand profile from supplied materials
+│   │   │   └── campaign_brand_kit/   brand execution kit (visual identity, voice)
+│   │   │
+│   │   ├── planning/     TIER 2 BUILT-IN — sole CMO-dispatchable plan module
+│   │   │   └── strategy_workflow/    marketing.planning.strategy_workflow
+│   │   │
+│   │   └── marketing/    TIER 2 BUILT-IN — skills only (no dispatchable modules)
+│   │       ├── analytics/            GTM + tracking skills
+│   │       ├── email/                email campaign planner module
+│   │       ├── launch/               launch strategy/execution/sequencing skills
+│   │       └── seo/                  SEO audit skill
+│   │
+│   ├── plugins/          TIER 3 — reference/bundled plugin examples
+│   │   │                 NOT loaded by default (KLAROHA_LOAD_INTERNAL_PLUGINS=true for local dev)
+│   │   │                 Production plugins install to ~/bos-plugins/
+│   │   │
+│   │   ├── PLUGIN_SDK.md            complete plugin developer contract
+│   │   │
+│   │   ├── Channels (channel.*) — distribution; publish/send to external platforms
+│   │   │   ├── gmail/               channel.gmail — SMTP outreach draft
+│   │   │   ├── gmail-auth/          channel.gmail_auth — OAuth send + receive
+│   │   │   ├── meta/                channel.meta — Facebook + Instagram
+│   │   │   ├── youtube/             channel.youtube
+│   │   │   ├── tiktok/              channel.tiktok
+│   │   │   └── linkedin/            channel.linkedin
+│   │   │
+│   │   ├── Analytics (analytics.*) — read-only data connectors
+│   │   │   ├── google-ads/          analytics.google_ads  (currently: channel.google_ads — pending rename)
+│   │   │   ├── google-analytics/    analytics.google_analytics  (pending rename)
+│   │   │   └── search-console/      analytics.search_console  (pending rename)
+│   │   │
+│   │   ├── Tools (tool.*) — generic cross-vertical tools
+│   │   │   ├── google-drive/        tool.google_drive  (currently: google.drive — pending rename)
+│   │   │   ├── clickup/             tool.clickup  (currently: channel.clickup — pending rename)
+│   │   │   └── google-calendar/     tool.google_calendar  (currently: channel.google_calendar — pending rename)
+│   │   │
+│   │   ├── Creative (media.* / creative.*)
+│   │   │   ├── media-image/         media.image — image generation
+│   │   │   ├── media-video/         media.video — video generation + shortform
+│   │   │   └── creative-factory/    creative.factory — brand-locked supply chain
+│   │   │
+│   │   └── Test harnesses
+│   │       ├── test_stub/           channel.test_stub
+│   │       └── hello/               channel.hello
+│   │
+│   ├── capability_manifest.py   CMO capability registry (generated from SKILL.md at runtime)
+│   ├── plugin_loader.py         package discovery, validation, credential slot resolver
+│   ├── klaroha_sdk.py           public SDK — ChannelModule base class (only import plugins may use)
+│   ├── skills/                  loader.py, router.py, memory.py
+│   ├── providers/               one adapter file per provider (shared infrastructure)
+│   ├── migrations/              Alembic migrations
+│   └── main.py                  FastAPI entry point
 ├── web/                  frontend (React + Vite)
 ├── docker-compose.yml
 ├── nginx.conf
 └── .env.example
 ```
+
+> **Note on pending renames:** Several bundled plugin IDs still carry the old `channel.*` namespace for tools and analytics. The canonical names are in the comments above. The rename will be executed as a separate task once the taxonomy is finalized.
 
 ---
 

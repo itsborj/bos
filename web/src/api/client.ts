@@ -449,7 +449,7 @@ export const api = {
     request<{ access_token: string; api_key: string; app_id: string }>(`/social/drive/picker-config?brand_id=${brand_id}`),
 
   listDriveFolders: (brand_id: string, parent_id?: string) =>
-    request<{ folders: { id: string; name: string }[] }>(
+    request<{ folder_id?: string; folder_name?: string | null; folders: { id: string; name: string }[] }>(
       `/social/drive/folders?brand_id=${encodeURIComponent(brand_id)}${parent_id ? `&parent_id=${encodeURIComponent(parent_id)}` : ''}`
     ),
 
@@ -470,8 +470,8 @@ export const api = {
       body: JSON.stringify({ brand_id, folder_id, folder_name, folder_path }),
     }),
 
-  listPlugins: () =>
-    request<{ plugins: import('./types').PluginInfo[] }>('/plugins'),
+  listPlugins: (brand_id?: string) =>
+    request<{ plugins: import('./types').PluginInfo[] }>('/plugins' + buildQuery({ brand_id })),
 
   savePluginCredentials: (pluginId: string, vars: Record<string, string>) =>
     request<{ ok: boolean; plugin_id: string }>(`/plugins/${encodeURIComponent(pluginId)}/credentials`, {
@@ -487,6 +487,18 @@ export const api = {
 
   deletePluginCredentials: (pluginId: string) =>
     request<void>(`/plugins/${encodeURIComponent(pluginId)}/credentials`, { method: 'DELETE' }),
+
+  activatePlugin: (pluginId: string, brandId?: string | null) =>
+    request<{ ok: boolean; plugin_id: string; status: string }>(
+      `/plugins/${encodeURIComponent(pluginId)}/activate`,
+      { method: 'POST', body: JSON.stringify({ brand_id: brandId ?? null }) },
+    ),
+
+  deactivatePlugin: (pluginId: string, brandId?: string | null) =>
+    request<void>(
+      `/plugins/${encodeURIComponent(pluginId)}/activate${brandId ? `?brand_id=${brandId}` : ''}`,
+      { method: 'DELETE' },
+    ),
 
   listCalendarPages: (brand_id?: string) =>
     request<import('./types').CalendarPageResponse[]>(

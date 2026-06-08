@@ -14,12 +14,29 @@
     "specialist_orchestration"
   ],
   "risk_policy": "generate_only",
+  "credential_slots": [
+    {
+      "key": "access_token",
+      "type": "social_token",
+      "platform": "google_drive"
+    },
+    {
+      "key": "drive_root_folder_id",
+      "type": "social_meta_field",
+      "platform": "google_drive",
+      "field": "drive_root_folder_id"
+    },
+    {
+      "key": "drive_root_name",
+      "type": "social_meta_field",
+      "platform": "google_drive",
+      "field": "drive_root_name"
+    }
+  ],
   "capability_ids": [
     "creative.pack.generate",
     "creative.primitive.generate",
     "creative.blueprint.assemble",
     "creative.post.image"
-  ],
-  "requires_platform_vars": [],
-  "requires_social_connection": ["google_drive"]
+  ]
 }

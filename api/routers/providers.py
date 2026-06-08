@@ -42,6 +42,7 @@ from schemas.providers import (
 router = APIRouter(prefix="/providers", tags=["providers"])
 logger = logging.getLogger("bos.providers")
 
+
 async def _require_workspace(db: AsyncSession):
     ws = await get_singleton(db)
     if not ws:
@@ -169,7 +170,7 @@ async def list_providers(
             status=option.status,
         ))
 
-    known = set(model_info) | {"openrouter", "gemini", "nvidia", "openai"}
+    known = set(model_info) | {"openrouter", "gemini", "nvidia", "openai", "google", "bytedance"}
 
     providers: list[ProviderInfo] = []
     for provider in sorted(known):
@@ -241,14 +242,30 @@ async def register_key(
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
+    # AI model providers are workspace-level infrastructure — no brand required.
+    # Plugin/channel providers (social, email, etc.) remain brand-scoped.
+    _AI_PROVIDERS = {"openrouter", "gemini", "nvidia", "openai", "bytedance"}
     settings = get_settings()
     ws = await _require_workspace(db)
-    target_brand_id = await _resolve_brand_id(db, ws.id, body.brand_id)
-    if target_brand_id is None:
+
+    # Reject keys that contain non-ASCII characters — they will silently fail in HTTP headers.
+    try:
+        body.key.encode("ascii")
+    except UnicodeEncodeError:
         raise HTTPException(
             status_code=400,
-            detail={"error": {"code": "BRAND_REQUIRED", "message": "BYOK API keys must be registered against a specific brand", "details": None}},
+            detail={"error": {"code": "INVALID_KEY", "message": "API key contains non-ASCII characters. Paste the key directly — do not copy masked text.", "details": None}},
         )
+
+    if body.provider in _AI_PROVIDERS:
+        target_brand_id = None
+    else:
+        target_brand_id = await _resolve_brand_id(db, ws.id, body.brand_id)
+        if target_brand_id is None:
+            raise HTTPException(
+                status_code=400,
+                detail={"error": {"code": "BRAND_REQUIRED", "message": "BYOK API keys must be registered against a specific brand", "details": None}},
+            )
 
     existing = (await db.execute(
         select(ProviderKey).where(
@@ -344,6 +361,11 @@ async def login_provider(
     settings = get_settings()
     ws = await _require_workspace(db)
     handler = get_oauth_handler(body.provider)
+    if body.provider == "gemini":
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "LOGIN_NOT_SUPPORTED", "message": "Google Gemini login is not supported by Google for this API path. Add a Gemini API key instead.", "details": None}},
+        )
     if not handler:
         raise HTTPException(
             status_code=400,
@@ -397,6 +419,11 @@ async def complete_login(
     settings = get_settings()
     ws = await _require_workspace(db)
     handler = get_oauth_handler(body.provider)
+    if body.provider == "gemini":
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "LOGIN_NOT_SUPPORTED", "message": "Google Gemini login is not supported by Google for this API path. Add a Gemini API key instead.", "details": None}},
+        )
     if not handler:
         raise HTTPException(
             status_code=400,
@@ -622,6 +649,82 @@ async def _fetch_openrouter_free_models() -> list[ProviderModelLive]:
     return models
 
 
+def _infer_modality(model_id: str) -> str:
+    """Infer modality (text/image/video) from model ID naming conventions."""
+    mid = model_id.lower()
+    if any(x in mid for x in ["video", "t2v", "i2v", "v2v", "veo", "sora", "seedance", "dreamina"]):
+        return "video"
+    if any(x in mid for x in ["image", "img", "sdxl", "flux", "stable-diff", "imagen", "dall-e", "dall_e",
+                               "seedream", "seededit", "t2i", "i2i"]):
+        return "image"
+    return "text"
+
+
+# Known image-generation models per provider — surfaced in the image specialist picker
+# when the provider is connected. These are not in the seeded text model catalog.
+_PROVIDER_IMAGE_MODELS: dict[str, list[dict]] = {
+    "openai": [
+        {"model_id": "gpt-image-2", "name": "GPT Image 2", "quality_tier": "high"},
+        {"model_id": "dall-e-3",    "name": "DALL-E 3",    "quality_tier": "high"},
+    ],
+    "gemini": [
+        {"model_id": "gemini-2.5-flash-image",    "name": "Gemini 2.5 Flash Image",  "quality_tier": "medium"},
+        {"model_id": "imagen-4.0-generate-001",   "name": "Imagen 4",                "quality_tier": "high"},
+        {"model_id": "imagen-4.0-ultra-generate-001", "name": "Imagen 4 Ultra",      "quality_tier": "high"},
+    ],
+}
+
+
+async def _fetch_bytedance_models(api_key: str) -> list[ProviderModelLive]:
+    """Live-fetch available models from BytePlus ModelArk and classify by modality."""
+    cache_key = "bytedance_live"
+    cached = _model_cache.get(cache_key)
+    if cached and time.time() - cached[1] < _CACHE_TTL:
+        return cached[0]
+
+    try:
+        api_key.encode("ascii")
+    except UnicodeEncodeError:
+        logger.warning(
+            "ByteDance ModelArk API key contains non-ASCII characters — re-enter the key via Admin → AI Providers"
+        )
+        return []
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://ark.ap-southeast.bytepluses.com/api/v3/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+            r.raise_for_status()
+            data = r.json()
+    except Exception as exc:
+        logger.warning("ByteDance ModelArk model list fetch failed: %s", exc)
+        return _model_cache.get(cache_key, ([], 0))[0]
+
+    models: list[ProviderModelLive] = []
+    for m in data.get("data", []):
+        model_id = m.get("id", "")
+        if not model_id:
+            continue
+        modality = _infer_modality(model_id)
+        models.append(ProviderModelLive(
+            provider="bytedance",
+            model_id=model_id,
+            name=m.get("display_name") or m.get("name") or model_id,
+            is_free=False,
+            input_cost_per_token=0.0,
+            output_cost_per_token=0.0,
+            context_length=m.get("context_window") or 0,
+            quality_tier="medium",
+            supports_json=modality == "text",
+            modality=modality,
+        ))
+
+    _model_cache[cache_key] = (models, time.time())
+    return models
+
+
 @router.get("/models", summary="List available models from connected providers")
 async def list_provider_models(
     db: AsyncSession = Depends(get_db),
@@ -636,19 +739,22 @@ async def list_provider_models(
     # Live OpenRouter free models
     free_models = await _fetch_openrouter_free_models()
 
-    # Seeded direct-provider models (exclude openrouter — we serve live free only)
-    direct_providers = ["openai", "gemini", "nvidia"]
-    # Providers with a platform key configured are "free" from the operator's perspective —
-    # they use the platform key, so the operator isn't paying additional per-token credits.
-    # Only BYOK-only providers (no platform key) are truly "paid" for the operator.
     settings = get_settings()
+
+    # Seeded models — pull every provider in the catalog except openrouter
+    # (openrouter is served live above; no hardcoded provider list here)
+    seeded_provider_rows = (await db.execute(
+        select(ModelOption.provider).distinct().where(ModelOption.status == "healthy")
+    )).scalars().all()
+    seeded_providers = [p for p in seeded_provider_rows if p != "openrouter"]
+
     providers_with_platform_key = {
-        p for p in direct_providers if bool(get_platform_key(p, settings))
+        p for p in seeded_providers if bool(get_platform_key(p, settings))
     }
 
     seeded_opts = (await db.execute(
         select(ModelOption)
-        .where(ModelOption.provider.in_(direct_providers))
+        .where(ModelOption.provider.in_(seeded_providers))
         .where(ModelOption.status == "healthy")
     )).scalars().all()
 
@@ -662,13 +768,57 @@ async def list_provider_models(
         direct_models.append(ProviderModelLive(
             provider=o.provider,
             model_id=o.model_id,
-            name=o.model_id,  # frontend has friendlyModelName() for display
+            name=o.model_id,
             is_free=o.provider in providers_with_platform_key,
             input_cost_per_token=float(o.input_cost_per_token),
             output_cost_per_token=float(o.output_cost_per_token),
             context_length=0,
             quality_tier=o.quality_tier,
             supports_json=o.supports_json,
+            modality=_infer_modality(o.model_id),
         ))
 
-    return {"models": [m.model_dump() for m in free_models + direct_models]}
+    ws = await get_singleton(db)
+
+    # Inject known image-generation models for connected providers (not in text catalog).
+    # A provider is "connected" if it has a platform key or a stored BYOK key.
+    connected_providers = set(providers_with_platform_key)
+    if ws:
+        byok_rows = (await db.execute(
+            select(ProviderKey.provider).where(ProviderKey.workspace_id == ws.id, ProviderKey.brand_id == None)  # noqa: E711
+        )).scalars().all()
+        connected_providers.update(byok_rows)
+
+    for provider, img_models in _PROVIDER_IMAGE_MODELS.items():
+        if provider not in connected_providers:
+            continue
+        is_free = provider in providers_with_platform_key
+        for m in img_models:
+            key = (provider, m["model_id"])
+            if key in seen:
+                continue
+            seen.add(key)
+            direct_models.append(ProviderModelLive(
+                provider=provider,
+                model_id=m["model_id"],
+                name=m["name"],
+                is_free=is_free,
+                input_cost_per_token=0.0,
+                output_cost_per_token=0.0,
+                context_length=0,
+                quality_tier=m["quality_tier"],
+                supports_json=False,
+                modality="image",
+            ))
+
+    # ByteDance ModelArk — live fetch when a key is available
+    bytedance_models: list[ProviderModelLive] = []
+    if ws:
+        from provider_auth import resolve_stored_provider_credential
+        bd_key, _ = await resolve_stored_provider_credential(db, ws.id, "bytedance", settings)
+        if not bd_key:
+            bd_key = get_platform_key("bytedance", settings)
+        if bd_key:
+            bytedance_models = await _fetch_bytedance_models(bd_key)
+
+    return {"models": [m.model_dump() for m in free_models + direct_models + bytedance_models]}

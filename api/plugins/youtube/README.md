@@ -35,6 +35,17 @@ Every mutation (Upload/Update) must follow the BITE pipeline:
 - **OAuth Scopes**: Current OAuth requests `https://www.googleapis.com/auth/youtube.upload` and `https://www.googleapis.com/auth/youtube.force-ssl`.
 - **Risk Policy**: Validation is read-only. Mutations require an approved artifact.
 
+## Live Validation
+
+**2026-06-09 — Klaroha V4 passed**
+- Connection validate run: `20c87630-3945-41be-9422-83386b8da568`
+- Video generation run: `27ffa581-1786-48b2-ac65-146e62e780d5`
+- Drive file: `1s3FgxDnMJ21mTGwMHYjNnyKQMGZwEhbG`
+- Publish run: `824bd91f-ff67-4bee-a5a6-a16fb36fbc72`
+- YouTube video: `https://www.youtube.com/watch?v=Yo1qHG8RHmc`
+- Privacy: `private`
+- Verified via YouTube Data API: `uploadStatus=processed`
+
 ## Directory Structure
 ```
 api/plugins/youtube/

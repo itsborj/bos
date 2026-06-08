@@ -1883,10 +1883,10 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
   align-items: center;
   gap: 10px;
   padding: 9px 20px;
-  background: #fdf0de;
-  border-bottom: 1px solid #f0d5a0;
+  background: var(--linen);
+  border-bottom: .5px solid var(--border-warm);
   font-size: 13px;
-  color: #92400e;
+  color: var(--ink-body);
 }
 .gs-banner-text { flex: 1; }
 .gs-banner-dismiss {
@@ -1894,7 +1894,7 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
   border: none;
   cursor: pointer;
   font-size: 15px;
-  color: #92400e;
+  color: var(--ink-muted);
   padding: 2px 6px;
   opacity: 0.6;
   line-height: 1;
@@ -4675,6 +4675,26 @@ textarea,
   border-color: var(--cta-ghost-border) !important;
   color: var(--ink-muted) !important;
 }
+/* Secondary/ghost disabled: keep dark text, reduce opacity on border/text only */
+.btn-secondary:disabled,
+.stream-btn-revise:disabled,
+.stream-btn-view:disabled,
+.topbar-btn:disabled,
+.copy-btn:disabled {
+  background: transparent !important;
+  border-color: rgba(11,61,46,.25) !important;
+  color: var(--ink-subtle) !important;
+  cursor: not-allowed !important;
+  opacity: 1 !important;
+}
+.btn-ghost:disabled,
+.stream-btn-dismiss:disabled,
+.artifact-btn.ghost:disabled {
+  color: var(--ink-subtle) !important;
+  border-color: rgba(11,61,46,.12) !important;
+  cursor: not-allowed !important;
+  opacity: 1 !important;
+}
 .btn-danger {
   background: var(--status-error-fill) !important;
   border-color: var(--status-error-border) !important;
@@ -4699,11 +4719,14 @@ textarea,
   background: var(--white) !important;
   border-color: var(--border) !important;
 }
-.bos-proto-tab.active,
-.admin-nav-item.active,
-.snav-item.active {
+.bos-proto-tab.active {
   background: var(--brand) !important;
   color: var(--on-brand) !important;
+}
+.admin-nav-item.active,
+.snav-item.active {
+  background: transparent !important;
+  color: var(--brand) !important;
 }
 .bos-proto-tab-badge,
 .snav-badge {
@@ -4922,8 +4945,6 @@ textarea,
 .ux-hero,
 .msg-user,
 .bos-proto-tab.active,
-.admin-nav-item.active,
-.snav-item.active,
 .btn-dark,
 .btn-primary,
 .btn-accent,
@@ -5047,9 +5068,10 @@ button.primary:disabled,
 .cmo-send:disabled,
 .btn-send:disabled,
 button[type="submit"].btn:disabled {
-  background: rgba(184,92,48,.28) !important;
+  background: rgba(184,92,48,.18) !important;
   border-color: transparent !important;
-  color: rgba(245,241,232,.50) !important;
+  color: var(--ink-muted) !important;
+  cursor: not-allowed !important;
 }
 
 /* ── Active / current-page fill: soft green surface + brand text. ── */
@@ -5069,36 +5091,36 @@ a.admin-nav-item.active,
 a.snav-item.active,
 .snav-item.active {
   position: relative !important;
-  background: #C8E8D8 !important;
+  background: transparent !important;
   color: var(--brand) !important;
   font-weight: 600 !important;
   box-shadow: none !important;
+  border-left: 2px solid var(--brand) !important;
+  padding-left: 10px !important;
 }
 a.admin-nav-item.active::before,
 .admin-nav-item.active::before,
 a.snav-item.active::before,
 .snav-item.active::before { display: none !important; }
 
-/* Hover state: lighter green tint */
+/* Hover state: very subtle warm tint — no fill, just a hint */
 .admin-nav-item:not(.active):hover,
 .snav-item:not(.active):hover {
-  background: rgba(200,232,216,.35) !important;
-  color: var(--brand) !important;
+  background: rgba(11,61,46,.04) !important;
+  color: var(--ink) !important;
+  border-left: 2px solid transparent !important;
 }
 .bos-proto-tab:not(.active):hover {
   background: rgba(200,232,216,.35) !important;
   color: var(--brand) !important;
 }
 
-/* :active press feedback on all clickable links */
-a:active,
-button:active,
-.btn:active,
+/* :active press feedback only on nav items and chips — not buttons (they have their own CTA hierarchy) */
 .admin-nav-item:active,
 .snav-item:active,
 .bos-proto-tab:active,
 .filter-chip:active {
-  background: #8ABDA5 !important;
+  background: rgba(11,61,46,.10) !important;
   color: var(--brand) !important;
   transition: none !important;
 }
@@ -5120,9 +5142,10 @@ a.btn-accent:hover {
 }
 .btn-accent:disabled,
 button.btn-accent:disabled {
-  background: rgba(130,109,64,.25) !important;
+  background: rgba(130,109,64,.18) !important;
   border-color: transparent !important;
-  color: rgba(245,241,232,.45) !important;
+  color: var(--ink-muted) !important;
+  cursor: not-allowed !important;
 }
 
 /* Reference container: fixed centered system width so large screens do not overexpand. */

@@ -53,6 +53,12 @@ _RUN_PARAMS_RE = re.compile(
     r"RUN:\s*([a-zA-Z0-9_.-]+)((?:\n(?![ \t]*RUN\s*:)[ \t]*[a-zA-Z_][a-zA-Z0-9_]*\s*:[^\n]*)*)",
     re.MULTILINE,
 )
+# Matches blocks of 2+ consecutive lowercase_snake_case key: value lines that appear outside
+# any RUN: directive — "orphan params" emitted when the LLM retries or errors mid-generation.
+_ORPHAN_PARAM_BLOCK_RE = re.compile(
+    r"(?:^[ \t]*[a-z][a-z0-9_]+[ \t]*:[^\n]+)(?:\n[ \t]*[a-z][a-z0-9_]+[ \t]*:[^\n]+)+",
+    re.MULTILINE,
+)
 # ── @council command routing ──────────────────────────────────────────────────
 _COUNCIL_RE = re.compile(r"^\s*@council\b", re.IGNORECASE)
 
@@ -215,6 +221,7 @@ def _strip_control_directives(text: str) -> str:
     # under it (e.g. caption:, image_prompt:) — so hidden params never leak into the
     # user-visible reply. _RUN_PARAMS_RE matches RUN lines with or without params.
     cleaned = _RUN_PARAMS_RE.sub("", without_scope)
+    cleaned = _ORPHAN_PARAM_BLOCK_RE.sub("", cleaned)
     cleaned = _RUN_RE.sub("", cleaned)
     cleaned = _ACTION_RE.sub("", cleaned)
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
@@ -1192,7 +1199,7 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
 
     # ── @council command ──────────────────────────────────────────────────────
     if _is_council_command(body.message):
-        from capabilities.workspace.council.module import start_session as _council_start
+        from council import start_session as _council_start
         from models.workspace import Brand as _Brand
         _council_brief = _parse_council_brief(body.message)
         if not _council_brief:
@@ -1612,7 +1619,7 @@ async def chat(
 
     # ── @council command routing ──────────────────────────────────────────────
     if _is_council_command(body.message):
-        from capabilities.workspace.council.module import start_session as _council_start
+        from council import start_session as _council_start
         _council_brief = _parse_council_brief(body.message)
         if not _council_brief:
             return ChatResponse(reply="What question should the council deliberate on?\n\nUsage: @council <question>")

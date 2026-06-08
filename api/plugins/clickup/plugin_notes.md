@@ -10,8 +10,9 @@
 - `CLICKUP_TEAM_ID` is the Workspace ID in ClickUp's API — confusingly named `team_id` in all API calls.
 - Only `CLICKUP_API_TOKEN` and `CLICKUP_TEAM_ID` are required credentials. No default list ID.
 
-## Fixed Bugs
+## Fixed Bugs / Operating Updates
 
+- 2026-06-07: Added non-destructive ClickUp organization script `scripts/organize_bos_clickup.py`. It creates the human-facing Decision Ledger + Capability Map folders/lists and seeds curated decision/capability/plugin cards from `BACKLOG.md`, `PROJECT_BRIEF.md`, and installed `SKILL.md`/`channel.json` files. It deliberately does not delete/archive/move the existing `Klaroha BOS` backlog mirror.
 - v0.1.1: Removed `CLICKUP_DEFAULT_LIST_ID` from required credentials. `tasks.read` now scans full workspace; `tasks.create` resolves list from brief instead of a stored default.
 - v0.1.1: Removed `Bearer` prefix from Authorization header — ClickUp personal tokens (`pk_...`) use the raw token value, not OAuth Bearer format.
 
@@ -23,6 +24,7 @@
 - Do not accept `notify_all=true` for bulk task creation — it spams all watchers.
 - Do not import `requests` or any third-party HTTP library. Use `urllib.request` only.
 - Do not add the `Bearer` prefix to the Authorization header. ClickUp personal tokens are sent raw.
+- Do not destructively clean the existing `Klaroha BOS` backlog mirror from scripts. It remains the BACKLOG.md sync target until a deliberate rename/move process is approved.
 
 ## API Pitfalls (from ClickUp API docs)
 
@@ -36,5 +38,6 @@
 ## Local Backlog
 
 - [ ] Add `tasks.update` capability (approval-gated) for marking tasks complete from CMO chat
+- [ ] Add a topic timeline/report command that fetches the latest 10–20 ClickUp records by `[topic]` across Decision Ledger, Capability Map, and backlog mirror
 - [ ] Add `tasks.read` pagination for lists with >100 tasks (`page=1`, `page=2`, etc.)
 - [ ] Consider OAuth per-brand connection following Gmail pattern once multi-brand ClickUp usage is needed

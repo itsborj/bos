@@ -181,7 +181,7 @@ async def convene(
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    from capabilities.workspace.council.module import start_session
+    from council import start_session
     from models.workspace import Brand
 
     ws = await get_singleton(db)
@@ -217,7 +217,7 @@ async def c6_respond(
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    from capabilities.workspace.council.module import process_c6
+    from council import process_c6
     from models.workspace import Brand
 
     row = (await db.execute(
@@ -261,7 +261,7 @@ async def finalize_session(
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    from capabilities.workspace.council.module import finalize
+    from council import finalize
 
     row = (await db.execute(
         select(CouncilSession).where(CouncilSession.id == uuid.UUID(session_id))

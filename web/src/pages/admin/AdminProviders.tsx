@@ -10,7 +10,9 @@ const PROVIDER_LABELS: Record<string, string> = {
   openai:      'OpenAI',
   openrouter:  'OpenRouter',
   gemini:      'Google Gemini',
+  google:      'Google (Login)',
   nvidia:      'NVIDIA AI Cloud',
+  bytedance:   'ByteDance ModelArk',
 };
 
 function providerLabel(provider: string): string {
@@ -83,6 +85,7 @@ function modelVersionFamily(modelId: string): string {
   if (id.includes('gemini-2.5')) return 'gemini-25';
   if (id.includes('gemini-2.0') || id.includes('gemini-2.')) return 'gemini-2x';
   if (id.includes('nemotron')) return 'nemotron';
+  if (id.includes('seedance') || id.includes('dreamina')) return 'seedance';
   return modelId;
 }
 
@@ -119,6 +122,12 @@ export function AdminProviders() {
   const [cmoOverride, setCmoOverride] = useState<BackendOverride | null>(null);
   const [cmoModel, setCmoModel] = useState('');
   const [savingCmo, setSavingCmo] = useState(false);
+
+  // Media generation overrides
+  const [videoOverride, setVideoOverride] = useState<BackendOverride | null>(null);
+  const [videoModel, setVideoModel] = useState('');
+  const [savingVideo, setSavingVideo] = useState(false);
+  const [videoEndpointId, setVideoEndpointId] = useState('');
 
   // Diagnostics panel
   const [showDiagnostics, setShowDiagnostics] = useState(false);
@@ -157,6 +166,13 @@ export function AdminProviders() {
       const cmo = overrideResult.overrides.find(o => o.target === 'cmo.main') ?? null;
       setCmoOverride(cmo);
       setCmoModel(cmo?.model_id ? `${cmo.provider}::${cmo.model_id}` : '');
+
+      const vid = overrideResult.overrides.find(o => o.target === 'media.video.generate') ?? null;
+      setVideoOverride(vid);
+      if (vid?.model_id) {
+        setVideoModel(`${vid.provider}::${vid.model_id}`);
+        setVideoEndpointId('');
+      }
     } finally {
       setLoading(false);
     }
@@ -225,7 +241,7 @@ export function AdminProviders() {
   // within version families and group by free/paid for the optgroups.
   const allModelChoices = useMemo(() => {
     const familySeen = new Set<string>();
-    return availableModels.map(m => {
+    return availableModels.filter(m => !m.modality || m.modality === 'text').map(m => {
       const family = modelVersionFamily(m.model_id);
       const familyKey = `${m.provider}::${family}`;
       const isLatest = !familySeen.has(familyKey);
@@ -249,27 +265,29 @@ export function AdminProviders() {
     });
   }, [availableModels, providerReady]);
 
-  // Free OpenRouter models — always shown
+  // Free models (any provider marking is_free) — capped at 20, sorted by quality
   const freeChoices = useMemo(
-    () => allModelChoices.filter(c => c.provider === 'openrouter' && c.isFree),
+    () => allModelChoices.filter(c => c.isFree).slice(0, 20),
     [allModelChoices],
   );
 
-  // Paid models — shown only when toggle is on
-  const paidChoices = useMemo(
-    () => allModelChoices.filter(c => !c.isFree),
-    [allModelChoices],
-  );
-
-  // Group paid choices by provider for optgroups
+  // Paid models grouped by provider, capped at 5 per provider
   const paidByProvider = useMemo(() => {
     const groups: Record<string, ModelChoice[]> = {};
-    paidChoices.forEach(c => {
-      const group = c.provider === 'openrouter' ? 'openrouter-paid' : c.provider;
-      (groups[group] ??= []).push(c);
-    });
+    allModelChoices
+      .filter(c => !c.isFree && c.provider !== 'openrouter')
+      .forEach(c => {
+        const arr = (groups[c.provider] ??= []);
+        if (arr.length < 5) arr.push(c);
+      });
     return groups;
-  }, [paidChoices]);
+  }, [allModelChoices]);
+
+  // ByteDance video models for the media generation picker
+  const videoModelChoices = useMemo(
+    () => availableModels.filter(m => m.modality === 'video'),
+    [availableModels],
+  );
 
   // ── Handlers ─────────────────────────────────────────────────────────────────
 
@@ -289,6 +307,29 @@ export function AdminProviders() {
       }
     } finally {
       setSavingCmo(false);
+    }
+  }
+
+  async function handleSaveVideoModel() {
+    setSavingVideo(true);
+    try {
+      // Endpoint ID field takes priority over the dropdown when filled
+      const effectiveModel = videoEndpointId.trim() || videoModel;
+      if (!effectiveModel) {
+        await api.deleteBackendOverride('media.video.generate').catch(() => {});
+        setVideoOverride(null);
+      } else {
+        const [provider, ...rest] = effectiveModel.split('::');
+        const model_id = rest.join('::') || effectiveModel;
+        const actualProvider = rest.length ? provider : 'bytedance';
+        const saved = await api.putBackendOverride('media.video.generate', {
+          provider: actualProvider, model_id, tool_id: null, modality: 'video', strict: true,
+        });
+        setVideoOverride(saved);
+        setVideoEndpointId('');
+      }
+    } finally {
+      setSavingVideo(false);
     }
   }
 
@@ -374,13 +415,6 @@ export function AdminProviders() {
     return <div className="admin-page"><div className="loading-full"><span className="spinner" /></div></div>;
   }
 
-  const paidGroupLabels: Record<string, string> = {
-    'openrouter-paid': 'OpenRouter — Paid',
-    openai: 'OpenAI Direct — Paid',
-    gemini: 'Google Gemini — Paid',
-    nvidia: 'NVIDIA — Paid',
-  };
-
   return (
     <div className="admin-page">
       <div className="admin-page-header">
@@ -441,22 +475,20 @@ export function AdminProviders() {
                 <option value="">Auto-select best available</option>
 
                 {freeChoices.length > 0 && (
-                  <optgroup label="── Free · OpenRouter ──">
+                  <optgroup label="── Free ──">
                     {freeChoices.map(c => (
                       <option key={c.value} value={c.value}>{c.label}</option>
                     ))}
                   </optgroup>
                 )}
 
-                {Object.entries(paidByProvider)
-                  .filter(([group]) => group !== 'openrouter-paid')
-                  .map(([group, choices]) => (
-                    <optgroup key={group} label={`── ${paidGroupLabels[group] ?? group} ──`}>
-                      {choices.map(c => (
-                        <option key={c.value} value={c.value}>{c.label}</option>
-                      ))}
-                    </optgroup>
-                  ))}
+                {Object.entries(paidByProvider).map(([provider, choices]) => (
+                  <optgroup key={provider} label={`── ${providerLabel(provider)} ──`}>
+                    {choices.map(c => (
+                      <option key={c.value} value={c.value}>{c.label}</option>
+                    ))}
+                  </optgroup>
+                ))}
               </select>
             </div>
             <button
@@ -491,7 +523,7 @@ export function AdminProviders() {
             {keys.map(key => (
               <div
                 key={key.provider}
-                style={{ display: 'flex', alignItems: 'center', gap: 8, border: '1px solid var(--border)', borderRadius: 8, padding: '6px 10px', fontSize: 13 }}
+                style={{ display: 'flex', alignItems: 'center', gap: 8, border: '.5px solid var(--border)', padding: '6px 10px', fontSize: 13 }}
               >
                 <span style={{ color: 'var(--success)' }}>●</span>
                 <span>{providerLabel(key.provider)}</span>
@@ -530,7 +562,12 @@ export function AdminProviders() {
                 type="password"
                 value={addKey}
                 onChange={e => setAddKey(e.target.value)}
-                placeholder={addProvider === 'openrouter' ? 'sk-or-v1-…' : addProvider === 'gemini' ? 'AIza…' : 'sk-…'}
+                placeholder={
+                  addProvider === 'openrouter' ? 'sk-or-v1-…'
+                  : addProvider === 'gemini' ? 'AIza…'
+                  : addProvider === 'bytedance' ? 'ARK API key…'
+                  : 'sk-…'
+                }
               />
             </div>
             <button
@@ -553,9 +590,92 @@ export function AdminProviders() {
               Get a free Gemini API key at <strong>aistudio.google.com/apikey</strong>.
             </div>
           )}
+          {addProvider === 'bytedance' && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text2)' }}>
+              BytePlus ModelArk API key from <strong>console.byteplus.com → ModelArk → API Keys</strong>. Required for Seedance video generation.
+            </div>
+          )}
         </form>
 
         {error && <div className="alert alert-error" style={{ marginTop: 10 }}>{error}</div>}
+      </div>
+
+      {/* ── Media Generation ────────────────────────────────────────────────── */}
+      <div className="admin-card" style={{ marginBottom: 16 }}>
+        <div className="admin-card-title">Media Generation</div>
+        <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>
+          Set the backend for AI video and image generation. ByteDance ModelArk powers Seedance video generation.
+          Requires a ByteDance ModelArk API key added above.
+        </div>
+
+        {/* Video backend */}
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14 }}>
+          <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Video generation</div>
+          <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 10 }}>
+            {videoOverride?.model_id
+              ? `Active: ${videoOverride.model_id} · ${providerLabel(videoOverride.provider)}`
+              : 'No backend configured — video generation unavailable.'}
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: 10, alignItems: 'end', flexWrap: 'wrap' }}>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="label" style={{ fontSize: 12 }}>Model</label>
+              <select
+                className="select"
+                value={videoModel}
+                onChange={e => { setVideoModel(e.target.value); setVideoEndpointId(''); }}
+              >
+                <option value="">None (disable)</option>
+                {videoModelChoices.map(m => (
+                  <option
+                    key={m.model_id}
+                    value={`${m.provider}::${m.model_id}`}
+                    disabled={!providerReady.has(m.provider)}
+                  >
+                    {m.name || m.model_id}{!providerReady.has(m.provider) ? ' — no key' : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="form-group" style={{ marginBottom: 0 }}>
+              <label className="label" style={{ fontSize: 12 }}>Custom endpoint ID (overrides model)</label>
+              <input
+                className="input"
+                type="text"
+                value={videoEndpointId}
+                onChange={e => setVideoEndpointId(e.target.value)}
+                placeholder="ep-m-… (ModelArk endpoint ID)"
+              />
+            </div>
+            <button
+              className="btn btn-dark"
+              onClick={handleSaveVideoModel}
+              disabled={savingVideo}
+            >
+              {savingVideo ? 'Saving…' : videoOverride ? 'Update' : 'Save'}
+            </button>
+          </div>
+
+          {videoOverride?.model_id && !providerReady.has(videoOverride.provider) && (
+            <div style={{ marginTop: 8, fontSize: 12, color: 'var(--warning)' }}>
+              ⚠ {providerLabel(videoOverride.provider)} key not connected — add an API key above.
+            </div>
+          )}
+          {videoOverride && (
+            <button
+              className="btn btn-ghost btn-sm"
+              style={{ marginTop: 8, fontSize: 11, color: 'var(--text2)' }}
+              onClick={async () => {
+                await api.deleteBackendOverride('media.video.generate').catch(() => {});
+                setVideoOverride(null);
+                setVideoModel('');
+                setVideoEndpointId('');
+              }}
+            >
+              Clear video backend
+            </button>
+          )}
+        </div>
       </div>
 
       {/* ── Provider Login Accounts (OAuth) ──────────────────────────────────── */}
@@ -611,7 +731,7 @@ export function AdminProviders() {
 
                 {/* 3-step OAuth flow */}
                 {pending && (
-                  <div style={{ marginTop: 16, display: 'grid', gap: 14, background: 'var(--surface2)', padding: 16, borderRadius: 10, border: '1px solid var(--border)' }}>
+                  <div style={{ marginTop: 16, display: 'grid', gap: 14, background: 'var(--ivory)', padding: 16, border: '.5px solid var(--border-warm)' }}>
                     <div>
                       <div style={{ fontWeight: 700, fontSize: 13, marginBottom: 4 }}>Step 1 — Open the login page</div>
                       <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>
@@ -752,7 +872,7 @@ export function AdminProviders() {
                               {provider.has_byok_key && !isOAuth && (
                                 <button className="btn btn-danger btn-sm" onClick={() => handleDeleteKey(provider.provider)}>Remove key</button>
                               )}
-                              <button className="btn btn-secondary btn-sm" onClick={() => setExpandedProvider(expanded ? null : provider.provider)}>
+                              <button className="btn btn-ghost btn-sm" onClick={() => setExpandedProvider(expanded ? null : provider.provider)}>
                                 {expanded ? 'Hide' : 'Details'}
                               </button>
                             </div>

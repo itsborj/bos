@@ -83,7 +83,7 @@ function ProductRow({
             )}
           </div>
           <div className="flex gap-2">
-            <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}>Edit</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setEditing(true)}>Edit</button>
             <button className="btn btn-danger btn-sm" onClick={onRemove}>Remove</button>
           </div>
         </div>
@@ -184,7 +184,7 @@ function AudienceRow({
             )}
           </div>
           <div className="flex gap-2">
-            <button className="btn btn-secondary btn-sm" onClick={() => setEditing(true)}>Edit</button>
+            <button className="btn btn-ghost btn-sm" onClick={() => setEditing(true)}>Edit</button>
             <button className="btn btn-danger btn-sm" onClick={onRemove}>Remove</button>
           </div>
         </div>

@@ -138,6 +138,10 @@ class ChannelPluginManifest(BaseModel):
     credential_slots: List[CredentialSlot] = Field(default_factory=list)
     connections: List[PluginConnectionManifest] = Field(default_factory=list)
     capability_ids: List[str] = Field(default_factory=list)
+    # T090: plugin-declared provider/model options for media plugins
+    provider_options: List[dict] = Field(default_factory=list)
+    # T091: plugin-declared workspace discovery endpoint
+    workspace_discovery_url: Optional[str] = None
 
 
 def required_plugin_vars(manifest: ChannelPluginManifest) -> list[str]:
@@ -192,6 +196,18 @@ def load_plugin(plugin_dir: Path, source: str = "internal") -> Optional["_Plugin
 
     # Extract plugin_id before full validation so the error is recoverable.
     plugin_id_raw = raw.get("plugin_id") if isinstance(raw, dict) else None
+
+    # C6 compat: convert legacy requires_social_connection / requires_platform_vars
+    # to credential_slots so old external plugins still receive credential injection.
+    if isinstance(raw, dict) and not raw.get("credential_slots"):
+        legacy_slots: list[dict] = []
+        for platform in raw.get("requires_social_connection") or []:
+            legacy_slots.append({"type": "social_token", "platform": platform})
+        for var in raw.get("requires_platform_vars") or []:
+            legacy_slots.append({"type": "platform_var", "var": var})
+        if legacy_slots:
+            raw = {**raw, "credential_slots": legacy_slots}
+            log.debug("Plugin %s: converted legacy credential fields → credential_slots", plugin_id_raw)
 
     try:
         manifest = ChannelPluginManifest(**raw)

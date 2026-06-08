@@ -85,6 +85,20 @@ def register_skill_root(root: str) -> None:
         get_skill.cache_clear()
 
 
+def collect_skill_parse_errors(root: str) -> list[str]:
+    """Return SKILL.md parse/validation errors under a root without registering it."""
+    errors: list[str] = []
+    root_path = Path(root)
+    for path in sorted(root_path.glob("**/SKILL.md")):
+        try:
+            data, _body = _parse_frontmatter(path.read_text())
+            data = _normalize_frontmatter(data, path, root_path)
+            SkillManifest.model_validate(data)
+        except Exception as exc:
+            errors.append(f"{path}: {exc}")
+    return errors
+
+
 def _parse_scalar(value: str) -> Any:
     value = value.strip()
     if value in {"null", "~", ""}:

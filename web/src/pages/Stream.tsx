@@ -14,7 +14,7 @@ import { TwitterFeedPreview } from '../components/blocks/previews/TwitterFeedPre
 import { ApprovalBundle } from '../components/blocks/ApprovalBundle';
 import type { ObjectiveOut, RunListItem, RunResponse, StreamUpdateOut } from '../api/types';
 
-type ArtifactStatus = 'pending' | 'approved' | 'dismissed' | 'complete';
+type ArtifactStatus = 'pending' | 'approved' | 'dismissed' | 'complete' | 'failed';
 
 function titleCase(value: string): string {
   return value
@@ -33,6 +33,7 @@ function artifactTitle(run: RunResponse): string {
   if (id.includes('gtm_plan') || id.includes('gtm')) return 'GTM Strategy';
   if (id.includes('email') && id.includes('plan')) return 'Email Campaign Plan';
   if (id.includes('email')) return 'Email Draft';
+  if (id.includes('gbp') || platform.toLowerCase().includes('google business')) return 'Google Business Profile Audit';
   if (id.includes('plan')) return 'Campaign Plan';
   if (id.includes('report') || id.includes('analytics')) return 'Marketing Report';
   if (id.includes('creative.post')) return 'Facebook Post Creative';
@@ -51,6 +52,7 @@ function artifactTitle(run: RunResponse): string {
 
 function artifactStatus(run: RunResponse): ArtifactStatus {
   const status = (run as any).approval_status || (run.result as any)?.approval_status;
+  if (run.status === 'failed' || (run.result?.block as any)?.status === 'failed') return 'failed';
   if (status === 'approved') return 'approved';
   if (status === 'rejected') return 'dismissed';
   if (status === 'pending') return 'pending';
@@ -101,6 +103,7 @@ function updateBrandRef(update: StreamUpdateOut): string | null {
 function statusText(status: ArtifactStatus): string {
   if (status === 'approved') return 'Approved';
   if (status === 'dismissed') return 'Dismissed';
+  if (status === 'failed') return 'Failed';
   if (status === 'pending') return 'Needs review';
   return 'Saved';
 }
@@ -221,6 +224,34 @@ function renderNativePreview(run: RunResponse) {
   }
   if (channel.includes('pinterest')) {
     return <PinterestPreview title={result.headline || 'Title Missing'} description={result.content || 'Description missing'} />;
+  }
+  if (result.block?.type === 'gbp_completeness_result') {
+    const b = result.block as any;
+    if (b.status === 'failed' || b.error) {
+      return (
+        <div style={{ padding: '18px 20px', fontSize: 13, color: '#7f1d1d', border: '1px solid #fecaca', borderRadius: 12, background: '#fef2f2' }}>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>Google Business Profile not connected</div>
+          <div>{b.error || result.content || 'Connect Google Business Profile in Admin → Brands.'}</div>
+        </div>
+      );
+    }
+    const fields: any[] = Array.isArray(b.fields) ? b.fields : [];
+    return (
+      <div style={{ padding: '16px 20px', fontSize: 13, color: '#1f2937', border: '1px solid #dbeafe', borderRadius: 12, background: '#eff6ff', maxWidth: 560 }}>
+        <div style={{ fontSize: 11, color: '#1d4ed8', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>Google Business Profile audit</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 8 }}>
+          <span style={{ fontSize: 30, fontWeight: 900 }}>{b.score ?? 0}</span>
+          <span style={{ fontWeight: 800 }}>{b.rating || 'Unscored'}</span>
+          {b.raw_score != null && <span style={{ color: '#6b7280' }}>{b.raw_score}/{b.max_score || 16} pts</span>}
+        </div>
+        {fields.slice(0, 4).map((field, idx) => (
+          <div key={idx} style={{ padding: '6px 0', borderTop: idx ? '1px solid #bfdbfe' : 'none' }}>
+            <strong>{field.name}</strong> · {field.status}
+            {field.note && <div style={{ color: '#4b5563', fontSize: 12 }}>{field.note}</div>}
+          </div>
+        ))}
+      </div>
+    );
   }
   if (result.block?.type === 'meta_page_posts') {
     const b = result.block as any;

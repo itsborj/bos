@@ -582,6 +582,7 @@ const INTEGRATION_PLATFORMS = [
   { id: 'youtube',         label: 'YouTube',          icon: '▶️' },
   { id: 'tiktok',          label: 'TikTok',           icon: '🎵' },
   { id: 'google_drive',    label: 'Google Drive',     icon: '🗂️', hasFolderPicker: true },
+  { id: 'google_business', label: 'Google Business Profile', icon: '📍' },
   { id: 'gmail',           label: 'Gmail',            icon: '✉️' },
   { id: 'google_calendar', label: 'Google Calendar',  icon: '📅' },
 ] as const;
@@ -751,6 +752,8 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
           const c = conn(id);
           const busy = connectingId === id;
           const hasFolderPicker = 'hasFolderPicker' in flags && flags.hasFolderPicker;
+          const isConnected = c?.status === 'connected';
+          const statusText = isConnected ? 'Connected' : (c?.status === 'needs_reauth' ? 'Reconnect required' : 'Setup blocked');
           return (
             <div
               key={id}
@@ -770,10 +773,15 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
               </div>
               {c ? (
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
-                  <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
-                  {hasFolderPicker && (
+                  <span className={`status-badge ${isConnected ? 'approved' : 'pending'}`} style={{ fontSize: 10 }}>{statusText}</span>
+                  {isConnected && hasFolderPicker && (
                     <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={handleChooseDriveFolder}>
                       {driveRoot ? 'Change folder' : 'Choose folder'}
+                    </button>
+                  )}
+                  {!isConnected && (
+                    <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => handleConnect(id)} disabled={busy}>
+                      {busy ? 'Redirecting…' : 'Reconnect'}
                     </button>
                   )}
                   <button

@@ -22,7 +22,7 @@ from db import get_db
 from models.provider import ProviderKey, ProviderLoginSession
 from models.social import SocialConnection
 from models.workspace import Brand
-from plugin_loader import get_plugin_vars
+from plugin_loader import get_plugin_id_for_connection, get_plugin_vars
 from provider_auth import (
     encrypt_secret,
     decrypt_secret,
@@ -39,8 +39,24 @@ _PLATFORM_PLUGIN_ID: dict[str, str] = {
     "tiktok": "channel.tiktok",
 }
 
+
+def _plugin_id_for_platform(platform: str) -> str | None:
+    return _PLATFORM_PLUGIN_ID.get(platform) or get_plugin_id_for_connection(platform)
+
+
 router = APIRouter(prefix="/social", tags=["social"])
 logger = logging.getLogger("bos.social")
+
+
+def _coerce_datetime(value) -> datetime | None:
+    if value is None or isinstance(value, datetime):
+        return value
+    if isinstance(value, str) and value:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed
+    return None
 
 
 # ── Schemas ──────────────────────────────────────────────────────────────────
@@ -103,6 +119,8 @@ async def start_social_connect(
     handler = get_oauth_handler(body.platform)
     if not handler:
         raise HTTPException(status_code=400, detail={"error": {"code": "PLATFORM_NOT_SUPPORTED", "message": f"Platform '{body.platform}' does not support OAuth connect", "details": None}})
+    if body.platform == "gemini":
+        raise HTTPException(status_code=400, detail={"error": {"code": "USE_PROVIDER_LOGIN", "message": "Gemini is a workspace AI provider. Connect it from Admin → AI Providers, not brand social connections.", "details": None}})
 
     ws = await get_singleton(db)
     if not ws:
@@ -144,7 +162,7 @@ async def start_social_connect(
             platform=body.platform,
         )
 
-    plugin_id = _PLATFORM_PLUGIN_ID.get(body.platform)
+    plugin_id = _plugin_id_for_platform(body.platform)
     plugin_vars = await get_plugin_vars(plugin_id, db, settings) if plugin_id else {}
 
     try:
@@ -664,6 +682,36 @@ class SetDriveRootRequest(BaseModel):
     folder_path: Optional[str] = None
 
 
+async def _drive_connection_row(db: AsyncSession, brand_id: str) -> SocialConnection | None:
+    return (await db.execute(
+        select(SocialConnection).where(
+            SocialConnection.brand_id == uuid.UUID(brand_id),
+            SocialConnection.platform == "google_drive",
+            SocialConnection.status.in_(["connected", "needs_reauth"]),
+        ).order_by(SocialConnection.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+
+
+async def _resolve_drive_root_folder(db: AsyncSession, brand_id: str) -> tuple[str, str | None]:
+    row = await _drive_connection_row(db, brand_id)
+    meta = (row.token_meta_json or {}) if row else {}
+    return str(meta.get("drive_root_folder_id") or "root"), meta.get("drive_root_name")
+
+
+async def _mark_drive_reauth_required(db: AsyncSession, brand_id: str) -> None:
+    row = await _drive_connection_row(db, brand_id)
+    if row and row.status != "needs_reauth":
+        row.status = "needs_reauth"
+        await db.commit()
+
+
+def _drive_reauth_exception() -> HTTPException:
+    return HTTPException(
+        status_code=401,
+        detail={"error": {"code": "DRIVE_REAUTH_REQUIRED", "message": "Reconnect Google Drive for this brand. The saved token expired or was revoked.", "details": None}},
+    )
+
+
 @router.get("/drive/picker-config", dependencies=[Depends(require_api_key)])
 async def drive_picker_config(
     brand_id: str,
@@ -685,11 +733,14 @@ async def drive_picker_config(
 @router.get("/drive/folders", dependencies=[Depends(require_api_key)])
 async def list_drive_folders(
     brand_id: str,
-    parent_id: str = "root",
+    parent_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
 ):
-    """List subfolders of a Drive folder for the brand folder browser."""
+    """List subfolders of a Drive folder for the brand folder browser.
+
+    Without parent_id, starts at the brand's configured Drive root folder.
+    """
     import sys
     import os
     plugin_dir = os.path.join(os.path.dirname(__file__), "..", "plugins", "google-drive")
@@ -699,30 +750,41 @@ async def list_drive_folders(
 
     token, _ = await get_page_token(db, brand_id, "google_drive", settings)
     if not token:
-        raise HTTPException(status_code=404, detail={"error": {"code": "DRIVE_NOT_CONNECTED", "message": "Connect Google Drive for this brand first", "details": None}})
+        raise _drive_reauth_exception()
 
-    with DriveClient(token) as drive:
-        if parent_id == "root":
-            my_drive = drive.list_children("root", mime_type="application/vnd.google-apps.folder")
-            items = [{"id": f["id"], "name": f["name"]} for f in my_drive]
-            try:
-                shared_with_me = drive.list_shared_with_me_folders()
-                seen = {f["id"] for f in my_drive}
-                for f in shared_with_me:
-                    if f["id"] not in seen:
-                        items.append({"id": f["id"], "name": f["name"]})
-            except Exception:
-                pass
-            try:
-                for sd in drive.list_shared_drives():
-                    items.append({"id": sd["id"], "name": sd["name"]})
-            except Exception:
-                pass
-        else:
-            subfolders = drive.list_children(parent_id, mime_type="application/vnd.google-apps.folder", all_drives=True)
-            items = [{"id": f["id"], "name": f["name"]} for f in subfolders]
+    target_folder = parent_id
+    root_name = None
+    if not target_folder:
+        target_folder, root_name = await _resolve_drive_root_folder(db, brand_id)
 
-    return {"folders": sorted(items, key=lambda x: x["name"].lower())}
+    try:
+        with DriveClient(token) as drive:
+            if target_folder == "root":
+                my_drive = drive.list_children("root", mime_type="application/vnd.google-apps.folder")
+                items = [{"id": f["id"], "name": f["name"]} for f in my_drive]
+                try:
+                    shared_with_me = drive.list_shared_with_me_folders()
+                    seen = {f["id"] for f in my_drive}
+                    for f in shared_with_me:
+                        if f["id"] not in seen:
+                            items.append({"id": f["id"], "name": f["name"]})
+                except Exception:
+                    pass
+                try:
+                    for sd in drive.list_shared_drives():
+                        items.append({"id": sd["id"], "name": sd["name"]})
+                except Exception:
+                    pass
+            else:
+                subfolders = drive.list_children(target_folder, mime_type="application/vnd.google-apps.folder", all_drives=True)
+                items = [{"id": f["id"], "name": f["name"]} for f in subfolders]
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (401, 403):
+            await _mark_drive_reauth_required(db, brand_id)
+            raise _drive_reauth_exception() from exc
+        raise
+
+    return {"folder_id": target_folder, "folder_name": root_name, "folders": sorted(items, key=lambda x: x["name"].lower())}
 
 
 @router.get("/drive/images", dependencies=[Depends(require_api_key)])
@@ -747,19 +809,11 @@ async def list_drive_images(
 
     token, _ = await get_page_token(db, brand_id, "google_drive", settings)
     if not token:
-        raise HTTPException(status_code=404, detail={"error": {"code": "DRIVE_NOT_CONNECTED", "message": "Connect Google Drive for this brand first", "details": None}})
+        raise _drive_reauth_exception()
 
-    # Resolve target folder
     target_folder = folder_id
     if not target_folder:
-        row = (await db.execute(
-            select(SocialConnection).where(
-                SocialConnection.brand_id == uuid.UUID(brand_id),
-                SocialConnection.platform == "google_drive",
-                SocialConnection.status == "connected",
-            ).order_by(SocialConnection.created_at.desc()).limit(1)
-        )).scalar_one_or_none()
-        target_folder = ((row.token_meta_json or {}).get("drive_root_folder_id") if row else None) or "root"
+        target_folder, _ = await _resolve_drive_root_folder(db, brand_id)
 
     _MIME_TYPES: dict[str, list[str]] = {
         "image": ["image/jpeg", "image/png", "image/gif", "image/webp"],
@@ -767,8 +821,14 @@ async def list_drive_images(
     }
     mimes = _MIME_TYPES.get(media_type or "image", _MIME_TYPES["image"])
 
-    with DriveClient(token) as drive:
-        all_files = drive.search_files(mimes)
+    try:
+        with DriveClient(token) as drive:
+            all_files = drive.search_files(mimes, parent_id=target_folder)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (401, 403):
+            await _mark_drive_reauth_required(db, brand_id)
+            raise _drive_reauth_exception() from exc
+        raise
 
     all_files.sort(key=lambda f: f.get("name", ""))
     return {"folder_id": target_folder, "files": all_files}
@@ -806,6 +866,106 @@ async def set_drive_root(
     }
 
 
+# ── Google Business Profile OAuth Callback ───────────────────────────────────
+
+@router.get("/google-business/callback")
+async def google_business_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    handoff_token: str = "",
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    frontend = settings.frontend_url.rstrip("/")
+
+    if handoff_token and settings.klaroha_relay_url:
+        try:
+            payload = await relay_claim_handoff(handoff_token, settings)
+        except Exception:
+            return _admin_brands_redirect(frontend, google_business="error", reason="relay_claim_failed")
+        meta = payload.get("metadata") or {}
+        location_name = meta.get("location_name") or ""
+        business_name = meta.get("business_name") or meta.get("name") or location_name
+        brand_id = payload.get("brand_id") or ""
+        if not location_name:
+            return _admin_brands_redirect(frontend, google_business="error", reason=meta.get("gbp_error") or "no_location_returned")
+        ws = await get_singleton(db)
+        token_meta = {"account_name": meta.get("account_name"), "location_name": location_name}
+        if payload.get("refresh_token"):
+            token_meta["refresh_token_encrypted"] = encrypt_secret(payload["refresh_token"], settings)
+            token_meta["expires_at"] = payload.get("expires_at")
+        await _store_connection(db, ws.id, brand_id or None, settings, "google_business", {
+            "id": location_name,
+            "access_token": payload["access_token"],
+            "name": business_name,
+            "username": meta.get("email"),
+            "token_meta": token_meta,
+        })
+        await db.commit()
+        return _admin_brands_redirect(frontend, google_business="connected", brand_id=brand_id, account=business_name)
+
+    if error or not code:
+        return _admin_brands_redirect(frontend, google_business="denied", reason=error or "no_code")
+
+    session = (await db.execute(
+        select(ProviderLoginSession).where(
+            ProviderLoginSession.provider == "google_business",
+            ProviderLoginSession.state == state,
+        )
+    )).scalar_one_or_none()
+
+    if not session:
+        return _admin_brands_redirect(frontend, google_business="error", reason="session_not_found")
+
+    raw = decrypt_secret(session.verifier_encrypted, settings)
+    stored_verifier, brand_id = (raw.split("|", 1) + [""])[:2]
+
+    ws = await get_singleton(db)
+    handler = get_oauth_handler("google_business")
+
+    try:
+        credential = await handler.complete_login(
+            code,
+            settings,
+            state=session.state,
+            verifier=stored_verifier,
+            redirect_uri=session.redirect_uri,
+        )
+    except Exception:
+        await db.delete(session)
+        await db.commit()
+        return _admin_brands_redirect(frontend, google_business="error", reason="token_exchange_failed")
+
+    metadata = credential.metadata or {}
+    location_name = metadata.get("location_name") or ""
+    business_name = metadata.get("business_name") or metadata.get("name") or location_name
+
+    if not location_name:
+        await db.delete(session)
+        await db.commit()
+        return _admin_brands_redirect(frontend, google_business="error", reason=metadata.get("gbp_error") or "no_location_returned")
+
+    token_meta: dict = {
+        "account_name": metadata.get("account_name"),
+        "location_name": location_name,
+    }
+    if credential.refresh_token:
+        token_meta["refresh_token_encrypted"] = encrypt_secret(credential.refresh_token, settings)
+        token_meta["expires_at"] = credential.expires_at.isoformat() if credential.expires_at else None
+
+    await _store_connection(db, ws.id, brand_id or None, settings, "google_business", {
+        "id": location_name,
+        "access_token": credential.access_token,
+        "name": business_name,
+        "username": metadata.get("email"),
+        "token_meta": token_meta,
+    })
+    await db.delete(session)
+    await db.commit()
+    return _admin_brands_redirect(frontend, google_business="connected", brand_id=brand_id, account=business_name)
+
+
 # ── Gemini OAuth Callback ────────────────────────────────────────────────────
 # Gemini auth is a workspace-level LLM credential, stored in ProviderKey (not
 # SocialConnection). The OAuth token is used as a Bearer credential for the
@@ -830,6 +990,7 @@ async def gemini_callback(
             return _admin_providers_redirect(frontend, gemini="error", reason="relay_claim_failed")
         meta = payload.get("metadata") or {}
         email = meta.get("email", "")
+        expires_at = _coerce_datetime(payload.get("expires_at"))
         ws = await get_singleton(db)
         existing = (await db.execute(
             select(ProviderKey).where(
@@ -842,7 +1003,7 @@ async def gemini_callback(
             existing.auth_mode = "oauth"
             existing.key_encrypted = encrypt_secret(payload["access_token"], settings)
             existing.refresh_token_encrypted = encrypt_secret(payload["refresh_token"], settings) if payload.get("refresh_token") else None
-            existing.expires_at = payload.get("expires_at")
+            existing.expires_at = expires_at
             existing.metadata_json = {"email": email, "name": meta.get("name")}
         else:
             db.add(ProviderKey(
@@ -852,7 +1013,7 @@ async def gemini_callback(
                 auth_mode="oauth",
                 key_encrypted=encrypt_secret(payload["access_token"], settings),
                 refresh_token_encrypted=encrypt_secret(payload["refresh_token"], settings) if payload.get("refresh_token") else None,
-                expires_at=payload.get("expires_at"),
+                expires_at=expires_at,
                 metadata_json={"email": email, "name": meta.get("name")},
             ))
         await db.commit()
@@ -1166,6 +1327,96 @@ async def disconnect(
     return {"status": "disconnected"}
 
 
+# ── Generic plugin-declared OAuth callback ─────────────────────────────────────
+
+@router.get("/{platform}/callback")
+async def generic_plugin_callback(
+    platform: str,
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    """Complete OAuth for plugin-declared connections.
+
+    Built-in routes above keep their existing platform-specific behavior. This
+    fallback route is for third-party plugins that declare an OAuth2 connection
+    in channel.json; core stores the token generically and the plugin validates
+    it through its own connection.validate capability.
+    """
+    frontend = settings.frontend_url.rstrip("/")
+    plugin_id = get_plugin_id_for_connection(platform)
+    handler = get_oauth_handler(platform) if plugin_id else None
+    if not plugin_id or not handler:
+        return _admin_connectors_redirect(frontend, platform=platform, status="unsupported")
+    if error or not code:
+        return _admin_connectors_redirect(frontend, platform=platform, status="denied", reason=error or "no_code")
+
+    session = (await db.execute(
+        select(ProviderLoginSession).where(
+            ProviderLoginSession.provider == platform,
+            ProviderLoginSession.state == state,
+        ).order_by(ProviderLoginSession.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    if not session:
+        return _admin_connectors_redirect(frontend, platform=platform, status="error", reason="session_not_found")
+
+    raw_verifier = decrypt_secret(session.verifier_encrypted, settings)
+    if "|" in raw_verifier:
+        verifier, brand_id = raw_verifier.split("|", 1)
+    else:
+        verifier, brand_id = raw_verifier, ""
+
+    plugin_vars = await get_plugin_vars(plugin_id, db, settings)
+    try:
+        try:
+            credential = await handler.complete_login(
+                code,
+                settings,
+                state=state,
+                verifier=verifier,
+                redirect_uri=session.redirect_uri,
+                overrides=plugin_vars,
+            )
+        except TypeError:
+            credential = await handler.complete_login(
+                code,
+                settings,
+                state=state,
+                verifier=verifier,
+                redirect_uri=session.redirect_uri,
+            )
+    except Exception as exc:
+        logger.warning("Generic plugin OAuth callback failed for %s: %s", platform, exc)
+        return _admin_connectors_redirect(frontend, platform=platform, status="error", reason="oauth_failed")
+
+    ws = await get_singleton(db)
+    if not ws:
+        return _admin_connectors_redirect(frontend, platform=platform, status="error", reason="workspace_not_found")
+
+    meta = credential.metadata or {}
+    account = meta.get("account") or {}
+    account_id = str(account.get("id") or account.get("email") or platform)
+    account_name = str(account.get("name") or account.get("email") or account_id)
+    token_meta = dict(meta)
+    if credential.refresh_token:
+        token_meta["refresh_token_encrypted"] = encrypt_secret(credential.refresh_token, settings)
+    if credential.expires_at:
+        token_meta["expires_at"] = credential.expires_at.isoformat()
+
+    await _store_connection(db, ws.id, brand_id or None, settings, platform, {
+        "id": account_id,
+        "access_token": credential.access_token,
+        "name": account_name,
+        "username": account.get("username") or account.get("handle"),
+        "token_meta": token_meta or None,
+    })
+    await db.delete(session)
+    await db.commit()
+    return _admin_connectors_redirect(frontend, platform=platform, status="connected", brand_id=brand_id, account=account_name)
+
+
 # ── Token resolution helper ────────────────────────────────────────────────────
 
 async def get_page_token(db: AsyncSession, brand_id: str, platform: str, settings) -> tuple[str, str] | tuple[None, None]:
@@ -1200,7 +1451,7 @@ async def get_page_token(db: AsyncSession, brand_id: str, platform: str, setting
                     if settings.klaroha_relay_url and platform in GOOGLE_RELAY_PLATFORMS:
                         refreshed = await relay_refresh_token(platform, refresh_token, settings)
                     else:
-                        plugin_id = _PLATFORM_PLUGIN_ID.get(platform)
+                        plugin_id = _plugin_id_for_platform(platform)
                         plugin_vars = await get_plugin_vars(plugin_id, db, settings) if plugin_id else {}
                         try:
                             refreshed = await handler.refresh_auth(refresh_token, settings, overrides=plugin_vars) if plugin_id else await handler.refresh_auth(refresh_token, settings)
@@ -1212,10 +1463,19 @@ async def get_page_token(db: AsyncSession, brand_id: str, platform: str, setting
                     if refreshed.refresh_token:
                         new_meta["refresh_token_encrypted"] = encrypt_secret(refreshed.refresh_token, settings)
                     row.token_meta_json = new_meta
+                    row.status = "connected"
                     await db.commit()
                     return refreshed.access_token, row.page_id
-                except Exception:
-                    pass
+                except Exception as exc:
+                    logger.warning(
+                        "OAuth refresh failed for platform=%s brand_id=%s; marking connection for reauth: %s",
+                        platform,
+                        brand_id,
+                        exc,
+                    )
+                    row.status = "needs_reauth"
+                    await db.commit()
+                    return None, None
 
     return decrypt_secret(row.access_token_encrypted, settings), row.page_id
 
@@ -1237,7 +1497,15 @@ async def _store_connection(db, workspace_id, brand_id, settings, platform: str,
         existing.access_token_encrypted = token_encrypted
         existing.page_name = page.get("name")
         existing.page_handle = page.get("username")
-        existing.token_meta_json = token_meta
+        if platform == "google_drive":
+            # Reconnect/reauth should refresh OAuth tokens without forgetting the
+            # operator-selected brand asset root folder.
+            merged_meta = dict(existing.token_meta_json or {})
+            if token_meta:
+                merged_meta.update(token_meta)
+            existing.token_meta_json = merged_meta or token_meta
+        else:
+            existing.token_meta_json = token_meta
         existing.status = "connected"
         return existing
 

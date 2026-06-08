@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     platform_gemini_key: str = ""
     platform_nvidia_key: str = ""
     platform_openai_key: str = ""
+    platform_bytedance_key: str = ""
     encryption_key: str = ""
     markup_multiplier: float = 1.35
 
@@ -35,6 +36,23 @@ class Settings(BaseSettings):
     google_calendar_redirect_uri: str = ""
     # Browser API key for the Google Picker (folder selection). Separate from the OAuth client.
     google_picker_api_key: str = ""
+    
+    # Whitelist of emails allowed to log in via Google Auth (comma-separated)
+    admin_emails: str = ""
+
+    # Google Ads API
+    google_ads_developer_token: str = ""
+    google_ads_client_id: str = ""
+    google_ads_client_secret: str = ""
+    google_ads_refresh_token: str = ""
+    google_ads_login_customer_id: str = ""
+    google_ads_default_customer_id: str = ""
+
+    # Google Analytics
+    google_analytics_client_id: str = ""
+    google_analytics_client_secret: str = ""
+    google_analytics_refresh_token: str = ""
+    google_analytics_property_id: str = ""
 
     # Meta (Facebook / Instagram) OAuth
     meta_app_id: str = ""

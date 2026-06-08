@@ -24,10 +24,24 @@ def _title_case(value: str) -> str:
     return " ".join(part.capitalize() for part in re.sub(r"[_-]+", " ", value).split() if part)
 
 
+def _block_status(run: Any) -> str:
+    block = (getattr(run.result, "block", None) or {}) if getattr(run, "result", None) else {}
+    return str(block.get("status") or "").lower() if isinstance(block, dict) else ""
+
+
+def _block_type(run: Any) -> str:
+    block = (getattr(run.result, "block", None) or {}) if getattr(run, "result", None) else {}
+    return str(block.get("type") or "").lower() if isinstance(block, dict) else ""
+
+
 def artifact_type(run: Any) -> str:
     module_id = run.module_id.lower()
+    if _block_status(run) == "failed":
+        return "setup_blocker"
     if "plan" in module_id:
         return "plan_artifact"
+    if "gbp" in module_id or _block_type(run) == "gbp_completeness_result":
+        return "intelligence_artifact"
     if any(token in module_id for token in ("report", "analytics", "inbox", "read")):
         return "intelligence_artifact"
     if any(token in module_id for token in ("send", "publish", "action")):
@@ -47,6 +61,8 @@ def artifact_title(run: Any) -> str:
         return "Email Campaign Plan"
     if "email" in module_id or "gmail" in module_id or "email" in platform_key:
         return "Email Draft"
+    if "gbp" in module_id or _block_type(run) == "gbp_completeness_result" or "google business" in platform_key:
+        return "Google Business Profile Audit"
     if "plan" in module_id:
         return "Campaign Plan"
     if "clickup" in module_id and "read" in module_id:
@@ -63,6 +79,8 @@ def artifact_title(run: Any) -> str:
         return "Social Post Draft"
     if "pinterest" in module_id:
         return "Pinterest Draft"
+    if _block_status(run) == "failed":
+        return f"{platform} Failed"
     return f"{platform} Artifact"
 
 
@@ -76,6 +94,8 @@ def artifact_renderer(run: Any) -> str:
         return "gtm_strategy_preview"
     if "email" in channel:
         return "email_preview"
+    if "gbp" in module_id or _block_type(run) == "gbp_completeness_result":
+        return "gbp_completeness_preview"
     if "google" in module_id and ("text" in module_id or "search" in module_id):
         return "google_search_preview"
     if "google" in channel and "display" in channel:
@@ -98,7 +118,7 @@ def artifact_renderer(run: Any) -> str:
 
 
 def artifact_status(run: Any) -> str:
-    if run.status == "failed":
+    if run.status == "failed" or _block_status(run) == "failed":
         return "failed"
     if run.approval_status == "approved":
         return "approved"
@@ -110,7 +130,7 @@ def artifact_status(run: Any) -> str:
 
 
 def artifact_ref_from_run(run: Any) -> ArtifactRef:
-    block = (run.result.block or {}) if run.result else {}
+    block = (getattr(run.result, "block", None) or {}) if getattr(run, "result", None) else {}
     renderer = artifact_renderer(run)
     if renderer == "strategy_workflow_preview" and block.get("workflow_url"):
         ws_url = block["workflow_url"]
