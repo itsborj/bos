@@ -1,8 +1,60 @@
 # Klaroha Specialist Plugin SDK
 
-This document is the complete contract for building a Klaroha/BOS specialist plugin. Read it, comply with it, ship. No channel-specific instructions exist beyond this document.
+> **Note — `api/plugins/` is SDK examples only.**
+> The directory you are reading this from (`api/plugins/`) is bundled reference code — not a plugin install location.
+> Do not copy files from here to `api/plugins/` and expect them to run in production.
+> **Production and staging plugins belong in `~/bos-plugins/`** (mounted into the container as `/external_plugins`).
+> See `specs/001-thin-core-proof/plugin-dev-onboarding.md` for the full authoring workflow.
 
-BOS product language is job-first, not channel-first. Plugins implement one or more durable CMO-facing marketing jobs:
+This document is the complete contract for building a Klaroha/BOS plugin. Read it, comply with it, ship.
+
+## Everything is a plugin
+
+There is no special category of "built-in module" with a different contract. Every capability in BOS — whether shipped by Klaroha or installed by an operator — is a package following the same contract: `channel.json` + `SKILL.md` + `module.py`.
+
+There are two concepts: **Core** and **Plugin**.
+
+```text
+Core    api/capabilities/workspace/, api/capabilities/onboarding/
+        Auto-activate. Cannot be deactivated. CMO primitives only.
+        Not what you are building.
+
+Plugin  ~/bos-plugins/ mounted at /external_plugins/
+        Inactive until explicitly activated per brand.
+        This is what you are building.
+```
+
+Klaroha's own bundled plugins (in `api/plugins/`) and your installed plugin run through exactly the same contract, the same activation system, and the same dispatch path. There is no privileged API for Klaroha packages.
+
+**The plugin directory is the skill bundle.**
+
+This is the same model Anthropic uses for Claude Code skills: a skill is a directory, `SKILL.md` is the entry point, and everything the capability needs lives alongside it as siblings. The atomic unit is the directory — install it, remove it, upgrade it as one action.
+
+For BOS: when an operator installs your plugin, they get everything your capability needs in one directory. When they remove it, nothing is left behind. Design your plugin so that deleting its directory is a complete uninstall — no orphaned skills in `api/capabilities/`, no cross-plugin dependencies.
+
+## Plugin namespace taxonomy
+
+Your `plugin_id` in `channel.json` must follow the namespace that matches what your plugin does:
+
+```text
+channel.*        distributes or reads from an external platform (Gmail, Meta, YouTube, TikTok, LinkedIn)
+analytics.*      read-only data connector — performance, audience, or search data
+                 (Google Ads, Google Analytics, Search Console)
+tool.*           generic cross-vertical tool — not tied to marketing distribution
+                 (Google Drive, ClickUp, Google Calendar)
+media.*          creative primitive generator — image or video production
+creative.*       creative orchestration — blueprints, brand-locked supply chain, factory
+scheduling.*     booking and calendar management
+```
+
+Use `channel.*` only if your plugin publishes or sends to an external distribution platform. Google Drive is `tool.google_drive` — it is storage infrastructure, not a distribution channel. ClickUp is `tool.clickup` — it is a project management tool. The namespace is a contract signal: it tells the CMO manifest, the Admin UI, and future plugin authors what category this package belongs to.
+
+**Wrong:** `"plugin_id": "channel.google_drive"`
+**Right:**  `"plugin_id": "tool.google_drive"`
+
+## Job model
+
+BOS product language is job-first. Plugins implement one or more durable CMO-facing jobs:
 
 ```text
 marketing.plan
@@ -10,18 +62,45 @@ marketing.execute
 marketing.optimize
 ```
 
-A plugin may be channel/vendor-specific internally (Gmail, Google Ads, Search Console, Amazon PPC), but the owner-facing UX should remain: the CMO has specialists, specialists use tools, tools produce artifacts, the owner approves decisions, and BOS remembers what worked.
+A plugin may be vendor/platform-specific internally (Gmail, Google Ads, Shopify, custom CRM), but the owner-facing UX should remain: the CMO has specialists, specialists use tools, tools produce artifacts, the owner approves decisions, and BOS remembers what worked.
 
 ---
 
 ## How discovery works
 
-Klaroha scans `api/plugins/` at startup. Every immediate subdirectory is one plugin. The scanner reads `channel.json` from the root of that directory, validates it, and registers all declared modules and skills. No restart needed if Klaroha reloads — but a full restart is required on first install.
+Klaroha scans the installed plugin root at startup. By default this is `EXTERNAL_PLUGINS_DIR` or `/external_plugins`, normally mounted from an operator-owned directory such as `~/bos-plugins/`.
+
+Bundled `api/plugins/` directories are SDK examples / deprecated first-party packages. They are **not installed plugins** and are skipped by default. Loading them requires the explicit local compatibility flag `KLAROHA_LOAD_INTERNAL_PLUGINS=true`.
+
+This matches WordPress / VS Code style extension boundaries: core may ship examples or default packages, but the runtime plugin list comes from the install directory / registry, not from core source folders. If no plugins are installed in the external root, a restart should produce no plugin capabilities.
+
+### UX/readiness contract
+
+Installed plugin capabilities are the only capabilities that should appear in the runtime CMO manifest or normal Specialists UI. Do not show WordPress-style plugin capabilities before the plugin is installed, and do not show VS Code-style extension commands before the extension is enabled.
+
+Recommended UI split:
+
+```text
+Specialists / Installed
+  shows installed plugins only
+  shows active/readiness/connector status per brand
+  exposes configure, validate, activate, deactivate, uninstall
+
+Marketplace / Available
+  optional catalog of installable packages
+  not dispatchable
+  not included in the CMO capability manifest
+  no RUN lines, no approval actions, no connector prompts until installed
+```
+
+A bundled SDK example under `api/plugins/` must not create a Specialist card, CMO manifest entry, setup prompt, or missing-credentials warning unless it has been installed into the external plugin root and activated. This prevents fake capabilities and noisy setup debt.
+
+Every immediate subdirectory of the installed plugin root is one plugin. The scanner reads `channel.json` from the root of that directory, validates it, and registers all declared modules, skills, connections, and credential requirements. No restart needed if Klaroha reloads — but a full restart is required on first install unless hot reload is enabled.
 
 Your plugin directory name is your install name. There is no copy step inside the directory.
 
 ```
-api/plugins/
+~/bos-plugins/ or /external_plugins/
 └── your-channel/        ← this is your plugin root
     ├── channel.json     ← must be at this exact level
     ├── providers/       ← your platform API code (optional)
@@ -45,30 +124,75 @@ api/plugins/
   "connector_protocol": "oauth2_or_api",
   "risk_policy": "read_and_draft_only",
   "output_contracts": ["artifact_type"],
-  "requires_social_connection": [],
-  "requires_platform_vars": [],
+  "credential_slots": [],
+  "connections": [],
   "capability_ids": []
 }
 ```
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `plugin_id` | string | Yes | Unique dot-namespaced ID. Convention: `channel.{platform}` |
+| `plugin_id` | string | Yes | Unique dot-namespaced ID. See namespace taxonomy above. |
 | `name` | string | Yes | Human-readable display name |
 | `version` | string | Yes | Semver |
 | `klaroha_min_version` | string | Yes | Plugin will be rejected if host version is lower |
 | `capabilities_root` | string | Yes | Path to capability tree, relative to plugin root |
-| `implements` | string[] | No | CMO-facing jobs supported: `marketing.plan`, `marketing.execute`, `marketing.optimize` |
+| `implements` | string[] | No | CMO-facing jobs: `marketing.plan`, `marketing.execute`, `marketing.optimize` |
 | `specialty` | string[] | No | Specialist tags such as `paid_search`, `cold_email`, `local_seo`, `budget_efficiency` |
 | `platforms` | string[] | No | Vendor/tool/platform names used behind the specialist boundary |
 | `connector_protocol` | string | No | `oauth2`, `api_key`, `mcp`, `native_api`, `smtp_or_env`, etc. |
 | `risk_policy` | string | No | `read_only`, `draft_only`, `read_and_draft_only`, `send_requires_explicit_approval`, etc. |
 | `output_contracts` | string[] | No | Artifact/block contracts emitted by the plugin |
-| `requires_social_connection` | string[] | No | Platform names. Klaroha resolves OAuth tokens per brand and injects them |
-| `requires_platform_vars` | string[] | No | Env var names. Klaroha reads from host environment and injects them |
+| `credential_slots` | object[] | No | Declarative credential requirements — see section 7 |
+| `connections` | object[] | No | Plugin-owned generic OAuth2/API connection declarations for platforms not built into core |
 | `capability_ids` | string[] | Yes | Every internal module ID declared in `module.py` files, listed exactly |
 
 `capability_ids` must exactly match the `id` attribute in every `module.py`. A mismatch causes silent routing failure — the module loads but is never dispatched.
+
+### Third-party connector model
+
+Plugins are self-sufficient. A plugin on a new platform does not depend on the host implementing platform-specific OAuth code. Three mechanisms exist — use the one that fits:
+
+**`requires_platform_vars`** — for any platform where the operator supplies credentials as environment variables (API keys, long-lived tokens, organization IDs). The host reads each declared var from the environment and injects it lowercased into `brief["_channel_credentials"]`. This is the correct path for a third-party plugin on a platform the host has no built-in OAuth flow for.
+
+```json
+"requires_platform_vars": ["LINKEDIN_ACCESS_TOKEN", "LINKEDIN_ORGANIZATION_ID"]
+```
+
+Injected as: `creds["linkedin_access_token"]`, `creds["linkedin_organization_id"]`.
+
+**`connections`** — for third-party plugins that need the host to run a generic OAuth2 setup flow without platform-specific core code. The plugin declares auth/token/userinfo endpoints, credential var names, scopes, and field paths; core performs generic OAuth2, stores the resulting brand-scoped `SocialConnection`, then injects credentials exactly like any other managed connection.
+
+```json
+"connections": [
+  {
+    "platform": "linkedin",
+    "type": "oauth2",
+    "auth_url": "https://www.linkedin.com/oauth/v2/authorization",
+    "token_url": "https://www.linkedin.com/oauth/v2/accessToken",
+    "scopes": ["openid", "profile", "email"],
+    "client_id_var": "LINKEDIN_CLIENT_ID",
+    "client_secret_var": "LINKEDIN_CLIENT_SECRET",
+    "redirect_uri_var": "LINKEDIN_REDIRECT_URI",
+    "userinfo_url": "https://api.linkedin.com/v2/userinfo",
+    "id_path": "sub",
+    "name_path": "name",
+    "email_path": "email",
+    "validate_capability": "marketing.channel.linkedin.connection.validate"
+  }
+]
+```
+
+`requires_social_connection` — for platforms where the host can already resolve a brand-scoped OAuth connection. This includes built-in managed providers and plugin-declared `connections`. The host resolves stored per-brand OAuth tokens and injects them. Declare this for every platform token your module needs at execution time.
+
+Current project-known built-in managed social connection examples: `facebook`, `gmail`, `google_calendar`, `google_drive`, and other Google/Facebook connections already proven by the host. For a new third-party OAuth platform such as `linkedin` or `tiktok`, declare a `connections` entry first, then include that same platform in `requires_social_connection` for capabilities that need the token. Use `requires_platform_vars` instead only when the operator supplies static tokens/API keys.
+
+Keep requirements minimal. Do not declare a plugin-level managed connection unless every active capability in that plugin needs it, or the capability can safely fail with a setup blocker. Example: a Facebook posting plugin should not require `google_drive` globally if its normal page-read/post-read/draft/publish flows only need Facebook credentials.
+
+**Validation is the plugin's responsibility.** Declare a validation capability in your plugin (e.g. `connection.validate`) that checks injected credentials by calling the platform API. Surface the result as a `setup_blocker` or `action_result` artifact so the operator knows whether the connection is live before running downstream capabilities. Downstream capabilities must fail early with a connection/setup block when required credentials are missing; they must not perform expensive generation or publish attempts first.
+
+The plugin owns: credential declaration, validation logic, and failure messaging.
+The host owns: reading env vars, injecting into brief, rendering setup status from the validation result.
 
 ---
 
@@ -409,31 +533,137 @@ For empty list fields (`excluded_triggers`, `memory_slots`, `quality_gates`, etc
 
 ## 7. Credential injection contract
 
-Klaroha injects credentials into `brief["_channel_credentials"]` before calling `build_prompt` or `execute_tool_result`. Your plugin reads from this dict — it never calls `get_settings()` or queries the database.
+Klaroha injects credentials into `brief["_channel_credentials"]` before calling `build_prompt` or `execute_tool_result`. Your plugin reads from this dict — it never calls `get_settings()`, queries the database, or imports BOS internals.
 
-### Social connection credentials
+You declare what credentials you need in `channel.json` as `credential_slots`. The host resolves each slot generically by type. No platform-specific code lives in core; new platforms declare their own slots.
 
-Declared via `requires_social_connection` in `channel.json`. Klaroha resolves stored OAuth tokens per brand.
+### credential_slots — declarative credential requirements
+
+Each slot declares a `key` (the dict key your module reads), a `type` (how the host resolves it), and type-specific parameters:
+
+```json
+"credential_slots": [
+  { "key": "access_token",  "type": "social_token",  "platform": "gmail" },
+  { "key": "api_key",       "type": "platform_var",  "var": "MY_SERVICE_API_KEY" },
+  { "key": "account_id",    "type": "brand_json_path","path": "crm_config.account_id" }
+]
+```
+
+Your module reads:
 
 ```python
 creds = brief.get("_channel_credentials", {})
-
-# First declared platform — convenience aliases
-page_token = creds.get("page_token")
-page_id = creds.get("page_id")
-
-# By platform name — when multiple platforms declared
-fb_token = creds.get("facebook_page_token")
-fb_page = creds.get("facebook_page_id")
+token  = creds.get("access_token")
+api_key = creds.get("api_key")
+account = creds.get("account_id")
 ```
 
-### Platform var credentials
+### Slot types
 
-Declared via `requires_platform_vars` in `channel.json`. Env var names are lowercased as dict keys.
+**`social_token`** — resolves a brand-scoped OAuth connection.
 
-```python
-# channel.json: "requires_platform_vars": ["TWITTER_API_KEY"]
-api_key = creds.get("twitter_api_key")
+```json
+{ "key": "access_token", "type": "social_token", "platform": "gmail" }
+```
+
+The host queries `SocialConnection(brand_id, platform)`, calls token refresh if needed, and injects:
+- `creds["access_token"]` = OAuth token (your declared key)
+- `creds["{platform}_page_token"]` = same token (platform-prefixed alias)
+- `creds["{platform}_page_id"]` = connected page / account ID
+- `creds["{platform}_page_name"]` = display name (if stored)
+- `creds["{platform}_page_handle"]` = handle (if stored)
+
+Use one `social_token` slot per OAuth platform. If your plugin connects to two platforms (e.g. Meta + Google Drive), declare two slots with different `key` values.
+
+**`social_meta_field`** — reads a specific metadata field stored at connect time.
+
+```json
+{ "key": "drive_root_folder_id", "type": "social_meta_field", "platform": "google_drive", "field": "drive_root_folder_id" }
+```
+
+The host reads `SocialConnection.token_meta_json[field]` and injects it under your `key`. Used for platform-specific data stored during OAuth (e.g. the Drive folder an operator picked during setup).
+
+**`platform_var`** — env var with DB-stored fallback.
+
+```json
+{ "key": "clickup_api_token", "type": "platform_var", "var": "CLICKUP_API_TOKEN" }
+```
+
+The host reads the env var first, then falls back to the DB-stored plugin var (configured in Admin UI). Injected under your declared `key`. Use this for API tokens, organization IDs, and any credentials the operator supplies as configuration rather than OAuth.
+
+**`brand_json_path`** — reads a value from the active brand's `brand_json` at a dotted path.
+
+```json
+{ "key": "clickup_team_id", "type": "brand_json_path", "path": "pm_config.team_id" }
+```
+
+Use this for per-brand configuration stored in the brand profile — project IDs, account IDs, or any setting that varies per brand rather than per org.
+
+**`backend_override_provider`** — resolves the AI provider configured for this module in Specialists → Configure AI.
+
+```json
+{ "key": "image_gen_provider", "type": "backend_override_provider", "module": "media.image.generate", "fallback_var": "IMAGE_GEN_PROVIDER" }
+```
+
+Use this only for capabilities where the operator selects which AI provider to use (image generation, video generation). Falls back to the `fallback_var` env var if no backend override is set.
+
+**`backend_override_model`** — resolves the model ID configured for this module.
+
+```json
+{ "key": "image_gen_model", "type": "backend_override_model", "module": "media.image.generate" }
+```
+
+**`backend_provider_api_key`** — resolves the API key for the provider already resolved by a `backend_override_provider` slot. This is a second-pass slot — it runs after all other slots so it can read which provider was resolved.
+
+```json
+{ "key": "provider_api_key", "type": "backend_provider_api_key", "module": "media.image.generate" }
+```
+
+The `module` field must match the `module` value in the corresponding `backend_override_provider` slot.
+
+### Credential examples from bundled plugins
+
+OAuth platform (Gmail Auth):
+```json
+"credential_slots": [
+  { "key": "access_token", "type": "social_token", "platform": "gmail" }
+]
+```
+
+Platform API key (Google Ads):
+```json
+"credential_slots": [
+  { "key": "google_ads_developer_token", "type": "platform_var", "var": "GOOGLE_ADS_DEVELOPER_TOKEN" },
+  { "key": "google_ads_refresh_token",   "type": "platform_var", "var": "GOOGLE_ADS_REFRESH_TOKEN" }
+]
+```
+
+Per-brand config path (ClickUp):
+```json
+"credential_slots": [
+  { "key": "clickup_api_token", "type": "platform_var",    "var": "CLICKUP_API_TOKEN" },
+  { "key": "clickup_team_id",   "type": "brand_json_path", "path": "pm_config.team_id" },
+  { "key": "pm_list_id",        "type": "brand_json_path", "path": "pm_config.list_id" }
+]
+```
+
+AI provider routing (Image generation):
+```json
+"credential_slots": [
+  { "key": "image_gen_provider", "type": "backend_override_provider", "module": "media.image.generate", "fallback_var": "IMAGE_GEN_PROVIDER" },
+  { "key": "image_gen_model",    "type": "backend_override_model",    "module": "media.image.generate" },
+  { "key": "provider_api_key",   "type": "backend_provider_api_key",  "module": "media.image.generate" }
+]
+```
+
+Multi-platform (Meta — Facebook + Google Drive):
+```json
+"credential_slots": [
+  { "key": "access_token",         "type": "social_token",      "platform": "facebook" },
+  { "key": "drive_access_token",   "type": "social_token",      "platform": "google_drive" },
+  { "key": "drive_root_folder_id", "type": "social_meta_field", "platform": "google_drive", "field": "drive_root_folder_id" },
+  { "key": "meta_app_id",          "type": "platform_var",      "var": "META_APP_ID" }
+]
 ```
 
 ### Missing credentials
@@ -441,9 +671,39 @@ api_key = creds.get("twitter_api_key")
 Always handle `None` gracefully. If a required credential is absent, return a `self_check` failure — do not raise.
 
 ```python
-if not creds.get("page_token"):
+creds = brief.get("_channel_credentials", {})
+if not creds.get("access_token"):
     return "fail", ["no_social_connection"]
 ```
+
+### Third-party connector model
+
+For a platform the host has no built-in OAuth flow for, declare a `connections` entry. The host performs a generic OAuth2 flow using your declared endpoints, stores the resulting brand-scoped token, and makes it available via `social_token` slots. The plugin never implements the OAuth handshake itself.
+
+```json
+"connections": [
+  {
+    "platform": "my_platform",
+    "type": "oauth2",
+    "auth_url": "https://my-platform.com/oauth/authorize",
+    "token_url": "https://my-platform.com/oauth/token",
+    "scopes": ["read", "write"],
+    "client_id_var": "MY_PLATFORM_CLIENT_ID",
+    "client_secret_var": "MY_PLATFORM_CLIENT_SECRET",
+    "redirect_uri_var": "MY_PLATFORM_REDIRECT_URI",
+    "userinfo_url": "https://my-platform.com/api/me",
+    "id_path": "id",
+    "name_path": "name",
+    "email_path": "email",
+    "validate_capability": "channel.my_platform.connection.validate"
+  }
+]
+```
+
+Then declare a `social_token` slot for that platform. The host resolves it the same way as any built-in managed connection.
+
+The plugin owns: credential declaration, validation logic, and failure messaging.
+The host owns: OAuth flow execution, token storage, token refresh, credential injection.
 
 ---
 
@@ -469,7 +729,7 @@ Run these against Klaroha before shipping:
 
 ```bash
 # Structure check
-find api/plugins/your-channel -type f | grep -v __pycache__ | sort
+find /external_plugins/your-channel -type f | grep -v __pycache__ | sort
 
 # Plugin discovered
 docker compose exec api python -c "
@@ -520,4 +780,4 @@ All checks must pass before the plugin is considered integrated.
 
 ## Reference implementation
 
-`api/plugins/gmail/` — Gmail outreach draft plugin (v0.1). LLM generation pattern, single module, credential injection via `requires_platform_vars`. Use as a working reference for the directory structure and file contents.
+Bundled examples under `api/plugins/` — for example the Gmail outreach draft plugin — may be used as references for directory structure and file contents. They are examples, not installed runtime plugins, unless copied or packaged into the external installed plugin root and enabled by the operator.

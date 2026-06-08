@@ -1,315 +1,257 @@
-# Plugin Developer Onboarding
+# Plugin Developer Onboarding — MVP Boundary
 
 You are building a third-party plugin for Klaroha BOS.
-This doc is the canonical authoring guide — start here, not in code.
+
+Start from the public SDK guide:
+
+```text
+api/plugins/PLUGIN_SDK.md
+```
+
+This onboarding document summarizes the isolation model agreed for the plugin-host MVP.
 
 ---
 
-## Mental model
+## Mental Model
 
-BOS fires events. Your plugin reacts. You never touch BOS core.
+Two concepts: **Core** and **Plugin**.
 
+Core (`workspace.*`, `onboarding.*`) is the CMO harness — context loading, brand scoping, approval gating. It cannot be deactivated and it does not know your platform.
+
+Your plugin is an installed package. The plugin directory is the skill bundle — install it, remove it, upgrade it as one unit. Everything your capability needs lives inside that directory.
+
+```text
+Not installed → invisible
+Installed → visible in Admin only
+Activated for Brand → CMO can see allowed capabilities
+Missing credentials → plugin returns setup_blocker artifact
 ```
-User message → CMO reads SKILL.md manifests → decides to dispatch your plugin
-→ BOS fires brief.before_dispatch → credentials injected into brief
-→ BOS calls your execute(brief) → you return RunResult
-→ artifact appears in Stream
-```
 
-Your plugin is one directory. BOS scans it on startup. Delete the directory → capability disappears. No config changes required.
+Core must not know your platform before your plugin is installed.
 
 ---
 
-## 1. Set up your environment
+## Where Plugin Work Happens
 
-```bash
-# Install the SDK (from the BOS repo)
-pip install -e /path/to/bos/packages/klaroha_sdk
+Do not work inside the BOS core repo.
 
-# Verify
-python -c "from klaroha_sdk import ChannelModule, ArtifactBlock, RunResult; print('SDK OK')"
+```text
+~/bos          # core repo, owned by BOS core developers
+~/bos-plugins  # third-party plugin workspace / install root
 ```
 
-Your plugin lives in `~/bos-plugins/your-plugin-name/`. The full contract is in `~/bos-plugins/README.md`.
+At runtime, Docker mounts:
+
+```text
+~/bos-plugins → /external_plugins
+```
+
+**Important — use an absolute path.** Docker does not expand `~`. In `docker-compose.yml`, `EXTERNAL_PLUGINS_PATH` must be an absolute path (e.g. `/home/user/bos-plugins`), not `~/bos-plugins`. The default in the container is `/external_plugins`.
+
+A plugin package lives at:
+
+```text
+~/bos-plugins/your-plugin/
+├── channel.json
+└── capabilities/
+    └── ...
+```
+
+Bundled examples under `~/bos/api/plugins/` are not runtime-installed plugins by default.
 
 ---
 
-## 2. The three files
+## Minimum Plugin Files
 
-Every plugin needs exactly three things:
-
-```
+```text
 your-plugin/
-├── channel.json                               ← who you are + what you need
-└── capabilities/{vertical}/{domain}/{task}/
-    ├── SKILL.md                               ← when the CMO invokes you
-    └── module.py                              ← what you do
+├── channel.json
+└── capabilities/{domain}/{action}/
+    ├── SKILL.md
+    ├── module.py
+    └── template.j2        # optional for direct tool execution
 ```
 
-Start by copying `hello/` and editing from there.
+The capability path does not repeat the platform name — the plugin directory already establishes context. Keep paths short: `capabilities/post/publish/`, `capabilities/analytics/performance/`, `capabilities/connection/validate/`.
 
 ---
 
-## 3. Write SKILL.md first
+## Import Rule
 
-The CMO reads SKILL.md to decide when to invoke your plugin. Get this right before writing code.
-
-The two most important fields:
-
-**`description`** — the CMO's primary signal. Be specific about what data you need and what you produce.
-
-```yaml
-# Too vague — CMO may not dispatch when it should
-description: Analyzes Google data for the brand.
-
-# Better — CMO knows exactly when to use this
-description: Score the brand's Google Business Profile on the 8 critical ranking fields
-  (primary category, additional categories, business name, address, phone, website,
-  hours, verification). Returns a 0-100 completeness score with gap analysis.
-  Use when the operator asks how complete their Google listing is, wants a GBP audit,
-  or asks why they're not appearing in local search results.
-```
-
-**`requires_intent`** — must be one of these exact values (anything else = silently skipped):
-
-| Value | Use when your plugin... |
-|---|---|
-| `generation` | Creates new content (copy, image, email draft) |
-| `diagnostic` | Reads and scores external data (audits, reports) |
-| `action` | Executes on an external system (posts, sends, publishes) |
-| `approval` | Puts something in the operator's review queue |
-| `discussion` | Responds conversationally, no artifact |
-| `revision` | Edits an existing artifact |
-| `onboarding` | Guides brand or workspace setup |
-| `publish` | Distributes an approved artifact |
-
-**`excluded_triggers`** — critical if your plugin shares vocabulary with other Google plugins.
-If you use Google OAuth, explicitly exclude GA, Search Console, Ads, and SEO phrases —
-smaller fallback models don't discriminate well between overlapping trigger sets.
-
-Full SKILL.md reference: `~/bos-plugins/README.md` → SKILL.md section.
-
----
-
-## 4. Write module.py
+At module level, plugin code imports only:
 
 ```python
-from klaroha_sdk import ChannelModule, ArtifactBlock, RunResult
-
-
-class YourTask(ChannelModule):
-    id = "marketing.channel.yourplugin.task"   # must match channel.json capability_ids
-    vertical = "marketing"
-    capability = "marketing.execute"
-    platform_hint = "yourplugin"
-
-    async def execute(self, brief: dict) -> RunResult:
-        # 1. Check credentials (if your plugin needs them)
-        token = brief.get("_channel_credentials", {}).get("page_token")
-        if not token:
-            return RunResult(
-                run_id=brief.get("run_id", ""),
-                status="failed",
-                artifact_blocks=[ArtifactBlock(
-                    block_type="your_result_type",
-                    content={"error": "Connect your account in Admin → Brands."},
-                    renderer_hint="setup_blocker",
-                    allowed_actions=[],
-                )],
-                self_check="fail",
-            )
-
-        # 2. Do your work
-        result_data = {"score": 85, "details": "..."}
-
-        # 3. Return a RunResult
-        return RunResult(
-            run_id=brief.get("run_id", ""),
-            status="success",
-            artifact_blocks=[ArtifactBlock(
-                block_type="your_result_type",
-                content=result_data,
-                renderer_hint="approval_bundle",      # or "stream_card"
-                allowed_actions=["approve", "dismiss"],
-            )],
-            self_check="pass",
-        )
+from klaroha_sdk import ChannelModule
 ```
 
-**What's in `brief`:**
+Do not import:
 
-| Key | Description |
-|---|---|
-| `run_id` | Pass this to every `RunResult` |
-| `brand_name` | Active brand name |
-| `brand_json` | Full brand settings dict |
-| `_channel_credentials` | Dict of resolved credentials |
-| `product_catalog` | Brand's active products |
-| `audience_profiles` | Brand's target audiences |
-| `message` | The user's original message |
-
-Always `.get(key)` with a fallback — none of these are guaranteed.
-
----
-
-## 5. Verify it loaded
-
-```bash
-# Restart the api container
-docker compose restart api     # from ~/bos/
-
-# Check startup logs
-docker compose logs api | grep "Plugin loaded"
-# Expected: Plugin loaded [external]: channel.yourplugin v0.1.0 — 1 capabilities
+```text
+config
+db
+models
+auth
+executor
+registry
+routers
+settings
 ```
 
-**"Plugin loaded [external]" in logs does not mean it's dispatchable.**
-The plugin transport layer (channel.json) and the skill layer (SKILL.md) are checked separately.
-A plugin can load but still be invisible to the CMO if SKILL.md fails validation.
+Credentials arrive only through:
 
-Verify it's in the CMO manifest:
-
-```bash
-docker exec bos-api-1 python3 -c "
-import sys; sys.path.insert(0, '/app')
-import registry; registry._scan()
-from capability_manifest import build_dispatchable_manifest
-ids = [e.module_id for e in build_dispatchable_manifest()]
-print([i for i in ids if 'yourplugin' in i])
-"
-```
-
-If your module_id is missing from this list, debug your SKILL.md (see Diagnostics below).
-
----
-
-## 6. Test dispatch
-
-```bash
-API_KEY=your-key
-BRAND_ID=your-brand-uuid
-
-curl -s -X POST \
-  -H "X-API-Key: $API_KEY" \
-  -H "Content-Type: application/json" \
-  -d "{\"message\": \"your trigger phrase\", \"history\": [], \"brand_id\": \"$BRAND_ID\"}" \
-  http://localhost:8090/api/chat \
-  | python3 -c "
-import sys, json; d = json.load(sys.stdin)
-print('runs:', [r['module_id'] for r in d.get('runs', [])])
-print('reply:', d.get('reply', '')[:200])
-"
-```
-
-Expected: `runs: ['your.module.id']`
-
-Inspect the artifact:
-```bash
-curl -s -H "X-API-Key: $API_KEY" \
-  "http://localhost:8090/api/runs?limit=1&module_id=your.module.id" \
-  | python3 -m json.tool
+```python
+brief["_channel_credentials"]
 ```
 
 ---
 
-## Diagnostics
+## Credential Rules
 
-### Plugin loads but never appears in CMO manifest
+Declare what your plugin needs in `channel.json` as `credential_slots`. Core resolves each slot by type — no platform names in core.
 
-Check in this order:
+**API key credential:**
 
-**1. `requires_intent` uses an invalid value**
-This is the most common silent failure. Valid: `generation | diagnostic | action | approval | discussion | revision | onboarding | publish`. Anything else → SKILL.md silently skipped.
-
-**2. `allowed_from_chat` is missing or false**
-Without `allowed_from_chat: true`, the skill is excluded from the manifest.
-
-**3. `status` is not `active`**
-Any other value skips the skill.
-
-**4. `module_id` mismatch**
-The `module_id` in SKILL.md, `id` on your class, and `capability_ids` in channel.json must all match exactly.
-
-**Parse your SKILL.md to get the exact error:**
-```bash
-docker exec bos-api-1 python3 -c "
-import sys; sys.path.insert(0, '/app')
-from pathlib import Path
-from skills.loader import _parse_frontmatter, _normalize_frontmatter, SkillManifest
-
-path = Path('/external_plugins/your-plugin/capabilities/your/path/SKILL.md')
-data, _ = _parse_frontmatter(path.read_text())
-data = _normalize_frontmatter(data, path, path.parents[4])
-try:
-    m = SkillManifest.model_validate(data)
-    print('OK:', m.module_id, m.allowed_from_chat)
-except Exception as e:
-    print('VALIDATION FAILED:', e)
-"
+```json
+"credential_slots": [
+  { "key": "EXAMPLE_API_KEY", "type": "platform_var", "var": "EXAMPLE_API_KEY" }
+]
 ```
 
-### CMO dispatches a different plugin instead
+**OAuth2 social connection:**
 
-Add `excluded_triggers` to your SKILL.md. If your plugin uses Google OAuth, explicitly exclude analytics, ads, and SEO phrases — smaller fallback LLMs don't differentiate overlapping trigger vocabulary:
-
-```yaml
-excluded_triggers:
-  - google analytics
-  - ga4
-  - search console
-  - google ads
-  - paid search
-  - on-page seo
-  - page speed
+```json
+"connections": [
+  {
+    "platform": "example_platform",
+    "type": "oauth2",
+    "scopes": ["profile"],
+    "client_id_var": "EXAMPLE_CLIENT_ID",
+    "client_secret_var": "EXAMPLE_CLIENT_SECRET",
+    "validate_capability": "example.connection.validate"
+  }
+],
+"credential_slots": [
+  { "key": "access_token", "type": "social_token", "platform": "example_platform" }
+]
 ```
 
-### Artifact status is `partial` / nothing appears in Stream
+**AI provider override (e.g. media plugins):**
 
-The module ran but returned a failure result, or the execute() raised an exception.
-
-```bash
-# Check recent runs for your module
-curl -s -H "X-API-Key: $API_KEY" \
-  "http://localhost:8090/api/runs?limit=3&module_id=your.module.id" \
-  | python3 -c "
-import sys, json; d = json.load(sys.stdin)
-for r in d['runs']:
-    print(r['run_id'], r['status'], r.get('result', {}).get('block', {}).get('error', ''))
-"
+```json
+"credential_slots": [
+  { "key": "IMAGE_PROVIDER", "type": "backend_override_provider" },
+  { "key": "IMAGE_MODEL",    "type": "backend_override_model" },
+  { "key": "IMAGE_API_KEY",  "type": "backend_provider_api_key", "module": "IMAGE_PROVIDER" }
+]
 ```
 
-Common causes:
-- Exception in `execute()` → check `docker compose logs api`
-- Missing credential check → returns `status="failed"` before the token check
-- `self_check="fail"` with `status="failed"` → `partial` run status (expected for setup_blocker path)
-
-### `EXTERNAL_PLUGINS_PATH` not resolving
-
-Docker does not expand `~`. Set an absolute path:
-```env
-# .env
-EXTERNAL_PLUGINS_PATH=/home/yourusername/bos-plugins
-```
-
-Symptom: `No external plugin root found — external plugins disabled` in startup logs.
+See `PLUGIN_SDK.md § 7` for all seven slot types. Do not use `requires_platform_vars` or `requires_social_connection` — those fields are retired.
 
 ---
 
-## Known gaps in the SDK (as of 2026-06-08)
+## Missing Credentials
 
-These are not blocking but worth knowing:
+A plugin must fail gracefully with a setup-blocker style artifact/block.
 
-- **No validate CLI**: `klaroha validate ./my-plugin` doesn't exist yet. Use the manual SKILL.md parse command above to catch enum violations before restarting BOS.
-- **No local test runner**: You must restart the api container to test dispatch. A future `klaroha test` command would run `execute()` against a mock brief locally.
-- **`brief` shape not version-locked**: The keys documented above are stable but not yet formally versioned. Pin to the SDK version in your `channel.json` (`sdk_version`).
-- **`plugin_activations` gate not wired**: Activation state (active/inactive per brand) is in the DB but not yet enforced in the manifest. All loaded plugins are currently auto-active.
+Example direct-tool result shape:
+
+```python
+return attempt_data, {
+    "content": "Connect Example Platform before running this specialist.",
+    "sell_price": None,
+    "block": {
+        "type": "example_connection_check",
+        "platform": "example_platform",
+        "status": "failed",
+        "reason_code": "missing_credentials",
+        "message": "Example Platform is not connected for this Brand.",
+        "read_only": True,
+        "changed_resources": [],
+        "allowed_actions": ["connect", "dismiss"],
+        "risk_policy": "connection_validate_is_read_only",
+    },
+}
+```
+
+Do not raise for missing credentials.
 
 ---
 
-## Reference
+## Activation
 
-- Plugin contract + diagnostics: `~/bos-plugins/README.md`
-- SDK types: `packages/klaroha_sdk/klaroha_sdk/types.py`
-- Hook event payloads: `specs/001-thin-core-proof/contracts/hook-events.md`
-- Working example (minimal): `~/bos-plugins/hello/`
-- Working example (OAuth + approval flow): `~/bos-plugins/gbp-completeness/`
+Installation is not activation.
+
+After your plugin is installed in `~/bos-plugins`, the operator must activate it for a Brand in Admin / Specialists.
+
+Only active plugin capabilities can enter the CMO manifest.
+
+---
+
+## SKILL.md Guidance
+
+`SKILL.md` controls when the CMO may dispatch your capability.
+
+Use specific triggers and exclusions.
+
+Avoid broad triggers like:
+
+```text
+write
+create
+post
+analyze
+```
+
+Prefer platform/task-specific triggers:
+
+```text
+linkedin post
+check linkedin connection
+google business profile audit
+```
+
+For overlapping ecosystems, use `excluded_triggers` aggressively.
+
+**`requires_intent` — use canonical values only.** The field must be one or more of the following exact strings. Non-canonical values cause the SKILL.md to be silently skipped by the parser:
+
+```text
+discussion
+generation
+revision
+approval
+onboarding
+diagnostic
+action
+publish
+```
+
+Leave `requires_intent: []` (empty) if your capability responds to any intent class.
+
+---
+
+## Local Validation
+
+```bash
+# verify source isolation
+grep -R "from config\|from db\|from models\|from routers\|from registry" ~/bos-plugins/your-plugin || true
+
+# restart host after install
+cd ~/bos
+docker compose restart api
+
+# verify plugin appears installed but inactive
+curl -s -H "X-API-Key: $KEY" http://localhost:8090/api/plugins | jq .
+```
+
+Expected before activation:
+
+```text
+plugin appears in Admin/plugin API
+plugin does not appear in CMO manifest
+```
+
+Expected after activation:
+
+```text
+plugin allowed_from_chat capabilities appear for the activated Brand
+```

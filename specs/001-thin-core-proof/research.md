@@ -1,236 +1,266 @@
-# Research: Thin Core + SDK Plugin Architecture
+# Research: Plugin Host MVP — WordPress / VS Code / pi.dev Model
 
 **Branch**: `001-thin-core-proof` | **Date**: 2026-06-08
 
 ---
 
-## Decision 1: Hook System Design
+## Governing Reference
 
-**Decision**: Simple synchronous registry — `HookRegistry` with `subscribe(event, handler)`
-and `fire(event, payload)`. No external dependency (no Celery, no Redis pub/sub,
-no message broker). Handlers are async callables registered at startup.
+This research has been narrowed to match:
 
-**Rationale**: The pipeline is request-scoped. Hooks fire inline within the HTTP
-request lifecycle — they are not background tasks. A simple in-process registry
-is sufficient, zero-dependency, and testable. External message brokers introduce
-latency and operational complexity that is not needed for synchronous pipeline hooks.
+```text
+api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md
+```
 
-**Alternatives considered**:
-- Django signals (synchronous, Django-only, adds framework dependency)
-- Celery tasks (async, out-of-process, overkill for inline enrichment)
-- FastAPI background tasks (fire-and-forget, cannot enrich the brief synchronously)
+The earlier broad thin-core/hook/chat-rewrite research is deferred. This feature implements only the plugin-host MVP primitives.
 
 ---
 
-## Decision 2: klaroha_sdk as a Local pip Package
+## Decision 1: WordPress / VS Code / pi.dev Architecture Model
 
-**Decision**: `packages/klaroha_sdk/` in the BOS repo. Installed with
-`pip install -e packages/klaroha_sdk` (editable) in development, and as a built
-wheel in Docker. Third-party plugin repo installs via `pip install klaroha-sdk`
-(PyPI, future) or local path reference.
+**Decision**: BOS combines three architecture references:
 
-**Rationale**: A Python package is the natural SDK boundary. Plugin code in a
-separate repo physically cannot import BOS internals — only what `klaroha_sdk`
-exports. The editable install during development means SDK changes are reflected
-immediately without reinstalling.
+```text
+WordPress  → install/activate/deactivate lifecycle
+VS Code    → extension host + enabled contribution points
+pi.dev     → thin core + loaded resources + live manifest
+```
 
-**Alternatives considered**:
-- Copying types into each plugin (no version contract, brittle)
-- A separate SDK git repo (correct long-term, premature now — monorepo approach
-  is faster and still produces a real package)
-- FastAPI dependency injection (does not enforce boundary for plugins in a
-  separate repo)
+BOS follows the lifecycle:
 
----
+```text
+external install root → installed/quarantined → activate per Brand → CMO manifest
+```
 
-## Decision 3: External Plugin Directory via Volume Mount
+**Rationale**: WordPress does not expose plugin capabilities until a plugin is installed and activated. VS Code does not expose extension commands until the extension is installed/enabled. pi.dev keeps the core harness thin by loading resources instead of adding permanent branches. BOS should behave the same way.
 
-**Decision**: Docker volume mount `~/bos-plugins:/external_plugins`. Scanner reads
-`/external_plugins/` first, then `api/plugins/` (deprecated). `EXTERNAL_PLUGINS_DIR`
-env var overrides the external path for non-Docker environments.
-
-**Rationale**: Volume mount is the standard Docker pattern for injecting external
-content into a container. The plugin repo on the host is a plain directory — no
-sidecar, no API, no registry service needed. Deleting a plugin folder from the
-host and restarting the container produces an updated manifest automatically.
-
-**Alternatives considered**:
-- Plugin registry service (correct at SaaS scale, premature for single-tenant
-  self-hosted model)
-- Git submodule inside BOS repo (couples plugin repo lifecycle to BOS repo)
-- HTTP plugin catalog endpoint (network dependency during startup, complicates
-  offline/air-gapped deploys)
+**Rejected alternative**: Hardcoded platform catalog in core/UI, or a growing CMO/router core that absorbs plugin behavior.
 
 ---
 
-## Decision 4: Plugin Activation State in PostgreSQL
+## Decision 2: External Root Is Runtime Source
 
-**Decision**: New `plugin_activations` table. Columns: `plugin_id` (str),
-`brand_id` (UUID, nullable — null = org-level), `status` (`active`/`inactive`/`error`),
-`error_reason` (text, nullable), `activated_at` (timestamp). Only active rows
-contribute to the manifest.
+**Decision**: Runtime plugins come from `/external_plugins`, mounted from `~/bos-plugins`.
 
-**Rationale**: Activation state must survive container restarts. An in-memory
-registry resets on restart — plugins would silently re-activate on every boot,
-removing the safety gate. PostgreSQL gives us persistence, per-brand scoping,
-and a queryable audit trail.
+`api/plugins/` is SDK/example/deprecated source and is not runtime-loaded by default.
 
-**Alternatives considered**:
-- JSON file on disk (survives restarts but is not queryable, race conditions on write)
-- Environment variable list (not per-brand, not dynamic, requires restart to change)
-- In-memory (resets on restart — unusable)
+**Rationale**: Third-party plugin development must be isolated from the core repo.
+
+**Compatibility**: `KLAROHA_LOAD_INTERNAL_PLUGINS=true` may enable bundled examples for local compatibility only.
 
 ---
 
-## Decision 5: First-Party System Hooks for Brand Scope + Memory
+## Decision 3: MVP Installed State Is Lean
 
-**Decision**: `api/pipeline/system_hooks.py` registers brand scoping and memory
-hydration as first-party subscribers on `brief.before_dispatch`. These use the
-identical hook API that third-party plugins use.
+**Decision**: MVP installed state is:
 
-**Rationale**: Proves the hook API is sufficient for real cross-cutting concerns
-from day one. If brand scoping — the most complex cross-cutting concern in the
-current codebase — can be expressed as a hook subscriber, any plugin concern can
-be. This is the existence proof.
+```text
+external-root scan
++ manifest validation/quarantine status
++ per-brand activation DB
+```
 
-**Alternatives considered**:
-- Keep brand scoping in chat.py, only extract credential injection (partial win,
-  core is still not thin)
-- Abstract base class injection (tight coupling, not event-based)
+Do not build a full registry/lockfile with hashes in this feature.
+
+**Rationale**: The immediate bug is fake/uninstalled capabilities appearing. Full release integrity is useful later but not required for the MVP.
 
 ---
 
-## Decision 6: channel.json v2 — Additive Extension
+## Decision 4: Activation Is Brand-Scoped
 
-**Decision**: Add optional fields to existing `channel.json` schema:
-`sdk_version` (str), `hook_subscriptions` (list of event names),
-`credential_injectors` (list of credential key names). All new fields are
-optional — existing v1 plugins continue loading without changes.
+**Decision**: Installed plugins are inactive by default. Activation is explicit and Brand-scoped, with optional org-level default via `brand_id=NULL`.
 
-**Rationale**: Additive schema evolution is the compatibility principle stated in
-PROJECT_BRIEF.md v3.55. Existing internal plugins in `api/plugins/` keep working
-without modification during the deprecation period. New external plugins in
-`~/bos-plugins/` use v2 fields.
-
-**Alternatives considered**:
-- New `channel.json` v2 schema, v1 rejected (breaks all existing plugins instantly)
-- Separate `hooks.json` file (splits plugin declaration across two files,
-  complicates the scanner)
+**Rationale**: A plugin installed for review must not affect production Brands until activated.
 
 ---
 
-## Decision 7: chat.py Rewrite Boundary
+## Decision 5: CMO Manifest Filters by Activation
 
-**Decision**: `chat.py` is rewritten from scratch to ~150 lines. The 7-step
-contract is: receive → load context → LLM call → strip directives → dispatch →
-persist → return. `@klar` and `@council` command parsers stay in `chat.py` as
-deterministic step-1 utilities (they are parsing, not plugin logic).
+**Decision**: The CMO manifest includes plugin capabilities only when the plugin is installed, active for the current Brand, not quarantined, and the SKILL is `allowed_from_chat`.
 
-The following move OUT of `chat.py`:
-- `_brand_scoped_brief()` → `system_hooks.py` subscriber on `brief.before_dispatch`
-- `hydrate_memory_slots()` call → `system_hooks.py` subscriber on `brief.before_dispatch`
-- `_build_system_prompt()` skill context loading → `pipeline/context.py` helper
-- `_complete_cmo_messages()` LLM candidate building → `pipeline/llm.py` helper
-- `inject_channel_credentials()` call → plugin hook subscriber on `brief.before_dispatch`
+**Rationale**: The CMO should see active extension contracts, not theoretical platforms.
 
-**Rationale**: Drawing the line at `@klar` and `@council` in core is pragmatic —
-they are simple regex parsers (< 50 lines each) and routing council to a
-capability is deterministic, not plugin-specific logic. Everything else is either
-brand/memory concern (hooks) or plugin concern (hook subscription).
+**Credential note**: Missing credentials are handled by the plugin at execution time via a setup-blocker artifact. Core does not add platform-specific credential gates to chat.
 
 ---
 
-## Decision 8: runs.py — Targeted Extraction, Not Full Rewrite
+## Decision 6: Specialists UI Is Installed-Only
 
-**Decision**: `runs.py` is NOT fully rewritten. Only `inject_channel_credentials`
-is removed from its call site and replaced with a `hooks.fire("brief.before_dispatch")`
-call. The rest of `runs.py` remains as-is for this phase.
+**Decision**: Admin Specialists renders installed plugin cards from `GET /plugins`; it does not hardcode cards for uninstalled platforms.
 
-**Rationale**: `runs.py` contains legitimate execution logic (module routing,
-upstream contract resolution, BITE envelope construction, persistence). The coupling
-problem is `inject_channel_credentials` specifically. Rewriting all of `runs.py`
-in the same phase as `chat.py` and `klaroha_sdk` is too much blast radius for one
-branch. `runs.py` cleanup is a follow-on phase.
+**Rationale**: A platform card before installation is a fake capability and creates readiness noise.
 
 ---
 
-## Decision 9: gbp-completeness Replaces gmail as Second Proof Plugin
+## Decision 7: Generic Credentials and Lean OAuth
 
-**Decision**: `~/bos-plugins/gbp-completeness/` is the second validation plugin
-for this proof, not `gmail`. Gmail migration is deferred to a follow-on pass.
+**Decision**: Plugins receive credentials through `brief["_channel_credentials"]` only. Core supports lean generic OAuth2 declarations for common providers; unusual providers may use `requires_platform_vars` in MVP.
 
-**Rationale**: GBP completeness is already written, already in `~/bos-plugins/`,
-and uses only `klaroha_sdk` imports. It exercises the same proof paths as Gmail:
-OAuth credential injection via `brief["_channel_credentials"]`, `pending_review`
-status, and `approval_bundle` renderer. Critically, it is read-only — no send step,
-no SMTP, no outbound network write action — making it a lower-risk architecture
-proof. A `setup_blocker` artifact (when Google Business Profile is not connected)
-still proves the full plugin lifecycle: load → dispatch → credential check →
-artifact returned. The CMO dispatch accuracy test against Google Analytics triggers
-was also a useful finding that strengthened the SKILL.md contract requirements.
-
-**Alternatives considered**:
-- Keep gmail as second proof (adds SMTP complexity, send action risk, OAuth send scopes)
-- Use test_stub only (too trivial — does not prove OAuth credential injection)
+**Rationale**: Core should be plugin-ready, not platform-ready.
 
 ---
 
-## Decision 10: EXTERNAL_PLUGINS_PATH Must Be an Absolute Path
+## Decision 8: No Module Concept — Everything is a Package
 
-**Decision**: `EXTERNAL_PLUGINS_PATH` in `.env` and the `docker-compose.yml` default
-must use an absolute path (e.g., `/home/ubu/bos-plugins`), not a tilde-relative path
-(`~/bos-plugins`). This is a hard deployment constraint.
+**Decision**: BOS retires the "module" concept. All capabilities are packages. Built-in packages (`api/capabilities/`) and installed packages (`~/bos-plugins/`) follow an identical contract: `SKILL.md` + `module.py` + `channel.json`. No package imports BOS internals. The only distinction between built-in and installed is source location and default activation state.
 
-**Rationale**: Docker does not perform shell tilde expansion in bind mount paths.
-The `~/bos-plugins` default in `docker-compose.yml` was treated literally — Docker
-looked for a directory named `~` on the host, found none, and the container logged
-`No external plugin root found — external plugins disabled` at every startup.
-All external plugins silently failed to load. This was identified when testing GBP
-dispatch: the plugin was written but never appeared in the manifest.
+**Rationale**: WordPress does not have a privileged plugin API for Automattic-authored plugins — Akismet uses the same `add_action`/`add_filter` hook API as any third-party plugin, ships in the install archive, and can be deactivated. VS Code's built-in TypeScript extension lives in `app/extensions/`, uses the same `package.json` + extension API as any third-party extension, and can be disabled. pi.dev keeps the harness thin by treating all capabilities as loaded resources — no hardcoded skill logic in the runner. BOS adopts the same model: the loader discovers packages from `api/capabilities/` (built-in, auto-activated) and `~/bos-plugins/` (installed, activation required); the package contract is uniform.
 
-**Fix applied**: `docker-compose.yml` default changed to `/home/ubu/bos-plugins`;
-`.env.example` and `.env` updated to use the absolute path. All deployment
-documentation must specify an absolute path.
+Retiring "module" eliminates an implicit first-party trust tier that allowed direct DB/model access in capability code. The `resolve` primitive becomes the single context-assembly path; packages become stateless transforms.
+
+**Constitutional reference**: BITE.md § Everything is a Package; PLUGIN_ARCHITECTURE_RECOMMENDATION.md § No Module Concept.
 
 ---
 
-## Decision 11: CMO Dispatch Accuracy Degrades on Fallback LLM Models
+## Decision 9: Violations Audit — Active pi.dev Model Violations
 
-**Decision**: The GBP SKILL.md `excluded_triggers` must explicitly enumerate
-Google Analytics, Search Console, on-page SEO, and Google Ads phrases to prevent
-mis-dispatch on fallback models.
+**Date**: 2026-06-09
+**Status**: All V1–V9 resolved ✓
 
-**Rationale**: In live testing, the CMO dispatched Google Analytics instead of
-GBP when running on `nvidia/meta/llama-3.3-70b-instruct` (Gemini was 429'd,
-OpenAI was 400'd). Both plugins share similar Google OAuth credential patterns
-and "google" trigger surface area. The primary Gemini model dispatches correctly;
-the fallback model does not discriminate well between overlapping trigger sets.
+Code audit against spec.md § Architecture Tests found nine active violations. Resolution status below.
 
-**Fix**: Add to GBP SKILL.md `excluded_triggers`:
-- `google analytics`, `ga4`, `analytics report`, `traffic data`
-- `search console`, `search performance`, `indexing`
-- `google ads`, `paid search`, `ad campaign`
-- `tag manager`, `on-page seo`, `meta tags`, `schema markup`
+| # | File | Violation | Rule | Resolution |
+|---|------|-----------|------|------------|
+| V1 | `plugin_loader.py:503–586` | Three platform-specific branches in `inject_channel_credentials`: `google_drive` root folder extraction, ClickUp `pm_config`/`clickup_team_id` injection, image/video modality string-matching on `module_id` | FR-012, D7 | **✓ T061** — replaced with 7-type `credential_slots` resolver loop; zero platform-specific branches remain |
+| V2 | `routers/plugins.py:50–119` | `_MEDIA_PROVIDER_OPTIONS` hardcodes provider catalogs for `media.image` and `media.video` in core router | FR-012, SC-008 | **✓ T090** — `provider_options` array added to channel.json; plugins.py reads from manifest |
+| V3 | `routers/plugins.py:295–318` | `_WORKSPACE_RESOLVERS` + `/resolve-workspaces` endpoint makes ClickUp-specific HTTP calls from core | FR-012, SC-008 | **✓ T091** — `workspace_discovery_url` in clickup channel.json; generic handler reads from manifest |
+| V4 | `routers/chat.py:555–563` | `_CHANNEL_DISPLAY` hardcodes display names for specific platform keys in core | FR-011, FR-012 | **✓ T096** — `_CHANNEL_DISPLAY` removed; `_platform_display_name()` derives from string transformation |
+| V5 | `routers/chat.py:1209` | `@council` dispatches via direct import of capability module, bypassing manifest contract entirely | CMO Rule #1, FR-011 | **✓ T093** — `chat.py` imports from `api/council.py` core service directly; capability SKILL.md set `allowed_from_chat: false` |
+| V6 | `capabilities/workspace/council/module.py:27–28,340` | Imports `config`, `executor`, `models.council` — BOS internals from a package file | FR-013, SC-009 | **✓ T093** — `module.py` is a clean execute() stub; all logic in `api/council.py` core service |
+| V7 | `AdminModules.tsx:171–197` | `pluginDisplayName`/`pluginDescription` pattern-match on `plugin_id` string instead of reading from manifest | D6, FR-012 | **✓ T094** — functions deleted; call sites use `plugin.name` and `plugin.implements.join(', ')` directly |
+| V8 | `AdminModules.tsx:6–13` | `OAUTH_PLATFORMS` hardcodes icons/labels for specific OAuth platforms | FR-012 | **✓ T095** — `OAUTH_PLATFORMS` deleted; replaced by `buildPlatformMeta()` derived from plugin connection manifests |
+| V9 | `plugins/PLUGIN_SDK.md:559–585` | SDK docs show `from registry import ...` and `from skills.loader import ...` — teaches BOS internal imports to plugin devs | FR-013 | **✓ T064** — SDK docs updated; "Plugin modules must never import BOS internals" added as hard rule |
 
-This is a SKILL.md change only — no core code change required.
+**V1 is the most architecturally significant.** `inject_channel_credentials` has grown platform-specific branches for `google_drive`, ClickUp, and image/video modality. This is the exact accumulation pattern the pi.dev model prohibits. The root cause is that the credential injection contract has no way for a plugin to declaratively describe *what* it needs resolved — so core absorbs each new requirement as a branch. Remediation is an open architectural question documented in Decision 10.
+
+**V6 creates a constitutional conflict.** `workspace/council` is classified as a BOS system contract (equivalent to WordPress core infrastructure), but it lives in `api/capabilities/` as a package and imports BOS internals, violating FR-013. Resolution options: (a) move it to `api/council.py` as an explicit core service and call it from `chat.py` directly — system contracts belong in core, not in the package tree; (b) document a privileged system-contract tier with explicit import permissions and hard-fence it from third-party capabilities. Option (a) is preferred — if it needs direct DB/executor access it is core, not a package.
 
 ---
 
-## Decision 12: SKILL.md `requires_intent` Must Use Canonical Values Only
+## Decision 10: Credential Injection Architecture — Open Question
 
-**Decision**: External plugin SKILL.md files must use only the canonical `requires_intent` values
-accepted by the `SkillManifest` Pydantic validator:
-`discussion`, `generation`, `revision`, `approval`, `onboarding`, `diagnostic`, `action`, `publish`.
+**Date**: 2026-06-09
+**Status**: Under research — see separate discussion
 
-Any other value causes the SKILL.md to fail `model_validate()` silently — the skill is skipped
-with no log output, and the capability never appears in the CMO manifest.
+The violations in V1 are symptoms of a deeper architectural mismatch. The WordPress / VS Code analogy was used to model the **plugin lifecycle** (install → activate → manifest), but it is the wrong reference for **credential injection**.
 
-**Root cause**: GBP SKILL.md used `requires_intent: research` which is not in the enum.
-`list_skill_manifests()` caught the validation error and silently `continue`d past the skill.
-The plugin loaded successfully at the transport layer (logs showed `Plugin loaded [external]`)
-but the capability was invisible to the CMO.
+WordPress plugins call `get_option()` themselves. VS Code extensions call `context.secrets.get()` themselves. Neither model has the host injecting platform-specific structured credentials into plugin calls. In both, the plugin owns its credential retrieval.
 
-**Fix**: Changed `requires_intent: research` → `diagnostic` in GBP SKILL.md.
+BOS's current model inverts this: core assembles and injects credentials, which forces core to understand each platform's shape (`drive_root_folder_id`, `clickup_team_id`, `image_gen_provider`). Every new plugin requirement adds a branch.
 
-**Impact on plugin authors**: The SDK README and plugin-dev-onboarding.md must document the
-allowed intent values. A future `validate` CLI could catch this at authoring time.
+The two candidate reference models for a correct credential contract are:
+
+```text
+MCP         → transport-level auth; server owns its credential retrieval;
+              host knows nothing about server-internal credential shapes
+
+SKILL.md    → declarative slot contract; harness resolves each slot by type
+  (pi.dev)    generically; no platform names in harness code
+```
+
+**Resolved decisions:**
+
+- `credential_slots` **supersedes** `requires_social_connection` and `requires_platform_vars`. Both old fields are removed from `ChannelPluginManifest`. No coexistence, no migration shim.
+- Modules receive a **raw dict** — `brief["_channel_credentials"]`. Keys are guaranteed to match what the plugin declared in `credential_slots`. No typed SDK wrapper in MVP.
+
+**Slot vocabulary — seven types, covers all current V1 violations and all known org-channel use cases:**
+
+| type | resolves |
+|------|----------|
+| `social_token` | Full `SocialConnection(brand_id, platform)` — injects `access_token`, `page_token`, `page_id`, `page_name`, `page_handle` as a collapsed set. One slot per OAuth platform. |
+| `social_meta_field` | `SocialConnection.token_meta_json[field]` — for platform-specific metadata stored at connect time (e.g. `drive_root_folder_id`) |
+| `platform_var` | Env var, then DB-stored plugin var as fallback |
+| `brand_json_path` | `brand.brand_json` at a dotted path (e.g. `pm_config.team_id`) |
+| `backend_override_provider` | `BackendOverride(module_id).provider`, fallback to `fallback_var` env var |
+| `backend_override_model` | `BackendOverride(module_id).model_id` |
+| `backend_provider_api_key` | API key from `provider_keys` for the resolved provider — second-pass slot, depends on `backend_override_provider` resolving first |
+
+**Representative samples (agreed shapes — implement exactly these):**
+
+`google.drive/channel.json`:
+```json
+"credential_slots": [
+  { "key": "access_token",         "type": "social_token",            "platform": "google_drive" },
+  { "key": "drive_root_folder_id", "type": "social_meta_field",       "platform": "google_drive", "field": "drive_root_folder_id" },
+  { "key": "drive_root_name",      "type": "social_meta_field",       "platform": "google_drive", "field": "drive_root_name" }
+]
+```
+
+`channel.clickup/channel.json`:
+```json
+"credential_slots": [
+  { "key": "clickup_api_token", "type": "platform_var",    "var": "CLICKUP_API_TOKEN" },
+  { "key": "clickup_team_id",   "type": "brand_json_path", "path": "pm_config.team_id" },
+  { "key": "pm_list_id",        "type": "brand_json_path", "path": "pm_config.list_id" }
+]
+```
+
+`media.image/channel.json`:
+```json
+"credential_slots": [
+  { "key": "image_gen_provider", "type": "backend_override_provider", "module": "media.image.generate", "fallback_var": "IMAGE_GEN_PROVIDER" },
+  { "key": "image_gen_model",    "type": "backend_override_model",    "module": "media.image.generate" },
+  { "key": "provider_api_key",   "type": "backend_provider_api_key",  "module": "media.image.generate" }
+]
+```
+
+Core resolver loop replaces `inject_channel_credentials` entirely. No platform names, no module-id string-matching in core. An org's custom plugin uses `platform_var` and `brand_json_path` with zero Klaroha code change.
+
+---
+
+## Decision 11: Plugin Lifecycle Gap — Agreed Resolution
+
+**Date**: 2026-06-09
+**Status**: Resolved — deliverables agreed, parked items documented
+
+Joint analysis between agents after YouTube/Facebook social posting work surfaced activation policy gaps and confusing Admin state. Full analysis: `api/plugins/PLUGIN_LIFECYCLE_GAPS.md`.
+
+**Root causes identified (four lifecycle leaks):**
+
+1. **Visibility leak** — `KLAROHA_LOAD_INTERNAL_PLUGINS=true` makes all 18 bundled `api/plugins/` examples look installed. Should only be used locally. Production plugins must live in `~/bos-plugins/`.
+2. **Read-side write leak** — `GET /plugins` auto-creates `plugin_activations` rows with `status=inactive` for every loaded plugin. These rows look operator-managed but were never explicitly created.
+3. **Scope leak** — activations sent with `brand_id=null` are org-wide. Any new brand onboarded inherits them automatically.
+4. **Dependency expansion leak** — activating a workflow plugin (e.g. YouTube publish) required manually activating 5 dependencies (`media.image`, `media.video`, `creative.factory`, `google.drive`, `channel.youtube`). No chain declared.
+
+**Agreed deliverables (no code):**
+
+| # | Deliverable | Gate |
+|---|-------------|------|
+| D1 | Copy 6 workflow plugins `api/plugins/` → `~/bos-plugins/` | Now |
+| D2 | Remove `KLAROHA_LOAD_INTERNAL_PLUGINS=true` from `.env`, restart API | Now |
+| D3 | Clear org-wide `plugin_activations` rows; recreate brand-scoped for Klaroha | Before staging deploy |
+
+**Parked (explicitly deferred until second client brand is onboarded):**
+
+- Stop `GET /plugins` read-side writes (auto-creating inactive rows)
+- Block accidental `brand_id=null` activation at API layer
+- Admin UI: org-active vs brand-active provenance badge
+- Admin UI: plugin source badge (external vs internal compat)
+- Dependency activation chain in Admin
+- `provider_keys` credential scope (brand vs workspace isolation)
+
+**Non-negotiable rules added to CLAUDE.md** (2026-06-09):
+- Do not use `KLAROHA_LOAD_INTERNAL_PLUGINS=true` as a production or staging restore mechanism
+- Do not activate with `brand_id: null` as a shortcut when only specific brands need a plugin
+- Admin → Specialists must show only externally installed plugins (`~/bos-plugins/`) in normal operation
+
+Tasks: T110–T112 in Phase 11.
+
+---
+
+## Deferred Decisions
+
+The following are explicitly deferred to separate specs:
+
+```text
+chat.py 7-step rewrite
+hook subscription system
+full lockfile/source hash registry
+marketplace UI
+SDK ABI adapters
+plugin-owned migrations
+hot reload
+subprocess sandbox
+full OAuth edge-case framework
+migration of Meta/TikTok/LinkedIn/YouTube/etc.
+```

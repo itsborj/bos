@@ -30,7 +30,7 @@ Do not implement marketplace, full lockfile, hooks, chat rewrite, SDK adapters, 
 
 - [x] T010 Ensure `api/plugin_loader.py` loads `/external_plugins` / `EXTERNAL_PLUGINS_DIR` by default.
 - [x] T011 Ensure `api/plugin_loader.py` skips bundled `api/plugins/` unless `KLAROHA_LOAD_INTERNAL_PLUGINS=true`.
-- [ ] T012 Add/verify test or manual check: empty external root returns zero plugin capabilities after restart.
+- [x] T012 Add/verify test or manual check: empty external root returns zero plugin capabilities after restart. **Done — 3 tests in `api/tests/test_plugin_host_invariants.py` (empty root, no error_states, dirs without channel.json skipped).**
 
 Acceptance:
 
@@ -46,7 +46,7 @@ Bundled api/plugins examples absent unless compatibility flag is enabled.
 - [x] T020 Update `api/plugin_loader.py` to preserve recoverable invalid plugins as status=`error` with reason when `plugin_id` can be read.
 - [x] T021 Update `api/routers/plugins.py` `GET /plugins` response to include: `plugin_id`, `name`, `version`, `source`, `status`, `reason`, `capability_ids`, `requires_platform_vars`, `requires_social_connection`, `connections`, `activation_by_brand`.
 - [x] T022 Ensure duplicate `plugin_id` / duplicate `module_id` conflicts quarantine the offending plugin and do not crash BOS.
-- [ ] T023 Add/verify test or manual check: one broken plugin does not hide a valid plugin.
+- [x] T023 Add/verify test or manual check: one broken plugin does not hide a valid plugin. **Done — 3 tests in `api/tests/test_plugin_host_invariants.py` (invalid JSON, schema failure, duplicate plugin_id).**
 
 Acceptance:
 
@@ -99,12 +99,12 @@ No platform-specific checks added to chat.py.
 
 ## Phase 5 — D6 Specialists UI Installed-Only View
 
-- [ ] T050 Remove hardcoded platform cards from `web/src/pages/admin/AdminModules.tsx` that appear without installed plugin data.
+- [x] T050 Remove hardcoded platform cards from `web/src/pages/admin/AdminModules.tsx` that appear without installed plugin data. **Done — replaced `['media.image','media.video'].includes(plugin.plugin_id)` with manifest-driven `plugin.media_provider_options.length > 0`; replaced hardcoded statuses array with `[...searchParams.entries()]` iteration.**
 - [x] T051 Render plugin Specialist cards from `GET /plugins` only.
 - [x] T052 Display activation state per Brand for each installed plugin.
 - [x] T053 Add Activate/Deactivate controls calling D4 endpoints.
 - [x] T054 Show credential/setup/validation status only for installed plugins.
-- [ ] T055 Ensure uninstalled platforms produce no readiness debt or connector warnings.
+- [x] T055 Ensure uninstalled platforms produce no readiness debt or connector warnings. **Verified — `buildPlatformMeta()` derives from installed plugin manifests; `summarizeInstalledPlugin()` derives connectors from `plugin.connections[]`; no hardcoded platform names outside dynamic param handling.**
 
 Acceptance:
 
@@ -140,11 +140,11 @@ channel.json has no requires_social_connection or requires_platform_vars fields.
 
 ## Phase 7 — D8 Minimal Generic OAuth Verification
 
-- [ ] T070 Verify plugin-declared `connections` schema is parsed from `channel.json`.
-- [ ] T071 Verify `/social/connect/start` or equivalent can start OAuth for a plugin-declared platform without a hardcoded handler.
-- [ ] T072 Verify generic callback can store `SocialConnection` for plugin-declared platform.
-- [ ] T073 Verify `inject_channel_credentials()` can inject the stored token for `requires_social_connection` declared by that plugin.
-- [ ] T074 If D8 is partial/broken, document the gap and keep `requires_platform_vars` as MVP fallback. Do not build full OAuth edge-case framework.
+- [x] T070 Verify plugin-declared `connections` schema is parsed from `channel.json`. **Verified — `ChannelPluginManifest.connections: List[PluginConnectionManifest]` parsed at scan time; `_connection_to_plugin` dict built from `connection.platform`.**
+- [x] T071 Verify `/social/connect/start` or equivalent can start OAuth for a plugin-declared platform without a hardcoded handler. **Verified — `_plugin_id_for_platform()` falls back to `get_plugin_id_for_connection()`; `get_oauth_handler()` returns `GenericPluginOAuthHandler` for plugin-declared platforms.**
+- [x] T072 Verify generic callback can store `SocialConnection` for plugin-declared platform. **Verified — `GET /{platform}/callback` in `social.py` handles plugin-declared platforms via `GenericPluginOAuthHandler`; stores via `_store_connection()`.**
+- [x] T073 Verify `inject_channel_credentials()` can inject the stored token for `requires_social_connection` declared by that plugin. **Verified — `social_token` slot resolver calls `get_page_token(db, brand_id, slot.platform, settings)` and populates `credentials[slot.key]`.**
+- [x] T074 If D8 is partial/broken, document the gap and keep `requires_platform_vars` as MVP fallback. Do not build full OAuth edge-case framework. **D8 complete — generic flow is operational. Legacy `requires_platform_vars` converted to `credential_slots` at load time (T063).**
 
 Acceptance:
 
@@ -160,10 +160,10 @@ Non-standard OAuth can defer to requires_platform_vars.
 > Resolves the remaining violations from research.md Decision 9 that are not covered by Phase 6.
 > V1 is covered by T061. V9 is covered by T064.
 
-- [ ] T090 (V2) Add `provider_options` array to `channel.json` for `media.image` and `media.video`. Each entry: `{ "provider": "openai", "label": "OpenAI", "models": [...] }`. Remove `_MEDIA_PROVIDER_OPTIONS` dict from `api/routers/plugins.py`. Serve from `PluginInfo.media_provider_options` via the loaded manifest instead.
-- [ ] T091 (V3) Add `workspace_discovery_url` string field to `ChannelPluginManifest`. Move ClickUp URL into `channel.clickup/channel.json`. Implement generic `/plugins/{plugin_id}/resolve-workspaces` handler that reads the URL from the manifest and makes the request. Remove `_WORKSPACE_RESOLVERS` dict from `api/routers/plugins.py`.
-- [ ] T092 (V4) Remove `_CHANNEL_DISPLAY` dict from `api/routers/chat.py`. Build display names in `_brand_channel_readiness()` from active plugin connection manifests: read `connections[].platform` from loaded plugin state, use `display_name` from manifest or `titleCase(platform)` as fallback. No hardcoded platform names in core.
-- [ ] T093 (V5 + V6) Move `workspace/council` logic out of `api/capabilities/` into `api/council.py` as an explicit core service. Update `api/capabilities/workspace/council/module.py` to delegate to `api/council.py` via the brief (not direct import). Remove direct `from capabilities.workspace.council.module import start_session` from `chat.py` — call `api/council.py` directly as a core service call, not a capability dispatch.
+- [x] T090 (V2) Add `provider_options` array to `channel.json` for `media.image` and `media.video`. Each entry: `{ "provider": "openai", "label": "OpenAI", "models": [...] }`. Remove `_MEDIA_PROVIDER_OPTIONS` dict from `api/routers/plugins.py`. Serve from `PluginInfo.media_provider_options` via the loaded manifest instead. **Done — provider_options in channel.json; plugins.py reads m.provider_options from manifest; no hardcoded dict.**
+- [x] T091 (V3) Add `workspace_discovery_url` string field to `ChannelPluginManifest`. Move ClickUp URL into `channel.clickup/channel.json`. Implement generic `/plugins/{plugin_id}/resolve-workspaces` handler that reads the URL from the manifest and makes the request. Remove `_WORKSPACE_RESOLVERS` dict from `api/routers/plugins.py`. **Done — workspace_discovery_url in clickup channel.json; plugins.py reads from manifest; _WORKSPACE_RESOLVERS removed.**
+- [x] T092 (V4) Remove `_CHANNEL_DISPLAY` dict from `api/routers/chat.py`. Build display names in `_brand_channel_readiness()` from active plugin connection manifests: read `connections[].platform` from loaded plugin state, use `display_name` from manifest or `titleCase(platform)` as fallback. No hardcoded platform names in core. **Done via T096 — _CHANNEL_DISPLAY removed; _platform_display_name() added.**
+- [x] T093 (V5 + V6) Move `workspace/council` logic out of `api/capabilities/` into `api/council.py` as an explicit core service. Update `api/capabilities/workspace/council/module.py` to delegate to `api/council.py` via the brief (not direct import). Remove direct `from capabilities.workspace.council.module import start_session` from `chat.py` — call `api/council.py` directly as a core service call, not a capability dispatch. **Done — `api/council.py` is the core service; `module.py` is a clean execute() stub (no BOS internals); SKILL.md set to `allowed_from_chat: false`; `chat.py` imports from `council` directly.**
 - [x] T094 (V7) `pluginDisplayName()` and `pluginDescription()` deleted from `AdminModules.tsx`. Call sites use `plugin.name` and `plugin.implements.join(', ')` directly.
 - [x] T095 (V8) `display_name` and `icon` added to `PluginConnectionManifest` and `PluginConnectionInfo`. Added to 6 channel.json connection entries. `OAUTH_PLATFORMS` deleted from `AdminModules.tsx`; replaced by `buildPlatformMeta()` derived from plugin connection manifests.
 
@@ -270,9 +270,33 @@ Does this add workflow opinion to core that could instead live in a plugin or lo
 Does this add a permanent chat-router branch for plugin-specific behavior?
 Does this add a new primitive beyond load / resolve / inject / dispatch / persist without a constitutional decision?
 Does this treat api/capabilities/ entries as core code with special privileges, or allow them to import BOS internals?
+Did this build before producing and agreeing on a sample output?
+Did this confuse capability artifacts with tool execution artifacts?
+Did this ban artifacts when the actual problem was unrequested execution?
 ```
 
-Source of truth: BITE.md → Architecture Violation Test. These ten questions must stay verbatim-matched with spec.md → Architecture Tests.
+Source of truth: BITE.md → Architecture Violation Test. These thirteen questions must stay verbatim-matched with spec.md → Architecture Tests.
+
+---
+
+---
+
+## Phase 12 — Spec Completeness (from 2026-06-09 architecture review)
+
+- [x] T113 · Update `specs/001-thin-core-proof/spec.md`: add FR-014–FR-019, SC-010–SC-011. Done — org-wide activation guard, deactivation demotion, read-side no-write, brand-scoped credential filtering, council/core boundary, capability-manifest endpoint, source field, scope badge.
+- [x] T114 · Update `specs/001-thin-core-proof/spec.md`: add 3 missing BITE.md Architecture Violation Test questions (sample-first, artifact confusion, ban-artifacts anti-pattern). Update T082 checklist verbatim-match. Done.
+- [x] T115 · Mark violations V1–V9 as resolved in `specs/001-thin-core-proof/research.md` Decision 9 table. V1→T061✓, V2→T090✓, V3→T091✓, V4→T096✓, V5+V6→T093✓, V7→T094✓, V8→T095✓, V9→T064✓. Done.
+- [x] T116 · Admin Specialists sort: active/ready plugins first, inactive/needs-setup after. Sort by readiness tier (ready → installed → needs_setup) then alphabetical within tier. Done in `AdminModules.tsx`.
+- [x] T117 · Verify `specs/001-thin-core-proof/plugin-dev-onboarding.md` covers: absolute path requirement for `EXTERNAL_PLUGINS_PATH`, `excluded_triggers` guidance, `credential_slots` vocab replacing old fields, `requires_intent` canonical values list. Update any outdated sections. **Done — added absolute path Docker warning, requires_intent canonical values block.**
+- [x] T118 · Add prominent note to `api/plugins/PLUGIN_SDK.md`: `api/plugins/` is SDK examples only; direct plugin authors to `~/bos-plugins/` as canonical install location. **Done — note block added at top of PLUGIN_SDK.md.**
+- [ ] T119 · Post-merge live verification at hq.klaroha.com (after T110–T112 complete + branch merged to main + deployed): confirm server logs show external plugins as `[external]`; hello dispatches via CMO chat producing `pipeline_test_result`; GBP audit produces `setup_blocker` or `gbp_completeness_result`. This is V8 of the quickstart sequence.
+
+Acceptance for Phase 12:
+```text
+spec.md FR count = 19, SC count = 11, Architecture Tests = 13 questions.
+tasks.md T082 checklist matches spec.md Architecture Tests verbatim.
+research.md Decision 9 violation table has resolution notes for V1–V9.
+```
 
 ---
 

@@ -178,7 +178,7 @@ function pluginConnectorFromPlugin(plugin: PluginInfo, label?: string): Connecto
   const sourceText = requiredCount === 0
     ? 'No credentials required'
     : configured ? (plugin.credential_source === 'env_var' ? 'Via .env' : 'Connected') : 'Not configured';
-  const canConfigure = requiredCount > 0 && !(plugin.credential_source === 'env_var' && !['media.image', 'media.video'].includes(plugin.plugin_id));
+  const canConfigure = requiredCount > 0 && !(plugin.credential_source === 'env_var' && plugin.media_provider_options.length === 0);
   return {
     id: plugin.plugin_id,
     label: label || plugin.name,
@@ -333,12 +333,17 @@ export function AdminModules() {
 
   const [activatingPlugin, setActivatingPlugin] = useState<string | null>(null);
 
-  const refreshPlugins = async () => {
-    const { plugins: p } = await api.listPlugins().catch(() => ({ plugins: [] as PluginInfo[] }));
+  const refreshPlugins = async (brandId?: string | null) => {
+    const id = brandId !== undefined ? brandId : selectedBrandId;
+    const { plugins: p } = await api.listPlugins(id ?? undefined).catch(() => ({ plugins: [] as PluginInfo[] }));
     setPlugins(p);
   };
 
   async function handleToggleActivation(pluginId: string, currentlyActive: boolean) {
+    if (!currentlyActive && !selectedBrandId) {
+      showToast('Select a brand before activating a plugin.');
+      return;
+    }
     setActivatingPlugin(pluginId);
     try {
       if (currentlyActive) {
@@ -368,17 +373,16 @@ export function AdminModules() {
   const platformMeta = useMemo(() => buildPlatformMeta(plugins), [plugins]);
 
   useEffect(() => {
-    const statuses = ['facebook', 'gmail', 'google_calendar', 'google_drive', 'youtube', 'tiktok'] as const;
     const reason = searchParams.get('reason') || '';
-    const messages = statuses.flatMap(platform => {
-      const status = searchParams.get(platform);
-      if (!status) return [];
-      const pmeta = platformMeta[platform] || { label: titleCase(platform) };
-      const label = pmeta.label;
-      if (status === 'connected') return [`✅ ${label} connected`];
-      if (status === 'denied') return [`${label} connection cancelled`];
-      return [`⚠️ ${label} failed — ${reason.replace(/_/g, ' ') || status}`];
-    });
+    const messages = [...searchParams.entries()]
+      .filter(([key]) => key !== 'reason')
+      .flatMap(([platform, status]) => {
+        const pmeta = platformMeta[platform] || { label: titleCase(platform) };
+        const label = pmeta.label;
+        if (status === 'connected') return [`✅ ${label} connected`];
+        if (status === 'denied') return [`${label} connection cancelled`];
+        return [`⚠️ ${label} failed — ${reason.replace(/_/g, ' ') || status}`];
+      });
     if (!messages.length) return;
     window.setTimeout(() => {
       setSearchParams({});
@@ -397,16 +401,25 @@ export function AdminModules() {
         api.getAvailableModels().catch(() => ({ models: [] as ProviderModelLive[] })),
         api.getBackendOverrides().catch(() => ({ overrides: [] as BackendOverride[] })),
       ]);
+      const resolvedBrandId = brandResult.brands?.[0]?.id ?? null;
       setBrands(brandResult.brands ?? []);
-      setSelectedBrandId(prev => prev ?? brandResult.brands?.[0]?.id ?? null);
+      setSelectedBrandId(prev => prev ?? resolvedBrandId);
       setConnections(socialConnections as SocialConnection[]);
       setProviders(providerResult.providers ?? []);
       setAvailableModels(modelResult.models ?? []);
       setBackendOverrides(overrideResult.overrides ?? []);
-      await refreshPlugins();
+      await refreshPlugins(resolvedBrandId);
     }
     load().catch(() => {}).finally(() => setLoading(false));
   }, []);
+
+  // Re-fetch plugin readiness when brand changes (credentials_configured is brand-scoped)
+  const isInitialMount = useRef(true);
+  useEffect(() => {
+    if (isInitialMount.current) { isInitialMount.current = false; return; }
+    refreshPlugins();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedBrandId]);
 
   const specialists = useMemo(() => {
     const brandConnections = selectedBrandId
@@ -421,7 +434,12 @@ export function AdminModules() {
         }
         return s;
       })
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => {
+        const tier = { ready: 0, installed: 1, needs_setup: 2 } as const;
+        const ta = tier[a.readiness] ?? 2;
+        const tb = tier[b.readiness] ?? 2;
+        return ta - tb || a.name.localeCompare(b.name);
+      });
   }, [connections, plugins, selectedBrandId, availableModels]);
 
   const providerReady = useMemo(() => new Set(providers.filter(providerConnected).map(p => p.provider)), [providers]);

@@ -1,289 +1,469 @@
-# Feature Specification: Thin Core + SDK Plugin Architecture
+# Feature Specification: Plugin Host MVP — WordPress / VS Code / pi.dev Model
 
-**Feature Branch**: `001-thin-core-proof`
+**Feature Branch**: `001-thin-core-proof`  
+**Created**: 2026-06-08  
+**Updated**: 2026-06-08  
+**Status**: MVP contract agreed — implementation must follow `api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md`
 
-**Created**: 2026-06-08
+---
 
-**Status**: Draft
+## Scope Correction
+
+This spec supersedes the earlier broad thin-core rewrite scope for this feature.
+
+Do **not** use this feature to rewrite `chat.py`, build hooks, migrate all plugins, build a marketplace, create a full lockfile, add SDK compatibility adapters, add plugin migrations, implement hot reload, or create a subprocess sandbox.
+
+The MVP goal is narrower:
+
+```text
+Make BOS core behave like a WordPress / VS Code / pi.dev style plugin host.
+```
+
+Reference models:
+
+```text
+WordPress  → install/activate/deactivate lifecycle
+VS Code    → extension host + enabled extension contribution points
+pi.dev     → thin core + loaded resources + live manifest instead of core branches
+```
+
+If a plugin is not installed and activated, BOS must act like it does not exist.
 
 ---
 
 ## Problem Statement
 
-BOS's core routing files (`chat.py`, `runs.py`) have grown to 2,146 and 2,106 lines
-respectively against a stated target of a fixed 7-step contract of ~100–200 lines.
-Every new plugin currently requires edits to core files — brand scoping, memory
-hydration, credential injection, and upstream contract logic all live as branches
-inside `chat.py` and `runs.py` instead of in hook subscriptions declared by each
-plugin.
+BOS has been drifting toward a hardcoded platform catalog:
 
-The result: adding or removing any plugin risks breaking unrelated plugins. Core is
-not stable — it grows with each new plugin.
+```text
+Core knows a platform before its plugin is installed.
+Admin UI shows possible platforms as if they are installed specialists.
+CMO manifest can expose capabilities that are not truly installed/active.
+New third-party plugins can require core updates before becoming operational.
+```
 
-The fix is a full separation:
+This violates the plugin model.
 
-- **BOS core** (`~/bos/`) — a fixed 7-step pipeline harness and a public SDK.
-  It never changes when plugins are added or removed.
-- **Plugin repo** (`~/bos-plugins/`) — a separate git repository. All plugins
-  live here. Plugins import only from `klaroha_sdk`. BOS loads them via a
-  mounted volume. Deleting a plugin folder from this repo leaves BOS completely
-  stable — the capability disappears from the manifest and nothing else changes.
+Correct model:
 
-`api/plugins/` inside the main BOS repo is silently deprecated. All current plugins
-are copied and adapted to `~/bos-plugins/`. No maintenance happens on the old
-internal copies.
+```text
+Core is plugin-ready, not platform-ready.
+Plugins declare themselves.
+Installed/active plugins appear.
+Uninstalled plugins are invisible.
+```
 
----
-
-## User Scenarios & Testing
-
-### User Story 1 — Thin Core (Priority: P1)
-
-An operator uses BOS with only the `hello` smoke-test plugin active. The CMO
-dispatches it, an artifact appears in Stream, and the operator approves it.
-`chat.py` is under 200 lines and contains zero plugin-specific, channel-specific,
-or platform-specific logic.
-
-**Why this priority**: The core is the foundation. Nothing else can be trusted until
-the 7-step contract is proven with a trivial plugin.
-
-**Independent Test**: Fresh stack, only `hello` in `~/bos-plugins/`. Send any CMO
-message that triggers it. Observe: manifest contains only `hello`, artifact appears,
-approval works. Read `chat.py` — no plugin names, no brand-resolution branches, no
-credential lists.
-
-**Acceptance Scenarios**:
-
-1. **Given** only `hello` is in `~/bos-plugins/`, **When** the CMO dispatches it,
-   **Then** an artifact appears in Stream and `chat.py` contains zero plugin-specific
-   code.
-
-2. **Given** the `hello` folder is deleted from `~/bos-plugins/`, **When** BOS
-   restarts, **Then** the manifest is empty, no error is raised, and the system
-   starts cleanly.
-
-3. **Given** `chat.py` is at its final state, **When** a new plugin is added to
-   `~/bos-plugins/`, **Then** `chat.py` requires zero edits — the plugin appears
-   automatically via manifest discovery.
+WordPress does not show WooCommerce products until WooCommerce is installed and activated. VS Code does not show extension commands until the extension is installed/enabled. pi.dev keeps the agent harness thin by loading skills/tools/subagents/resources instead of growing core branches. BOS must combine these lessons.
 
 ---
 
-### User Story 2 — SDK Boundary (Priority: P1)
+## Non-Negotiable MVP Deliverables
 
-A plugin developer working only in `~/bos-plugins/` — with no access to BOS
-internals — can write a fully functional plugin using only `from klaroha_sdk import
-...`. The plugin handles credentials, brand context, and artifact output without
-importing anything from the BOS codebase.
+### D1 — External plugin root is runtime source
 
-**Why this priority**: The SDK boundary must be structural, not conventional.
-If a plugin physically cannot import BOS internals (different repo, different Python
-path), the boundary is real. If it can but just chooses not to, it is fragile.
+Runtime plugin discovery MUST read external installed plugins from:
 
-**Independent Test**: Write `~/bos-plugins/hello/module.py` with only
-`from klaroha_sdk import ChannelModule, ArtifactBlock`. Confirm it dispatches,
-produces a valid artifact, and returns it to Stream. Confirm no BOS internal module
-is reachable from the plugin's Python environment.
+```text
+EXTERNAL_PLUGINS_DIR=/external_plugins
+```
 
-**Acceptance Scenarios**:
+The external root is normally mounted from:
 
-1. **Given** a plugin imports only `from klaroha_sdk import ...`, **When** BOS
-   dispatches it, **Then** it runs successfully and produces a valid artifact.
+```text
+~/bos-plugins
+```
 
-2. **Given** a plugin developer attempts `from api.routers import anything`,
-   **Then** an `ImportError` is raised — BOS internals are not on the plugin's
-   Python path.
+Bundled examples under `api/plugins/` MUST NOT load by default. They may load only with explicit local compatibility:
 
-3. **Given** a plugin declares credential requirements in `channel.json`,
-   **When** the plugin executes, **Then** credentials are injected by the host
-   via the declared hook — the plugin never calls a database or reads env vars
-   directly.
+```text
+KLAROHA_LOAD_INTERNAL_PLUGINS=true
+```
 
----
+**Acceptance**:
 
-### User Story 3 — Delete Stability (Priority: P1)
-
-Deleting any plugin folder from `~/bos-plugins/` leaves BOS completely stable.
-The removed plugin's capabilities disappear from the manifest. No errors. No
-crash. All remaining plugins continue working.
-
-**Why this priority**: This is the definitive proof. If the system stays stable
-when a plugin is deleted, the boundary is real. If it crashes, the plugin was
-coupled to core.
-
-**Independent Test**: With `gmail` and `hello` both active, delete
-`~/bos-plugins/gmail/`. Restart BOS. Confirm: only `hello` in manifest, no errors,
-`hello` still dispatches correctly.
-
-**Acceptance Scenarios**:
-
-1. **Given** multiple plugins are active, **When** one plugin folder is deleted
-   and BOS restarts, **Then** only that plugin's capabilities vanish — all others
-   are unaffected.
-
-2. **Given** a plugin folder contains an invalid `SKILL.md` or broken `module.py`,
-   **When** BOS starts, **Then** that plugin is skipped with a warning — it does
-   not prevent other plugins from loading.
-
-3. **Given** `~/bos-plugins/` is empty, **When** BOS starts, **Then** the manifest
-   is empty and CMO chat still responds — it just has no dispatchable capabilities.
+```text
+Empty /external_plugins → zero plugin capabilities after restart.
+Bundled api/plugins examples do not appear unless compatibility flag is set.
+```
 
 ---
 
-### User Story 4 — Gmail End-to-End (Priority: P2)
+### D2 — Installed plugins API shows installed packages only
 
-The Gmail plugin is migrated from `api/plugins/gmail/` to `~/bos-plugins/gmail/`,
-adapted to use only `klaroha_sdk`, and proven end-to-end: CMO dispatch → draft
-artifact → Stream → operator approves.
+Admin/Core MUST expose a plugin list derived from the external install root and manifest validation.
 
-**Why this priority**: Gmail is the Gate 2 proven path and the most strategically
-important specialist. Proving it works through the new architecture validates the
-SDK for a real, credential-requiring, brand-aware plugin.
+MVP installed state is intentionally lean:
 
-**Independent Test**: Connect Gmail for the active brand. Send "draft an outreach
-email." Observe: draft artifact in Stream, editable copy, Approve/Revise/Dismiss
-controls present. Approve — run status updates. Inspect `~/bos-plugins/gmail/module.py`
-— no BOS internal imports.
+```text
+external-root scan
++ manifest validation/quarantine status
++ per-brand activation DB
+```
 
-**Acceptance Scenarios**:
+Do not build a full source-hash lockfile in MVP.
 
-1. **Given** Gmail is in `~/bos-plugins/` with only `klaroha_sdk` imports,
-   **When** the CMO dispatches `gmail.draft`, **Then** a correctly brand-scoped
-   draft artifact appears in Stream.
+Minimum fields:
 
-2. **Given** a brand without Gmail connected, **When** the CMO attempts to
-   dispatch Gmail, **Then** a setup-blocker artifact appears — not a crash.
+```text
+plugin_id
+name
+version
+source
+status: installed | error
+reason
+capability_ids
+requires_platform_vars
+requires_social_connection
+connections
+activation_by_brand
+```
 
-3. **Given** Gmail is active and the operator approves a draft, **Then** the
-   run status updates to approved and the artifact reflects the decision.
+**Acceptance**:
 
----
-
-### User Story 5 — Live Deploy (Priority: P2)
-
-The thin-core BOS with `klaroha_sdk` and the `~/bos-plugins/` plugin repo is
-deployed to hq.klaroha.com. The production system runs the new architecture.
-
-**Why this priority**: The proof only counts on the live system. Staging is not
-the goal.
-
-**Independent Test**: Connect to hq.klaroha.com. Confirm Gmail plugin is active
-and end-to-end loop works. Confirm manifest only includes capabilities from
-`~/bos-plugins/`. Confirm `api/plugins/` internal copies are not loaded.
-
-**Acceptance Scenarios**:
-
-1. **Given** the new architecture is deployed to hq.klaroha.com, **When** the
-   operator uses CMO chat with Gmail active, **Then** the full loop works
-   identically to local proof.
-
-2. **Given** `api/plugins/` still contains old internal plugin directories,
-   **When** BOS starts, **Then** those directories are not loaded — only
-   `~/bos-plugins/` (mounted at `/external_plugins/`) is the active plugin source.
-
-3. **Given** the live system is running, **When** a plugin is deleted from the
-   server-side `~/bos-plugins/` clone and BOS is restarted, **Then** that
-   capability disappears cleanly from the manifest.
+```text
+No external LinkedIn plugin → no LinkedIn entry in GET /plugins response.
+One invalid plugin does not prevent valid plugins from appearing.
+```
 
 ---
 
-### Edge Cases
+### D3 — Basic quarantine
 
-- `~/bos-plugins/` being absent or unmounted must not crash BOS — manifest loads
-  with zero external capabilities and a warning is logged.
-- A plugin in `~/bos-plugins/` with a duplicate `module_id` matching a built-in
-  must be rejected with a clear conflict error, not silently overriding.
-- Brand scoping and memory hydration moving to hook subscribers must produce
-  identical outputs to the current inline logic — no brand bleed, no missing
-  memory slots.
-- The @klar command parser and SCOPE directive stripper remain in core as
-  deterministic parsing utilities — they are not plugins.
+A broken plugin MUST NOT crash BOS startup or hide unrelated plugins.
+
+Minimum quarantine reasons:
+
+```text
+invalid_channel_json
+incompatible_klaroha_version
+duplicate_plugin_id
+duplicate_module_id
+module_import_failed
+skill_parse_failed
+```
+
+Lean MVP behavior:
+
+```text
+If plugin_id can be read → return plugin with status=error and reason.
+If plugin_id cannot be read → report path-level error in diagnostics/logs; do not crash.
+```
+
+**Acceptance**:
+
+```text
+One broken plugin appears as status=error when recoverable.
+Valid plugins still load.
+BOS startup does not fail.
+```
 
 ---
 
-## Requirements
+### D4 — Minimal per-brand activation
 
-### Functional Requirements
+Add minimal plugin activation state.
 
-- **FR-001**: `chat.py` MUST implement exactly 7 steps and nothing else:
-  receive → load manifest → LLM → strip directives → dispatch → persist → return.
-- **FR-002**: `chat.py` MUST contain zero plugin-specific, channel-specific, or
-  platform-specific logic.
-- **FR-003**: Brand scoping MUST execute as a pipeline hook subscriber, not inline
-  code in the chat handler.
-- **FR-004**: Memory hydration MUST execute as a pipeline hook subscriber.
-- **FR-005**: Credential injection MUST be declared in `channel.json` and executed
-  by the host — not by a manually-maintained list in `runs.py`.
-- **FR-006**: `klaroha_sdk` MUST be a pip-installable Python package containing
-  all types and base classes a plugin author needs: `ChannelModule`, `ArtifactBlock`,
-  `BridgeEnvelope`, `RunResult`, `HookPayload`.
-- **FR-007**: BOS MUST scan an external plugin directory (`/external_plugins/`,
-  mounted from `~/bos-plugins/`) in addition to, and eventually instead of,
-  `api/plugins/`.
-- **FR-008**: `api/plugins/` MUST be deprecated — no new plugin work happens there.
-  Existing internal plugins are not deleted but receive no maintenance.
-- **FR-009**: A plugin with an invalid manifest or broken module MUST be skipped
-  with a warning — it MUST NOT prevent other plugins from loading.
-- **FR-010**: Deleting a plugin folder from `~/bos-plugins/` and restarting BOS
-  MUST leave all other plugins and core fully functional.
-- **FR-011**: The Gmail plugin MUST be migrated to `~/bos-plugins/gmail/` with
-  only `klaroha_sdk` imports and proven end-to-end.
-- **FR-012**: The system MUST deploy to hq.klaroha.com and run stably with plugins
-  loaded exclusively from `~/bos-plugins/`.
+Minimum shape:
 
-### Key Entities
+```text
+plugin_id
+brand_id
+status: active | inactive | error
+reason
+created_at
+updated_at
+```
 
-- **Pipeline Hook**: A named event (`brief.before_dispatch`, `run.after_complete`,
-  etc.) that core fires at lifecycle boundaries. Subscribers are registered by
-  plugins via `channel.json`. Core fires; it never imports plugins directly.
-- **klaroha_sdk**: The public Python package defining the stable plugin contract.
-  Everything a plugin author needs. Nothing from BOS internals.
-- **External Plugin Directory**: `/external_plugins/` inside the BOS container,
-  volume-mounted from `~/bos-plugins/` on the host. The scanner reads both this
-  and `api/plugins/` (deprecated) during the transition.
-- **Activation State**: Installed (directory present) vs Active (DB record). Only
-  active plugins contribute to the manifest. A missing directory = uninstalled,
-  not an error.
+Default behavior:
+
+```text
+Directory present + no activation row → installed, inactive.
+Activation row + no directory → stale/uninstalled; never inject or manifest.
+```
+
+Activation is explicit and Brand-scoped.
+
+**Acceptance**:
+
+```text
+Installed but inactive plugin appears in Admin / Installed.
+Installed but inactive plugin does not appear in CMO manifest.
+```
+
+---
+
+### D5 — CMO manifest filters by activation
+
+The CMO manifest MUST include plugin capabilities only when the plugin is:
+
+```text
+installed
+active for the current Brand
+not quarantined
+SKILL.md allowed_from_chat=true
+```
+
+Credential state is not a core manifest gate once the plugin is active. If credentials are missing, the active plugin returns a `setup_blocker` artifact at execution time. This matches WordPress/VS Code setup-notice behavior.
+
+The filter point must be generic. Do not add platform-specific checks to `chat.py`.
+
+**Acceptance**:
+
+```text
+Inactive plugin module_id cannot be RUN from CMO chat.
+Active plugin with missing credentials returns setup_blocker artifact, not a core crash.
+No platform-specific CMO routing logic is added.
+```
+
+---
+
+### D6 — Specialists / Installed UI is manifest-driven
+
+Admin Specialists UI MUST show installed plugins only.
+
+It MUST NOT show hardcoded platform cards for uninstalled platforms.
+
+Build/patch:
+
+```text
+Render installed plugin cards from GET /plugins.
+Show activation state per Brand.
+Add Activate/Deactivate per Brand.
+Show setup/validation status only for installed plugins.
+```
+
+**Acceptance**:
+
+```text
+No TikTok plugin installed → no TikTok Specialist card.
+No LinkedIn plugin installed → no LinkedIn Specialist card.
+Uninstalled platforms create no connector warnings or readiness debt.
+```
+
+---
+
+### D7 — Generic credential injection is the only plugin credential path
+
+Core MUST inject declared credentials into:
+
+```python
+brief["_channel_credentials"]
+```
+
+Plugins MUST NOT read settings, DB, routers, provider tables, or BOS internals.
+
+**Acceptance**:
+
+```text
+Plugin module.py imports only from klaroha_sdk at module level.
+Credential-requiring plugin receives credentials only through brief["_channel_credentials"].
+```
+
+---
+
+### D8 — Minimal generic plugin-declared OAuth
+
+Core SHOULD support lean plugin-declared OAuth2 so a third-party platform does not require platform-specific core code.
+
+MVP fields:
+
+```text
+platform
+type=oauth2
+auth_url
+token_url
+scopes
+client_id_var
+client_secret_var
+redirect_uri_var
+userinfo_url
+id_path
+name_path
+validate_capability
+```
+
+Do not implement every OAuth edge case. If a platform has an unusual OAuth flow, the plugin can use `requires_platform_vars` for MVP.
+
+**Acceptance**:
+
+```text
+A plugin-declared OAuth platform can start auth, complete callback, store token, and receive injected credentials without adding a platform-specific core handler.
+```
+
+---
+
+## Explicitly Deferred
+
+These are intentionally out of MVP scope:
+
+```text
+Marketplace / Available UI
+full installed-state lockfile with source hashes
+capability release-integrity diff
+SDK ABI compatibility adapters
+hook subscription system
+plugin-owned migrations
+hot reload
+separate sandbox/subprocess extension host
+full OAuth provider edge-case framework
+chat.py 7-step rewrite as part of this feature
+full migration of all existing plugins
+```
+
+---
+
+## User Stories
+
+### User Story 1 — Empty plugin root is clean
+
+As an operator, I can start BOS with no external plugins installed and the app still runs normally.
+
+**Acceptance**:
+
+```text
+Given /external_plugins is empty
+When BOS restarts
+Then GET /plugins returns no installed plugins
+And the CMO manifest contains no plugin capabilities
+And CMO chat still responds without crashing
+```
+
+---
+
+### User Story 2 — Installed but inactive plugin is visible only in Admin
+
+As an operator, I can install a plugin package and review it before activating it for a Brand.
+
+**Acceptance**:
+
+```text
+Given hello plugin exists in /external_plugins
+And no activation row exists for the active Brand
+When BOS restarts
+Then Admin / Specialists shows hello as installed/inactive
+And CMO manifest does not include hello
+```
+
+---
+
+### User Story 3 — Activation makes capabilities available
+
+As an operator, I can activate an installed plugin for a Brand and then use its CMO-dispatchable capabilities.
+
+**Acceptance**:
+
+```text
+Given hello plugin is installed
+When I activate hello for Brand A
+Then Brand A CMO manifest includes hello allowed_from_chat capabilities
+And Brand B does not see hello unless separately activated
+```
+
+---
+
+### User Story 4 — Broken plugin is quarantined
+
+As an operator, one bad plugin should not break BOS or hide valid plugins.
+
+**Acceptance**:
+
+```text
+Given hello is valid
+And broken-plugin has invalid channel.json or broken module.py
+When BOS starts
+Then hello still loads
+And broken-plugin is reported as error when recoverable
+And BOS does not crash
+```
+
+---
+
+### User Story 5 — Third-party OAuth does not require platform-specific core code
+
+As a plugin developer, I can declare a standard OAuth2 platform in `channel.json` and let core perform generic OAuth mechanics.
+
+**Acceptance**:
+
+```text
+Given plugin channel.json declares connections[0].platform = example_platform
+When operator starts social connect for example_platform
+Then core starts OAuth using the manifest declaration
+And callback stores a SocialConnection
+And plugin receives credentials through brief["_channel_credentials"]
+Without adding a platform-specific OAuth handler to core
+```
+
+---
+
+## Functional Requirements
+
+- **FR-001**: BOS MUST use external plugin root as runtime plugin source by default.
+- **FR-002**: BOS MUST NOT load bundled `api/plugins/` by default.
+- **FR-003**: BOS MUST expose installed plugin metadata from external root only, unless local compatibility is explicitly enabled.
+- **FR-004**: BOS MUST isolate plugin load failures per plugin.
+- **FR-005**: BOS MUST support inactive-by-default plugin installation.
+- **FR-006**: BOS MUST support per-brand plugin activation.
+- **FR-007**: CMO manifest MUST include active plugin capabilities only.
+- **FR-008**: Specialists UI MUST be generated from installed plugin manifests, not hardcoded platform cards.
+- **FR-009**: Plugins MUST receive credentials only through `brief["_channel_credentials"]`.
+- **FR-010**: Core SHOULD support lean generic OAuth2 declarations in `channel.json`.
+- **FR-011**: Core MUST NOT add platform-specific routing or readiness branches to CMO chat for this work.
+- **FR-012**: Core MUST preserve the pi.dev-style thin-host invariant: plugin behavior appears through installed resources/manifests, not permanent core branches.
+- **FR-013**: BOS MUST treat all capabilities as packages with an identical contract regardless of source location. Built-in packages (`api/capabilities/`) and installed packages (`~/bos-plugins/`) share the same contract: `SKILL.md` + `module.py` + `channel.json`. No package — including built-in packages — may import BOS internals (`db`, `models`, `routers`, `settings`, `executor`). There is no module concept.
+- **FR-014**: `POST /plugins/{id}/activate` MUST block org-wide activation (`brand_id=null`) unless both `scope="org"` and `confirm_org_wide=true` are present in the request. Standard activation requires an explicit `brand_id`.
+- **FR-015**: `DELETE /plugins/{id}/activate?brand_id=X` MUST also demote any org-wide (`brand_id=null`) active rows for that plugin to inactive, preventing org-wide rows from bleeding across brands after brand-scoped deactivation.
+- **FR-016**: `GET /plugins` MUST NOT create `plugin_activations` rows as a side effect. Missing activation rows MUST be synthesized as `installed/inactive` in the response only — never written to the DB.
+- **FR-017**: `GET /plugins?brand_id=X` MUST filter `connected_social_platforms` and `credentials_configured` to the specified brand's social connections. Workspace-wide credential checks are not acceptable when a brand scope is provided.
+- **FR-018**: Any capability in `api/capabilities/` that requires direct imports of BOS internals (`db`, `models`, `executor`, `config`, `routers`) is a core service, not a package. It MUST live in a dedicated core module (e.g. `api/council.py`). The capability module in `api/capabilities/` MUST delegate via the execute interface — not via direct internal import.
+- **FR-019**: `GET /api/capability-manifest?brand_id=` endpoint MUST exist and return the brand-filtered capability list so operators and agents can inspect what the CMO can dispatch for a given brand without triggering a chat turn.
 
 ---
 
 ## Success Criteria
 
-- **SC-001**: `chat.py` is under 200 lines.
-- **SC-002**: Zero plugin, channel, or platform names appear in `chat.py` or in
-  the core dispatch path.
-- **SC-003**: Adding a new plugin to `~/bos-plugins/` requires zero edits to any
-  file in `~/bos/api/`.
-- **SC-004**: Deleting any plugin from `~/bos-plugins/` and restarting BOS
-  produces zero errors and leaves all other plugins functional.
-- **SC-005**: A plugin written with only `from klaroha_sdk import ...` dispatches,
-  produces an artifact, and completes the approval loop.
-- **SC-006**: The Gmail end-to-end loop (CMO → draft artifact → Stream → approve)
-  works through `~/bos-plugins/gmail/` with zero BOS internal imports in the plugin.
-- **SC-007**: hq.klaroha.com runs the new architecture with plugins from
-  `~/bos-plugins/` — stable, no regressions on the Gmail loop.
+- **SC-001**: Empty external plugin root produces zero plugin capabilities and no startup crash.
+- **SC-002**: Uninstalled platforms do not appear in Specialists UI, CMO manifest, connector warnings, or readiness debt.
+- **SC-003**: Installed but inactive plugins appear in Admin only and are not RUN-able.
+- **SC-004**: Active Brand-scoped plugins appear in the CMO manifest for that Brand only.
+- **SC-005**: One broken plugin does not prevent valid plugins from loading.
+- **SC-006**: A standard plugin-declared OAuth2 connection works without adding a platform-specific core handler.
+- **SC-007**: Existing core/platform-specific behavior is not expanded while implementing this MVP.
+- **SC-008**: Adding a new plugin changes external plugin resources and activation state only; it does not require a new platform branch in core.
+- **SC-009**: Built-in packages (`api/capabilities/`) and installed packages (`~/bos-plugins/`) are indistinguishable at dispatch time — same contract, same brief assembly path, no BOS internal imports in either.
+- **SC-010**: `GET /plugins` returns the same response shape for bundled (compat flag) and external plugins, with a `source` field distinguishing `external` vs `internal_compat`. Operators can identify which plugins come from `~/bos-plugins/` vs the compat flag.
+- **SC-011**: Org-wide activation rows (`brand_id=null`) are visible in the API response with a `scope` field distinguishing `org_wide` vs `brand_scoped`, enabling operators to audit and correct scope leaks.
 
 ---
 
-## Assumptions
+## Deployment Assumptions
 
-- `~/bos-plugins/` is initialized as a separate git repository on the same host.
-- During local development, `~/bos-plugins/` is volume-mounted into the BOS
-  container at `/external_plugins/`.
-- On the server (hq.klaroha.com), `~/bos-plugins/` is cloned separately and
-  mounted the same way via `docker-compose.yml`.
-- `api/plugins/` deprecation is silent — no announcement, no deletion rush.
-  Old plugin directories stay in the repo but receive no further changes.
-- The first-party hook subscribers (brand scoping, memory hydration) are system
-  packages inside `~/bos/api/` — they use the same hook API third-party plugins
-  use, which proves the hook API works from day one.
-- @klar command parsing and SCOPE directive stripping stay in core — they are
-  deterministic step-1 and step-4 utilities, not plugins.
-- Council (@council routing) stays in core as a deterministic command parser
-  that routes to a capability — it is not a plugin.
-- `gbp-completeness` is the chosen second proof plugin (replaces gmail for initial
-  proof — already written in `~/bos-plugins/`, exercises OAuth credential injection,
-  `approval_bundle` renderer, and `pending_review` status without SMTP complexity).
-  Gmail migration proceeds as a follow-on step after GBP proof passes.
-- All other current plugins are migrated to `~/bos-plugins/` in a follow-on
-  pass — the initial deploy proves the architecture with `hello` + `gbp-completeness` only.
-- The deploy target is `main` → hq.klaroha.com via the existing deploy runbook.
+- Local BOS core remains in `~/bos`.
+- Third-party/plugin work happens in `~/bos-plugins`.
+- Docker mounts `~/bos-plugins` into the API container as `/external_plugins`.
+- Production uses the same model: a separately managed plugin root mounted into BOS.
+- `api/plugins/` remains in the repo as SDK examples / deprecated bundled source, not runtime source.
+- Existing code may already contain partial or buggy attempts. This spec is the correction source of truth.
+
+---
+
+## Architecture Tests
+
+Before merge, answer yes/no:
+
+```text
+Does this make a platform visible before its plugin is installed?
+Does this add platform-specific behavior to core?
+Does this require a core edit to install/remove a plugin?
+Does this show connector setup warnings for uninstalled plugins?
+Does this put inactive plugin capabilities in the CMO manifest?
+Does this treat api/plugins/ source folders as runtime-installed plugins?
+Does this add workflow opinion to core that could instead live in a plugin or loaded resource?
+Does this add a permanent chat-router branch for plugin-specific behavior?
+Does this add a new primitive beyond load / resolve / inject / dispatch / persist without a constitutional decision?
+Does this treat api/capabilities/ entries as core code with special privileges, or allow them to import BOS internals?
+Did this build before producing and agreeing on a sample output?
+Did this confuse capability artifacts with tool execution artifacts?
+Did this ban artifacts when the actual problem was unrequested execution?
+```
+
+Any `yes` means the implementation violates this spec. Source of truth for these questions: BITE.md → Architecture Violation Test.
