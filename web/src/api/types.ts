@@ -9,16 +9,41 @@ export interface MediaProviderOption {
   models: MediaModelOption[];
 }
 
+export interface PluginConnectionInfo {
+  platform: string;
+  type: string;
+  scopes: string[];
+  client_id_var?: string | null;
+  client_secret_var?: string | null;
+  redirect_uri_var?: string | null;
+  validate_capability?: string | null;
+  display_name?: string | null;
+  icon?: string | null;
+}
+
+export interface ActivationState {
+  brand_id: string | null;  // null = org-level
+  status: 'active' | 'inactive' | 'error';
+  error_reason?: string | null;
+}
+
 export interface PluginInfo {
   plugin_id: string;
   name: string;
   version: string;
+  source: 'external' | 'internal';
+  status: 'installed' | 'error';
+  reason?: string | null;
+  capability_ids: string[];
   implements: string[];
   requires_platform_vars: string[];
+  requires_social_connection: string[];
   credentials_configured: boolean;
   missing_vars: string[];
   credential_source: 'database' | 'env_var' | 'partial' | 'none';
+  activation_by_brand: ActivationState[];
   media_provider_options?: MediaProviderOption[];
+  connections?: PluginConnectionInfo[];
 }
 
 export interface BrandOut {
@@ -477,7 +502,7 @@ export interface HandoffBriefOut {
 export interface ArtifactRef {
   artifact_id: string;
   title: string;
-  type: 'draft_artifact' | 'plan_artifact' | 'intelligence_artifact' | 'action_result' | 'decision_artifact';
+  type: 'draft_artifact' | 'plan_artifact' | 'intelligence_artifact' | 'action_result' | 'decision_artifact' | 'setup_blocker';
   status: 'pending_review' | 'approved' | 'dismissed' | 'saved' | 'failed';
   renderer: string;
   workspace_url: string;
@@ -597,6 +622,7 @@ export interface ProviderModelLive {
   context_length: number;
   quality_tier: string;
   supports_json: boolean;
+  modality: string; // "text" | "image" | "video"
 }
 
 export interface ProviderModelsResponse {

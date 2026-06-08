@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from artifacts import ArtifactRef, artifact_ref_from_run
 from auth import require_api_key
-from capability_manifest import build_dispatchable_manifest, format_manifest_for_prompt
+from capability_manifest import build_dispatchable_manifest, format_manifest_for_prompt, format_manifest_for_brand
 from config import get_settings
 from db import get_db
 from executor import get_adapter, get_platform_key
@@ -53,7 +53,6 @@ _RUN_PARAMS_RE = re.compile(
     r"RUN:\s*([a-zA-Z0-9_.-]+)((?:\n(?![ \t]*RUN\s*:)[ \t]*[a-zA-Z_][a-zA-Z0-9_]*\s*:[^\n]*)*)",
     re.MULTILINE,
 )
-
 # ── @council command routing ──────────────────────────────────────────────────
 _COUNCIL_RE = re.compile(r"^\s*@council\b", re.IGNORECASE)
 
@@ -241,13 +240,25 @@ def _dedupe_preserve_order(values: list[str]) -> list[str]:
 
 
 
-def _chat_modules() -> list[dict]:
-    """All modules the CMO is allowed to dispatch. LLM decides when to invoke each."""
+async def _chat_modules(db: AsyncSession, brand_id=None) -> list[dict]:
+    """All modules the CMO is allowed to dispatch for this Brand."""
+    from plugin_loader import get_active_plugin_ids, get_plugin_for_module
+
+    active_plugin_ids = await get_active_plugin_ids(db, brand_id)
     allowed_module_ids = {
         s.module_id for s in list_skill_manifests()
         if s.allowed_from_chat and s.module_id
     }
-    return [m for m in list_all() if m["id"] in allowed_module_ids]
+    modules: list[dict] = []
+    for module in list_all():
+        module_id = module.get("id")
+        if module_id not in allowed_module_ids:
+            continue
+        plugin = get_plugin_for_module(module_id)
+        if plugin and plugin.manifest.plugin_id not in active_plugin_ids:
+            continue
+        modules.append(module)
+    return modules
 
 
 def _marketing_plan_module_id() -> str | None:
@@ -534,15 +545,8 @@ class ChatReviseRequest(BaseModel):
 
 
 
-_CHANNEL_DISPLAY = {
-    "google_drive": "Google Drive (creative asset storage)",
-    "facebook": "Facebook",
-    "instagram": "Instagram",
-    "meta": "Meta (Facebook/Instagram)",
-    "gmail": "Gmail",
-    "youtube": "YouTube",
-    "google_calendar": "Google Calendar",
-}
+def _platform_display_name(platform: str) -> str:
+    return platform.replace("_", " ").replace("-", " ").title()
 
 
 async def _brand_channel_readiness(db: AsyncSession, brand: Brand | None) -> str:
@@ -554,10 +558,28 @@ async def _brand_channel_readiness(db: AsyncSession, brand: Brand | None) -> str
         return ""
     from models.social import SocialConnection
 
+    from plugin_loader import get_active_plugin_ids, get_loaded_plugins
+
+    active_plugin_ids = await get_active_plugin_ids(db, brand.id)
+    active_plugins = [p for pid, p in get_loaded_plugins().items() if pid in active_plugin_ids]
+    allowed_platforms = {
+        platform
+        for plugin in active_plugins
+        for platform in list(plugin.manifest.requires_social_connection)
+    } | {
+        conn.platform
+        for plugin in active_plugins
+        for conn in plugin.manifest.connections
+        if conn.platform
+    }
+    if not allowed_platforms:
+        return ""
+
     rows = (await db.execute(
         select(SocialConnection).where(
             SocialConnection.brand_id == brand.id,
             SocialConnection.status == "connected",
+            SocialConnection.platform.in_(allowed_platforms),
         )
     )).scalars().all()
     # Google Drive requires a root folder selection before it can store assets.
@@ -569,7 +591,7 @@ async def _brand_channel_readiness(db: AsyncSession, brand: Brand | None) -> str
         or (r.token_meta_json or {}).get("drive_root_folder_id")
     })
     if connected:
-        names = ", ".join(_CHANNEL_DISPLAY.get(p, p) for p in connected)
+        names = ", ".join(_platform_display_name(p) for p in connected)
         connected_line = f"Connected for {brand.name}: {names}."
     else:
         connected_line = f"No external channels are connected for {brand.name} yet."
@@ -714,7 +736,7 @@ async def _build_system_prompt(db: AsyncSession, ws, skill_context: str = "", br
             if kit_excerpt:
                 workspace_ctx += "Campaign Brand Kit excerpt:\n" + kit_excerpt + "\n"
 
-    modules_str = format_manifest_for_prompt()
+    modules_str = await format_manifest_for_brand(db, brand.id if brand else None)
     actionable_artifacts = await _actionable_artifacts_context(db, ws, brand=brand)
     channel_readiness = await _brand_channel_readiness(db, brand)
 
@@ -882,15 +904,17 @@ def _specialist_result_summaries(run_results: list[RunResponse]) -> list[dict]:
         if not isinstance(allowed_actions, list) or not allowed_actions:
             allowed_actions = ["review", "revise", "dismiss", "ask_cmo"]
         summary = block.get("summary") if isinstance(block.get("summary"), str) else None
+        error = block.get("error") or block.get("message") if isinstance(block, dict) else None
+        is_failed_ref = ref.status == "failed"
         summaries.append({
             "run_id": run.run_id,
             "artifact_ref": ref.artifact_id,
             "artifact_title": ref.title,
             "artifact_type": ref.type,
-            "status": ref.status if run.status == "completed" else run.status,
-            "summary": summary or f"{ref.title} created for Stream review.",
+            "status": "failed" if is_failed_ref else (ref.status if run.status == "completed" else run.status),
+            "summary": summary or (str(error) if is_failed_ref and error else f"{ref.title} created for Stream review."),
             "self_check": _normalize_self_check(run.result.self_check if run.result else None),
-            "recommended_decision": "review" if ref.status in {"pending_review", "saved"} else ref.status,
+            "recommended_decision": "fix_setup" if ref.type == "setup_blocker" else ("review" if ref.status in {"pending_review", "saved"} else ref.status),
             "objective_ref": run.campaign_id,
             "brand_ref": run.brand_id,
             "allowed_actions": allowed_actions,
@@ -1394,7 +1418,7 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
         if contextual_routed.module_ids:
             routed = contextual_routed
 
-    modules = _chat_modules()
+    modules = await _chat_modules(db, active_brand.id if active_brand else None)
     activated_skill_ids = [route.skill.id for route in routed.routes]
     memory_slots = sorted({slot for route in routed.routes for slot in route.skill.memory_slots})
 
@@ -1870,7 +1894,7 @@ async def chat(
         if contextual_routed.module_ids:
             routed = contextual_routed
 
-    modules = _chat_modules()
+    modules = await _chat_modules(db, active_brand.id if active_brand else None)
     user_message = body.message
     activated_skill_ids = [route.skill.id for route in routed.routes]
     memory_slots = sorted({slot for route in routed.routes for slot in route.skill.memory_slots})
@@ -2066,11 +2090,11 @@ async def chat_revise_run(
     original_run, original_result = row
     previous_content = original_result.content if original_result else ""
     feedback = body.feedback.strip() or "Make this draft stronger, clearer, and more conversion-focused while preserving the original intent."
-    modules = _chat_modules()
+    revise_brand: Brand | None = await resolve_brand(db, str(original_run.brand_id) if original_run.brand_id else None)
+    modules = await _chat_modules(db, revise_brand.id if revise_brand else original_run.brand_id)
     module_cls = next((m for m in modules if m["id"] == original_run.module_id), None)
     channel = (module_cls.get("platform_hint") if module_cls else original_run.module_id.rsplit(".", 1)[-1]) or "asset"
 
-    revise_brand: Brand | None = await resolve_brand(db, str(original_run.brand_id) if original_run.brand_id else None)
     system = await _build_system_prompt(db, ws, brand=revise_brand) + """
 
 Revision thread mode:

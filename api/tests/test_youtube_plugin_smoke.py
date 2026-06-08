@@ -1,7 +1,8 @@
-import asyncio
+import tempfile
+from pathlib import Path
+
 import pytest
 
-from plugins.youtube.module import YouTubeModule
 from plugins.youtube.capabilities.marketing.channel.youtube.connection.validate.module import (
     YouTubeConnectionValidateModule,
 )
@@ -12,60 +13,6 @@ from plugin_loader import get_plugin_for_module
 from registry import get_module, list_all
 from skills.router import route_chat_skills
 
-@pytest.mark.asyncio
-async def test_youtube_publish_proposal():
-    module = YouTubeModule()
-    brief = {
-        "module_id": "youtube.publish_video",
-        "video_file": "test_video.mp4",
-        "generated_title": "Test Title",
-        "generated_description": "Test Description"
-    }
-    result = await module.execute(brief)
-    assert result["artifact_type"] == "youtube_publish_proposal"
-    assert result["payload"]["title"] == "Test Title"
-    assert result["status"] == "pending_review"
-
-@pytest.mark.asyncio
-async def test_youtube_publish_execute():
-    module = YouTubeModule()
-    brief = {
-        "module_id": "youtube.publish_video",
-        "action": "execute",
-        "_channel_credentials": {"access_token": "mock_token"},
-        "proposal": {
-            "video_file": "test_video.mp4",
-            "title": "Test Title"
-        }
-    }
-    result = await module.execute(brief)
-    assert result["artifact_type"] == "youtube_action_result"
-    assert result["payload"]["status"] == "success"
-    assert "youtube.com/watch" in result["payload"]["url"]
-
-@pytest.mark.asyncio
-async def test_youtube_update_channel_proposal():
-    module = YouTubeModule()
-    brief = {
-        "module_id": "youtube.update_channel",
-        "current_description": "Old desc",
-        "generated_description": "New desc"
-    }
-    result = await module.execute(brief)
-    assert result["artifact_type"] == "youtube_channel_update_proposal"
-    assert result["payload"]["proposed"] == "New desc"
-
-@pytest.mark.asyncio
-async def test_youtube_analytics():
-    module = YouTubeModule()
-    brief = {
-        "module_id": "youtube.analytics",
-        "_channel_credentials": {"access_token": "mock_token"}
-    }
-    result = await module.execute(brief)
-    assert result["artifact_type"] == "video_intelligence"
-    assert "channel_summary" in result["payload"]
-
 
 def test_youtube_connection_validator_registered_in_plugin_pipeline():
     module_cls = get_module("marketing.channel.youtube.connection.validate")
@@ -75,7 +22,11 @@ def test_youtube_connection_validator_registered_in_plugin_pipeline():
     plugin = get_plugin_for_module("marketing.channel.youtube.connection.validate")
     assert plugin is not None
     assert plugin.manifest.plugin_id == "channel.youtube"
-    assert plugin.manifest.requires_social_connection == ["youtube"]
+    social_token_platforms = [
+        s.platform for s in plugin.manifest.credential_slots
+        if s.type == "social_token" and s.platform
+    ]
+    assert "youtube" in social_token_platforms
 
 
 def test_youtube_connection_validator_missing_credentials():
@@ -114,7 +65,11 @@ def test_youtube_publish_registered_for_cmo_chat():
     assert module_cls is not None
     plugin = get_plugin_for_module("marketing.channel.youtube.video.publish")
     assert plugin is not None
-    assert plugin.manifest.requires_social_connection == ["youtube"]
+    social_token_platforms = [
+        s.platform for s in plugin.manifest.credential_slots
+        if s.type == "social_token" and s.platform
+    ]
+    assert "youtube" in social_token_platforms
 
 
 def test_cmo_chat_phrase_routes_to_youtube_publish():
@@ -166,32 +121,14 @@ def test_youtube_publish_reads_inline_cmo_fields(tmp_path):
     module._put_video = lambda upload_url, path, content_type: {"id": "inline123"}
     attempt, result = module.execute_tool_result({
         "_channel_credentials": {"access_token": "mock_token"},
-        "conversation_context": "USER: old video_url: http://old.example/video.mp4 title: Old\nUSER: Post this YouTube video: video_url: http://example.com/video.mp4 title: BOS YouTube upload test description: Private test upload from Klaroha CMO chat. privacy: private",
+        "conversation_context": (
+            "USER: old video_url: http://old.example/video.mp4 title: Old\n"
+            "USER: Post this YouTube video: video_url: http://example.com/video.mp4 "
+            "title: BOS YouTube upload test description: Private test upload from Klaroha CMO chat. privacy: private"
+        ),
     })
     assert attempt["status"] == "succeeded"
     assert seen["url"] == "http://example.com/video.mp4"
     assert captured["snippet"]["title"] == "BOS YouTube upload test"
     assert captured["status"]["privacyStatus"] == "private"
     assert result["block"]["video_id"] == "inline123"
-
-if __name__ == "__main__":
-    async def main():
-        print("Running YouTube plugin smoke tests...")
-        await test_youtube_publish_proposal()
-        await test_youtube_publish_execute()
-        await test_youtube_update_channel_proposal()
-        await test_youtube_analytics()
-        test_youtube_connection_validator_registered_in_plugin_pipeline()
-        test_youtube_connection_validator_missing_credentials()
-        test_youtube_connection_validator_success_without_mutation()
-        test_youtube_publish_registered_for_cmo_chat()
-        test_cmo_chat_phrase_routes_to_youtube_publish()
-        test_youtube_publish_missing_video_blocks_cleanly()
-        import tempfile
-        from pathlib import Path
-        with tempfile.TemporaryDirectory() as d:
-            test_youtube_publish_api_path_mocked(Path(d))
-            test_youtube_publish_reads_inline_cmo_fields(Path(d))
-        print("All YouTube plugin smoke tests passed!")
-    asyncio.run(main())
-    print("All smoke tests passed!")

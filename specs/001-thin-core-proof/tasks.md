@@ -1,138 +1,263 @@
-# Tasks: Thin Core + SDK Plugin Architecture
+# Tasks: Plugin Host MVP — WordPress / VS Code / pi.dev Model
 
 **Branch**: `001-thin-core-proof` | **Spec**: [spec.md](spec.md) | **Plan**: [plan.md](plan.md)
 
-> Tasks already completed are marked `[x]`. Pending tasks start with `[ ]`.
-> Only pending tasks need implementation. Completed tasks are recorded for traceability.
+---
 
-## Format: `[ID] [P?] [Story] Description`
+## Scope
 
-- **[P]**: Can run in parallel (different files, no shared dependencies)
-- **[Story]**: User story this task belongs to (US1–US5)
-- Exact file paths required in all descriptions
+Implement only the MVP deliverables D1–D8 from:
+
+```text
+api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md
+```
+
+Do not implement marketplace, full lockfile, hooks, chat rewrite, SDK adapters, subprocess sandbox, or full plugin migration in this task set.
 
 ---
 
-## Phase 1: Setup (Shared Infrastructure)
+## Phase 0 — Audit Current Partial Work
 
-**Purpose**: SDK package, hook registry, plugin scanner, volume mount — foundation for all stories.
-
-- [x] T001 Create `packages/klaroha_sdk/` pip package with `pyproject.toml`, `types.py`, `channel.py`, `hooks.py`, `__init__.py` in `~/bos/packages/klaroha_sdk/`
-- [x] T002 Create `api/pipeline/hooks.py` — `HookRegistry` singleton with `subscribe(event, handler)` and `async fire(event, payload)`
-- [x] T003 Create `api/pipeline/system_hooks.py` — brand scope + memory hydration subscribers on `brief.before_dispatch`
-- [x] T004 Add Alembic migration `api/migrations/versions/038_plugin_activations.py` — `plugin_activations` table per `data-model.md`
-- [x] T005 Extend `api/plugin_loader.py` — scan `EXTERNAL_PLUGINS_DIR` first, then `api/plugins/`; mark `source: "external" | "internal"`. NOTE: activation state check marked done but NOT wired — `plugin_activations` table exists (migration 038) but `plugin_loader.py` does not read it. Corrected by T041–T043.
-- [x] T006 Update `docker-compose.yml` — `EXTERNAL_PLUGINS_PATH` volume mount to `api` service with `EXTERNAL_PLUGINS_DIR=/external_plugins` env var
-- [x] T007 Fix `EXTERNAL_PLUGINS_PATH` tilde expansion bug — change default from `~/bos-plugins` to `/home/ubu/bos-plugins` in `docker-compose.yml` and `.env.example`; set absolute path in `.env`
-- [x] T008 Init `~/bos-plugins/` as separate git repo on `master` branch
-- [x] T009 Migrate `hello` plugin to `~/bos-plugins/hello/` with only `klaroha_sdk` imports; confirm loads as `[external]`
-
-**Checkpoint**: Foundation complete. External plugin volume mounts. hello loads from bos-plugins. V1 ✓, V3 ✓.
+- [x] T001 Audit `api/plugin_loader.py` against D1/D2/D3. Confirm external root default, internal plugin flag, installed/error state, and per-plugin quarantine behavior.
+- [x] T002 Audit `api/routers/plugins.py` against D2/D4. Confirm `GET /plugins` response fields and absence of hardcoded platform catalog behavior.
+- [x] T003 Audit `api/capability_manifest.py` and `api/routers/chat.py` against D5. Confirm manifest can be Brand-aware and chat does not add platform gates.
+- [x] T004 Audit `web/src/pages/admin/AdminModules.tsx` against D6. Identify hardcoded cards that render when plugin is not installed.
+- [x] T005 Audit generic OAuth attempt in `api/provider_auth.py` and `api/routers/social.py` against D8. Record pass/fail before patching.
 
 ---
 
-## Phase 2: Foundational (Second Proof Plugin Ready)
+## Phase 1 — D1 External Plugin Root
 
-**Purpose**: `gbp-completeness` committed and SKILL.md hardened — required before US2 and US4 validation.
+- [x] T010 Ensure `api/plugin_loader.py` loads `/external_plugins` / `EXTERNAL_PLUGINS_DIR` by default.
+- [x] T011 Ensure `api/plugin_loader.py` skips bundled `api/plugins/` unless `KLAROHA_LOAD_INTERNAL_PLUGINS=true`.
+- [ ] T012 Add/verify test or manual check: empty external root returns zero plugin capabilities after restart.
 
-**⚠️ CRITICAL**: US2, US3, US4 validation depends on gbp-completeness being correctly wired.
+Acceptance:
 
-- [x] T010 Commit `gbp-completeness` to `~/bos-plugins/` repo — `cd ~/bos-plugins && git add gbp-completeness && git commit -m "add: gbp-completeness plugin v0.1.0"`
-- [x] T011 Strengthen `~/bos-plugins/gbp-completeness/capabilities/marketing/intelligence/gbp/completeness_score/SKILL.md` — add `excluded_triggers` list: `google analytics`, `ga4`, `analytics report`, `traffic data`, `search console`, `search performance`, `google ads`, `paid search`, `tag manager`, `on-page seo`, `meta tags`, `schema markup`, `page speed` (per research.md Decision 11)
-- [x] T012 [P] Verify `~/bos-plugins/gbp-completeness/capabilities/marketing/intelligence/gbp/completeness_score/module.py` has only `klaroha_sdk` and `httpx` imports — `grep "^from\|^import" module.py` must show zero `api.*` lines
-
-**Checkpoint**: gbp-completeness committed, SKILL.md differentiated from GA triggers, SDK boundary confirmed.
-
----
-
-## Phase 3: User Story 1 — Thin Core
-
-**Goal**: BOS starts and dispatches plugins correctly without platform-specific logic in core.
-
-> **Scope note**: The `chat.py` 7-step rewrite is explicitly deferred per `api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md` ("Explicitly deferred" list). T014–T016 are permanently deferred to a follow-on feature. T017 is retired. The Phase 3 acceptance condition is met by the plugin host model itself (D1–D8), not by a line count in chat.py.
-
-**Independent Test**: `grep -c "hello\|gmail\|meta\|clickup\|tiktok\|gbp" ~/bos/api/routers/chat.py` → any matches must be display-name strings, not routing conditionals. `KLAROHA_LOAD_INTERNAL_PLUGINS=false` → zero plugin capabilities.
-
-- [x] T013 Validate BOS starts cleanly with empty `~/bos-plugins/` directory (V2) — confirmed: `GET /api/` returns `{"status":"ok"}` with `EXTERNAL_PLUGINS_PATH=/tmp/empty-plugins`
-- [-] T014 Rewrite `api/routers/chat.py` from scratch — DEFERRED per plan.md note (A6): "not needed for validation; existing chat.py dispatches correctly." Plugin names in chat.py are in a display-name dict, not routing logic. `pipeline/context.py` and `pipeline/llm.py` must be created first as extraction targets. Schedule as a dedicated follow-on task after V5/V7 delete stability is proven.
-- [-] T015 [US1] Verify `chat.py` line count — blocked on T014 (deferred)
-- [-] T016 [US1] Verify zero plugin routing names in `chat.py` — blocked on T014 (deferred)
-- [-] T017 [US1] Verify `hello` dispatches via CMO — retired; GBP (T019) proves the identical path with higher signal (OAuth + artifact + brand scoping). hello stays in bos-plugins as a reference implementation only.
-
-**Checkpoint**: US1 complete. Thin core proven. Adding any new plugin to `~/bos-plugins/` requires zero edits to `api/routers/chat.py`.
+```text
+Empty /external_plugins → zero plugin capabilities.
+Bundled api/plugins examples absent unless compatibility flag is enabled.
+```
 
 ---
 
-## Phase 4: User Story 2 — SDK Boundary (Priority: P1)
+## Phase 2 — D2/D3 Installed Plugin API + Quarantine
 
-**Goal**: Plugin written with only `from klaroha_sdk import ...` dispatches, produces an artifact, and completes the approval loop.
+- [x] T020 Update `api/plugin_loader.py` to preserve recoverable invalid plugins as status=`error` with reason when `plugin_id` can be read.
+- [x] T021 Update `api/routers/plugins.py` `GET /plugins` response to include: `plugin_id`, `name`, `version`, `source`, `status`, `reason`, `capability_ids`, `requires_platform_vars`, `requires_social_connection`, `connections`, `activation_by_brand`.
+- [x] T022 Ensure duplicate `plugin_id` / duplicate `module_id` conflicts quarantine the offending plugin and do not crash BOS.
+- [ ] T023 Add/verify test or manual check: one broken plugin does not hide a valid plugin.
 
-**Independent Test**: `grep -r "from api\|import api\|from config\|from db" ~/bos-plugins/` → no output. CMO dispatches `gbp-completeness` → artifact appears.
+Acceptance:
 
-- [x] T018 [US2] Activate `gbp-completeness` plugin — GBP appears in CMO manifest implicitly (directory presence = active, activation not yet enforced). Formal per-brand activation via plugin_activations table is corrected by T041–T043. BUG fixed: SKILL.md `requires_intent: research` rejected by SkillManifest validator — changed to `diagnostic`; GBP now confirmed in manifest.
-- [x] T019 [US2] Trigger GBP via CMO chat — send `"gbp audit"` with `brand_id=Klaroha`; CMO dispatched `marketing.intelligence.gbp.completeness_score` correctly (not Google Analytics). BUG fixed: SKILL.md `requires_intent: research` → `diagnostic` (SkillManifest rejected 'research'; GBP was silently absent from manifest until fixed).
-- [x] T020 [US2] Verify artifact appears — `gbp_completeness_result` block with `renderer_hint: setup_blocker`, `status: failed/partial` (GBP OAuth not connected for Klaroha brand as expected); artifact carries correct brand scoping.
-- [x] T021 [US2] SDK boundary check across all bos-plugins — confirmed CLEAN: zero `api.*`, `config`, `db`, `models`, `routers`, or `skills` imports across `~/bos-plugins/`
-
-**Checkpoint**: US2 complete. SDK boundary is structural. Plugin in separate repo cannot reach BOS internals.
-
----
-
-## Phase 5: User Story 3 — Delete Stability (Priority: P1)
-
-**Goal**: Deleting any plugin folder from `~/bos-plugins/` leaves BOS completely stable.
-
-**Independent Test**: Delete hello → BOS starts, manifest empty, no errors. Delete gbp-completeness → hello still dispatches correctly.
-
-- [x] T022 [US3] V5 — Delete `hello` from bos-plugins and restart: `rm -rf ~/bos-plugins/hello && docker compose restart api`; verify `GET /api/` returns `{"status":"ok"}`; verify manifest returns 0 capabilities (only gbp-completeness remains if it wasn't deleted)
-- [x] T023 [US3] V5 — Restore hello: `cd ~/bos-plugins && git checkout hello`; restart api; verify hello loads again as `[external]`
-- [x] T024 [US3] V7 — Delete `gbp-completeness` from bos-plugins: `rm -rf ~/bos-plugins/gbp-completeness && docker compose restart api`; verify `GET /api/` returns `{"status":"ok"}`; verify hello still dispatches `pipeline_test_result` artifact
-- [x] T025 [US3] V7 — Restore gbp-completeness: `cd ~/bos-plugins && git checkout gbp-completeness`; restart api; verify both plugins load as `[external]`
-- [x] T026 [US3] Verify broken plugin quarantine — create `~/bos-plugins/bad-plugin/` with invalid `channel.json`; restart api; confirm BOS starts cleanly, bad-plugin logged as warning only, hello + gbp-completeness unaffected; remove `bad-plugin/` after test
-
-**Checkpoint**: US3 complete. Delete stability proven. Any plugin can be removed without crashing core or affecting other plugins.
+```text
+No external LinkedIn plugin → no LinkedIn in GET /plugins.
+Broken recoverable plugin → status=error.
+Valid plugins still load.
+```
 
 ---
 
-## Phase 6: User Story 4 — GBP End-to-End (Priority: P2)
+## Phase 3 — D4 Per-Brand Activation
 
-**Goal**: Full `gbp_completeness_result` artifact with `approval_bundle` renderer — CMO dispatch → artifact → Stream → Approve/Dismiss.
+- [x] T030 Create `api/models/plugin_activation.py` ORM mapping for migration 038.
+- [x] T031 Export `PluginActivation` from `api/models/__init__.py` if project convention requires it.
+- [x] T032 Add activation read helper in `api/plugin_loader.py` or a small plugin-host helper: `get_active_plugin_ids(db, brand_id)`.
+- [x] T033 Implement precedence: Brand-specific activation overrides org-level activation.
+- [x] T034 Implement stale rule: activation row + missing directory = stale/uninstalled; never manifest or inject.
+- [x] T035 Add `POST /plugins/{plugin_id}/activate` in `api/routers/plugins.py`.
+- [x] T036 Add `DELETE /plugins/{plugin_id}/activate` in `api/routers/plugins.py`.
+- [x] T037 Ensure installed + no activation row behaves as inactive.
 
-**Independent Test**: Connect Google Business Profile in Admin → Brands → Integrations. Send `"gbp audit"` in CMO. Confirm scored result artifact appears in Stream with field-level gap data and Approve/Dismiss controls.
+Acceptance:
 
-- [ ] T027 [US4] Connect Google Business Profile OAuth for active brand — navigate to Admin → Brands → active brand → Integrations tab → connect Google Business Profile account; confirm `social_connections` row created for `platform: "google_business"`
-- [ ] T028 [US4] Trigger full GBP completeness score — send `"how complete is my google business profile"` in CMO with GBP-connected brand active; confirm `marketing.intelligence.gbp.completeness_score` dispatched; verify `gbp_completeness_result` artifact in Stream with `score`, `rating`, `fields` data
-- [ ] T029 [US4] Verify approval flow — confirm `approval_bundle` renderer shows Approve and Dismiss controls; click Dismiss; confirm artifact status updates to dismissed in Stream
-
-**Checkpoint**: US4 complete. Full plugin lifecycle proven with real OAuth credentials and approval flow.
-
----
-
-## Phase 7: User Story 5 — Live Deploy (Priority: P2)
-
-**Goal**: hq.klaroha.com running new architecture with plugins from `~/bos-plugins/`. Stable, no regressions.
-
-**Independent Test**: `curl https://hq.klaroha.com/api/` → `{"status":"ok"}`. Manifest shows only external plugins. CMO chat + GBP audit loop works on live system.
-
-- [ ] T030 [US5] [P] On server: clone or pull `~/bos-plugins/` repo — `git clone <bos-plugins-remote> ~/bos-plugins` (or `git pull` if already present); confirm `hello/` and `gbp-completeness/` directories exist
-- [ ] T031 [US5] [P] Verify server `.env` has `EXTERNAL_PLUGINS_PATH=/home/<user>/bos-plugins` (absolute path) — `grep EXTERNAL_PLUGINS_PATH ~/bos/.env`
-- [ ] T032 [US5] Merge `001-thin-core-proof` to `main` — `git checkout main && git merge 001-thin-core-proof`
-- [ ] T033 [US5] Deploy to hq.klaroha.com via existing runbook — trigger deploy; confirm `GET https://hq.klaroha.com/api/` returns `{"status":"ok"}`
-- [ ] T034 [US5] V8 live verification — check server logs: confirm `Plugin loaded [external]: channel.hello` and `Plugin loaded [external]: channel.gbp-completeness`; confirm `No external plugin root found` does NOT appear
-- [ ] T035 [US5] Repeat V4 on live — trigger hello via CMO chat on hq.klaroha.com; confirm `pipeline_test_result` artifact
-- [ ] T036 [US5] Repeat V6 on live — trigger GBP audit via CMO chat on hq.klaroha.com; confirm `setup_blocker` or `gbp_completeness_result` artifact depending on GBP connection state
-
-**Checkpoint**: US5 complete. Live system runs new architecture. Plugin deletion proven on server.
+```text
+Installed inactive plugin appears in Admin but not CMO manifest.
+POST activate makes it active for selected Brand.
+DELETE activate makes it inactive again.
+```
 
 ---
 
-## Phase 8: Plugin Host MVP — Remaining Deliverables (D4, D5, D6, D8 verify)
+## Phase 4 — D5 CMO Manifest Activation Filter
 
-**Purpose**: Wire the plugin_activations table into the manifest and UI. This is the remaining build work to achieve the WordPress/VS Code model — installed ≠ active, active = in manifest. Also verify D8 (generic plugin-declared OAuth), which the architecture recommendation flags as "previously attempted — must verify before relying on it."
+- [x] T040 Update `api/capability_manifest.py` to accept Brand/DB context for plugin filtering.
+- [x] T041 Filter plugin capabilities by active plugin IDs for the current Brand.
+- [x] T042 Keep first-party non-plugin capabilities unaffected.
+- [x] T043 Update `api/routers/chat.py` only as needed to pass Brand/DB context into manifest generation. Do not add platform-specific logic.
+- [x] T044 Ensure inactive plugin module IDs cannot be RUN from CMO chat.
 
-**Reference**: `api/plugins/PLUGIN_ARCHITECTURE_RECOMMENDATION.md` — "Remaining build — D4, D5, D6" and "Previously attempted — D8"
+Acceptance:
 
-**Architecture gate** — before merging any change in this phase, answer these questions from the recommendation. Any `yes` means stop and redesign:
+```text
+Brand A active plugin appears in Brand A manifest.
+Brand B inactive plugin does not appear in Brand B manifest.
+No platform-specific checks added to chat.py.
+```
+
+---
+
+## Phase 5 — D6 Specialists UI Installed-Only View
+
+- [ ] T050 Remove hardcoded platform cards from `web/src/pages/admin/AdminModules.tsx` that appear without installed plugin data.
+- [x] T051 Render plugin Specialist cards from `GET /plugins` only.
+- [x] T052 Display activation state per Brand for each installed plugin.
+- [x] T053 Add Activate/Deactivate controls calling D4 endpoints.
+- [x] T054 Show credential/setup/validation status only for installed plugins.
+- [ ] T055 Ensure uninstalled platforms produce no readiness debt or connector warnings.
+
+Acceptance:
+
+```text
+No TikTok plugin installed → no TikTok card.
+No LinkedIn plugin installed → no LinkedIn card.
+Installed plugin shows activation toggle per Brand.
+```
+
+---
+
+## Phase 6 — D7 Credential Slot Contract (supersedes requires_social_connection + requires_platform_vars)
+
+> Resolved design in research.md Decision 10. Seven slot types. `credential_slots` supersedes old fields.
+> Agreed sample shapes: `google.drive`, `channel.clickup`, `media.image` — implement exactly those.
+
+- [x] T060 Add `CredentialSlot` pydantic model to `api/plugin_loader.py`. Fields: `key`, `type`, `platform`, `field`, `var`, `path`, `module`, `fallback_var`. Remove `requires_social_connection` and `requires_platform_vars` from `ChannelPluginManifest`.
+- [x] T061 Implement 7-type slot resolver loop in `inject_channel_credentials`, replacing all platform-specific branches (resolves V1). Resolver types: `social_token`, `social_meta_field`, `platform_var`, `brand_json_path`, `backend_override_provider`, `backend_override_model`, `backend_provider_api_key`. Two-pass: resolve all non-`backend_provider_api_key` slots first, then the dependent key-resolution pass.
+- [x] T062 Update all 15 `channel.json` files with `credential_slots` declarations. Remove `requires_social_connection` and `requires_platform_vars` from each. Implement in order: `google.drive`, `channel.clickup`, `media.image`, `media.video`, `creative.factory`, `channel.meta`, `channel.gmail_auth`, `channel.google_calendar`, `channel.youtube`, `channel.tiktok`, `channel.google_ads`, `channel.google_analytics`, `channel.search_console`, `channel.gmail`, `channel.linkedin`.
+- [x] T063 Update `required_plugin_vars()` in `plugin_loader.py` to derive required vars from `credential_slots` where `type == platform_var`. Update `GET /plugins` response: `requires_platform_vars` field becomes the derived list; `requires_social_connection` field becomes platforms referenced in `social_token` / `social_meta_field` slots.
+- [x] T064 Update `api/plugins/PLUGIN_SDK.md`: document `credential_slots` vocabulary and all seven types. Remove all examples that import from `registry`, `skills.loader`, or any BOS internal. Add "Plugin modules must never import BOS internals" as a hard rule (resolves V9).
+
+Acceptance:
+
+```text
+Plugin module.py imports only klaroha_sdk at module level.
+Credentials arrive via brief["_channel_credentials"] keyed by declared slot keys.
+inject_channel_credentials has zero platform-specific branches.
+channel.json has no requires_social_connection or requires_platform_vars fields.
+```
+
+---
+
+## Phase 7 — D8 Minimal Generic OAuth Verification
+
+- [ ] T070 Verify plugin-declared `connections` schema is parsed from `channel.json`.
+- [ ] T071 Verify `/social/connect/start` or equivalent can start OAuth for a plugin-declared platform without a hardcoded handler.
+- [ ] T072 Verify generic callback can store `SocialConnection` for plugin-declared platform.
+- [ ] T073 Verify `inject_channel_credentials()` can inject the stored token for `requires_social_connection` declared by that plugin.
+- [ ] T074 If D8 is partial/broken, document the gap and keep `requires_platform_vars` as MVP fallback. Do not build full OAuth edge-case framework.
+
+Acceptance:
+
+```text
+Standard OAuth2 plugin can connect without platform-specific core handler.
+Non-standard OAuth can defer to requires_platform_vars.
+```
+
+---
+
+## Phase 9 — Violation Remediation (V2–V8)
+
+> Resolves the remaining violations from research.md Decision 9 that are not covered by Phase 6.
+> V1 is covered by T061. V9 is covered by T064.
+
+- [ ] T090 (V2) Add `provider_options` array to `channel.json` for `media.image` and `media.video`. Each entry: `{ "provider": "openai", "label": "OpenAI", "models": [...] }`. Remove `_MEDIA_PROVIDER_OPTIONS` dict from `api/routers/plugins.py`. Serve from `PluginInfo.media_provider_options` via the loaded manifest instead.
+- [ ] T091 (V3) Add `workspace_discovery_url` string field to `ChannelPluginManifest`. Move ClickUp URL into `channel.clickup/channel.json`. Implement generic `/plugins/{plugin_id}/resolve-workspaces` handler that reads the URL from the manifest and makes the request. Remove `_WORKSPACE_RESOLVERS` dict from `api/routers/plugins.py`.
+- [ ] T092 (V4) Remove `_CHANNEL_DISPLAY` dict from `api/routers/chat.py`. Build display names in `_brand_channel_readiness()` from active plugin connection manifests: read `connections[].platform` from loaded plugin state, use `display_name` from manifest or `titleCase(platform)` as fallback. No hardcoded platform names in core.
+- [ ] T093 (V5 + V6) Move `workspace/council` logic out of `api/capabilities/` into `api/council.py` as an explicit core service. Update `api/capabilities/workspace/council/module.py` to delegate to `api/council.py` via the brief (not direct import). Remove direct `from capabilities.workspace.council.module import start_session` from `chat.py` — call `api/council.py` directly as a core service call, not a capability dispatch.
+- [x] T094 (V7) `pluginDisplayName()` and `pluginDescription()` deleted from `AdminModules.tsx`. Call sites use `plugin.name` and `plugin.implements.join(', ')` directly.
+- [x] T095 (V8) `display_name` and `icon` added to `PluginConnectionManifest` and `PluginConnectionInfo`. Added to 6 channel.json connection entries. `OAUTH_PLATFORMS` deleted from `AdminModules.tsx`; replaced by `buildPlatformMeta()` derived from plugin connection manifests.
+
+Acceptance:
+
+```text
+_MEDIA_PROVIDER_OPTIONS and _WORKSPACE_RESOLVERS removed from core router.
+_CHANNEL_DISPLAY removed from chat.py.
+@council routes via council.py core service — no direct capability import in chat.py.
+workspace/council module.py has no BOS internal imports.
+AdminModules.tsx has no pluginDisplayName(), pluginDescription(), or OAUTH_PLATFORMS.
+All display data comes from plugin manifests.
+```
+
+---
+
+## Phase 9b — Arch Cop: Agent Work Review (2026-06-09)
+
+> Violations found during arch-cop review of changes made by external agent (YouTube/Facebook work).
+> Context: another agent made changes to activate social posting. YouTube posted successfully.
+> Facebook on hold (localhost domain not registered in Meta app — not a code issue).
+> These violations must be fixed before Phase 8 final validation.
+
+### What the agent did correctly
+- YouTube publish module (`video/publish/module.py`): only `klaroha_sdk` + stdlib, no BOS internals ✅
+- `_chat_modules()` now async, filters by `get_active_plugin_ids(db, brand_id)` ✅
+- `format_manifest_for_brand()` added to `capability_manifest.py` — brand-filtered manifest, clean ✅
+- `_brand_channel_readiness()` now derives allowed platforms from active plugin manifests (no hardcoded list) ✅
+- YouTube `channel.json` migrated to `credential_slots` (removed old `requires_social_connection`) ✅
+- `GoogleBusinessOAuthHandler` added to `provider_auth.py` — follows existing handler pattern, not a violation ✅
+
+### Violations to fix
+
+- [x] T096 · VIOLATION (pre-existing T092) — `_CHANNEL_DISPLAY` removed from `chat.py`. `_platform_display_name()` added. All platform name lookups now derive from string transformation.
+- [x] T097 · VIOLATION (Rule 1) — `_CONTROL_PARAM_LINE_RE` removed from `chat.py`. `_RUN_PARAMS_RE` handles indented params under RUN blocks structurally.
+- [x] T098 · REGRESSION — Retired capabilities: test cleanup applied. `test_strategic_substrate_skills.py` deleted; `test_gtm_strategy_planner.py` reduced to retirement check only; `test_marketing_planning_specialist.py` module import removed; `test_cmo_action_directives.py` updated; `test_youtube_plugin_smoke.py` cleaned of `YouTubeModule` references.
+- [x] T099 · CLEANUP — `api/plugins/youtube/module.py` deleted. No import references found (smoke test updated).
+
+Acceptance:
+```text
+_CHANNEL_DISPLAY removed from chat.py; display names derived from plugin manifests or titleCase(platform).
+_CONTROL_PARAM_LINE_RE removed from chat.py; no plugin param names hardcoded in core.
+Deleted capabilities either migrated to plugins or test references cleaned up — no broken test imports.
+api/plugins/youtube/module.py deleted; no remaining import references.
+```
+
+---
+
+## Phase 10 — Plugin Credential Display Bugs (found 2026-06-09 ping test)
+
+> Found during live ping test of Klaroha social publishing pipeline.
+> All three bugs are in `api/routers/plugins.py` — the plugin status API response.
+> These are display-only bugs; runtime credential resolution is unaffected.
+> Fix before Phase 8 final validation so the acceptance criteria are legible.
+
+- [x] T100 · FIX `credentials_configured` false-negative for `backend_override_*` slots. Fixed in `plugins.py`: formula now `not missing and social_configured`. Plugins with no `platform_var` slots return `True` when nothing is missing.
+- [x] T101 · FIX `credentials_configured` false-negative for `social_token` slots. Fixed: preload connected social platforms at request time; `social_token_platforms & connected_social_platforms` check added.
+- [x] T102 · ADD `GET /api/capability-manifest` endpoint. Added to `api/routers/plugins.py` as `capability_manifest_router`; registered in `main.py`. Returns brand-filtered capability list.
+
+Acceptance:
+```text
+media.image and media.video show credentials_configured=true when execution_backend_overrides rows exist.
+google.drive shows credentials_configured=true when social connection status=connected.
+GET /api/capability-manifest?brand_id=<id> returns capability list for that brand.
+Inactive plugin capabilities do not appear in the manifest response.
+```
+
+---
+
+## Phase 11 — Plugin Lifecycle Fix (D1–D3, 2026-06-09)
+
+> Agreed deliverables from `api/plugins/PLUGIN_LIFECYCLE_GAPS.md`. No code changes required.
+> D1 and D2 fix Admin noise immediately. D3 is the staging gate — must complete before any staging deploy.
+> Full analysis: `api/plugins/PLUGIN_LIFECYCLE_GAPS.md § Agreed deliverables`.
+
+- [ ] T110 · D1 (operator): Copy 6 workflow plugins from `api/plugins/` → `~/bos-plugins/`: `youtube`, `meta`, `media-image`, `media-video`, `creative-factory`, `google-drive`. Commands in `PLUGIN_LIFECYCLE_GAPS.md § Phase 0 — Containment`. After copy, Admin should show only externally installed plugins.
+- [ ] T111 · D2 (operator): Remove `KLAROHA_LOAD_INTERNAL_PLUGINS=true` from `.env`. Run `docker compose up -d api`. Confirm Admin → Specialists shows ≤8 plugin cards (external installs only).
+- [ ] T112 · D3 (staging gate): Clear 6 org-wide `plugin_activations` rows (`brand_id=null`, `status=active`). Recreate brand-scoped for Klaroha brand `c1cb6603-e8d4-4e63-8995-640453d5b50b` via `POST /api/plugins/{id}/activate`. Affected plugin IDs: `media.image`, `media.video`, `creative.factory`, `channel.meta`, `google.drive`, `channel.youtube`. SQL to verify: `SELECT plugin_id, brand_id, status FROM plugin_activations WHERE status = 'active' AND brand_id IS NULL`.
+
+Acceptance:
+```text
+Admin shows only plugins from ~/bos-plugins/ (no bundled api/plugins/ examples).
+No org-wide active rows (brand_id=null) remain in plugin_activations.
+All 6 social workflow plugins are active for Klaroha brand specifically.
+A second Brand created on staging sees no plugins active unless explicitly activated for it.
+```
+
+---
+
+## Phase 8 — Final Validation
+
+- [ ] T080 Run `specs/001-thin-core-proof/quickstart.md` V1–V7.
+- [ ] T081 Record pass/fail notes in the implementation PR or task log.
+- [ ] T082 Confirm architecture tests all answer `no`:
 
 ```text
 Does this make a platform visible before its plugin is installed?
@@ -141,139 +266,29 @@ Does this require a core edit to install/remove a plugin?
 Does this show connector setup warnings for uninstalled plugins?
 Does this put inactive plugin capabilities in the CMO manifest?
 Does this treat api/plugins/ source folders as runtime-installed plugins?
+Does this add workflow opinion to core that could instead live in a plugin or loaded resource?
+Does this add a permanent chat-router branch for plugin-specific behavior?
+Does this add a new primitive beyond load / resolve / inject / dispatch / persist without a constitutional decision?
+Does this treat api/capabilities/ entries as core code with special privileges, or allow them to import BOS internals?
 ```
+
+Source of truth: BITE.md → Architecture Violation Test. These ten questions must stay verbatim-matched with spec.md → Architecture Tests.
 
 ---
 
-### D4 — Per-brand activation (build)
+## Deferred Tasks
 
-- [ ] T041 Create `api/models/plugin_activation.py` — `PluginActivation` SQLAlchemy ORM model mapping the existing `plugin_activations` table (migration 038). Fields: `id`, `plugin_id`, `brand_id` (nullable UUID FK → brands), `status` (active | inactive | error), `reason`, `activated_at`, `updated_at`.
-- [ ] T042 Wire activation read path in `api/plugin_loader.py` — on scan, for each successfully loaded plugin auto-insert an `inactive` row if no row exists for the scanned `plugin_id`; expose `get_active_plugin_ids(db, brand_id)` async function that LEFT JOINs org-level rows (brand_id=NULL) with per-brand rows, returning plugin_ids with `status='active'`. Precedence rule: activation row present + directory missing → log stale warning, never inject.
-- [ ] T043 Add activate/deactivate endpoints to `api/routers/plugins.py` — `POST /plugins/{plugin_id}/activate` (body: optional `brand_id`; null = org-wide) and `DELETE /plugins/{plugin_id}/activate` (body: optional `brand_id`). Both write to `plugin_activations` table. Return 404 if plugin_id not in loaded plugins.
+Create separate specs before doing any of these:
 
-**Acceptance**:
 ```text
-Installed but inactive plugin appears in GET /plugins but not in CMO manifest.
-POST /plugins/channel.hello/activate → hello capabilities appear in manifest for that brand.
-DELETE /plugins/channel.hello/activate → hello capabilities removed from manifest for that brand.
+Marketplace / Available UI
+full lockfile/source hash registry
+capability release-integrity diff
+SDK compatibility adapters
+hook subscription system
+plugin-owned migrations
+hot reload
+subprocess sandbox
+chat.py 7-step rewrite
+full migration of Meta/TikTok/LinkedIn/YouTube/etc.
 ```
-
----
-
-### D5 — CMO manifest filtered by brand activation (build)
-
-- [ ] T044 Update `api/capability_manifest.py` — add `brand_id` parameter to the manifest generation function. Filter plugin capabilities against `get_active_plugin_ids(db, brand_id)`: include plugin capability only if plugin is active for the brand. First-party (non-plugin) capabilities are unaffected. This is the single filter point — no second gate in `chat.py`.
-
-**Acceptance**:
-```text
-Inactive plugin module_id cannot be RUN from CMO chat.
-Active plugin with missing credentials appears in manifest and returns setup_blocker artifact at execution time — not excluded from manifest.
-Brand A activates hello → manifest includes hello. Brand B does not → manifest excludes hello.
-```
-
----
-
-### D6 — Specialists UI activation toggle (build/patch)
-
-- [ ] T045 Audit `web/src/pages/admin/AdminModules.tsx` — identify any hardcoded platform cards that render regardless of GET /plugins response. Remove them. Specialists page must be a pure view over GET /plugins data only.
-- [ ] T046 Add Activate/Deactivate toggle to `web/src/pages/admin/AdminModules.tsx` — per brand per installed plugin card, calling `POST /plugins/{id}/activate` and `DELETE /plugins/{id}/activate` (T043). Show current activation status per brand inline on each plugin card.
-
-**Acceptance**:
-```text
-No TikTok plugin installed → no TikTok Specialist card.
-No LinkedIn plugin installed → no LinkedIn Specialist card.
-Activate toggle visible per Brand per installed plugin card.
-Toggling activation updates CMO manifest immediately on next chat turn.
-```
-
----
-
-### D8 — Generic plugin-declared OAuth (verify)
-
-The architecture recommendation marks D8 as "Previously attempted — must verify before relying on it." The acceptance check is: a plugin declaring a *new* OAuth platform in `channel.json` can start auth, complete callback, store token, and receive injected credentials without any platform-specific handler added to core.
-
-- [ ] T047 Verify D8 end-to-end — trace the generic OAuth flow for a plugin-declared connection: (1) identify the generic OAuth start/callback path in `api/routers/social.py` or equivalent that reads `connections[*]` from `channel.json` without a platform-specific `OAuthHandler` subclass; (2) confirm a synthetic or real test plugin declaring `connections[0].type=oauth2` with a new platform can complete the flow; (3) if partial/missing — document the gap and create a follow-on task rather than implementing it here. Do not implement every OAuth edge case; `requires_platform_vars` is acceptable for MVP on non-standard providers.
-
-**Acceptance**:
-```text
-A plugin-declared OAuth platform can start auth, complete callback, store token, and receive
-injected credentials in brief["_channel_credentials"] without adding a platform-specific core handler.
-If the generic path does not exist or is broken, a clear gap report is filed as a follow-on task
-and existing plugins are not broken.
-```
-
----
-
-## Phase 9: Polish & Cross-Cutting Concerns
-
-- [x] T037 [P] Update `~/bos-plugins/README.md` — added Known Constraints section: absolute path requirement, `requires_intent` canonical values, CMO fallback dispatch guidance
-- [ ] T038 [P] Update `specs/001-thin-core-proof/plugin-dev-onboarding.md` — add volume mount absolute path requirement and CMO dispatch accuracy guidance (SKILL.md `excluded_triggers` best practices)
-- [ ] T039 [P] Update `api/plugins/PLUGIN_SDK.md` — note `api/plugins/` is deprecated; direct new plugin authors to `~/bos-plugins/` and `bos-plugins/README.md`
-- [ ] T040 Run full `quickstart.md` V1–V8 sequence as final proof — record pass/fail for each validation step; all must pass before marking feature complete
-
----
-
-## Dependencies & Execution Order
-
-### Phase Dependencies
-
-```
-Phase 1 (Setup)               → No dependencies — start immediately [COMPLETE]
-Phase 2 (Foundational)        → Depends on Phase 1 [COMPLETE]
-Phase 3 (US1 Thin Core)       → Depends on Phase 2 — T014 deferred
-Phase 4 (US2 SDK Boundary)    → Depends on Phase 2 [COMPLETE]
-Phase 5 (US3 Delete Stability)→ Depends on Phase 3 + Phase 4 [COMPLETE]
-Phase 6 (US4 GBP E2E)        → Depends on Phase 4 (T018–T020)
-Phase 7 (US5 Deploy)          → Depends on Phase 5 + Phase 6
-Phase 8 (Plugin Host MVP)     → D4: depends on migration 038 (done); D5: depends on T041–T042; D6: depends on T043–T044; D8 verify: independent
-Phase 9 (Polish)              → Depends on Phase 7 + Phase 8
-```
-
-### User Story Dependencies
-
-- **US1 (P1) Thin Core**: Blocked only on Phase 2 completion (T010)
-- **US2 (P1) SDK Boundary**: Blocked on T010–T012 (gbp-completeness committed + SKILL.md fixed)
-- **US3 (P1) Delete Stability**: Blocked on US1 + US2 (need both plugins active to test deletion)
-- **US4 (P2) GBP End-to-End**: Blocked on US2 (need dispatch working) + GBP OAuth connection
-- **US5 (P2) Live Deploy**: Blocked on US3 + US4 (must prove local before deploying)
-
-### Parallel Opportunities
-
-- T010, T011, T012 can run in parallel (separate files)
-- T015, T016 can run in parallel after T014
-- T030, T031 can run in parallel (server prep)
-- T037, T038, T039 can all run in parallel
-- T041, T042 can run in parallel (different files)
-- T045, T046 can run in parallel after T043 is complete
-- T047 (D8 verify) can run in parallel with T041–T046 — it is a verification task with no file changes required
-
----
-
-## Implementation Strategy
-
-### MVP Scope (P1 Stories Only — US1, US2, US3)
-
-1. Complete Phase 2 (T010–T012) — commit gbp-completeness, fix SKILL.md
-2. Complete Phase 3 (T013–T017) — rewrite chat.py, verify thin core
-3. Complete Phase 4 (T018–T021) — GBP dispatch, SDK boundary check
-4. Complete Phase 5 (T022–T026) — delete stability proven
-5. **STOP and VALIDATE**: Run quickstart V2–V7 in sequence — all must pass
-6. Merge and proceed to P2 stories
-
-### Full Proof (All Stories)
-
-After MVP validation:
-1. Phase 6: GBP end-to-end with real OAuth (if available)
-2. Phase 7: Live deploy to hq.klaroha.com
-3. Phase 8: Polish docs
-
----
-
-## Notes
-
-- `[x]` tasks = already implemented and verified — do not re-implement
-- `[P]` tasks = safe to run in parallel (different files, no shared state)
-- T014 (chat.py rewrite) is the highest-risk task — largest blast radius; test immediately after
-- T013 (V2 empty dir) can be done before T014 as a quick sanity check
-- Commit after each phase checkpoint using `/speckit-git-commit`
-- Do not advance to Phase 7 (deploy) until Phase 5 (delete stability) is fully green

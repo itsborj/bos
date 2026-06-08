@@ -4,17 +4,64 @@
   "version": "0.1.0",
   "klaroha_min_version": "3.5",
   "capabilities_root": "capabilities/",
-  "implements": ["marketing.execute", "marketing.optimize"],
-  "specialty": ["facebook_pages", "facebook_posts", "instagram", "social_media", "content_publishing"],
-  "platforms": ["facebook", "instagram"],
+  "implements": [
+    "marketing.execute",
+    "marketing.optimize"
+  ],
+  "specialty": [
+    "facebook_pages",
+    "facebook_posts",
+    "instagram",
+    "social_media",
+    "content_publishing"
+  ],
+  "platforms": [
+    "facebook",
+    "instagram"
+  ],
   "connector_protocol": "meta_graph_api_v21",
   "risk_policy": "read_is_read_only; publish_is_approval_gated; draft_is_draft_only",
-  "output_contracts": ["meta_page_inventory", "meta_page_posts", "fb_page_post_draft", "fb_page_post_result", "fb_page_video_result"],
-  "requires_social_connection": ["facebook", "google_drive"],
-  "requires_platform_vars": [
-    "META_APP_ID",
-    "META_APP_SECRET",
-    "META_REDIRECT_URI"
+  "output_contracts": [
+    "meta_page_inventory",
+    "meta_page_posts",
+    "fb_page_post_draft",
+    "fb_page_post_result",
+    "fb_page_video_result"
+  ],
+  "credential_slots": [
+    {
+      "key": "access_token",
+      "type": "social_token",
+      "platform": "facebook"
+    },
+    {
+      "key": "drive_access_token",
+      "type": "social_token",
+      "platform": "google_drive"
+    },
+    {
+      "key": "drive_root_folder_id",
+      "type": "social_meta_field",
+      "platform": "google_drive",
+      "field": "drive_root_folder_id"
+    },
+    {
+      "key": "meta_app_id",
+      "type": "platform_var",
+      "var": "META_APP_ID"
+    },
+    {
+      "key": "meta_app_secret",
+      "type": "platform_var",
+      "var": "META_APP_SECRET"
+    }
+  ],
+  "connections": [
+    {
+      "platform": "facebook",
+      "display_name": "Facebook / Instagram",
+      "icon": "📘"
+    }
   ],
   "capability_ids": [
     "marketing.channel.meta.pages.read",

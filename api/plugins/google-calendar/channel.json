@@ -4,14 +4,37 @@
   "version": "1.0.0",
   "klaroha_min_version": "3.5",
   "capabilities_root": "capabilities/",
-  "implements": ["scheduling.booking"],
-  "specialty": ["calendar_booking", "meeting_scheduling", "availability_management"],
-  "platforms": ["google_calendar"],
+  "implements": [
+    "scheduling.booking"
+  ],
+  "specialty": [
+    "calendar_booking",
+    "meeting_scheduling",
+    "availability_management"
+  ],
+  "platforms": [
+    "google_calendar"
+  ],
   "connector_protocol": "oauth2_google_calendar_api",
   "risk_policy": "send_requires_explicit_approval",
-  "output_contracts": ["calendar_event", "booking_confirmation"],
-  "requires_social_connection": ["google_calendar"],
-  "requires_platform_vars": [],
+  "output_contracts": [
+    "calendar_event",
+    "booking_confirmation"
+  ],
+  "credential_slots": [
+    {
+      "key": "access_token",
+      "type": "social_token",
+      "platform": "google_calendar"
+    }
+  ],
+  "connections": [
+    {
+      "platform": "google_calendar",
+      "display_name": "Google Calendar",
+      "icon": "📅"
+    }
+  ],
   "capability_ids": [
     "scheduling.channel.google_calendar.availability.read",
     "scheduling.channel.google_calendar.booking.create",

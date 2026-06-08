@@ -27,9 +27,12 @@ settings = get_settings()
 async def lifespan(app: FastAPI):
     import models  # noqa: F401 — registers all ORM models with Base.metadata
     from registry import list_all  # eager module scan on startup
+    from pipeline.hooks import hooks
+    from pipeline.system_hooks import register_system_hooks
 
     validate_settings(settings)
     list_all()
+    register_system_hooks(hooks)
     await ensure_workspace(settings.frontend_url)
 
     yield
@@ -56,7 +59,7 @@ app.add_middleware(
 app.add_exception_handler(BosError, bos_error_handler)
 app.add_exception_handler(Exception, unhandled_error_handler)
 
-from routers import auth as auth_router  # noqa: E402
+from routers import auth as auth_router, google_auth as google_auth_router  # noqa: E402
 from routers import agent, backend_settings, billing, brands, calendar, capabilities, campaigns, chat, council, decision_briefs, documents, handoff, health, intents, media, memory, objectives, onboarding, outcomes, plugins, providers, runs, social, stream, strategy_workflows, verticals, webhooks, workspace  # noqa: E402
 
 app.include_router(health.router)
@@ -80,10 +83,12 @@ app.include_router(handoff.router)
 app.include_router(onboarding.router)
 app.include_router(stream.router)
 app.include_router(auth_router.router)
+app.include_router(google_auth_router.router)
 app.include_router(campaigns.router)
 app.include_router(social.router)
 app.include_router(webhooks.router)
 app.include_router(plugins.router)
+app.include_router(plugins.capability_manifest_router)
 app.include_router(calendar.router)
 app.include_router(council.router)
 app.include_router(media.router)

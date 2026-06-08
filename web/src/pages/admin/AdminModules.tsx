@@ -1,16 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { BackendOverride, MediaProviderOption, ModuleInfo, PluginInfo, ProviderInfo, ProviderModelLive, SocialConnectionResponse } from '../../api/types';
-
-const OAUTH_PLATFORMS: Record<string, { label: string; icon: string }> = {
-  facebook:        { label: 'Facebook',        icon: '📘' },
-  gmail:           { label: 'Gmail',           icon: '✉️' },
-  google_calendar: { label: 'Google Calendar', icon: '📅' },
-  google_drive:    { label: 'Google Drive',    icon: '▣' },
-  youtube:         { label: 'YouTube',         icon: '▶️' },
-  tiktok:          { label: 'TikTok',          icon: '🎵' },
-};
+import type { ActivationState, BackendOverride, BrandResponse, MediaModelOption, MediaProviderOption, PluginInfo, ProviderInfo, ProviderModelLive, SocialConnectionResponse } from '../../api/types';
 
 type ConnectorSummary = {
   id: string;
@@ -67,37 +58,6 @@ function titleCase(value: string): string {
     .filter(Boolean)
     .map(part => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
-}
-
-function implementedJobs(mod: ModuleInfo): string[] {
-  const value = `${mod.id} ${mod.capability}`.toLowerCase();
-  const jobs = new Set<string>();
-  if (/plan|strategy|launch|campaign/.test(value)) jobs.add('marketing.plan');
-  if (/copy|draft|send|email|creative|outreach|execute|publish|asset/.test(value)) jobs.add('marketing.execute');
-  if (/analytics|tracking|seo|report|receive|inbox|optimi[sz]e|audit|read|performance/.test(value)) jobs.add('marketing.optimize');
-  if (/booking|calendar|scheduling/.test(value)) jobs.add('scheduling.booking');
-  if (!jobs.size && mod.vertical === 'marketing') jobs.add('marketing.execute');
-  return [...jobs];
-}
-
-function groupKey(mod: ModuleInfo): string {
-  const id = mod.id.toLowerCase();
-  const capability = mod.capability.toLowerCase();
-  const text = `${id} ${capability} ${mod.platform_hint}`.toLowerCase();
-  if (text.includes('gmail') || text.includes('email')) return 'email';
-  if (text.includes('google_ads') || text.includes('google ads')) return 'paid-search';
-  if (text.includes('search_console') || text.includes('seo')) return 'seo';
-  if (text.includes('google_analytics') || text.includes('analytics') || text.includes('tracking')) return 'analytics';
-  if (text.includes('clickup')) return 'project-management';
-  if (text.includes('youtube')) return 'youtube';
-  if (text.includes('tiktok')) return 'tiktok';
-  if (text.includes('facebook') || text.includes('instagram') || text.includes('meta')) return 'social';
-  if (text.includes('google_calendar') || text.includes('calendar') || text.includes('booking') || mod.vertical === 'scheduling') return 'scheduling';
-  if (id.startsWith('media.image') || text.includes('image generation')) return 'media-image';
-  if (id.startsWith('media.video') || text.includes('video generation')) return 'media-video';
-  if (id.startsWith('creative.')) return 'creative-factory';
-  if (text.includes('drive') || mod.vertical === 'media' || id.startsWith('media.')) return 'media';
-  return mod.vertical || 'specialist';
 }
 
 function varPlaceholder(varName: string): string {
@@ -163,83 +123,109 @@ const _PROVIDER_LABELS: Record<string, string> = {
   openrouter: 'OpenRouter',
   gemini: 'Google Gemini',
   nvidia: 'NVIDIA',
+  bytedance: 'ByteDance ModelArk',
 };
 
 function providerLabel(provider: string): string {
-  return _PROVIDER_LABELS[provider] ?? provider;
+  return _PROVIDER_LABELS[provider] ?? titleCase(provider);
+}
+
+function buildMediaProviderOptions(
+  models: ProviderModelLive[],
+  modality: 'image' | 'video',
+): MediaProviderOption[] {
+  const grouped: Record<string, MediaModelOption[]> = {};
+  models
+    .filter(m => m.modality === modality)
+    .forEach(m => {
+      (grouped[m.provider] ??= []).push({ value: m.model_id, label: m.name || m.model_id });
+    });
+
+  const dynamic: MediaProviderOption[] = Object.entries(grouped).map(([provider, models]) => ({
+    provider,
+    label: providerLabel(provider),
+    models,
+  }));
+
+  // local_ffmpeg is always available for video; no key needed, no models to list
+  const builtIn: MediaProviderOption[] = modality === 'video'
+    ? [{ provider: 'local_ffmpeg', label: 'Local FFmpeg (built-in)', models: [] }]
+    : [];
+
+  return [...builtIn, ...dynamic];
 }
 
 function providerConnected(provider: ProviderInfo): boolean {
   return Boolean(provider.connected || provider.has_byok_key || provider.has_platform_key || provider.auth_mode === 'oauth');
 }
 
-function moduleBase(modules: ModuleInfo[]) {
-  return {
-    moduleCount: modules.length,
-    moduleIds: modules.map(m => m.id),
-    capabilityKeys: [...new Set(modules.map(m => m.capability))].sort(),
-    llmModuleIds: modules.filter(m => m.uses_llm !== false).map(m => m.id),
-  };
+function pluginOrgActivation(plugin: PluginInfo): ActivationState | undefined {
+  return plugin.activation_by_brand?.find(a => a.brand_id === null);
 }
 
-
-function pluginDisplayName(plugin: PluginInfo): string {
-  const id = plugin.plugin_id.toLowerCase();
-  if (id.includes('clickup')) return 'ClickUp';
-  if (id.includes('google_ads') || id.includes('google-ads')) return 'Google Ads';
-  if (id.includes('search_console') || id.includes('search-console')) return 'Google Search Console';
-  if (id.includes('gmail')) return 'Gmail';
-  if (id.includes('google_analytics') || id.includes('google-analytics')) return 'Google Analytics';
-  if (id.includes('media.image')) return 'Image Generation';
-  if (id.includes('media.video')) return 'Video Generation';
-  if (id.includes('creative.factory')) return 'Creative Factory';
-  if (id.includes('meta')) return 'Meta Channel';
-  if (id.includes('tiktok')) return 'TikTok Specialist';
-  return plugin.name;
+function pluginActivation(plugin: PluginInfo, brandId?: string | null): ActivationState | undefined {
+  const brandRow = brandId ? plugin.activation_by_brand?.find(a => a.brand_id === brandId) : undefined;
+  return brandRow || pluginOrgActivation(plugin);
 }
 
-function pluginDescription(plugin: PluginInfo): string {
-  const id = plugin.plugin_id.toLowerCase();
-  if (id.includes('clickup')) return 'Read campaign task status and create tasks from approved plans.';
-  if (id.includes('google_ads') || id.includes('google-ads')) return 'Pull paid search performance and draft ad copy.';
-  if (id.includes('search_console') || id.includes('search-console')) return 'Read organic search performance and SEO signals.';
-  if (id.includes('gmail')) return 'Send outreach and read reply intelligence.';
-  if (id.includes('google_analytics') || id.includes('google-analytics')) return 'Read website analytics and conversion signals.';
-  if (id.includes('media.image')) return 'media.generate specialist.';
-  if (id.includes('media.video')) return 'media.generate specialist.';
-  if (id.includes('creative.factory')) return 'Creative production orchestration specialist.';
-  return `${plugin.implements.join(', ')} specialist.`;
+function isPluginActive(plugin: PluginInfo, brandId?: string | null): boolean {
+  return pluginActivation(plugin, brandId)?.status === 'active';
 }
 
-function pluginConnector(plugins: PluginInfo[], pluginId: string, label?: string): ConnectorSummary | null {
-  const plugin = plugins.find(p => p.plugin_id === pluginId);
-  if (!plugin) return null;
-  const configured = plugin.credentials_configured;
-  const sourceText = configured ? (plugin.credential_source === 'env_var' ? 'Via .env' : 'Connected') : 'Not configured';
+function pluginConnectorFromPlugin(plugin: PluginInfo, label?: string): ConnectorSummary {
+  const requiredCount = plugin.requires_platform_vars.length;
+  const configured = requiredCount > 0 ? plugin.credentials_configured : true;
+  const sourceText = requiredCount === 0
+    ? 'No credentials required'
+    : configured ? (plugin.credential_source === 'env_var' ? 'Via .env' : 'Connected') : 'Not configured';
+  const canConfigure = requiredCount > 0 && !(plugin.credential_source === 'env_var' && !['media.image', 'media.video'].includes(plugin.plugin_id));
   return {
     id: plugin.plugin_id,
-    label: label || pluginDisplayName(plugin),
-    detail: configured
-      ? `${sourceText}${plugin.requires_platform_vars.length ? ` · ${plugin.requires_platform_vars.length} credential${plugin.requires_platform_vars.length !== 1 ? 's' : ''}` : ''}`
-      : plugin.missing_vars.length ? `Missing ${plugin.missing_vars.join(', ')}` : 'Needs credential setup',
-    description: pluginDescription(plugin),
+    label: label || plugin.name,
+    detail: plugin.status === 'error'
+      ? (plugin.reason || 'Plugin failed to load')
+      : configured
+        ? `${sourceText}${requiredCount ? ` · ${requiredCount} credential${requiredCount !== 1 ? 's' : ''}` : ''}`
+        : plugin.missing_vars.length ? `Missing ${plugin.missing_vars.join(', ')}` : 'Needs credential setup',
+    description: plugin.implements.length ? `${plugin.implements.join(', ')} specialist.` : '',
     implements: plugin.implements,
     missingVars: plugin.missing_vars,
-    status: configured ? 'connected' : 'needs_setup',
-    statusText: sourceText,
-    actionLabel: (plugin.credential_source === 'env_var' && !['media.image', 'media.video'].includes(plugin.plugin_id)) ? undefined : (configured ? 'Update' : 'Configure'),
-    actionType: (plugin.credential_source === 'env_var' && !['media.image', 'media.video'].includes(plugin.plugin_id)) ? undefined : 'plugin',
+    status: plugin.status === 'error' ? 'needs_setup' : configured ? (requiredCount ? 'connected' : 'available') : 'needs_setup',
+    statusText: plugin.status === 'error' ? 'Error' : sourceText,
+    actionLabel: canConfigure ? (configured && requiredCount ? 'Update' : 'Configure') : undefined,
+    actionType: 'plugin',
     pluginId: plugin.plugin_id,
-    removable: configured && plugin.credential_source === 'database',
+    removable: requiredCount > 0 && configured && plugin.credential_source === 'database',
   };
 }
 
-function oauthConnector(connections: SocialConnection[], platform: string, label?: string): ConnectorSummary {
+type PlatformMeta = Record<string, { label: string; icon: string }>;
+
+function buildPlatformMeta(plugins: PluginInfo[]): PlatformMeta {
+  const meta: PlatformMeta = {};
+  plugins.forEach(plugin => {
+    (plugin.connections || []).forEach(conn => {
+      if (conn.platform && !meta[conn.platform]) {
+        meta[conn.platform] = {
+          label: conn.display_name || titleCase(conn.platform),
+          icon: conn.icon || '⚙️',
+        };
+      }
+    });
+  });
+  return meta;
+}
+
+function oauthConnector(
+  connections: SocialConnection[],
+  platform: string,
+  platformMeta: PlatformMeta,
+): ConnectorSummary {
   const live = connections.filter(conn => conn.platform === platform && conn.status !== 'revoked');
-  const meta = OAUTH_PLATFORMS[platform] || { label: label || titleCase(platform), icon: '⚙️' };
+  const meta = platformMeta[platform] || { label: titleCase(platform), icon: '⚙️' };
   return {
     id: `oauth.${platform}`,
-    label: `${meta.icon} ${label || meta.label}`,
+    label: `${meta.icon} ${meta.label}`,
     detail: live.length
       ? `${live.length} account${live.length !== 1 ? 's' : ''} connected${live[0]?.page_name ? ` · ${live[0].page_name}` : ''}`
       : `Connect from Brands / Clients`,
@@ -259,303 +245,47 @@ function compactConnectors(connectors: Array<ConnectorSummary | null>): Connecto
   });
 }
 
-function readinessFromConnectors(connectors: ConnectorSummary[], fallback: 'ready' | 'needs_setup' | 'installed' = 'installed') {
-  if (!connectors.length) return fallback;
-  return connectors.every(c => c.status !== 'needs_setup') ? 'ready' : 'needs_setup';
-}
-
-function summarizeGroup(key: string, modules: ModuleInfo[], connections: SocialConnection[], plugins: PluginInfo[]): SpecialistSummary {
-  const jobs = [...new Set(modules.flatMap(implementedJobs))];
-  const moduleText = modules.map(m => `${m.id} ${m.platform_hint}`).join(' ').toLowerCase();
-  const base = moduleBase(modules);
-
-  if (key === 'email') {
-    const connectors = compactConnectors([
-      oauthConnector(connections, 'gmail', 'Gmail account'),
-      pluginConnector(plugins, 'channel.gmail'),
-    ]);
-    const readiness = connectors.some(connector => connector.status === 'connected') ? 'ready' : 'needs_setup';
-    const accountCount = connections.filter(conn => conn.platform === 'gmail' && conn.status !== 'revoked').length;
-    return {
-      key,
-      name: 'Email Specialist',
-      description: 'Plans email campaigns, drafts outreach, reads reply context, and prepares approved Gmail send actions.',
-      jobs: ['marketing.plan', 'marketing.execute', 'marketing.optimize'],
-      specialties: ['campaign planning', 'drafting', 'inbox intelligence', 'optimization'],
-      readiness,
-      readinessText: readiness === 'ready'
-        ? `${accountCount || 1} email connector${(accountCount || 1) !== 1 ? 's' : ''} ready`
-        : 'Connect Gmail or configure draft credentials to unlock email actions',
-      risk: moduleText.includes('send') ? 'Draft by default; real sends require explicit owner approval' : 'Draft / review',
-      ...base,
-      connectors,
-      nextStep: readiness === 'ready' ? 'Use the CMO to plan, draft, approve, then send.' : 'Connect Gmail, verify sender identity, then create a test draft.',
-    };
-  }
-
-  if (key === 'paid-search') {
-    const connectors = compactConnectors([pluginConnector(plugins, 'channel.google_ads')]);
-    const readiness = readinessFromConnectors(connectors, 'needs_setup');
-    return {
-      key,
-      name: 'Paid Search Specialist',
-      description: 'Reviews paid-search performance and prepares optimization or ad-draft artifacts.',
-      jobs,
-      specialties: ['paid search', 'budget efficiency', 'ad drafts'],
-      readiness,
-      readinessText: readiness === 'ready' ? 'Google Ads connected' : 'Configure Google Ads API credentials',
-      risk: 'Read and draft first; spend changes require approval',
-      ...base,
-      connectors,
-    };
-  }
-
-  if (key === 'seo') {
-    const hasSearchConsole = moduleText.includes('search_console');
-    const connectors = compactConnectors([hasSearchConsole ? pluginConnector(plugins, 'channel.search_console') : null]);
-    const readiness = hasSearchConsole ? readinessFromConnectors(connectors, 'needs_setup') : 'installed';
-    return {
-      key,
-      name: hasSearchConsole ? 'Google Search Console Specialist' : 'SEO Specialist',
-      description: hasSearchConsole
-        ? 'Reads Google Search Console properties, query/page performance, URL inspection, sitemap signals, and SEO opportunities.'
-        : 'Audits search visibility, content opportunities, and organic growth constraints.',
-      jobs: jobs.length ? jobs : ['marketing.optimize'],
-      specialties: hasSearchConsole
-        ? ['organic search', 'query/page performance', 'URL inspection', 'sitemaps', 'SEO opportunities']
-        : ['SEO', 'content opportunities', 'technical review'],
-      readiness,
-      readinessText: hasSearchConsole
-        ? (readiness === 'ready' ? 'Search Console connected' : 'Add Google Search Console credentials to enable live organic search reads')
-        : 'Installed',
-      risk: hasSearchConsole ? 'Read-only; no website edits, sitemap changes, or indexing requests' : 'Diagnostic / recommendation',
-      ...base,
-      connectors,
-      nextStep: hasSearchConsole
-        ? (readiness === 'ready' ? 'Ask the CMO to check Search Console performance or find SEO opportunities.' : 'Configure Search Console credentials, then run the property inventory check.')
-        : undefined,
-      pluginId: hasSearchConsole ? 'channel.search_console' : undefined,
-    };
-  }
-
-  if (key === 'analytics') {
-    const connectors = compactConnectors([pluginConnector(plugins, 'channel.google_analytics')]);
-    const readiness = readinessFromConnectors(connectors, 'installed');
-    return {
-      key,
-      name: 'Analytics Specialist',
-      description: 'Diagnoses measurement, tracking, and performance signals for optimization work.',
-      jobs,
-      specialties: ['tracking', 'measurement', 'performance signals'],
-      readiness,
-      readinessText: readiness === 'ready' ? 'Analytics connected' : connectors.length ? 'Configure analytics credentials' : 'Installed',
-      risk: 'Read-only / diagnostic',
-      ...base,
-      connectors,
-    };
-  }
-
-  if (key === 'project-management') {
-    const connectors = compactConnectors([pluginConnector(plugins, 'channel.clickup')]);
-    const readiness = readinessFromConnectors(connectors, 'needs_setup');
-    return {
-      key,
-      name: 'Project Management',
-      description: 'Reads campaign task status from ClickUp and creates tasks from approved plans.',
-      jobs: ['marketing.execute', 'marketing.optimize'],
-      specialties: ['task tracking', 'campaign execution', 'status intelligence'],
-      readiness,
-      readinessText: readiness === 'ready' ? 'ClickUp connected' : 'Add ClickUp credentials to enable task read/create',
-      risk: 'Read by default; task creation requires explicit approval',
-      ...base,
-      connectors,
-      nextStep: readiness === 'ready' ? 'Ask the CMO to check ClickUp or create tasks.' : undefined,
-      pluginId: 'channel.clickup',
-    };
-  }
-
-  if (key === 'creative-factory') {
-    const connectors = compactConnectors([
-      oauthConnector(connections, 'google_drive', 'Google Drive assets'),
-    ]);
-    const readiness = readinessFromConnectors(connectors, 'installed');
-    return {
-      key,
-      name: 'Creative Factory',
-      description: 'Plans creative production, routes work to media specialists, and assembles reusable creative bundles.',
-      jobs: jobs.length ? jobs : ['marketing.plan', 'marketing.execute'],
-      specialties: ['creative orchestration', 'production briefs', 'asset assembly'],
-      readiness,
-      readinessText: readiness === 'ready' ? 'Asset library connected' : 'Connect Google Drive for durable creative assets',
-      risk: 'Orchestrates only - generation and publishing stay in specialist plugins',
-      ...base,
-      connectors,
-      nextStep: readiness === 'ready' ? 'Ask the CMO to create a creative pack or bundle.' : undefined,
-      pluginId: 'creative.factory',
-    };
-  }
-
-  if (key === 'media-image') {
-    const imagePlugin = plugins.find(p => p.plugin_id === 'media.image');
-    const imageConnector = pluginConnector(plugins, 'media.image');
-    const connectors = compactConnectors([
-      imageConnector,
-      oauthConnector(connections, 'google_drive', 'Google Drive assets'),
-    ]);
-    const readiness = imageConnector?.status === 'connected' ? 'ready' : 'needs_setup';
-    return {
-      key,
-      name: 'Creative / Image Specialist',
-      description: 'Generates and manages channel-agnostic image creatives, ad assets, social images, hero images, and banners.',
-      jobs: jobs.length ? jobs : ['media.generate'],
-      specialties: ['image generation', 'visual creative', 'asset library'],
-      readiness,
-      readinessText: readiness === 'ready' ? 'Image generation connected' : 'Configure image generation provider credentials',
-      risk: 'Generate only — distribution stays in channel plugins',
-      ...base,
-      mediaModuleId: 'media.image.generate',
-      mediaModality: 'image' as const,
-      mediaProviderOptions: imagePlugin?.media_provider_options ?? [],
-      connectors,
-      nextStep: readiness === 'ready' ? 'Ask the CMO to generate an image or ad creative.' : undefined,
-      pluginId: 'media.image',
-    };
-  }
-
-  if (key === 'media-video') {
-    const videoPlugin = plugins.find(p => p.plugin_id === 'media.video');
-    const videoConnector = pluginConnector(plugins, 'media.video');
-    const connectors = compactConnectors([
-      videoConnector,
-      oauthConnector(connections, 'google_drive', 'Google Drive assets'),
-    ]);
-    const hasExternalProvider = videoConnector?.status === 'connected';
-    return {
-      key,
-      name: 'Video Generation',
-      description: 'Generates channel-agnostic video assets and short-form motion creative with a configurable provider.',
-      jobs: jobs.length ? jobs : ['media.generate'],
-      specialties: ['video generation', 'shortform video', 'motion creative'],
-      readiness: 'ready',
-      readinessText: hasExternalProvider ? 'Video provider connected' : 'Local FFmpeg video rendering is ready; configure provider credentials only for an external video API',
-      risk: 'Generate only - distribution stays in channel plugins',
-      ...base,
-      mediaModuleId: 'media.video.generate',
-      mediaModality: 'video' as const,
-      mediaProviderOptions: videoPlugin?.media_provider_options ?? [],
-      connectors,
-      nextStep: 'Ask the CMO to generate a video or short.',
-      pluginId: 'media.video',
-    };
-  }
-
-  if (key === 'media') {
-    const connectors = compactConnectors([
-      oauthConnector(connections, 'google_drive', 'Google Drive assets'),
-    ]);
-    const readiness = readinessFromConnectors(connectors, 'installed');
-    return {
-      key,
-      name: 'Media Assets',
-      description: 'Stores and retrieves reusable creative assets for specialist and channel workflows.',
-      jobs: jobs.length ? jobs : ['media.generate'],
-      specialties: ['asset library', 'media handoff'],
-      readiness,
-      readinessText: readiness === 'ready' ? 'Asset library connected' : 'Connect Google Drive for durable creative assets',
-      risk: 'Storage and handoff only',
-      ...base,
-      connectors,
-    };
-  }
-
-  if (key === 'social') {
-    const connectors = compactConnectors([
-      pluginConnector(plugins, 'channel.meta'),
-      oauthConnector(connections, 'facebook', 'Facebook page'),
-      oauthConnector(connections, 'google_drive', 'Google Drive assets'),
-    ]);
-    const readiness = readinessFromConnectors(connectors, 'needs_setup');
-    return {
-      key,
-      name: 'Social Specialist',
-      description: 'Drafts, reviews, reads, and publishes approved social content through installed channel plugins.',
-      jobs,
-      specialties: ['facebook pages', 'instagram', 'social publishing', 'post intelligence'],
-      readiness,
-      readinessText: readiness === 'ready' ? 'Social connectors ready' : 'Connect Meta credentials and brand accounts',
-      risk: 'Draft/read first; publishing requires explicit approval',
-      ...base,
-      connectors,
-      pluginId: 'channel.meta',
-    };
-  }
-
-  if (key === 'youtube') {
-    const connectors = compactConnectors([oauthConnector(connections, 'youtube', 'YouTube channel')]);
-    const readiness = readinessFromConnectors(connectors, 'needs_setup');
-    return {
-      key,
-      name: 'YouTube Specialist',
-      description: 'Validates YouTube connections and prepares approved video publishing actions.',
-      jobs,
-      specialties: ['youtube', 'shorts', 'video publishing', 'video performance'],
-      readiness,
-      readinessText: readiness === 'ready' ? 'YouTube connected' : 'Connect YouTube from Brands / Clients',
-      risk: 'Connection checks are read-only; publishing requires explicit approval',
-      ...base,
-      connectors,
-    };
-  }
-
-  if (key === 'tiktok') {
-    const connectors = compactConnectors([
-      pluginConnector(plugins, 'channel.tiktok'),
-      oauthConnector(connections, 'tiktok', 'TikTok account'),
-    ]);
-    const readiness = readinessFromConnectors(connectors, 'needs_setup');
-    return {
-      key,
-      name: 'TikTok Specialist',
-      description: 'Validates TikTok connections and prepares manual export or approved posting workflows.',
-      jobs,
-      specialties: ['tiktok', 'shortform video', 'manual export'],
-      readiness,
-      readinessText: readiness === 'ready' ? 'TikTok connected' : 'Configure TikTok app credentials and account access',
-      risk: 'Posting requires a video asset and explicit approval',
-      ...base,
-      connectors,
-      pluginId: 'channel.tiktok',
-    };
-  }
-
-  if (key === 'scheduling') {
-    const connectors = compactConnectors([oauthConnector(connections, 'google_calendar', 'Google Calendar')]);
-    const readiness = readinessFromConnectors(connectors, 'needs_setup');
-    return {
-      key,
-      name: 'Scheduling Specialist',
-      description: 'Reads availability and prepares approved booking/calendar actions.',
-      jobs: jobs.length ? jobs : ['scheduling.booking'],
-      specialties: ['calendar booking', 'availability', 'meeting scheduling'],
-      readiness,
-      readinessText: readiness === 'ready' ? 'Calendar connected' : 'Connect Google Calendar from Brands / Clients',
-      risk: 'Booking actions require explicit approval',
-      ...base,
-      connectors,
-    };
-  }
-
+function summarizeInstalledPlugin(plugin: PluginInfo, connections: SocialConnection[], platformMeta: PlatformMeta, brandId?: string | null): SpecialistSummary {
+  const active = isPluginActive(plugin, brandId);
+  const declaredPlatforms = [...new Set([...(plugin.requires_social_connection || []), ...((plugin.connections || []).map(c => c.platform))].filter(Boolean))];
+  const connectors = compactConnectors([
+    pluginConnectorFromPlugin(plugin),
+    ...declaredPlatforms.map(platform => oauthConnector(connections, platform, platformMeta)),
+  ]);
+  const hasCredentialDebt = connectors.some(c => c.status === 'needs_setup');
+  const readiness: SpecialistSummary['readiness'] = plugin.status === 'error' || (active && hasCredentialDebt)
+    ? 'needs_setup'
+    : active ? 'ready' : 'installed';
+  const firstImageModule = plugin.capability_ids.find(id => id.includes('image'));
+  const firstVideoModule = plugin.capability_ids.find(id => id.includes('video'));
+  const mediaModuleId = plugin.plugin_id === 'media.image' ? (firstImageModule || 'media.image.generate')
+    : plugin.plugin_id === 'media.video' ? (firstVideoModule || 'media.video.generate')
+      : undefined;
   return {
-    key,
-    name: `${titleCase(key)} Specialist`,
-    description: 'Installed specialist implementation available to the CMO when its skill contract applies.',
-    jobs,
-    specialties: [...new Set(modules.map(m => m.platform_hint).filter(Boolean))],
-    readiness: 'installed',
-    readinessText: 'Installed',
-    risk: 'Draft / review',
-    ...base,
-    connectors: [],
+    key: plugin.plugin_id,
+    name: plugin.name,
+    description: plugin.status === 'error'
+      ? (plugin.reason || 'Plugin failed to load.')
+      : plugin.implements.length ? `${plugin.implements.join(', ')} specialist.` : '',
+    jobs: plugin.implements.length ? plugin.implements : plugin.capability_ids,
+    specialties: plugin.capability_ids,
+    readiness,
+    readinessText: plugin.status === 'error'
+      ? (plugin.reason || 'Plugin error')
+      : active
+        ? (hasCredentialDebt ? 'Active — configure credentials or run connection check' : 'Active for selected Brand')
+        : 'Installed — activate for selected Brand',
+    risk: 'Plugin-owned policy; external actions require approval when declared',
+    moduleCount: plugin.capability_ids.length,
+    moduleIds: plugin.capability_ids,
+    capabilityKeys: plugin.capability_ids,
+    llmModuleIds: plugin.capability_ids,
+    mediaModuleId,
+    mediaModality: plugin.plugin_id === 'media.image' ? 'image' : plugin.plugin_id === 'media.video' ? 'video' : undefined,
+    mediaProviderOptions: plugin.media_provider_options || [],
+    connectors,
+    nextStep: active ? 'Use the CMO to run this specialist when its skill contract applies.' : 'Activate this plugin for the selected Brand.',
+    pluginId: plugin.plugin_id,
   };
 }
 
@@ -568,9 +298,10 @@ function connectorBadgeClass(status: ConnectorSummary['status']): string {
 export function AdminModules() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [modules, setModules] = useState<ModuleInfo[]>([]);
   const [connections, setConnections] = useState<SocialConnection[]>([]);
   const [plugins, setPlugins] = useState<PluginInfo[]>([]);
+  const [brands, setBrands] = useState<BrandResponse[]>([]);
+  const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [availableModels, setAvailableModels] = useState<ProviderModelLive[]>([]);
   const [backendOverrides, setBackendOverrides] = useState<BackendOverride[]>([]);
@@ -600,10 +331,29 @@ export function AdminModules() {
     toastTimer.current = setTimeout(() => setToast(null), 4000);
   }
 
+  const [activatingPlugin, setActivatingPlugin] = useState<string | null>(null);
+
   const refreshPlugins = async () => {
     const { plugins: p } = await api.listPlugins().catch(() => ({ plugins: [] as PluginInfo[] }));
     setPlugins(p);
   };
+
+  async function handleToggleActivation(pluginId: string, currentlyActive: boolean) {
+    setActivatingPlugin(pluginId);
+    try {
+      if (currentlyActive) {
+        await api.deactivatePlugin(pluginId, selectedBrandId);
+      } else {
+        await api.activatePlugin(pluginId, selectedBrandId);
+      }
+      await refreshPlugins();
+      showToast(currentlyActive ? `${pluginId} deactivated` : `${pluginId} activated`);
+    } catch {
+      showToast(`Failed to ${currentlyActive ? 'deactivate' : 'activate'} ${pluginId}`);
+    } finally {
+      setActivatingPlugin(null);
+    }
+  }
 
   const refreshConnections = async () => {
     const socialConnections = await api.listSocialConnections().catch(() => [] as SocialConnection[]);
@@ -615,13 +365,16 @@ export function AdminModules() {
     setBackendOverrides(overrides);
   };
 
+  const platformMeta = useMemo(() => buildPlatformMeta(plugins), [plugins]);
+
   useEffect(() => {
     const statuses = ['facebook', 'gmail', 'google_calendar', 'google_drive', 'youtube', 'tiktok'] as const;
     const reason = searchParams.get('reason') || '';
     const messages = statuses.flatMap(platform => {
       const status = searchParams.get(platform);
       if (!status) return [];
-      const label = OAUTH_PLATFORMS[platform]?.label || titleCase(platform);
+      const pmeta = platformMeta[platform] || { label: titleCase(platform) };
+      const label = pmeta.label;
       if (status === 'connected') return [`✅ ${label} connected`];
       if (status === 'denied') return [`${label} connection cancelled`];
       return [`⚠️ ${label} failed — ${reason.replace(/_/g, ' ') || status}`];
@@ -637,17 +390,15 @@ export function AdminModules() {
 
   useEffect(() => {
     async function load() {
-      const [{ verticals }, socialConnections, providerResult, modelResult, overrideResult] = await Promise.all([
-        api.getVerticals(),
+      const [brandResult, socialConnections, providerResult, modelResult, overrideResult] = await Promise.all([
+        api.getBrands().catch(() => ({ brands: [] as BrandResponse[], total: 0 })),
         api.listSocialConnections().catch(() => [] as SocialConnection[]),
         api.getProviders().catch(() => ({ providers: [] as ProviderInfo[] })),
         api.getAvailableModels().catch(() => ({ models: [] as ProviderModelLive[] })),
         api.getBackendOverrides().catch(() => ({ overrides: [] as BackendOverride[] })),
       ]);
-      const results = await Promise.all(
-        verticals.map(v => api.getModules(v.vertical).then(r => r.modules).catch(() => [] as ModuleInfo[]))
-      );
-      setModules(results.flat());
+      setBrands(brandResult.brands ?? []);
+      setSelectedBrandId(prev => prev ?? brandResult.brands?.[0]?.id ?? null);
       setConnections(socialConnections as SocialConnection[]);
       setProviders(providerResult.providers ?? []);
       setAvailableModels(modelResult.models ?? []);
@@ -658,16 +409,20 @@ export function AdminModules() {
   }, []);
 
   const specialists = useMemo(() => {
-    const visible = modules.filter(mod => !mod.id.toLowerCase().includes('test_stub') && !mod.internal);
-    const grouped = new Map<string, ModuleInfo[]>();
-    visible.forEach(mod => {
-      const key = groupKey(mod);
-      grouped.set(key, [...(grouped.get(key) ?? []), mod]);
-    });
-    return [...grouped.entries()]
-      .map(([key, mods]) => summarizeGroup(key, mods, connections, plugins))
+    const brandConnections = selectedBrandId
+      ? connections.filter(conn => conn.brand_id === selectedBrandId)
+      : connections;
+    return plugins
+      .filter(plugin => !plugin.plugin_id.toLowerCase().includes('test_stub'))
+      .map(plugin => {
+        const s = summarizeInstalledPlugin(plugin, brandConnections, platformMeta, selectedBrandId);
+        if (s.mediaModality) {
+          return { ...s, mediaProviderOptions: s.mediaProviderOptions?.length ? s.mediaProviderOptions : buildMediaProviderOptions(availableModels, s.mediaModality) };
+        }
+        return s;
+      })
       .sort((a, b) => a.name.localeCompare(b.name));
-  }, [modules, connections, plugins]);
+  }, [connections, plugins, selectedBrandId, availableModels]);
 
   const providerReady = useMemo(() => new Set(providers.filter(providerConnected).map(p => p.provider)), [providers]);
   const overrideMap = useMemo(() => new Map(backendOverrides.map(override => [override.target, override])), [backendOverrides]);
@@ -879,7 +634,7 @@ export function AdminModules() {
   return (
     <div className="admin-page">
       {toast && (
-        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--fg)', color: 'var(--bg)', padding: '10px 20px', borderRadius: 8, fontSize: 13, fontWeight: 600, zIndex: 9999, boxShadow: '0 4px 20px rgba(0,0,0,.2)' }}>
+        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--obsidian)', color: 'var(--ivory)', padding: '10px 20px', borderRadius: 0, fontSize: 13, fontWeight: 600, zIndex: 9999, border: '.5px solid var(--border-dark)' }}>
           {toast}
         </div>
       )}
@@ -888,9 +643,14 @@ export function AdminModules() {
         <div>
           <div className="admin-page-title">Specialists</div>
           <div className="admin-page-subtitle">
-            One setup surface for what each specialist can do, which accounts or credentials it needs, and which AI/model it uses.
+            Installed plugin packages only. Core tools are hidden here; activation is scoped to the selected Brand.
           </div>
         </div>
+        {brands.length > 0 && (
+          <select className="select" value={selectedBrandId ?? ''} onChange={e => setSelectedBrandId(e.target.value || null)} style={{ maxWidth: 260 }}>
+            {brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+          </select>
+        )}
       </div>
 
       {configuringPlugin && (
@@ -1104,7 +864,7 @@ export function AdminModules() {
                   </select>
 
                   {selectedNeedsKey && (
-                    <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+                    <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--ivory)', border: '.5px solid var(--border-warm)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
                       <div style={{ fontSize: 12, color: 'var(--text2)' }}>
                         No API key for <strong>{selectedProviderLabel}</strong> — add one first.
                       </div>
@@ -1119,7 +879,7 @@ export function AdminModules() {
                   )}
 
                   {selectedIsCustom && (
-                    <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, fontSize: 12, color: 'var(--text2)' }}>
+                    <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--ivory)', border: '.5px solid var(--border-warm)', fontSize: 12, color: 'var(--text2)' }}>
                       Custom provider credentials (URL + API key) are configured in the connector settings on this card.
                     </div>
                   )}
@@ -1139,7 +899,7 @@ export function AdminModules() {
               ) : (
                 <>
                   {isMixed ? (
-                    <div style={{ background: 'var(--surface2)', border: '1px solid var(--border)', borderRadius: 8, padding: '12px 14px', marginBottom: 14 }}>
+                    <div style={{ background: 'var(--ivory)', border: '.5px solid var(--border-warm)', padding: '12px 14px', marginBottom: 14 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Mixed model settings detected</div>
                       <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 10 }}>
                         The {configuringAI.llmModuleIds.length} tools in this specialist have different model overrides. Select a model below to apply one setting to all, or reset everything to auto-route.
@@ -1157,7 +917,7 @@ export function AdminModules() {
                     ))}
                   </select>
                   {selectedModel && !isMixed && (
-                    <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--surface2)', borderRadius: 8, border: '1px solid var(--border)' }}>
+                    <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--ivory)', border: '.5px solid var(--border-warm)' }}>
                       <label style={{ display: 'flex', gap: 10, alignItems: 'flex-start', cursor: 'pointer' }}>
                         <input
                           type="checkbox"
@@ -1222,7 +982,7 @@ export function AdminModules() {
 
                 {/* AI row — primary action */}
                 {hasAI && (
-                  <div style={{ padding: '10px 12px', border: '1px solid var(--border)', borderRadius: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+                  <div style={{ padding: '10px 12px', border: '.5px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
                     <div style={{ minWidth: 0 }}>
                       <div style={{ fontSize: 11, color: 'var(--text2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 3 }}>AI model</div>
                       <div style={{ fontSize: 13, color: aiNotSet ? 'var(--text2)' : 'inherit' }}>
@@ -1244,7 +1004,7 @@ export function AdminModules() {
                   <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ fontSize: 11, color: 'var(--text2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Accounts</div>
                     {s.connectors.map(connector => (
-                      <div key={connector.id} style={{ border: '1px solid var(--border)', borderRadius: 8, padding: '8px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <div key={connector.id} style={{ border: '.5px solid var(--border)', padding: '8px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 600 }}>{connector.label}</div>
                           <div style={{ color: 'var(--text2)', fontSize: 11, marginTop: 2, overflowWrap: 'anywhere' }}>{connector.detail}</div>
@@ -1257,7 +1017,11 @@ export function AdminModules() {
                             </button>
                           )}
                           {connector.actionLabel && connector.actionType === 'plugin' && connector.pluginId && (
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => openConfigure(connector.pluginId!)}>
+                            <button
+                              className="btn btn-ghost btn-sm"
+                              style={{ fontSize: 11 }}
+                              onClick={() => s.mediaModuleId ? openConfigureMediaAI(s) : openConfigure(connector.pluginId!)}
+                            >
                               {connector.actionLabel}
                             </button>
                           )}
@@ -1267,6 +1031,22 @@ export function AdminModules() {
                             </button>
                           )}
                           {savedPlugin === connector.pluginId && <span style={{ color: 'var(--success)', fontSize: 11 }}>✓</span>}
+                          {connector.actionType === 'plugin' && connector.pluginId && (() => {
+                            const plug = plugins.find(p => p.plugin_id === connector.pluginId);
+                            if (!plug || plug.status === 'error') return null;
+                            const active = isPluginActive(plug, selectedBrandId);
+                            const toggling = activatingPlugin === connector.pluginId;
+                            return (
+                              <button
+                                className="btn btn-ghost btn-sm"
+                                style={{ fontSize: 11, color: active ? 'var(--text2)' : 'var(--accent)', opacity: toggling ? 0.5 : 1 }}
+                                disabled={toggling}
+                                onClick={() => handleToggleActivation(plug.plugin_id, active)}
+                              >
+                                {toggling ? '…' : active ? 'Deactivate' : 'Activate'}
+                              </button>
+                            );
+                          })()}
                         </div>
                       </div>
                     ))}
