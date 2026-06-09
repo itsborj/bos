@@ -1,7 +1,11 @@
 from __future__ import annotations
 
 import importlib.util
+import os
+import shutil
 from pathlib import Path
+
+import pytest
 
 
 def _load_module_class():
@@ -22,6 +26,10 @@ def test_video_generation_failure_self_check_fails() -> None:
     assert "generation_failed" in failures
 
 
+@pytest.mark.skipif(
+    not shutil.which(os.environ.get("FFMPEG_PATH", "ffmpeg")),
+    reason="ffmpeg not available in this environment",
+)
 def test_local_ffmpeg_video_generation_returns_reviewable_asset() -> None:
     module = _load_module_class()()
 
