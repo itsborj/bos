@@ -114,6 +114,7 @@ Required social plugins are active org-wide: `media.image`, `media.video`, `crea
 - [x] BUG-SOCIAL-001 · 2026-06-09 · `credentials_configured` false-negative for `backend_override_*` slot types. Fixed: `not missing and social_configured` — plugins with no `platform_var` slots (media.image, media.video) now show `True` when nothing is missing.
 - [x] BUG-SOCIAL-002 · 2026-06-09 · `credentials_configured` false-negative for `social_token` slot types. Fixed: preload connected social platforms at request time; check `social_token_platforms & connected_social_platforms`.
 - [x] BUG-SOCIAL-003 · 2026-06-09 · No CMO manifest inspection endpoint. Fixed: `GET /api/capability-manifest?brand_id=` endpoint added to `api/routers/plugins.py`; returns brand-filtered capability list.
+- [x] BUG-DEPLOY-001 · 2026-06-09 · Production deploy used `docker compose up --build` — rebuilt from source on VDS, bypassed CI-built GHCR image, produced `git_sha: "dev"`, diverged completely from the staging deploy path. Root cause of INC-009. Fixed: production deploy now pulls SHA-tagged GHCR image and uses `--no-build`, identical path to staging.
 
 ---
 

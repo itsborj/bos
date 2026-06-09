@@ -81,6 +81,8 @@ localhost  →  staging branch  →  main branch
 
 **The `git_sha: "dev"` signal:** Any time `GET /api/` returns `git_sha: "dev"` on production, the image was built locally on the VDS — not by CI. This is always wrong. CI always bakes the real SHA via `--build-arg GIT_SHA=${{ github.sha }}`. A local build means the pipeline was bypassed.
 
+**Fixed (2026-06-09):** The production deploy in `ci.yml` previously used `docker compose up --build`, rebuilding from source on the VDS — a completely different path from staging which pulls the CI-built GHCR image with `--no-build`. This structural divergence meant staging never validated what production actually ran, and was the root cause of INC-009. Production now pulls `ghcr.io/itsborj/bos-api:sha-{SHA}` and uses `--no-build --force-recreate`, identical to the staging path.
+
 ---
 
 ## Deploy Runbook

@@ -222,15 +222,33 @@ jobs:
       - name: SSH deploy to hq.klaroha.com (production)
         if: github.event.inputs.target == 'production'
         uses: appleboy/ssh-action@v1
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.VDS_HOST }}
           username: ${{ secrets.VDS_USER }}
           key: ${{ secrets.VDS_DEPLOY_KEY }}
+          envs: GHCR_TOKEN
           script: |
             set -euo pipefail
             cd ${{ secrets.PROD_PATH }}
             git fetch origin
             git reset --hard origin/main
-            docker compose up --build -d --force-recreate --remove-orphans
-            docker compose exec -T api alembic upgrade head
-            echo "Production deploy complete — $(git rev-parse --short HEAD)"
+            SHA=$(git rev-parse HEAD)
+            export API_IMAGE="ghcr.io/itsborj/bos-api:sha-${SHA}"
+            export WEB_IMAGE="ghcr.io/itsborj/bos-web:sha-${SHA}"
+            export RELAY_IMAGE="ghcr.io/itsborj/bos-relay:sha-${SHA}"
+            echo "$GHCR_TOKEN" | docker login ghcr.io -u itsborj --password-stdin
+            docker compose pull api web relay
+            docker compose stop
+            docker compose rm -f
+            docker compose up -d --no-build --force-recreate
+            _HEALTH=$(curl -s http://127.0.0.1:8090/api/ || true)
+            _UPTIME=$(echo "$_HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('uptime_seconds','?'))" 2>/dev/null || echo "?")
+            _GITSHA=$(echo "$_HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('git_sha','missing'))" 2>/dev/null || echo "missing")
+            echo "================================================"
+            echo " Production deploy complete"
+            echo " image:          ghcr.io/itsborj/bos-api:sha-${SHA}"
+            echo " git_sha:        ${_GITSHA}"
+            echo " uptime_seconds: ${_UPTIME}s"
+            echo "================================================"
