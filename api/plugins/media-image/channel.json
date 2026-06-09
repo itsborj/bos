@@ -15,7 +15,6 @@
     "openai",
     "gemini",
     "bytedance",
-    "cloudflare_workers_ai",
     "local_renderer"
   ],
   "connector_protocol": "api_key",
@@ -78,10 +77,5 @@
         {"value": "local-sample-renderer", "label": "Local sample PNG renderer"}
       ]
     },
-    {
-      "provider": "custom",
-      "label": "Custom Worker",
-      "models": []
-    }
   ]
 }

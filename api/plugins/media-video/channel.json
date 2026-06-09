@@ -16,7 +16,6 @@
     "gemini",
     "bytedance",
     "seedance",
-    "ffmpeg",
     "custom_http"
   ],
   "connector_protocol": "api_key",
@@ -64,11 +63,6 @@
     "creative.shortform.video"
   ],
   "provider_options": [
-    {
-      "provider": "local_ffmpeg",
-      "label": "Local FFmpeg",
-      "models": []
-    },
     {
       "provider": "gemini",
       "label": "Google Gemini (Veo)",

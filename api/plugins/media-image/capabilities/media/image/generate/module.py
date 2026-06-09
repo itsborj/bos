@@ -273,25 +273,11 @@ class MediaImageGenerateModule(ChannelModule):
             + chunk(b"IEND", b"")
         )
 
-    def _generate_custom(self, api_key: str, worker_url: str, prompt: str) -> bytes:
-        req = Request(
-            worker_url,
-            data=json.dumps({"prompt": prompt}).encode("utf-8"),
-            headers={
-                "Authorization": f"Bearer {api_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "BOS/1.1",
-            },
-            method="POST",
-        )
-        with urlopen(req, timeout=90) as r:
-            return r.read()
-
     def execute_tool_result(self, brief: dict) -> tuple[dict, dict]:
         start = time.perf_counter()
         creds = brief.get("_channel_credentials", {}) if isinstance(brief, dict) else {}
 
-        provider = str(creds.get("image_gen_provider") or "custom").lower().strip()
+        provider = str(creds.get("image_gen_provider") or "bytedance").lower().strip()
 
         prompt = str(brief.get("image_prompt") or brief.get("prompt") or "").strip()
         if not prompt:
@@ -337,15 +323,7 @@ class MediaImageGenerateModule(ChannelModule):
                 mime = "image/png"
 
             else:
-                # custom / default — existing Cloudflare Workers AI path
-                api_key = str(creds.get("image_gen_api_key") or "").strip()
-                worker_url = str(creds.get("image_gen_worker_url") or "").strip().rstrip("/")
-                if not api_key:
-                    return self._failure(start, "missing_credentials", "IMAGE_GEN_API_KEY not configured", provider)
-                if not worker_url:
-                    return self._failure(start, "missing_credentials", "IMAGE_GEN_WORKER_URL not configured", provider)
-                image_bytes = self._generate_custom(api_key, worker_url, prompt)
-                mime = "image/png"
+                return self._failure(start, "missing_credentials", f"Unknown or unconfigured image provider: {provider!r} — configure image_gen_provider via Admin → AI Providers", provider)
 
         except HTTPError as exc:
             try:

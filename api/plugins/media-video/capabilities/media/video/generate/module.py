@@ -5,8 +5,6 @@ import importlib.util
 import json
 import logging
 import os
-import subprocess
-import tempfile
 import time
 import uuid
 from pathlib import Path
@@ -17,8 +15,6 @@ from klaroha_sdk import ChannelModule
 
 _logger = logging.getLogger(__name__)
 
-_FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
-_FONT = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
 _DRIVE_CLIENT_PATH = "/app/plugins/google-drive/drive_client.py"
 
 # Gemini Veo endpoints — veo-3.0 is the default (veo-2.0 requires separate GCP billing)
@@ -36,7 +32,7 @@ _MODELARK_POLL_INTERVAL = 4   # seconds
 _MODELARK_MAX_POLLS = 45      # ~3 minutes
 
 # Providers — kling reserved for future
-_KNOWN_PROVIDERS = frozenset({"gemini", "seedance", "local_ffmpeg", "custom", "custom_http", "bytedance"})
+_KNOWN_PROVIDERS = frozenset({"gemini", "seedance", "custom", "custom_http", "bytedance"})
 
 _ASPECT_SIZES: dict[str, tuple[int, int]] = {
     "9:16": (1080, 1920),
@@ -52,75 +48,6 @@ def _load_drive():
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m
-
-
-def _esc(text: str) -> str:
-    return (
-        text
-        .replace("\\", "\\\\")
-        .replace("'", "\\'")
-        .replace(":", "\\:")
-        .replace(",", "\\,")
-        .replace("[", "\\[")
-        .replace("]", "\\]")
-    )
-
-
-def _font_arg() -> str:
-    return f"fontfile={_FONT}:" if Path(_FONT).exists() else ""
-
-
-def _build_drawtext_filters(hook_text: str, cta_text: str, brand_name: str, duration: float, text_color: str, h: int) -> list[str]:
-    fa = _font_arg()
-    filters: list[str] = []
-    if brand_name:
-        fs = max(28, h // 50)
-        filters.append(
-            f"drawtext={fa}text='{_esc(brand_name.upper())}':"
-            f"fontcolor={text_color}:fontsize={fs}:"
-            f"x=(w-text_w)/2:y=h*0.05:enable='between(t,0,{duration})'"
-        )
-    if hook_text:
-        hook_end = min(duration * 0.6, 8.0)
-        fs = max(52, h // 22)
-        filters.append(
-            f"drawtext={fa}text='{_esc(hook_text[:120])}':"
-            f"fontcolor={text_color}:fontsize={fs}:"
-            f"x=(w-text_w)/2:y=(h-text_h)/2:enable='between(t,0.5,{hook_end:.1f})'"
-        )
-    if cta_text:
-        cta_start = min(duration * 0.7, 10.0)
-        fs = max(36, h // 36)
-        filters.append(
-            f"drawtext={fa}text='{_esc(cta_text)}':"
-            f"fontcolor={text_color}:fontsize={fs}:"
-            f"x=(w-text_w)/2:y=h*0.85:enable='between(t,{cta_start:.1f},{duration})'"
-        )
-    return filters
-
-
-def _render_local(hook_text: str, cta_text: str, brand_name: str, duration: float, aspect_ratio: str, bg_color: str, text_color: str, output_path: str) -> None:
-    w, h = _ASPECT_SIZES[aspect_ratio]
-    bg = bg_color.lstrip("#")
-    filters = _build_drawtext_filters(hook_text, cta_text, brand_name, duration, text_color, h)
-    vf = ",".join(filters) if filters else "null"
-    _run_ffmpeg_color(bg, w, h, duration, vf, output_path)
-
-
-def _run_ffmpeg_color(bg: str, w: int, h: int, duration: float, vf: str, output_path: str) -> None:
-    cmd = [
-        _FFMPEG, "-y", "-f", "lavfi",
-        "-i", f"color=c=0x{bg}:size={w}x{h}:rate=30",
-        "-vf", vf, "-t", str(duration),
-        "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "fast",
-        output_path,
-    ]
-    result = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    if result.returncode != 0:
-        if vf != "null" and "No such filter: 'drawtext'" in result.stderr:
-            _run_ffmpeg_color(bg, w, h, duration, "null", output_path)
-            return
-        raise RuntimeError(f"FFmpeg error: {result.stderr[-600:]}")
 
 
 def _http_post(url: str, payload: dict, headers: dict, timeout: int = 120) -> dict:
@@ -372,7 +299,7 @@ class MediaVideoGenerateModule(ChannelModule):
         start = time.perf_counter()
         creds = brief.get("_channel_credentials", {}) if isinstance(brief, dict) else {}
 
-        provider = str(creds.get("video_gen_provider") or "local_ffmpeg").lower().strip()
+        provider = str(creds.get("video_gen_provider") or "bytedance").lower().strip()
         provider_url = str(creds.get("video_gen_api_url") or "").strip()
         api_key = str(creds.get("provider_api_key") or creds.get("video_gen_api_key") or "").strip()
 
@@ -426,8 +353,7 @@ class MediaVideoGenerateModule(ChannelModule):
                 external_video_url = _generate_http_provider(provider_url, api_key, payload, output_path)
 
             else:
-                # local_ffmpeg — always available, no credentials needed
-                _render_local(hook_text, cta_text, brand_name, duration, aspect_ratio, bg_color, text_color, output_path)
+                return self._fail(start, provider, "missing_credentials", f"Unknown or unconfigured video provider: {provider!r} — configure video_gen_provider via Admin → AI Providers")
 
         except TimeoutError as exc:
             return self._fail(start, provider, "timeout", str(exc))
@@ -436,7 +362,7 @@ class MediaVideoGenerateModule(ChannelModule):
             return self._fail(start, provider, "api_call_failed", detail)
         except (json.JSONDecodeError, ValueError, KeyError, IndexError) as exc:
             return self._fail(start, provider, "unexpected_response", str(exc))
-        except (subprocess.TimeoutExpired, OSError, RuntimeError) as exc:
+        except (OSError, RuntimeError) as exc:
             return self._fail(start, provider, "generation_failed", str(exc))
 
         if not external_video_url and (not os.path.exists(output_path) or os.path.getsize(output_path) == 0):
