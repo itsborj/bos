@@ -15,6 +15,7 @@ from .outcome import OutcomeRecord
 from .pending_decision import PendingDecision
 from .provider import ProviderKey, ProviderLoginSession
 from .run import Run, RunAttempt, RunResult, RunTrace
+from .plugin_activation import PluginActivation
 from .social import SocialConnection
 from .stream import StreamUpdate
 from .workspace import Audience, Brand, Campaign, Product, Workspace
@@ -52,4 +53,5 @@ __all__ = [
     "CreativeAsset",
     "CreativeBlueprint",
     "CreativeJob",
+    "PluginActivation",
 ]

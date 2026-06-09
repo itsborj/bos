@@ -31,3 +31,37 @@ def test_actionable_artifact_directive_does_not_look_like_run_directive() -> Non
     assert chat_router._extract_action_directives(raw) == [
         ("22222222-2222-2222-2222-222222222222", "send")
     ]
+
+
+def test_orphan_run_params_are_hidden_from_visible_reply() -> None:
+    raw = (
+        "Image generation did not succeed. I'll retry the image generation.\n"
+        "image_prompt: a professional image\n"
+        "caption: none\n"
+        "video_prompt: a professional video\n"
+        "background_color: #1a1a1a\n"
+        "text_color: #ffffff"
+    )
+
+    visible = chat_router._strip_control_directives(raw)
+
+    assert "image_prompt:" not in visible
+    assert "caption:" not in visible
+    assert "video_prompt:" not in visible
+    assert "background_color:" not in visible
+    assert "text_color:" not in visible
+    assert "Image generation did not succeed" in visible
+
+
+def test_artifact_actions_require_latest_user_authorization() -> None:
+    assert chat_router._user_authorized_artifact_action("Create a GTM launch strategy") is False
+    assert chat_router._user_authorized_artifact_action("Approve that plan and go ahead") is True
+    assert chat_router._user_authorized_artifact_action("send the approved email") is True
+
+
+def test_duplicate_run_directives_are_deduped_per_turn() -> None:
+    assert chat_router._dedupe_preserve_order([
+        "marketing.planning.strategy_workflow",
+        "marketing.planning.strategy_workflow",
+        "marketing.email.sequence",
+    ]) == ["marketing.planning.strategy_workflow", "marketing.email.sequence"]

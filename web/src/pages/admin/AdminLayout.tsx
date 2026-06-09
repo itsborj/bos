@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Navigate, NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { api, getApiKey, clearApiKey } from '../../api/client';
+import { api, getApiKey } from '../../api/client';
+import { FooterNav } from '../../components/FooterNav';
 
 type AdminNavItem = { to?: string; label: string; icon: string; parked?: boolean };
 type AdminNavSection = { label: string; parked?: boolean; items: AdminNavItem[] };
@@ -30,7 +31,6 @@ const NAV_SECTIONS: AdminNavSection[] = [
   {
     label: 'Settings',
     items: [
-      { to: '/admin/connectors',     label: 'Connectors',     icon: '⇄' },
       { to: '/admin/providers',      label: 'AI Providers',   icon: '⚡' },
       { to: '/admin/objective-loop', label: 'Loop Setup',     icon: '◎' },
       { to: '/admin/watchpoints',    label: 'Watchpoints',    icon: '◈' },
@@ -98,13 +98,15 @@ function GettingStartedBanner() {
 }
 
 export function AdminLayout() {
-  const navigate = useNavigate();
   if (!getApiKey()) return <Navigate to="/auth" replace />;
 
   return (
-    <div className="admin-shell">
+    <div className="admin-app-frame">
+      <div className="admin-shell">
       <aside className="admin-sidebar">
-        <div className="admin-logo">Klaroha</div>
+        <div className="admin-logo-block">
+          <div className="admin-logo">Klaroha</div>
+        </div>
         <nav className="admin-nav">
           {NAV_SECTIONS.map(section => (
             <div key={section.label}>
@@ -133,18 +135,6 @@ export function AdminLayout() {
             </div>
           ))}
         </nav>
-        <div className="admin-sidebar-footer">
-          <NavLink to="/admin/getting-started" className={({ isActive }) => `admin-back-link${isActive ? ' active' : ''}`}>
-            → Getting Started
-          </NavLink>
-          <a href="/" className="admin-back-link">← CMO App</a>
-          <button
-            className="admin-back-link admin-signout"
-            onClick={() => { clearApiKey(); navigate('/auth'); }}
-          >
-            Sign out
-          </button>
-        </div>
       </aside>
       <main className="admin-content">
         <GettingStartedBanner />
@@ -152,6 +142,8 @@ export function AdminLayout() {
           <Outlet />
         </div>
       </main>
+      </div>
+      <FooterNav />
     </div>
   );
 }

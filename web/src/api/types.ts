@@ -1,12 +1,49 @@
+export interface MediaModelOption {
+  value: string;
+  label: string;
+}
+
+export interface MediaProviderOption {
+  provider: string;
+  label: string;
+  models: MediaModelOption[];
+}
+
+export interface PluginConnectionInfo {
+  platform: string;
+  type: string;
+  scopes: string[];
+  client_id_var?: string | null;
+  client_secret_var?: string | null;
+  redirect_uri_var?: string | null;
+  validate_capability?: string | null;
+  display_name?: string | null;
+  icon?: string | null;
+}
+
+export interface ActivationState {
+  brand_id: string | null;  // null = org-level
+  status: 'active' | 'inactive' | 'error';
+  error_reason?: string | null;
+}
+
 export interface PluginInfo {
   plugin_id: string;
   name: string;
   version: string;
+  source: 'external' | 'internal';
+  status: 'installed' | 'error';
+  reason?: string | null;
+  capability_ids: string[];
   implements: string[];
   requires_platform_vars: string[];
+  requires_social_connection: string[];
   credentials_configured: boolean;
   missing_vars: string[];
   credential_source: 'database' | 'env_var' | 'partial' | 'none';
+  activation_by_brand: ActivationState[];
+  media_provider_options?: MediaProviderOption[];
+  connections?: PluginConnectionInfo[];
 }
 
 export interface BrandOut {
@@ -43,10 +80,13 @@ export interface WorkspaceResponse {
 
 export interface ModuleInfo {
   id: string;
+  name?: string;
   vertical: string;
   capability: string;
   platform_hint: string;
   policy_default: string;
+  internal?: boolean;
+  uses_llm?: boolean;
   constraints: {
     max_chars: number;
     must_mention: string[];
@@ -98,6 +138,7 @@ export interface RunResponse {
   approval_status?: string | null;
   campaign_id?: string | null;
   brand_id?: string | null;
+  brand_name?: string | null;
   result?: RunResultOut;
   execution?: RunExecutionOut;
   trace?: RunTraceOut;
@@ -120,12 +161,14 @@ export interface RunListItem {
   campaign_id?: string | null;
   campaign_name?: string | null;
   brand_id?: string | null;
+  brand_name?: string | null;
   created_at: string;
   provider?: string | null;
   model?: string | null;
   latency_ms?: number | null;
   tokens?: number | null;
   cost?: number | null;
+  result?: RunResultOut | null;
 }
 
 export interface RunListResponse {
@@ -299,8 +342,40 @@ export interface ChatHistoryItem {
 }
 
 export interface KlarAction {
-  action: 'brand_switch' | 'brand_clear' | 'plan_draft' | 'plan_confirmed' | 'pending_klar' | 'evaluate_stub' | 'pending_summary' | 'brand_list';
+  action: 'brand_switch' | 'brand_clear' | 'plan_draft' | 'plan_confirmed' | 'pending_klar' | 'evaluate_stub' | 'pending_summary' | 'brand_list' | 'council_session';
   data: Record<string, unknown>;
+}
+
+export interface CouncilPosition {
+  seat_id: string;
+  display_name: string;
+  content: string;
+  timestamp: string;
+  round?: number;
+}
+
+export interface CouncilSessionState {
+  session_id: string;
+  status: string;
+  brief?: string;
+  current_round: number;
+  rounds_completed: number;
+  rounds: CouncilPosition[][];
+  c6_injections: Array<{ round_boundary: number; content: string; timestamp: string }>;
+  pending_c6_prompt: string | null;
+  safety_ceiling: number;
+}
+
+export interface CouncilFinalizeResult {
+  session_id: string;
+  status: string;
+  brief: string;
+  settlement: string;
+  marching_orders: string[];
+  parked_decisions: string[];
+  c6_injections: Array<{ round_boundary: number; content: string; timestamp: string }>;
+  rounds_completed: number;
+  transcript: string;
 }
 
 export interface ObjectiveOut {
@@ -427,7 +502,7 @@ export interface HandoffBriefOut {
 export interface ArtifactRef {
   artifact_id: string;
   title: string;
-  type: 'draft_artifact' | 'plan_artifact' | 'intelligence_artifact' | 'action_result' | 'decision_artifact';
+  type: 'draft_artifact' | 'plan_artifact' | 'intelligence_artifact' | 'action_result' | 'decision_artifact' | 'setup_blocker';
   status: 'pending_review' | 'approved' | 'dismissed' | 'saved' | 'failed';
   renderer: string;
   workspace_url: string;
@@ -535,4 +610,38 @@ export interface BookingResponse {
   end_at: string;
   status: string;
   created_at: string;
+}
+
+export interface ProviderModelLive {
+  provider: string;
+  model_id: string;
+  name: string;
+  is_free: boolean;
+  input_cost_per_token: number;
+  output_cost_per_token: number;
+  context_length: number;
+  quality_tier: string;
+  supports_json: boolean;
+  modality: string; // "text" | "image" | "video"
+}
+
+export interface ProviderModelsResponse {
+  models: ProviderModelLive[];
+}
+
+export interface CouncilSeat {
+  seat_id: string;
+  display_name: string;
+  status: string;
+  provider: string;
+  model_id: string | null;
+  ideology: string | null;
+}
+
+export interface CouncilSeatUpdate {
+  display_name: string;
+  status: string;
+  provider: string;
+  model_id: string | null;
+  ideology: string | null;
 }

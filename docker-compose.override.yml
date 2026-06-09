@@ -1,0 +1,20 @@
+# Local development overrides — loaded automatically by `docker compose up`.
+# NOT loaded on VDS: deploy-staging.sh uses `-f docker-compose.yml` explicitly.
+services:
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
+    volumes:
+      - ./api:/app
+
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+
+  relay:
+    build:
+      context: ./relay
+      dockerfile: Dockerfile

@@ -4,20 +4,50 @@
   "version": "0.2.0",
   "klaroha_min_version": "3.5",
   "capabilities_root": "capabilities/",
-  "implements": ["marketing.execute", "marketing.optimize"],
-  "specialty": ["project_management", "task_tracking", "campaign_execution", "campaign_status_read"],
-  "platforms": ["clickup"],
+  "implements": [
+    "marketing.execute",
+    "marketing.optimize"
+  ],
+  "specialty": [
+    "project_management",
+    "task_tracking",
+    "campaign_execution",
+    "campaign_status_read"
+  ],
+  "platforms": [
+    "clickup"
+  ],
   "connector_protocol": "clickup_rest_api_v2",
   "risk_policy": "tasks_read_is_read_only; tasks_create_is_approval_gated",
-  "output_contracts": ["clickup_task_status", "clickup_tasks_created"],
-  "requires_social_connection": [],
-  "requires_platform_vars": [
-    "CLICKUP_API_TOKEN"
+  "output_contracts": [
+    "clickup_task_status",
+    "clickup_tasks_created"
+  ],
+  "credential_slots": [
+    {
+      "key": "clickup_api_token",
+      "type": "platform_var",
+      "var": "CLICKUP_API_TOKEN"
+    },
+    {
+      "key": "clickup_team_id",
+      "type": "brand_json_path",
+      "path": "pm_config.team_id"
+    },
+    {
+      "key": "pm_list_id",
+      "type": "brand_json_path",
+      "path": "pm_config.list_id"
+    }
   ],
   "optional_platform_vars": [
     "CLICKUP_WEBHOOK_SECRET"
   ],
-  "pm_capabilities": ["tasks.create", "tasks.update"],
+  "workspace_discovery_url": "https://api.clickup.com/api/v2/team",
+  "pm_capabilities": [
+    "tasks.create",
+    "tasks.update"
+  ],
   "capability_ids": [
     "marketing.channel.clickup.tasks.read",
     "marketing.channel.clickup.tasks.create",

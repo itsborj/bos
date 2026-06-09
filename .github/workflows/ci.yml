@@ -5,6 +5,12 @@ on:
     branches: [main, staging]
   push:
     branches: [main, staging]
+  workflow_dispatch:
+    inputs:
+      deploy_sha:
+        description: 'Git SHA to deploy (leave blank to use latest origin/staging)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -71,23 +77,84 @@ jobs:
             exit 1
           fi
 
-  # ── Deploy to staging ────────────────────────────────────────────────────
-  deploy-staging:
-    name: Deploy → staging
+      - name: TypeScript strict type check
+        run: |
+          cd web
+          npm ci --silent
+          npx tsc -b
+
+  # ── Build & push images to GHCR ──────────────────────────────────────────
+  build-and-push:
+    name: Build & push images
     needs: test
     if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./api
+          push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
+          tags: |
+            ghcr.io/itsborj/bos-api:sha-${{ github.sha }}
+            ghcr.io/itsborj/bos-api:staging
+
+      - name: Build and push web image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./web
+          push: true
+          tags: |
+            ghcr.io/itsborj/bos-web:sha-${{ github.sha }}
+            ghcr.io/itsborj/bos-web:staging
+
+      - name: Build and push relay image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./relay
+          push: true
+          tags: |
+            ghcr.io/itsborj/bos-relay:sha-${{ github.sha }}
+            ghcr.io/itsborj/bos-relay:staging
+
+  # ── Deploy to staging (manual only) ─────────────────────────────────────
+  # Triggered via: GitHub Actions UI → "Run workflow" (or gh workflow run CI)
+  # Push to staging builds and pushes images automatically but does NOT deploy.
+  # Deploy when you're ready — not on every push.
+  deploy-staging:
+    name: Deploy → staging
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      packages: read
 
     steps:
       - name: SSH deploy to staging.klaroha.com
         uses: appleboy/ssh-action@v1
         env:
           STAGING_ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
+          DEPLOY_SHA: ${{ github.event.inputs.deploy_sha }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.VDS_HOST }}
           username: ${{ secrets.VDS_USER }}
           key: ${{ secrets.VDS_DEPLOY_KEY }}
-          envs: STAGING_ENV_FILE
+          envs: STAGING_ENV_FILE,DEPLOY_SHA,GHCR_TOKEN
           script: |
             set -euo pipefail
             STAGING_PATH=${{ secrets.STAGING_PATH }}
@@ -96,14 +163,12 @@ jobs:
               rm -rf "$STAGING_PATH"
               git clone https://github.com/itsborj/bos.git "$STAGING_PATH"
             fi
-            if [ ! -f "$STAGING_PATH/.env.staging" ]; then
-              echo "Writing .env.staging from secret"
-              printf '%s' "$STAGING_ENV_FILE" > "$STAGING_PATH/.env.staging"
-            fi
+            echo "Writing .env.staging from secret"
+            printf '%s' "$STAGING_ENV_FILE" > "$STAGING_PATH/.env.staging"
             cd "$STAGING_PATH"
             git fetch origin
             git reset --hard origin/staging
-            bash deploy-staging.sh
+            DEPLOY_SHA="$DEPLOY_SHA" GHCR_TOKEN="$GHCR_TOKEN" bash deploy-staging.sh
 
   # ── Deploy to production ─────────────────────────────────────────────────
   deploy-production:

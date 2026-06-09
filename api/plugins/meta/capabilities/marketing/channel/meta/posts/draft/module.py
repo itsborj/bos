@@ -20,18 +20,35 @@ class MetaPostsDraftModule(ChannelModule):
         from module_base import _get_env
         return _get_env().get_template(self.template).render(**brief)
 
-    def _build_block(self, content: str) -> dict:
-        return {
+    def _build_block(self, content: str, brief: dict | None = None) -> dict:
+        creds = (brief or {}).get("_channel_credentials", {}) if isinstance(brief, dict) else {}
+        creds = creds if isinstance(creds, dict) else {}
+        page_id = creds.get("facebook_page_id") or creds.get("page_id")
+        page_name = creds.get("facebook_page_name") or creds.get("page_name")
+        page_handle = creds.get("facebook_page_handle") or creds.get("page_handle")
+        allowed_actions = ["revise", "dismiss", "approve"]
+        action_modules = {}
+        if page_id:
+            allowed_actions.append("publish")
+            action_modules["publish"] = "marketing.channel.meta.posts.publish"
+        block = {
             "type": "fb_page_post_draft",
             "platform": "facebook",
             "message": content.strip(),
             "link": None,
             "status": "draft",
-            "allowed_actions": ["revise", "dismiss", "approve", "publish"],
-            "action_modules": {"publish": "marketing.channel.meta.posts.publish"},
+            "allowed_actions": allowed_actions,
+            "action_modules": action_modules,
             "risk_policy": "draft_only_until_approved",
             "changed_resources": [],
         }
+        if page_id:
+            block["page_id"] = page_id
+        if page_name:
+            block["page_name"] = page_name
+        if page_handle:
+            block["page_handle"] = page_handle
+        return block
 
     def self_check(self, content: str, brief: dict) -> tuple[str, list[str]]:
         failures = []

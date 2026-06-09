@@ -1,9 +1,15 @@
 # Council Brief Artifact v1 — Stage 2 Sample
 
-Status: Stage 2 sample — approved as Council artifact-first boundary reference  
-Date: 2026-05-22  
+Status: Stage 2 sample — **output artifact shape still valid**  
+Date: 2026-05-22 · Reviewed: 2026-06-02  
 Scope: explicit `@council` deliberation loop for high-stakes marketing/business judgment  
 BITE stage: Sample
+
+> **2026-06-02 note:** The *output artifact shape* in this file (Stream card layout, marching orders,
+> parked decisions, alignment block, expandable transcript) remains the agreed target.
+> The *deliberation model* described here (single-pass, 5 fixed roles, static synthesis) is
+> superseded. See `sample/bos_council_brief_planning.md` for the current model:
+> live boardroom rounds, variable active seats, all CMO caliber, C6 as Council #6.
 
 ---
 

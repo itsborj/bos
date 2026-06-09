@@ -76,7 +76,7 @@ Meta uses a **Use Cases** model (not the old Products model). The correct setup 
 - Save Changes
 
 ### 5. Enter credentials in BOS
-- Credentials go in **Admin → Plugins → Meta Channel** (not `.env`)
+- Credentials go in **Admin → Specialists → Social Specialist / Meta Channel → Connectors** (not `.env`)
 - `META_APP_ID` — from Settings → Basic
 - `META_APP_SECRET` — click Show next to the dots in Settings → Basic
 - `META_REDIRECT_URI` — match the URI registered in step 3
@@ -138,7 +138,7 @@ Do not request Instagram scopes in Phase 1. Scope creep in the OAuth consent scr
 
 Declared in `channel.json` as `requires_social_connection: ["facebook", "google_drive"]` and `requires_platform_vars: ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"]`.
 
-Plugin vars (META_APP_ID, META_APP_SECRET, META_REDIRECT_URI) are stored in the DB via Admin → Plugins → Meta Channel and loaded at runtime via `get_plugin_vars("channel.meta", db, settings)`.
+Plugin vars (META_APP_ID, META_APP_SECRET, META_REDIRECT_URI) are stored in the DB via Admin → Specialists → Social Specialist / Meta Channel → Connectors and loaded at runtime via `get_plugin_vars("channel.meta", db, settings)`.
 
 BOS injects page credentials into `brief["_channel_credentials"]`:
 
@@ -420,7 +420,7 @@ requires_social_connection: ["facebook", "google_drive"]
 requires_platform_vars: ["META_APP_ID", "META_APP_SECRET", "META_REDIRECT_URI"]
 ```
 
-Platform vars are stored in DB via Admin → Plugins → Meta Channel. Never put them in `.env` for production — `.env` values are fallbacks for local dev only.
+Platform vars are stored in DB via Admin → Specialists → Social Specialist / Meta Channel → Connectors. Never put them in `.env` for production — `.env` values are fallbacks for local dev only.
 
 `google_drive` is optional at runtime — if the brand has no Drive connection, `google_drive_page_token` will be absent from `_channel_credentials`. The publish module returns `missing_credentials` only when `drive_file_id` is in the brief but `google_drive_page_token` is absent. Text-only posts proceed regardless of Drive connection.
 

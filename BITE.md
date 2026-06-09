@@ -48,24 +48,136 @@ Core owns only:
 
 Core must not own channel behavior, platform routing, prompt examples for specific channels, MCP tool semantics, provider-specific workflow logic, or UI assumptions for one capability.
 
-### Capability Package Policy
+### Everything is a Package
 
-Everything workflow-specific ships as a capability package.
+There is no module concept in BOS. Everything is a package.
 
-A capability package may contain:
+BOS core owns only the five host primitives (load / resolve / inject / dispatch / persist). All capability behavior — whether Klaroha-maintained or operator-installed — ships as a package following the same contract. This follows the pi.dev agent harness model: the runner stays thin; capabilities are loaded resources, not core branches.
+
+**Why packages, not special-cased modules?**
+
+Every org that deploys BOS will need capabilities the Klaroha team did not build. A retailer adds a Shopify connector. An agency adds a branded checklist capability. A franchise operator adds a multi-location reporting package. These should not require submitting a PR to BOS core. The package contract is the extension point — and it must be the same contract Klaroha uses internally, or third-party packages become second-class citizens that lag every core change.
+
+This also means Klaroha's own built-in capabilities are replaceable. If an org has a better planning module, they install it with the same module ID and it takes precedence. Core does not protect its own packages.
+
+**Two concepts, one contract: Core and Plugin.**
+
+There are no tiers.
 
 ```text
-SKILL.md                 operating/activation contract
-module.py                Transform node
-template.j2              prompt/tool template
-resources/               lazy references, SOPs, examples, scripts
-connector manifest       OAuth/API/MCP/env requirements
-quality gates            validators/evaluators
-output contract          block type, approval policy, renderer hints
-sample/                  BITE sample outputs
+Core    Location:  api/capabilities/workspace/, api/capabilities/onboarding/
+        Activates: auto, org-wide, cannot be deactivated
+        Contains:  CMO primitives — context loading, scope resolution, approval
+                   gating, deliberation, brand setup. Without these BOS does
+                   not function. Equivalent to pi.dev's Read / Write / Edit / Bash.
+
+Plugin  Location:  api/plugins/ (bundled) or ~/bos-plugins/ (operator-installed)
+        Activates: bundled plugins auto-activate org-wide; operator-installed
+                   plugins require explicit per-brand activation
+        Contains:  every other capability — channels, analytics, tools, media,
+                   creative, and marketing skill packages
 ```
 
-Adding or removing a capability must not require edits to `routers/chat.py`, `skills/router.py`, `routers/runs.py`, or other core pipeline code. If a capability requires a core edit, the correct fix is usually to add a generic extension point, not capability-specific logic.
+Both use the identical package contract. Core vs Plugin governs activation model only — not contract format, not API access, not dispatch priority.
+
+**The BOS Core primitives:**
+
+```text
+workspace.cmo_context        context loading — what the CMO knows about the brand/workspace
+workspace.scope_resolution   brand scoping — which brand is active for this conversation
+workspace.approval_review    approval gate — approve / revise / dismiss artifact decisions
+workspace.council            deliberation — multi-perspective reasoning for high-stakes decisions
+workspace.marketing_jobs     job model — maps owner language to CMO-facing job taxonomy
+onboarding.brand_setup       brand initialization — extract brand profile from supplied materials
+onboarding.campaign_brand_kit  brand execution kit — visual identity, voice, campaign defaults
+```
+
+These primitives cannot be removed from a running BOS deployment. They are the reason `api/capabilities/workspace/` and `api/capabilities/onboarding/` are never treated like ordinary installed packages.
+
+**Two source roots, one contract:**
+
+```text
+Core packages      api/capabilities/workspace/, api/capabilities/onboarding/
+                   Cannot be deactivated. Always present.
+Bundled plugins    api/plugins/
+                   Ships with BOS. Auto-activated org-wide.
+Installed plugins  ~/bos-plugins/ mounted at /external_plugins/
+                   Operator-installed. Inactive until explicitly activated per brand.
+```
+
+This follows VS Code and WordPress directly. VS Code's built-in TypeScript support ships in `app/extensions/` as a standard extension package — same `package.json`, same extension API as any third-party extension, can be disabled. WordPress ships Akismet as a regular plugin — same plugin header, same hook API, can be deactivated. The package contract does not change based on who wrote it or where it ships from. The host has a loader; packages are loaded resources.
+
+**Why per-domain skill bundles:**
+
+Anthropic's Claude Code skills use the same SKILL.md concept. A Claude Code skill is a directory: `SKILL.md` is the entry point, and everything the capability needs — references, scripts, assets, examples — lives alongside it as siblings. The atomic unit is the directory: install, remove, or upgrade it as one action.
+
+```text
+# Claude Code skills — the reference model
+summarize/
+  SKILL.md         minimal frontmatter + prose instructions. That's it.
+
+huashu-design/
+  SKILL.md         entry point
+  references/      knowledge files the LLM reads
+  assets/          supporting media
+  scripts/         executable scripts
+  demos/           example outputs
+```
+
+BOS applies this directly. A plugin directory is the skill bundle. Everything the capability needs lives inside it. **The boundary of the plugin directory is the boundary of what an operator installs, removes, or upgrades.** This is the organizing principle — not namespace taxonomy alone.
+
+When an operator deletes `api/plugins/email/`, all email capability disappears cleanly: campaign planning, draft generation, inbox intelligence, approved sends. No orphaned SKILL.md files scattered elsewhere. No partial state after removal.
+
+This is why the marketing capabilities currently in `api/capabilities/marketing/` are migrating into their owning plugins:
+
+```text
+Current location                         → Target plugin bundle
+api/capabilities/marketing/email/        → api/plugins/email/
+                                           (merges: gmail + gmail-auth + email planner)
+api/capabilities/marketing/seo/          → api/plugins/search-console/
+                                           (data connector + SEO audit = one install)
+api/capabilities/marketing/analytics/    → api/plugins/google-analytics/
+                                           (GA data + GTM + tracking = one install)
+api/capabilities/marketing/launch/       → api/plugins/marketing-launch/
+                                           (platform-agnostic launch skill bundle)
+api/capabilities/marketing/planning/     → api/plugins/marketing-planning/
+                                           (platform-agnostic planning skill bundle)
+```
+
+After this consolidation, `api/capabilities/` contains only Core: `workspace/` and `onboarding/`.
+
+**Package content:**
+
+```text
+SKILL.md         operating/activation contract — when to activate, memory slots, triggers
+module.py        Transform node — capability code; imports only klaroha_sdk
+channel.json     package identity, credential slots, connections, risk policy, capability IDs
+template.j2      prompt or tool template
+resources/       lazy references, SOPs, examples, scripts
+sample/          BITE sample outputs for this capability
+```
+
+**Package namespace taxonomy:**
+
+Every package has a dot-namespaced `plugin_id` in `channel.json`. The namespace signals what kind of package it is:
+
+```text
+workspace.*      Core: CMO primitives and pipeline contracts
+onboarding.*     Core: brand initialization and setup
+channel.*        Plugin: distribution — publishes or sends to an external platform
+                 (Gmail, Meta, YouTube, TikTok, LinkedIn)
+analytics.*      Plugin: read-only data connectors — performance, audience, search data
+                 (Google Ads, Analytics, Search Console)
+tool.*           Plugin: generic cross-vertical tools — not tied to marketing distribution
+                 (Google Drive, ClickUp, Google Calendar)
+media.*          Plugin: creative primitive generators — image and video production
+creative.*       Plugin: creative orchestration, blueprints, brand-locked supply chain
+scheduling.*     Plugin: booking and calendar management
+```
+
+The namespace is a human contract, not enforced by the scanner. It communicates intent: a package named `channel.meta` is a distribution channel. A package named `tool.clickup` is a cross-vertical project tool. Anyone reading the ID immediately knows what kind of capability it is.
+
+Adding or removing a capability must not require edits to `routers/chat.py`, `skills/router.py`, `routers/runs.py`, or other core pipeline code. If a capability requires a core edit, the correct fix is a generic extension point, not capability-specific logic.
 
 ### `SKILL.md` Contract Policy
 
@@ -229,13 +341,79 @@ Org → Brand / Client → Market Unit (optional) → Campaign
 
 There is no separate Portfolio layer; the Org is the portfolio/control plane. `Market Unit` is optional and can represent a location, service area, branch, agent, office, territory, marketplace, SKU group, region, service line, or audience segment. A request remains one of the three marketing jobs with richer scope.
 
-### Plugin and Extension Policy
+### Thin-Core Host Primitives
 
-BOS follows the pi harness lesson: keep core small; make workflows installable, discoverable, reloadable, inspectable, and removable.
+BOS core exposes exactly five host-level primitives. These are the stable, generic contracts that must not grow platform-specific branches.
 
-Plugins/packages are first-class extension units. They may register capabilities, connector adapters, prompt fragments, block renderers, quality gates, commands, and lifecycle hooks through stable public interfaces.
+```text
+load      → plugin_loader           discover, validate, quarantine external plugin packages
+resolve   → _resolve_brief /        assemble execution context (brand, credentials, docs)
+              _brand_scoped_brief
+inject    → inject_channel_         enrich brief["_channel_credentials"] before dispatch
+              credentials
+dispatch  → _execute_module         run module_id + brief through executor → artifact
+persist   → Run / artifact storage  save result, stream event to client
+```
 
-Plugins must not import BOS internals such as database models, settings, routers, executor internals, or private registries. Host-provided context and credentials arrive through declared contracts.
+These are the BOS execution contract in order:
+
+```text
+CMO intent
+  ↓ resolve   (brand context + brief)
+  ↓ inject    (credentials into brief["_channel_credentials"])
+  ↓ dispatch  (module_id + brief → executor → LLM / tool)
+  ↓ persist   (Run row + artifact result)
+  ↓ stream    (SSE event to client)
+```
+
+**These five primitives are the stable surface area of BOS core. If new behavior cannot be expressed through load, resolve, inject, dispatch, or persist — it is a new primitive and requires an explicit constitutional decision before implementation.**
+
+Plugin behavior arrives through `load` and changes what `dispatch` can call. It never requires changes to the dispatch contract, the persist contract, or the resolve logic.
+
+The pi.dev corollary: add loaded resources, not core branches. The manifest tells the CMO what is available; the primitives execute it. No new primitive should be added for a specific platform, workflow, or plugin.
+
+---
+
+### Spec Kit Update Protocol
+
+When BITE.md changes, spec kits must be updated before implementation continues. This is not optional and not an afterthought.
+
+**Chain of authority — top overrides bottom:**
+
+```text
+BITE.md                                        ← constitution; always wins
+  └─ PLUGIN_ARCHITECTURE_RECOMMENDATION.md    ← implementation guide; agrees with BITE
+       └─ spec.md                             ← feature contract; derived from above
+            ├─ plan.md                        ← design artifacts
+            ├─ tasks.md                       ← actionable implementation tasks
+            └─ data-model.md, contracts/      ← supporting reference artifacts
+```
+
+**Update trigger rules:**
+
+| When this changes | Update these immediately |
+|---|---|
+| BITE.md — any Architecture Constitution section | spec.md FRs + SCs + Architecture Tests; tasks.md T082 checklist; CLAUDE.md if agent behavior is affected |
+| BITE.md — Thin-Core Host Primitives | Any spec that touches chat.py, runs.py, executor.py, or plugin_loader.py |
+| PLUGIN_ARCHITECTURE_RECOMMENDATION.md | spec.md scope and deliverables; plan.md architecture rules; research.md decisions |
+| spec.md — FR or SC added or changed | tasks.md affected phase tasks; data-model.md if data shape changed |
+| tasks.md — task status only | No upward propagation required |
+
+**The verbatim-match rule:**
+
+The architecture test checklist in `tasks.md` (T082) must be a verbatim copy of the Architecture Tests block in `spec.md`. The `spec.md` Architecture Tests must include all questions from BITE.md's Architecture Violation Test.
+
+If any of the three diverge — stop. Update the documents before writing code.
+
+---
+
+### Package Policy
+
+BOS follows the pi harness lesson: keep core small; make workflows installable, discoverable, reloadable, inspectable, and removable. There is no "module" concept — every capability is a package.
+
+Packages are first-class extension units. They may register capabilities, connector adapters, prompt fragments, block renderers, quality gates, commands, and lifecycle hooks through stable public interfaces.
+
+No package — including Klaroha-maintained built-in packages — may import BOS internals such as database models, settings, routers, executor internals, or private registries. Host-provided context and credentials arrive through declared contracts. The `resolve` primitive assembles everything a package needs into the brief before dispatch; packages are stateless transforms that receive a brief and return a result.
 
 ### BITE Lifecycle Hook Policy
 
@@ -303,6 +481,7 @@ From the pi agent harness, BOS adopts these architectural principles:
 6. **Hooks over rewrites** — extensions subscribe to lifecycle events instead of changing the pipeline.
 7. **Protocol humility** — MCP, OAuth, native APIs, and local tools are implementation protocols behind BOS capabilities.
 8. **No feature bloat in core** — if a feature can be a package, it should be a package.
+9. **Built-in vs installed, not first-party vs third-party** — the package contract is identical for Klaroha-maintained built-in packages (`api/capabilities/`) and operator-installed packages (`~/bos-plugins/`). The only difference is source location and default activation state. This is the WordPress and VS Code model: WordPress does not have a privileged hook API for Automattic plugins; VS Code does not have a privileged extension API for Microsoft extensions. The host has a loader. Packages are loaded resources.
 
 ### Architecture Violation Test
 
@@ -317,9 +496,14 @@ Did I bypass Intent, Bridge, Transform, or Evaluate boundaries?
 Did I build before producing/agreeing on a sample output?
 Did I confuse capability artifacts with tool execution artifacts?
 Did I ban artifacts when the actual problem was unrequested execution?
+Did I add workflow opinion to core that could instead live in a plugin or loaded resource?
+Did I add a permanent chat-router branch for plugin-specific behavior?
+Did I add a new primitive beyond load / resolve / inject / dispatch / persist without a constitutional decision?
 ```
 
 A “yes” means stop and redesign around a package, manifest field, hook, or generic extension point.
+
+The last three questions apply specifically to plugin host work. Any change to `plugin_loader.py`, `capability_manifest.py`, `routers/chat.py`, `executor.py`, or `routers/runs.py` must pass all eleven checks.
 
 ### Agent Self-Check Before CMO/Skill Edits
 
@@ -443,7 +627,7 @@ When updating a system component:
 
 ---
 
-**Last updated:** 2026-05-12  
+**Last updated:** 2026-06-09  
 **Enforced from:** Phase 3 onwards  
 **Constitutional scope:** BITE governs both output methodology and BOS architecture boundaries.  
 **Violations:** Any build without an approved sample, or any capability change that bypasses the BOS Architecture Constitution, should be rolled back and restarted from Stage 2.

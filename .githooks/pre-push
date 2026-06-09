@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Runs local tests before any push to staging or main.
+# Skip with: BOS_SKIP_PUSH=1 git push
+
+set -euo pipefail
+
+while read -r _local_ref _local_sha _remote_ref _remote_sha; do
+  branch="${_remote_ref#refs/heads/}"
+  if [[ "$branch" != "staging" && "$branch" != "main" ]]; then
+    continue
+  fi
+
+  if [[ -n "${BOS_SKIP_PUSH:-}" ]]; then
+    echo "[pre-push] BOS_SKIP_PUSH set — skipping local tests"
+    continue
+  fi
+
+  echo "[pre-push] Pushing to $branch — running local tests..."
+
+  # Python tests — requires api container to be running (docker compose up api)
+  if docker compose ps api --status running --quiet 2>/dev/null | grep -q .; then
+    echo "[pre-push] Running pytest..."
+    docker compose exec -T api python -m pytest tests/ -q --tb=short || exit 1
+  else
+    echo "[pre-push] WARNING: api container not running — skipping pytest"
+    echo "[pre-push] Start with: docker compose up -d api"
+  fi
+
+  # TypeScript type check — run on host (web container is nginx, no node)
+  if command -v npx &>/dev/null && [[ -f "web/tsconfig.json" ]]; then
+    echo "[pre-push] Running TypeScript check..."
+    (cd web && npx tsc --noEmit) || exit 1
+  else
+    echo "[pre-push] WARNING: npx not found on host — skipping tsc"
+  fi
+
+  echo "[pre-push] All checks passed."
+done

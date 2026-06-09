@@ -2,10 +2,14 @@
 
 The CMO reads this at system prompt build time to know exactly what it can deploy.
 No platform-specific logic lives here — every entry is derived directly from SKILL.md.
+
+Plugin capabilities are filtered by per-brand activation state (D5).
+First-party capabilities (not owned by any plugin) are always included.
 """
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Optional
 
 from skills.loader import list_skill_manifests
 
@@ -27,13 +31,29 @@ class CapabilityEntry:
     excluded_triggers: tuple[str, ...]
 
 
-def build_dispatchable_manifest() -> list[CapabilityEntry]:
-    """Return all capabilities the CMO LLM is allowed to deploy, ordered by module_id."""
+def build_dispatchable_manifest(
+    active_plugin_ids: Optional[set[str]] = None,
+) -> list[CapabilityEntry]:
+    """Return all capabilities the CMO LLM is allowed to deploy, ordered by module_id.
+
+    active_plugin_ids: when provided, plugin-owned capabilities are filtered to
+    active plugins only. None means no filter (all capabilities included).
+    First-party capabilities (not in any plugin) are always included.
+    """
     _ensure_plugins_registered()
+    from plugin_loader import _module_to_plugin
+
     entries: list[CapabilityEntry] = []
     for skill in sorted(list_skill_manifests(), key=lambda s: s.module_id or ""):
         if not skill.allowed_from_chat or not skill.module_id:
             continue
+
+        # Filter plugin-owned capabilities by activation state
+        if active_plugin_ids is not None:
+            owner_plugin_id = _module_to_plugin.get(skill.module_id)
+            if owner_plugin_id is not None and owner_plugin_id not in active_plugin_ids:
+                continue
+
         label = (skill.name or skill.module_id.rsplit(".", 1)[-1]).replace("_", " ").title()
         desc = (skill.description or "").strip()
         entries.append(CapabilityEntry(
@@ -48,9 +68,7 @@ def build_dispatchable_manifest() -> list[CapabilityEntry]:
     return entries
 
 
-def format_manifest_for_prompt() -> str:
-    """Format the dispatchable capability list for injection into the CMO system prompt."""
-    entries = build_dispatchable_manifest()
+def _format_entries(entries: list[CapabilityEntry]) -> str:
     if not entries:
         return "  (no capabilities installed)"
     lines = []
@@ -66,3 +84,24 @@ def format_manifest_for_prompt() -> str:
             line += f" Do not use for: {', '.join(e.excluded_triggers[:8])}."
         lines.append(line)
     return "\n".join(lines)
+
+
+def format_manifest_for_prompt() -> str:
+    """Format the dispatchable capability list without brand filtering.
+
+    Used by non-brand contexts (label lookups, fallback). Prefer
+    format_manifest_for_brand() inside async request handlers.
+    """
+    return _format_entries(build_dispatchable_manifest())
+
+
+async def format_manifest_for_brand(db, brand_id=None) -> str:
+    """Format the dispatchable capability list filtered by brand activation state.
+
+    Plugin capabilities are included only when the plugin is active for brand_id
+    (or at org-level). First-party capabilities are always included.
+    """
+    from plugin_loader import get_active_plugin_ids
+    active_ids = await get_active_plugin_ids(db, brand_id)
+    entries = build_dispatchable_manifest(active_plugin_ids=active_ids)
+    return _format_entries(entries)

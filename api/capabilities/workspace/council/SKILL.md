@@ -15,7 +15,7 @@ metadata:
   author: BOS Core
   updated: "2026-05-20"
 scope: workspace
-allowed_from_chat: true
+allowed_from_chat: false
 module_id: workspace.council
 
 triggers:

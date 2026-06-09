@@ -3,11 +3,41 @@
   "name": "Google Drive Asset Library",
   "version": "0.1.0",
   "description": "Per-brand Google Drive as the creative asset warehouse. The creative factory writes assets here; channel specialists read approved assets from here. BOS mediates all access via the brand's google_drive connection.",
-  "implements": ["marketing.execute"],
-  "specialty": ["asset_library", "storage", "dam"],
+  "implements": [
+    "marketing.execute"
+  ],
+  "specialty": [
+    "asset_library",
+    "storage",
+    "dam"
+  ],
   "risk_policy": "generate_only",
-  "requires_social_connection": ["google_drive"],
-  "requires_platform_vars": [],
+  "credential_slots": [
+    {
+      "key": "access_token",
+      "type": "social_token",
+      "platform": "google_drive"
+    },
+    {
+      "key": "drive_root_folder_id",
+      "type": "social_meta_field",
+      "platform": "google_drive",
+      "field": "drive_root_folder_id"
+    },
+    {
+      "key": "drive_root_name",
+      "type": "social_meta_field",
+      "platform": "google_drive",
+      "field": "drive_root_name"
+    }
+  ],
+  "connections": [
+    {
+      "platform": "google_drive",
+      "display_name": "Google Drive",
+      "icon": "▣"
+    }
+  ],
   "capability_ids": [
     "drive.folder.setup",
     "drive.asset.upload",

@@ -309,7 +309,7 @@ When `KLAROHA_RELAY_URL` is not set:
 
 - `provider_auth.py` derives redirect URIs from `FRONTEND_URL` directly (already done)
 - `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` read from settings (already done)
-- `META_APP_ID`, `META_APP_SECRET` stored in plugin vars via Admin → Plugins
+- `META_APP_ID`, `META_APP_SECRET` stored in plugin vars via Admin → Specialists → Meta Channel → Connectors
 
 This is acceptable for internal dev and for clients who bring their own OAuth apps
 (advanced / enterprise self-host). The relay is required for one-click consumer deploy.

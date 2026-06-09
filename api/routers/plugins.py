@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -24,7 +25,7 @@ from auth import require_api_key
 from config import get_settings
 from db import get_db
 from models.provider import ProviderKey
-from plugin_loader import get_loaded_plugins, _plugin_provider_key
+from plugin_loader import get_loaded_plugins, get_error_plugins, required_plugin_vars, _plugin_provider_key
 from registry import _ensure as _ensure_registry
 from provider_auth import decrypt_secret, encrypt_secret
 from routers.workspace import get_singleton
@@ -33,15 +34,52 @@ router = APIRouter(prefix="/plugins", tags=["plugins"])
 log = logging.getLogger("bos.plugins")
 
 
+class MediaModelOption(BaseModel):
+    value: str
+    label: str
+
+
+class MediaProviderOption(BaseModel):
+    provider: str
+    label: str
+    models: list[MediaModelOption]
+
+
+class PluginConnectionInfo(BaseModel):
+    platform: str
+    type: str = "oauth2"
+    scopes: list[str] = []
+    client_id_var: Optional[str] = None
+    client_secret_var: Optional[str] = None
+    redirect_uri_var: Optional[str] = None
+    validate_capability: Optional[str] = None
+    display_name: Optional[str] = None
+    icon: Optional[str] = None
+
+
+class ActivationState(BaseModel):
+    brand_id: Optional[str]  # None = org-level
+    status: str
+    error_reason: Optional[str] = None
+
+
 class PluginInfo(BaseModel):
     plugin_id: str
     name: str
     version: str
-    implements: list[str]
-    requires_platform_vars: list[str]
-    credentials_configured: bool
-    missing_vars: list[str]
-    credential_source: str
+    source: str = "external"              # "external" | "internal"
+    status: str = "installed"             # "installed" | "error"
+    reason: Optional[str] = None
+    capability_ids: list[str] = []
+    implements: list[str] = []
+    requires_platform_vars: list[str] = []    # derived from platform_var credential_slots
+    requires_social_connection: list[str] = []  # derived from social_token credential_slots
+    credentials_configured: bool = False
+    missing_vars: list[str] = []
+    credential_source: str = "none"
+    activation_by_brand: list[ActivationState] = []
+    media_provider_options: list[MediaProviderOption] = []
+    connections: list[PluginConnectionInfo] = []
 
 
 class SaveCredentialsRequest(BaseModel):
@@ -72,6 +110,7 @@ async def _db_vars(db: AsyncSession, workspace_id, plugin_id: str, settings) -> 
 
 @router.get("")
 async def list_plugins(
+    brand_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
     _=Depends(require_api_key),
@@ -79,15 +118,45 @@ async def list_plugins(
     _ensure_registry()  # guarantees plugin scan has run before reading _loaded
     ws = await get_singleton(db)
     loaded = get_loaded_plugins()
+    errors = get_error_plugins()
     result = []
+
+    # C5: filter social connections by brand when provided so readiness is brand-scoped
+    from models.social import SocialConnection as _SC
+    import uuid as _uuid
+    _sc_query = select(_SC.platform).where(_SC.status == "connected")
+    if brand_id:
+        try:
+            _sc_query = _sc_query.where(_SC.brand_id == _uuid.UUID(brand_id))
+        except ValueError:
+            pass
+    connected_social_platforms: set[str] = set(
+        (await db.execute(_sc_query)).scalars().all()
+    )
+
+    # C1: read-only — load existing activation rows without writing new ones.
+    # Missing rows are synthesised as installed/inactive in the response only.
+    from models.plugin_activation import PluginActivation
+    activation_rows = (await db.execute(select(PluginActivation))).scalars().all()
+
+    activation_by_plugin: dict[str, list[ActivationState]] = {}
+    for row in activation_rows:
+        activation_by_plugin.setdefault(row.plugin_id, []).append(
+            ActivationState(
+                brand_id=str(row.brand_id) if row.brand_id else None,
+                status=row.status,
+                error_reason=row.error_reason,
+            )
+        )
 
     for plugin_id, state in loaded.items():
         m = state.manifest
         db_v = await _db_vars(db, ws.id if ws else None, plugin_id, settings) if ws else {}
 
+        required_vars = required_plugin_vars(m)
         missing: list[str] = []
         sources: set[str] = set()
-        for var in m.requires_platform_vars:
+        for var in required_vars:
             if os.getenv(var):
                 sources.add("env_var")
             elif db_v.get(var):
@@ -95,36 +164,78 @@ async def list_plugins(
             else:
                 missing.append(var)
 
-        if not m.requires_platform_vars:
-            source = "none"
-        elif missing and len(missing) == len(m.requires_platform_vars):
-            source = "none"
+        if not required_vars:
+            cred_source = "none"
+        elif missing and len(missing) == len(required_vars):
+            cred_source = "none"
         elif missing:
-            source = "partial"
+            cred_source = "partial"
         elif "database" in sources and "env_var" not in sources:
-            source = "database"
+            cred_source = "database"
         elif "env_var" in sources:
-            source = "env_var"
+            cred_source = "env_var"
         else:
-            source = "none"
+            cred_source = "none"
 
+        # T100/T101: credentials_configured covers three slot types:
+        # - platform_var: missing[] must be empty
+        # - social_token: at least one declared platform must have a connected SocialConnection
+        # - backend_override_*/backend_provider_api_key: treated as configured when no platform_var
+        #   vars are missing (backend overrides are set via Admin → AI Providers, not this check)
+        social_token_platforms = {
+            s.platform for s in m.credential_slots
+            if s.type == "social_token" and s.platform
+        }
+        social_configured = (
+            not social_token_platforms
+            or bool(social_token_platforms & connected_social_platforms)
+        )
+        credentials_configured = not missing and social_configured
+
+        media_opts = [MediaProviderOption(**opt) for opt in m.provider_options]
         result.append(PluginInfo(
             plugin_id=plugin_id,
             name=m.name,
             version=m.version,
+            source=state.source,
+            status="installed",
+            capability_ids=m.capability_ids,
             implements=m.implements,
-            requires_platform_vars=m.requires_platform_vars,
-            credentials_configured=not missing and bool(m.requires_platform_vars),
+            requires_platform_vars=required_vars,
+            requires_social_connection=sorted(social_token_platforms),
+            credentials_configured=credentials_configured,
             missing_vars=missing,
-            credential_source=source,
+            credential_source=cred_source,
+            activation_by_brand=activation_by_plugin.get(plugin_id, []),
+            media_provider_options=media_opts,
+            connections=[
+                PluginConnectionInfo(
+                    platform=c.platform,
+                    type=c.type,
+                    scopes=c.scopes,
+                    client_id_var=c.client_id_var,
+                    client_secret_var=c.client_secret_var,
+                    redirect_uri_var=c.redirect_uri_var,
+                    validate_capability=c.validate_capability,
+                    display_name=c.display_name,
+                    icon=c.icon,
+                ) for c in m.connections
+            ],
+        ).model_dump())
+
+    # Surface quarantined plugins so Admin can see what failed and why
+    for plugin_id, err in errors.items():
+        result.append(PluginInfo(
+            plugin_id=plugin_id,
+            name=plugin_id,
+            version="unknown",
+            source=err.get("source", "unknown"),
+            status="error",
+            reason=err.get("reason"),
+            activation_by_brand=activation_by_plugin.get(plugin_id, []),
         ).model_dump())
 
     return {"plugins": result}
-
-
-_WORKSPACE_RESOLVERS: dict[str, str] = {
-    "channel.clickup": "https://api.clickup.com/api/v2/team",
-}
 
 
 @router.post("/{plugin_id}/resolve-workspaces")
@@ -133,7 +244,11 @@ async def resolve_workspaces(
     body: ResolveWorkspacesRequest,
     _=Depends(require_api_key),
 ):
-    url = _WORKSPACE_RESOLVERS.get(plugin_id)
+    # T091: URL comes from plugin manifest workspace_discovery_url, not a hardcoded dict
+    loaded = get_loaded_plugins()
+    if plugin_id not in loaded:
+        raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' not installed")
+    url = loaded[plugin_id].manifest.workspace_discovery_url
     if not url:
         raise HTTPException(status_code=404, detail=f"Workspace discovery not supported for plugin '{plugin_id}'")
     try:
@@ -141,9 +256,9 @@ async def resolve_workspaces(
         with urlopen(req, timeout=10) as resp:
             data = json.loads(resp.read().decode())
     except HTTPError as exc:
-        raise HTTPException(status_code=400, detail=f"ClickUp returned HTTP {exc.code} — check your API token")
+        raise HTTPException(status_code=400, detail=f"Plugin returned HTTP {exc.code} — check your API token")
     except URLError:
-        raise HTTPException(status_code=502, detail="Could not reach ClickUp API")
+        raise HTTPException(status_code=502, detail=f"Could not reach {url}")
     teams = [{"id": t["id"], "name": t["name"]} for t in data.get("teams", [])]
     return {"workspaces": teams}
 
@@ -165,11 +280,13 @@ async def save_credentials(
         raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' not installed")
 
     manifest = loaded[plugin_id].manifest
-    missing = [v for v in manifest.requires_platform_vars if not body.vars.get(v, "").strip()]
+    required_vars = required_plugin_vars(manifest)
+    missing = [v for v in required_vars if not body.vars.get(v, "").strip()]
     if missing:
         raise HTTPException(status_code=400, detail={"code": "MISSING_VARS", "missing_vars": missing})
 
-    encrypted = encrypt_secret(json.dumps(body.vars), settings)
+    clean_vars = {k: v for k, v in body.vars.items() if str(v).strip()}
+    encrypted = encrypt_secret(json.dumps(clean_vars), settings)
     provider_name = _plugin_provider_key(plugin_id)
 
     existing = (await db.execute(
@@ -218,3 +335,156 @@ async def delete_credentials(
         await db.delete(row)
         await db.commit()
         log.info("Plugin credentials removed: %s", plugin_id)
+
+
+# ── Per-brand activation ──────────────────────────────────────────────────────
+
+class ActivateRequest(BaseModel):
+    brand_id: Optional[str] = None
+    # C2: org-wide activation requires explicit opt-in to prevent accidental leakage
+    scope: Optional[str] = None          # must be "org" for org-wide
+    confirm_org_wide: bool = False        # must be True when scope="org"
+
+
+@router.post("/{plugin_id}/activate")
+async def activate_plugin(
+    plugin_id: str,
+    body: ActivateRequest = None,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_api_key),
+):
+    """Activate a plugin for a Brand.
+
+    brand_id is required for normal activation. Org-wide activation (brand_id
+    omitted) requires scope='org' and confirm_org_wide=true to prevent
+    accidental cross-brand capability leakage.
+    """
+    if body is None:
+        body = ActivateRequest()
+
+    # C2: block silent org-wide activation
+    if body.brand_id is None and not (body.scope == "org" and body.confirm_org_wide):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "brand_id is required for plugin activation. "
+                "To activate org-wide pass scope='org' and confirm_org_wide=true."
+            ),
+        )
+
+    loaded = get_loaded_plugins()
+    if plugin_id not in loaded:
+        raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' not installed")
+
+    from models.plugin_activation import PluginActivation
+    import uuid as _uuid
+
+    brand_uuid = _uuid.UUID(body.brand_id) if body.brand_id else None
+
+    existing = (await db.execute(
+        select(PluginActivation).where(
+            PluginActivation.plugin_id == plugin_id,
+            PluginActivation.brand_id == brand_uuid,
+        )
+    )).scalar_one_or_none()
+
+    if existing:
+        existing.status = "active"
+        existing.error_reason = None
+    else:
+        db.add(PluginActivation(
+            plugin_id=plugin_id,
+            brand_id=brand_uuid,
+            status="active",
+        ))
+
+    await db.commit()
+    log.info("Plugin activated: %s (brand=%s)", plugin_id, body.brand_id or "org-level")
+    return {"ok": True, "plugin_id": plugin_id, "brand_id": body.brand_id, "status": "active"}
+
+
+@router.delete("/{plugin_id}/activate", status_code=204)
+async def deactivate_plugin(
+    plugin_id: str,
+    brand_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_api_key),
+):
+    """Deactivate a plugin for a Brand (or org-wide).
+
+    Keep an explicit inactive row so brand-specific inactive can override an
+    org-level active row. Deleting would incorrectly fall back to org active.
+    """
+    from models.plugin_activation import PluginActivation
+    import uuid as _uuid
+
+    loaded = get_loaded_plugins()
+    if plugin_id not in loaded:
+        raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' not installed")
+
+    brand_uuid = _uuid.UUID(brand_id) if brand_id else None
+
+    row = (await db.execute(
+        select(PluginActivation).where(
+            PluginActivation.plugin_id == plugin_id,
+            PluginActivation.brand_id == brand_uuid,
+        )
+    )).scalar_one_or_none()
+
+    if row:
+        row.status = "inactive"
+        row.error_reason = None
+    else:
+        db.add(PluginActivation(plugin_id=plugin_id, brand_id=brand_uuid, status="inactive"))
+
+    # C3: when deactivating for a specific brand, also demote any org-wide active
+    # row so the plugin stops bleeding into brands that haven't been explicitly scoped.
+    if brand_id:
+        org_row = (await db.execute(
+            select(PluginActivation).where(
+                PluginActivation.plugin_id == plugin_id,
+                PluginActivation.brand_id.is_(None),
+            )
+        )).scalar_one_or_none()
+        if org_row and org_row.status == "active":
+            org_row.status = "inactive"
+            log.info("Org-wide active row demoted to inactive: %s", plugin_id)
+
+    await db.commit()
+    log.info("Plugin deactivated: %s (brand=%s)", plugin_id, brand_id or "org-level")
+
+
+# ── T102: Read-only capability manifest endpoint ──────────────────────────────
+
+capability_manifest_router = APIRouter(prefix="/capability-manifest", tags=["capability-manifest"])
+
+
+@capability_manifest_router.get("")
+async def get_capability_manifest(
+    brand_id: Optional[str] = None,
+    db: AsyncSession = Depends(get_db),
+    _=Depends(require_api_key),
+):
+    """Return the CMO capability manifest for a given brand.
+
+    Useful for debugging activation, SKILL.md trigger issues, and confirming
+    plugin-to-CMO wiring without sending a real chat message.
+    """
+    from capability_manifest import build_dispatchable_manifest
+    from plugin_loader import get_active_plugin_ids
+
+    active_ids = await get_active_plugin_ids(db, brand_id)
+    entries = build_dispatchable_manifest(active_plugin_ids=active_ids)
+    return {
+        "brand_id": brand_id,
+        "capabilities": [
+            {
+                "module_id": e.module_id,
+                "label": e.label,
+                "description": e.description,
+                "triggers": list(e.triggers),
+                "allowed_from_chat": True,
+            }
+            for e in entries
+        ],
+    }

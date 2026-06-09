@@ -17,6 +17,7 @@ _start_time = time.time()
 class HealthResponse(BaseModel):
     status: Literal["ok", "degraded"]
     version: str
+    git_sha: str
     db: Literal["ok", "error"]
     uptime_seconds: float
 
@@ -29,9 +30,11 @@ async def health(db: AsyncSession = Depends(get_db)):
     except Exception:
         db_status = "error"
 
+    settings = get_settings()
     return HealthResponse(
         status="ok" if db_status == "ok" else "degraded",
-        version=get_settings().app_version,
+        version=settings.app_version,
+        git_sha=settings.git_sha,
         db=db_status,
         uptime_seconds=round(time.time() - _start_time, 1),
     )

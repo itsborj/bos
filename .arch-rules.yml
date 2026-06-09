@@ -1,0 +1,164 @@
+# .arch-rules.yml — BOS Plugin Architecture Rules
+#
+# Run Layer 1 (grep checks):
+#   python ~/arch-cop/arch_cop.py check .arch-rules.yml .
+#
+# Run Layer 2 (generate agent review prompt):
+#   python ~/arch-cop/arch_cop.py review .arch-rules.yml .
+#   Then feed arch_review_prompt.md to any LLM agent.
+
+name: "BOS Plugin Architecture"
+version: "1.0"
+spec_reference: "specs/001-thin-core-proof/spec.md"
+description: >
+  BOS follows a thin-host plugin model (WordPress lifecycle + pi.dev thin-core).
+  The one rule: if a plugin is not installed and activated, BOS must act like it
+  does not exist.
+
+  What this means in practice:
+  - Core must be plugin-ready, not platform-ready.
+  - Plugin behavior appears through installed resources and manifests, not core branches.
+  - No package (including built-in capabilities) may import BOS internals.
+  - The CMO manifest includes only active plugin capabilities.
+  - Specialists UI shows only installed plugins.
+  - Credentials reach plugin modules only through brief["_channel_credentials"],
+    assembled by the generic credential slot resolver, not platform-specific branches.
+
+grep_rules:
+  - id: "no-bos-internals-in-capabilities"
+    description: "Capability and plugin module.py files must not import BOS internals"
+    why: >
+      Packages are stateless transforms. No direct host access allowed.
+      FR-013 / SC-009. Violation V6 in research.md Decision 9.
+    pattern: "^from (models|routers|db|executor|config|registry|provider_auth|skills|artifacts|memory_events)"
+    paths:
+      - "api/capabilities/"
+      - "api/plugins/"
+    include: ["*.py"]
+    exclude: ["**/tests/**", "**/PLUGIN_SDK.md"]
+    severity: error
+
+  - id: "no-old-credential-fields-in-channel-json"
+    description: "channel.json must not contain superseded credential fields"
+    why: >
+      requires_social_connection and requires_platform_vars are superseded by
+      credential_slots. T062 in tasks.md. Using old fields bypasses the generic
+      slot resolver and forces core branches.
+    pattern: "\"requires_social_connection\"|\"requires_platform_vars\""
+    paths: ["api/plugins/"]
+    include: ["channel.json"]
+    severity: error
+
+  - id: "no-platform-branches-in-injector"
+    description: "inject_channel_credentials must not contain hardcoded platform names"
+    why: >
+      The credential injector must be a generic slot resolver loop.
+      Platform-specific branches cause V1 violations and block third-party plugins.
+      research.md Decision 9 V1 / FR-012.
+    pattern: "\"google_drive\"|\"clickup\"|\"image\" in module_id|\"video\" in module_id|clickup_team_id"
+    paths: ["api/plugin_loader.py"]
+    severity: error
+
+  - id: "no-direct-capability-import-in-chat"
+    description: "chat.py must not import capability modules directly"
+    why: >
+      All capability dispatch goes through the manifest + RUN: directive contract.
+      Direct imports bypass SKILL.md contracts and activation state.
+      CLAUDE.md CMO Rule 1 / research.md Decision 9 V5.
+    pattern: "from capabilities\\."
+    paths: ["api/routers/chat.py"]
+    severity: error
+
+  - id: "no-hardcoded-platform-display-dicts"
+    description: "Core must not contain hardcoded platform display name or provider dicts"
+    why: >
+      Display names, icons, and provider catalogs come from plugin manifests.
+      Hardcoded dicts require a core edit per new platform.
+      research.md Decision 9 V2 / V4 / V8 / FR-012.
+    pattern: "_CHANNEL_DISPLAY|_MEDIA_PROVIDER_OPTIONS|_WORKSPACE_RESOLVERS|OAUTH_PLATFORMS"
+    paths:
+      - "api/routers/"
+      - "web/src/pages/admin/"
+    include: ["*.py", "*.ts", "*.tsx"]
+    severity: error
+
+  - id: "no-plugin-id-pattern-matching-in-ui"
+    description: "UI must not pattern-match on plugin_id to derive display names"
+    why: >
+      Display data comes from the plugin manifest (plugin.name, plugin.implements).
+      Pattern-matching on plugin_id requires a UI edit per new plugin.
+      research.md Decision 9 V7 / D6.
+    pattern: "pluginDisplayName|pluginDescription"
+    paths: ["web/src/pages/admin/AdminModules.tsx"]
+    severity: warning
+
+judgment_questions:
+  - id: "platform-visible-before-install"
+    question: "Does this change make a platform visible before its plugin is installed?"
+    evidence_hint: >
+      Look for: hardcoded platform names in UI components that render without checking
+      GET /plugins data, CMO manifest entries that appear without active plugin activation
+      rows, Specialists cards that show for platforms with no installed plugin.
+
+  - id: "platform-specific-core-behavior"
+    question: "Does this add platform-specific behavior to core?"
+    evidence_hint: >
+      Look for: if/elif chains on platform name strings, module_id substring checks
+      ("image" in module_id, "video" in module_id), hardcoded dicts keyed by platform
+      name (facebook, google_drive, clickup, tiktok, youtube) in api/plugin_loader.py,
+      api/routers/chat.py, api/routers/plugins.py, or api/capability_manifest.py.
+
+  - id: "core-edit-required-for-plugin"
+    question: "Does adding or removing a plugin require a core code edit?"
+    evidence_hint: >
+      Look for: new platform names added to core dicts or if-chains, new entries in
+      any of the following (or similar named constants): _CHANNEL_DISPLAY,
+      _MEDIA_PROVIDER_OPTIONS, _WORKSPACE_RESOLVERS, OAUTH_PLATFORMS. Also check
+      whether a new plugin's channel.json credential_slots would be resolved by the
+      existing generic slot resolver without code changes.
+
+  - id: "inactive-capabilities-in-manifest"
+    question: "Does this put inactive plugin capabilities in the CMO manifest?"
+    evidence_hint: >
+      Check api/capability_manifest.py: does build_dispatchable_manifest() filter
+      by active_plugin_ids? Does format_manifest_for_brand() call
+      get_active_plugin_ids(db, brand_id)? If either is bypassed, inactive capabilities
+      can appear in the manifest.
+
+  - id: "bos-internal-import-in-package"
+    question: "Does any capability or plugin package file import BOS internals?"
+    evidence_hint: >
+      Check all module.py files under api/capabilities/ and api/plugins/ for imports of:
+      models, routers, db, executor, config, registry, provider_auth, skills, artifacts.
+      These are forbidden. The only allowed import at module level is klaroha_sdk plus
+      standard library and third-party API client packages.
+
+  - id: "workflow-opinion-in-core"
+    question: "Does this add workflow opinion to core that belongs in a plugin or loaded resource?"
+    evidence_hint: >
+      Look for: new marketing, campaign, or content logic in api/routers/ or
+      api/plugin_loader.py, new capability-specific dispatch rules in chat.py beyond the
+      generic RUN:/ACTION: directive parsing, hardcoded module IDs in core routing
+      (other than the @klar and @council system commands).
+
+  - id: "permanent-chat-branch"
+    question: "Does this add a permanent chat-router branch for plugin-specific behavior?"
+    evidence_hint: >
+      Check api/routers/chat.py for new if/elif blocks that check platform names,
+      module names, or capability IDs. The only allowed deterministic branches are:
+      @klar command routing, @council command routing, RUN:/ACTION: directive parsing,
+      and the scope/SCOPE: directive extraction. Any new platform or capability name
+      in a branch is a violation.
+
+watch_paths:
+  - "api/plugin_loader.py"
+  - "api/routers/chat.py"
+  - "api/routers/plugins.py"
+  - "api/capability_manifest.py"
+  - "api/capabilities/"
+  - "api/plugins/"
+  - "web/src/pages/admin/AdminModules.tsx"
+
+output:
+  format: "markdown"
+  fail_on: ["error"]

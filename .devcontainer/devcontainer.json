@@ -1,0 +1,29 @@
+{
+  "name": "BOS",
+  "dockerComposeFile": ["../docker-compose.yml", "../docker-compose.override.yml"],
+  "service": "api",
+  "workspaceFolder": "/app",
+  "runServices": ["db", "redis", "api", "relay", "web", "nginx", "public"],
+  "shutdownAction": "stopCompose",
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.pylance"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python3",
+        "python.analysis.extraPaths": ["/app"]
+      }
+    }
+  },
+
+  "forwardPorts": [8090, 8000, 5173, 3000],
+  "portsAttributes": {
+    "8090": { "label": "BOS (nginx)", "onAutoForward": "openBrowser" },
+    "8000": { "label": "API" },
+    "5173": { "label": "Web" },
+    "3000": { "label": "Public" }
+  }
+}

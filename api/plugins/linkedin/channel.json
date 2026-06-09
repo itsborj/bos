@@ -1,0 +1,43 @@
+{
+  "plugin_id": "channel.linkedin",
+  "name": "LinkedIn Organic Drafts",
+  "version": "0.1.0",
+  "klaroha_min_version": "3.5",
+  "capabilities_root": "capabilities/",
+  "implements": [
+    "marketing.execute"
+  ],
+  "specialty": [
+    "linkedin",
+    "organic_social",
+    "thought_leadership",
+    "post_drafting"
+  ],
+  "platforms": [
+    "linkedin"
+  ],
+  "connector_protocol": "api_key",
+  "risk_policy": "connection_validate_is_read_only; draft_only_no_external_action; publish_requires_explicit_approval",
+  "output_contracts": [
+    "linkedin_connection_check",
+    "linkedin_post_draft",
+    "linkedin_publish_result"
+  ],
+  "credential_slots": [
+    {
+      "key": "linkedin_access_token",
+      "type": "platform_var",
+      "var": "LINKEDIN_ACCESS_TOKEN"
+    },
+    {
+      "key": "linkedin_organization_id",
+      "type": "platform_var",
+      "var": "LINKEDIN_ORGANIZATION_ID"
+    }
+  ],
+  "capability_ids": [
+    "marketing.channel.linkedin.connection.validate",
+    "marketing.channel.linkedin.organic.post",
+    "marketing.channel.linkedin.organic.publish"
+  ]
+}

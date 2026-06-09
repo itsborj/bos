@@ -8,12 +8,8 @@ export function Providers() {
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [keys, setKeys] = useState<KeyListItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [addProvider, setAddProvider] = useState('');
-  const [addKey, setAddKey] = useState('');
-  const [adding, setAdding] = useState(false);
   const [checking, setChecking] = useState<string | null>(null);
   const [checkResult, setCheckResult] = useState<Record<string, { status: string; message: string }>>({});
-  const [error, setError] = useState<string | null>(null);
 
   async function load() {
     const [provResult, keyResult] = await Promise.all([
@@ -26,29 +22,6 @@ export function Providers() {
   }
 
   useEffect(() => { load(); }, []);
-
-  async function handleAddKey(e: React.FormEvent) {
-    e.preventDefault();
-    if (!addProvider || !addKey.trim()) return;
-    setAdding(true);
-    setError(null);
-    try {
-      await api.registerKey(addProvider, addKey.trim());
-      setAddProvider('');
-      setAddKey('');
-      await load();
-    } catch (e: unknown) {
-      setError((e as Error).message ?? 'Failed to register key');
-    } finally {
-      setAdding(false);
-    }
-  }
-
-  async function handleDelete(provider: string) {
-    if (!confirm(`Remove ${provider} BYOK key?`)) return;
-    await api.deleteKey(provider).catch(() => {});
-    await load();
-  }
 
   async function handleCheck(provider: string) {
     setChecking(provider);
@@ -133,12 +106,17 @@ export function Providers() {
 
             <div className="card ux-lift-card">
               <div className="card-title">BYOK Keys</div>
+              <p style={{ fontSize: 13, color: 'var(--text2)', marginBottom: keys.length ? 16 : 0 }}>
+                API keys are registered per brand to prevent credential bleed between brands.
+                Go to <strong>Admin → Providers</strong> and select a brand to add or rotate keys for
+                OpenRouter, Google Gemini, NVIDIA, or OpenAI.
+              </p>
 
               {keys.length > 0 && (
-                <div className="table-wrap" style={{ marginBottom: 20 }}>
+                <div className="table-wrap">
                   <table className="table">
                     <thead>
-                      <tr><th>Provider</th><th>Since</th><th>Check</th><th></th></tr>
+                      <tr><th>Provider</th><th>Since</th><th>Check</th></tr>
                     </thead>
                     <tbody>
                       {keys.map(k => (
@@ -162,48 +140,12 @@ export function Providers() {
                               </button>
                             )}
                           </td>
-                          <td>
-                            <button className="btn btn-danger btn-sm" onClick={() => handleDelete(k.provider)}>
-                              Remove
-                            </button>
-                          </td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
               )}
-
-              <div className="section-title">Register BYOK Key</div>
-              {error && <div className="alert alert-error">{error}</div>}
-              <form onSubmit={handleAddKey}>
-                <div className="form-group">
-                  <label className="label">Provider</label>
-                  <select className="select" value={addProvider} onChange={e => setAddProvider(e.target.value)}>
-                    <option value="">Select provider…</option>
-                    <option value="openrouter">openrouter</option>
-                    <option value="gemini">gemini</option>
-                    <option value="nvidia">nvidia</option>
-                  </select>
-                </div>
-                <div className="form-group">
-                  <label className="label">API Key</label>
-                  <input
-                    className="input"
-                    type="password"
-                    value={addKey}
-                    onChange={e => setAddKey(e.target.value)}
-                    placeholder="sk-… or similar"
-                  />
-                </div>
-                <button
-                  type="submit"
-                  className="btn btn-dark"
-                  disabled={adding || !addProvider || !addKey.trim()}
-                >
-                  {adding ? 'Registering…' : 'Register Key'}
-                </button>
-              </form>
             </div>
           </>
         )}

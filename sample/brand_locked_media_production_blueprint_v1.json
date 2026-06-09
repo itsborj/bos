@@ -1,0 +1,235 @@
+{
+  "artifact_type": "brand_locked_media_production_blueprint.v1",
+  "created_by": "cmo_brain",
+  "brand_id": "brand_klaroha",
+  "campaign_id": "launch_campaign_001",
+  "objective": "Create a 15-second brand-aligned launch video bundle.",
+  "brand_contract": {
+    "source": "BRAND.md / Campaign Brand Kit",
+    "enforcement": "hard_gate",
+    "required_slots": [
+      "brand_voice",
+      "tone_adjectives",
+      "color_primary",
+      "color_secondary",
+      "typography_heading",
+      "typography_body",
+      "logo_asset_id",
+      "cta_style",
+      "visual_mood",
+      "forbidden_elements",
+      "safe_zones"
+    ],
+    "rule": "No media artifact may be generated, stitched, rendered, or surfaced if required brand slots are missing."
+  },
+  "global_generation_rules": {
+    "text": [
+      "Use the approved brand voice only.",
+      "Do not use generic startup or platform hype.",
+      "Do not make claims unsupported by brand memory.",
+      "CTA must match the brand cta_style."
+    ],
+    "image": [
+      "Use visual_mood and palette from the Brand Kit.",
+      "Do not generate fake text, fake UI labels, or random signage.",
+      "Do not bake logos or brand typography into AI-generated plates.",
+      "Leave clear safe-zone space for overlays."
+    ],
+    "audio": [
+      "Voiceover tone must match brand_voice and tone_adjectives.",
+      "Music and SFX must match visual_mood.",
+      "No aggressive, comic, or off-brand sound beds unless explicitly approved in the Brand Kit."
+    ],
+    "video": [
+      "Camera movement, pacing, lighting, and scene tone must match the Brand Kit.",
+      "Do not include text, logos, captions, UI labels, or CTA inside generated footage.",
+      "No off-brand visual metaphors, stock-photo clichés, or unsupported product depictions."
+    ],
+    "stitching": [
+      "Logo, CTA, captions, typography, and final brand color treatments are applied only through CompositionSpec.",
+      "Safe zones and contrast must be validated before render.",
+      "Final output must pass brand compliance before bundle review."
+    ]
+  },
+  "artifacts_to_generate": {
+    "text": {
+      "artifact_type": "script_and_caption_pack",
+      "prompt_owner": "cmo_brain",
+      "prompt": "Write a 15-second launch script using the active brand voice. Keep it concise, premium, direct, and mobile-first. Do not use generic SaaS hype. Use only claims supported by brand memory.",
+      "output_fields": [
+        "voiceover_script",
+        "caption_lines",
+        "hook_options",
+        "cta_options"
+      ]
+    },
+    "image": {
+      "artifact_type": "image_plate_set",
+      "provider_suggestion": "seedream_or_configured_image_provider",
+      "prompt_owner": "cmo_brain",
+      "prompt": "Generate clean background image plates aligned to the brand visual mood. No text, no logos, no fake UI, no random symbols. Composition should leave safe space for branded overlay and captions.",
+      "negative_prompt": [
+        "fake text",
+        "logo hallucination",
+        "stock-photo cliché",
+        "off-brand colors",
+        "busy background",
+        "unreadable UI"
+      ]
+    },
+    "audio": {
+      "artifact_type": "voiceover_and_music_bed",
+      "provider_suggestion": "configured_tts_or_audio_provider",
+      "prompt_owner": "cmo_brain",
+      "prompt": "Generate voiceover matching the approved brand tone: confident, clear, calm, and executive. Music bed should feel premium and focused, not dramatic or playful."
+    },
+    "video": {
+      "artifact_type": "video_plate_set",
+      "provider_suggestion": "seedance_or_configured_video_provider",
+      "prompt_owner": "cmo_brain",
+      "prompt": "Generate video plates from the approved scene plan. Keep footage clean and brand-consistent. Do not include text, logo, captions, UI labels, or CTA inside generated footage. Motion should be smooth, premium, and restrained."
+    },
+    "stitching": {
+      "artifact_type": "composition_spec",
+      "prompt_owner": "cmo_brain",
+      "render_provider": "local_ffmpeg_or_shotstack_or_creatomate",
+      "rule": "The stitch is where brand identity is applied: typography, logo, captions, CTA, color overlays, safe zones, timing, transitions."
+    }
+  },
+  "composition_spec": {
+    "spec_version": "1.0",
+    "duration": 15,
+    "dimensions": {
+      "width": 1080,
+      "height": 1920
+    },
+    "fps": 30,
+    "tracks": [
+      {
+        "id": "video_plate",
+        "clips": [
+          {
+            "asset_id": "video_plate_s01",
+            "start": 0,
+            "duration": 15,
+            "fit": "cover"
+          }
+        ]
+      },
+      {
+        "id": "caption_text",
+        "clips": [
+          {
+            "type": "text",
+            "value_from": "caption_lines",
+            "brand_slot": "typography_heading",
+            "color_slot": "color_primary",
+            "position": "safe-zone-top-left",
+            "start": 0.5,
+            "duration": 11
+          }
+        ]
+      },
+      {
+        "id": "brand_logo",
+        "clips": [
+          {
+            "asset_id_from_brand_slot": "logo_asset_id",
+            "position": "safe-zone-bottom-right",
+            "start": 0,
+            "duration": 15
+          }
+        ]
+      },
+      {
+        "id": "cta",
+        "clips": [
+          {
+            "type": "cta_pill",
+            "value_from": "cta_options.primary",
+            "style_from_brand_slot": "cta_style",
+            "position": "safe-zone-bottom-center",
+            "start": 11.5,
+            "duration": 3.5
+          }
+        ]
+      },
+      {
+        "id": "voiceover",
+        "clips": [
+          {
+            "asset_id": "voiceover_s01",
+            "start": 0,
+            "duration": 15
+          }
+        ]
+      },
+      {
+        "id": "music_bed",
+        "clips": [
+          {
+            "asset_id": "music_bed_s01",
+            "start": 0,
+            "duration": 15,
+            "volume": 0.18
+          }
+        ]
+      }
+    ]
+  },
+  "brand_compliance_gates": [
+    {
+      "gate": "pre_prompt",
+      "blocks_if": [
+        "missing brand kit",
+        "missing logo",
+        "missing typography",
+        "missing forbidden_elements"
+      ]
+    },
+    {
+      "gate": "post_generation",
+      "blocks_if": [
+        "off-brand tone",
+        "fake text in image/video",
+        "logo baked into AI media",
+        "unsupported claim",
+        "wrong palette or mood"
+      ]
+    },
+    {
+      "gate": "pre_render",
+      "blocks_if": [
+        "unsafe logo placement",
+        "caption outside safe zones",
+        "low contrast",
+        "missing CTA",
+        "unresolved asset_id"
+      ]
+    },
+    {
+      "gate": "bundle_review",
+      "blocks_if": [
+        "final output not brand aligned",
+        "audio tone conflicts with visuals",
+        "stitching uses wrong typography",
+        "export package missing editable JSON"
+      ]
+    }
+  ],
+  "allowed_outcomes": [
+    "CMO generates one brand-locked production blueprint.",
+    "All prompts inherit BRAND.md.",
+    "Text, image, audio, video, and stitch artifacts are generated as separate artifacts.",
+    "Final Creative Bundle is surfaced for approval.",
+    "Every output includes editable CompositionSpec JSON."
+  ],
+  "forbidden_outcomes": [
+    "CMO pastes final native media content only in chat.",
+    "AI image/video provider receives logo and bakes it into footage.",
+    "Generic prompts without brand slots.",
+    "Channel-specific publishing inside creative generation.",
+    "Rendering proceeds when brand validation fails.",
+    "Final MP4 exists without editable JSON timeline."
+  ]
+}

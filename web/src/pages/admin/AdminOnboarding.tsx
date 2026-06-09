@@ -283,7 +283,7 @@ export function AdminOnboarding() {
               <div style={{ fontSize: 13, marginBottom: 8 }}>
                 <strong>{brandKit.title}</strong> · {brandKit.status}
               </div>
-              <div style={{ maxHeight: 180, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.6, border: '1px solid var(--border)', borderRadius: 8, padding: 12, marginBottom: 12 }}>
+              <div style={{ maxHeight: 180, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.6, border: '.5px solid var(--border)', borderRadius: 0, padding: 12, marginBottom: 12 }}>
                 {brandKit.content_markdown}
               </div>
               {brandKit.status !== 'approved' && (
@@ -297,7 +297,7 @@ export function AdminOnboarding() {
               {kitBusy ? 'Generating…' : 'Generate Campaign Brand Kit'}
             </button>
           )}
-          {error && <div style={{ fontSize: 12, color: '#dc2626', marginTop: 8 }}>{error}</div>}
+          {error && <div style={{ fontSize: 12, color: 'var(--error)', marginTop: 8 }}>{error}</div>}
         </div>
 
         <div style={{ display: 'flex', gap: 10 }}>
@@ -310,7 +310,7 @@ export function AdminOnboarding() {
           >
             {isBrandScope ? 'Review Brand →' : 'Review Workspace →'}
           </button>
-          <button className="btn btn-secondary" onClick={() => { setResult(null); setDocText(''); setWorkspaceName(''); }}>
+          <button className="btn btn-ghost" onClick={() => { setResult(null); setDocText(''); setWorkspaceName(''); }}>
             Submit Another Document
           </button>
         </div>
@@ -349,7 +349,7 @@ export function AdminOnboarding() {
           {!showBrandFields ? (
             <div style={{ display: 'grid', gap: 12 }}>
               <button
-                className="btn btn-dark"
+                className="btn btn-secondary"
                 style={{ textAlign: 'left', padding: '14px 18px', height: 'auto', display: 'block' }}
                 onClick={handleChooseOrg}
               >
@@ -400,7 +400,7 @@ export function AdminOnboarding() {
                 >
                   Continue — Import Brief for {newBrandName.trim() || 'Brand'}
                 </button>
-                <button className="btn btn-secondary" onClick={() => setShowBrandFields(false)}>← Back</button>
+                <button className="btn btn-ghost" onClick={() => setShowBrandFields(false)}>← Back</button>
               </div>
             </div>
           )}
@@ -431,7 +431,7 @@ export function AdminOnboarding() {
             {existingBrands.map(brand => (
               <button
                 key={brand.id}
-                className={`btn ${selectedExisting === brand.id ? 'btn-dark' : 'btn-secondary'}`}
+                className={`btn ${selectedExisting === brand.id ? 'btn-secondary' : 'btn-ghost'}`}
                 style={{ textAlign: 'left', padding: '12px 16px', height: 'auto', display: 'block' }}
                 onClick={() => handleSelectExistingBrand(brand)}
               >
@@ -466,7 +466,7 @@ export function AdminOnboarding() {
                   >
                     Continue — Import for {newBrandName.trim() || 'New Brand'}
                   </button>
-                  <button className="btn btn-secondary" onClick={() => { setShowNewBrandField(false); setNewBrandName(''); }}>
+                  <button className="btn btn-ghost" onClick={() => { setShowNewBrandField(false); setNewBrandName(''); }}>
                     Cancel
                   </button>
                 </div>
@@ -507,7 +507,7 @@ export function AdminOnboarding() {
         </div>
         {!isUpdateMode && (
           <button
-            className="btn btn-secondary btn-sm"
+            className="btn btn-ghost btn-sm"
             onClick={() => { setScopeStep(existingBrands.length > 0 ? 'select_target' : 'org_or_brand'); setScope(null); setError(null); setKitWarning(false); }}
           >
             ← Change target
@@ -517,7 +517,7 @@ export function AdminOnboarding() {
 
       {/* Scope lock badge for update mode */}
       {isUpdateMode && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: 'var(--admin-surface)', border: '1px solid var(--admin-border)', borderRadius: 8, fontSize: 13 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 14px', background: 'var(--ivory)', border: '.5px solid var(--border-warm)', borderRadius: 0, fontSize: 13 }}>
           <span className="badge badge-info">Locked scope</span>
           <span>This import will only update <strong>{scopeLabel}</strong>. It cannot write to any other brand or the organization profile.</span>
         </div>
@@ -525,7 +525,7 @@ export function AdminOnboarding() {
 
       {/* Existing brand kit warning */}
       {kitWarning && (
-        <div style={{ padding: '10px 14px', background: '#fdf0de', border: '1px solid #f0d5a0', borderRadius: 8, fontSize: 13, color: '#92400e' }}>
+        <div style={{ padding: '10px 14px', background: 'var(--linen)', border: '.5px solid var(--border-warm)', borderRadius: 0, fontSize: 13, color: 'var(--ink-body)' }}>
           <strong>Existing brand kit found</strong> — importing this brief will replace the current profile, products, and audiences for {scopeLabel}. The existing Campaign Brand Kit will need to be regenerated after import.
         </div>
       )}
@@ -579,7 +579,7 @@ export function AdminOnboarding() {
             />
           </div>
           {error && (
-            <div style={{ padding: '8px 12px', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 6, fontSize: 13, color: '#dc2626', marginBottom: 12 }}>
+            <div style={{ padding: '8px 12px', background: 'var(--ivory)', border: '.5px solid var(--error)', borderRadius: 0, fontSize: 13, color: 'var(--error)', marginBottom: 12 }}>
               {error}
             </div>
           )}
@@ -617,11 +617,11 @@ export function AdminOnboarding() {
               <span className={brandKit.status === 'approved' ? 'badge badge-success' : 'badge badge-warning'}>
                 {brandKit.status}
               </span>
-              <button className="btn btn-secondary btn-sm" onClick={handleCopyBrandKit}>
+              <button className="btn btn-ghost btn-sm" onClick={handleCopyBrandKit}>
                 {kitCopied ? 'Copied' : 'Copy Markdown'}
               </button>
               <button
-                className="btn btn-secondary btn-sm"
+                className="btn btn-ghost btn-sm"
                 onClick={() => (isUpdateMode || isNewBrand) && targetBrandId ? navigate(`/admin/brands/${targetBrandId}`) : navigate('/admin/workspace')}
               >
                 {(isUpdateMode || isNewBrand) && targetBrandId ? 'Open Brand →' : 'Open in Workspace →'}
@@ -632,12 +632,12 @@ export function AdminOnboarding() {
                 </button>
               )}
             </div>
-            <div style={{ maxHeight: 420, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.6, border: '1px solid var(--border)', borderRadius: 8, padding: 12, background: '#f9fafb' }}>
+            <div style={{ maxHeight: 420, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.6, border: '.5px solid var(--border)', borderRadius: 0, padding: 12, background: 'var(--ivory)' }}>
               {brandKit.content_markdown}
             </div>
           </div>
         ) : (
-          <button className="btn btn-secondary btn-sm" onClick={() => handleGenerateBrandKit()} disabled={kitBusy}>
+          <button className="btn btn-dark btn-sm" onClick={() => handleGenerateBrandKit()} disabled={kitBusy}>
             {kitBusy ? 'Generating…' : 'Generate Campaign Brand Kit'}
           </button>
         )}
@@ -689,7 +689,7 @@ export function AdminOnboarding() {
           )}
         </div>
         <button
-          className="btn btn-secondary btn-sm"
+          className="btn btn-ghost btn-sm"
           onClick={() => navigate('/admin/providers', {
             state: (isUpdateMode || isNewBrand) && targetBrandId
               ? { brand_id: targetBrandId, brand_name: targetBrandName || newBrandName }

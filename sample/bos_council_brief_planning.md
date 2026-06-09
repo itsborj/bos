@@ -1,268 +1,318 @@
-# BOS Council Brief — Implementation Planning
+# BOS Council — Mini Project Brief
 
-Status: planning · not yet designed  
-Date: 2026-05-20  
-Scope: CMO Council — deliberation layer for contested or persistently deferred decisions  
-Depends on: DecisionBrief v0 (build item 2.5), MemoryEvent ledger (build item 2.2)
-
----
-
-## What we know (from agreed docs)
-
-From `sample/bos_stream_sample.md` and `BACKLOG.md`:
-
-### The card contract (agreed)
-```text
-type: council_brief
-topic_tags: budget | creative_fatigue | tracking | attribution | offer | objection | commitment | outcome
-triggered_by: persistent dismissal of same topic_tag (2× in N days)
-confidence: Contested · low score (e.g. 0.54)
-```
-
-Fields on the card:
-```text
-objective_ref
-brand_ref
-why_now            — e.g. "budget dismissed 2× in 5 days"
-evidence[]         — facts that led to convening
-voices[]           — 5 council members with position + confidence + dissent flag
-synthesis          — 3-of-5 summary with dissent noted
-questions[]        — 4 direct questions for the operator to answer
-do_not_list[]      — explicit constraints BOS must not cross without decision
-constraint_flags[] — escalation conditions
-recommended_next   — "answer the 4 questions, record your decision"
-approval_boundary  — "BOS cannot act without operator decision"
-allowed_actions    — record decision | ask CMO | dismiss
-```
-
-### The 5 fixed voices (agreed in stream sample)
-```text
-Strategist      — timeline and risk framing
-Analyst         — data-backed position
-Creative        — execution quality and fatigue risk
-Channel Spec    — platform-specific constraints and capacity
-Devil's Advocate — challenges the premise of the objective or channel fit
-```
+Status: active · in design  
+Date updated: 2026-06-02  
+Scope: CMO Council — live boardroom deliberation layer for marketing decisions  
+Supersedes: original planning doc dated 2026-05-20 (fixed-role, static synthesis model)
 
 ---
 
-## Open design questions
+## What the Council Is
 
-Three decisions need operator input before UX/UI can be built.
+A live boardroom of senior Chief Marketing Officers deliberating together on a marketing question. Every active seat is a full-stack CMO backed by a different LLM. The only guaranteed difference between seats is the AI model — that alone produces genuine divergence in strategic reasoning.
 
----
+The council is not a polling system and not a synthesis pipeline. It is a sequential, visible debate that ends when the business leader and the council reach a final decision together.
 
-### Question 1 — Triggering model
-
-**What causes the council to convene?**
-
-#### Option A · Automatic only (persistent deferral)
-Council fires when the same `topic_tag` appears in a dismissed card N times within a time window (current prototype: 2× in 5 days).
-
-```text
-Pros: no operator action required, catches blind spots
-Cons: may feel presumptuous — operator may have good reasons to defer
-```
-
-#### Option B · Manual convening only
-Operator explicitly asks: "convene council on this" from a `decision_brief` or CMO. No automatic fire.
-
-```text
-Pros: operator retains full control, council feels like a tool not a judgment
-Cons: requires operator to recognise when deliberation is needed
-```
-
-#### Option C · Both (recommended starting point)
-Automatic trigger on persistent deferral (same topic_tag, N dismissals). Operator can also convene manually from any `decision_brief` card or from CMO ("get a second opinion on this").
-
-Manual convening would produce the same council_brief card type — just without the "dismissed N×" framing in `why_now`.
-
-```text
-Open: what is N? 2 dismissals? 3? Over what window — 5 days? 7?
-Open: should the operator be able to dismiss a council brief and still have it re-fire?
-```
+**The business leader is Council #6.** Not an observer — a full participant who can inject at any point, steer the direction, or call the question.
 
 ---
 
-### Question 2 — CMO interaction model
+## Seat Model
 
-**What does the operator actually do with the council brief in CMO?**
+### Default — CMO with no bias
 
-#### Option A · One-shot decision recording
-Operator reads the brief in Stream or full-window, then goes to CMO and records a single decision covering all 4 questions. CMO writes one `decision_made` MemoryEvent with the full rationale.
+Every seat is a Chief Marketing Officer caliber participant. No role assignment, no fixed ideology. The LLM backing the seat is the source of differentiation. A Gemini-backed CMO and a Llama-backed CMO will genuinely reason differently on the same marketing problem. That divergence is the council's value.
 
-```text
-Fast. Matches how a senior operator would actually work.
-Risk: questions may not all be answered — partial decisions get recorded as complete.
+### Optional — named identity and bias
+
+The operator can optionally give a seat a name and an ideology statement in Admin → Council Seats. Examples:
+
+```
+display_name: "Sarah"
+ideology: "Growth-first. Revenue and market movement above all else. Dismissive of brand-first arguments unless backed by conversion data."
 ```
 
-#### Option B · Facilitated Q&A (guided mode)
-CMO walks the operator through each question one by one. Each answer is acknowledged before the next question is presented. At the end, CMO produces a decision summary for confirmation.
+If these fields are left empty, the seat runs as a pure unbiased CMO. Ideology is additive, not required.
 
-```text
-More thorough. Better for high-stakes contested decisions.
-Risk: feels slow and patronising for an experienced operator.
-Adds UX complexity: CMO needs a "guided mode" state.
-```
+### Variable seat count
 
-#### Option C · Hybrid — open input with structured summary
-CMO opens with all 4 questions visible. Operator responds in freeform. CMO extracts answers from the response and produces a structured summary: "Here is what I heard — [answer 1], [answer 2]... confirm?" Operator confirms or corrects. MemoryEvent is written from the confirmed summary.
+The council runs with however many seats are set to active — could be 2, could be all 5. Vacant seats are skipped entirely. No minimum quorum enforced at the system level (that is the operator's configuration responsibility).
 
-```text
-Feels natural. Preserves operator speed. Adds extraction step.
-This is the most aligned with how BOS should work — LLM doing the heavy lifting.
-Engineering note: requires a structured extraction pass before writing MemoryEvent.
-```
+### Council #6 — Business Leader
 
-**Recommendation: Option C.** Discuss before building.
+The operator is always Council #6. They are not a moderator or a passive reader. They are a participant in the boardroom. Their voice is treated the same as any CMO seat when the next round is assembled — it becomes part of the transcript that all active seats consume.
 
 ---
 
-### Question 3 — Council composition
+## Deliberation Structure
 
-**Are the 5 roles always the same, or topic-adaptive?**
+### Round 1 — Independent positions
 
-#### Option A · Fixed 5 roles (current prototype)
-Always: Strategist, Analyst, Creative, Channel Spec, Devil's Advocate.
+All active seats fire in parallel. Each seat receives only:
+- The original question
+- Active brand context (brand brief, campaign history, approved learnings)
 
-```text
-Simple. Consistent. The Devil's Advocate role always challenges the premise regardless of topic.
-Risk: for a budget question, Creative may have little to add. For a creative fatigue question,
-      the Analyst voice may be the most important. Fixed roles may produce noise.
+No seat sees any other seat's response yet. This prevents Round 1 from being contaminated by whoever spoke first.
+
+Positions stream into the Stream card as they complete — the operator watches them land one by one.
+
+Round 1 closes with a **simple hardcoded prompt to C6**. Not AI-generated. Not leading. One of a small rotating set:
+
+```
+"What do you think?"
+"Any comments before we continue?"
+"Anything to add or redirect?"
+"Do you want the council to continue?"
 ```
 
-#### Option B · Topic-adaptive roles
-The `topic_tag` determines which 3–5 voices are most relevant. A budget question pulls Strategist + Analyst + Finance lens. A creative fatigue question pulls Creative + Channel Spec + Analyst.
+The purpose of this prompt is to give C6 a natural moment to inject — not to force a response. C6 can respond or pass.
 
-```text
-More realistic. Less noise.
-Adds complexity: role-to-topic mapping needs to be defined and maintained.
+### C6 injection (optional at any round boundary)
+
+If C6 responds to the round-end prompt, their input is appended to the transcript as a C6 entry. No special handling. The next round's context simply includes what C6 said alongside all CMO positions. The council reads it as they would read any peer's contribution and factors it into their next round.
+
+If C6 passes, the next round starts immediately with no C6 entry.
+
+There is no concept of "redirecting" the council in code. C6's words do the redirecting. The LLMs read it and respond accordingly.
+
+### Round 2+ — Cross-examination
+
+Each active seat now receives the full transcript of all prior rounds. They:
+- Align with positions they agree with (naming the seat)
+- Push back on positions they disagree with (naming the seat, stating the reason)
+- Adjust their own prior position if peer arguments changed their view (stating why)
+
+Responses are sequential within the round — each seat sees all seats that spoke before it in the same round. This produces genuine dialogue: C3 can respond to what C2 just said in the same round, not just what C2 said in Round 1.
+
+Round N closes with the same simple hardcoded C6 prompt.
+
+### Finalization
+
+The session ends when:
+- **C6 calls it** — types any variant of "let's close," "I'm aligned," "that's enough," "wrap it up," or hits a Finalize button in the UI
+- **Natural convergence** — all active seats signal alignment in a round and C6 confirms at the round-end prompt
+
+There is no enforced maximum round count at the system level. A configurable safety ceiling exists in the session config (default: 10 rounds) to prevent runaway sessions, but it is not a design constraint — the council runs until the decision is reached.
+
+### Final output — council brief artifact
+
+When the session closes, the transcript is used to produce a `council_brief` artifact in Stream. This is the board minutes, not the meeting itself.
+
 ```
-
-#### Option C · Fixed core + adaptive specialist (recommended)
-3 fixed roles always present: Strategist, Analyst, Devil's Advocate.
-2 specialist slots filled based on `topic_tag`.
-
-```text
-topic_tag: budget          → Finance, Channel Spec
-topic_tag: creative_fatigue → Creative, Channel Spec
-topic_tag: tracking        → Analyst (2nd lens), Technical
-topic_tag: attribution     → Analyst (2nd lens), Channel Spec
-topic_tag: offer           → Creative, Strategist (2nd lens)
-topic_tag: objection       → Creative, Channel Spec
-topic_tag: commitment      → Strategist (2nd lens), Finance
+Settlement           — what the council agreed (or where it remains split)
+Marching orders      — numbered, concrete, actionable
+Parked decisions     — open items explicitly deferred
+C6 injections        — what the business leader contributed, clearly attributed
+Expandable transcript — full round-by-round exchange, collapsed by default
 ```
-
-**Recommendation: Option C.** Discuss before building.
 
 ---
 
-## Engineering implications
+## Stream Representation
 
-These are assumptions about how this builds on top of the Gate 2 schema. Not finalised — depends on design decisions above.
+The council session has a dedicated Stream card that evolves live throughout the session.
 
-### New model: CouncilBrief
-Produced by a council module when triggering condition is met.
+### Active session card
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ ⬡ COUNCIL IN SESSION                       Round 1 of ? │
+│ "Should we reposition Klaroha for the next launch?"     │
+├─────────────────────────────────────────────────────────┤
+│  C1  [streaming response...]                            │
+│  C2  ✓ done                                             │
+│  C3  [waiting]                                          │
+│  C4  [waiting]                                          │
+├─────────────────────────────────────────────────────────┤
+│  C6  What do you think?                                 │
+│  ┌─────────────────────────────────────────────────┐   │
+│  │ [Your response or pass...]             [Pass]   │   │
+│  └─────────────────────────────────────────────────┘   │
+│                                    [Finalize session]   │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Round expansion
+
+As rounds complete, each round collapses into an expandable section. The operator can expand any prior round to read the full exchange. The active round is always shown open.
+
+```
+▶ Round 1  (4 positions)
+▶ C6 injection — Round 1 boundary
+▼ Round 2  (active)
+  C1: I want to push back on what C3 said about cold traffic...
+  C2: [streaming...]
+```
+
+### Finalized session card
+
+When the session closes, the card transitions to the council brief artifact view:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ ⬡ COUNCIL BRIEF                              ✓ Settled  │
+│ "Should we reposition Klaroha for the next launch?"     │
+├─────────────────────────────────────────────────────────┤
+│ Settlement                                              │
+│ Adopt "CMO operating system" as the lead frame.         │
+│ Retain "command center" as supporting product language. │
+├─────────────────────────────────────────────────────────┤
+│ Marching orders                                         │
+│ 1. Lead launch messaging with: "Your CMO operating..."  │
+│ 2. Update campaign briefs toward executive leverage.    │
+│ 3. Run a two-message test before replacing assets.      │
+├─────────────────────────────────────────────────────────┤
+│ Parked decisions                                        │
+│ · Whether to mention "AI" in the homepage hero          │
+│ · Agency buyer role: CMO vs. marketing operator         │
+├─────────────────────────────────────────────────────────┤
+│ ▶ Full transcript (3 rounds · 4 seats · 2 C6 inputs)   │
+├─────────────────────────────────────────────────────────┤
+│ [Approve settlement]  [Ask follow-up]  [Dismiss]        │
+└─────────────────────────────────────────────────────────┘
+```
+
+---
+
+## What Does Not Change From the Prior Model
+
+- `@council <question>` is still the invocation command in CMO chat
+- CMO chat returns a short acknowledgement only — never dumps the transcript into chat
+- The `council_brief` artifact is the canonical output — Stream/Workspace own it
+- Approved settlement writes a MemoryEvent so future CMO planning uses the decision
+- Council may not execute, publish, spend, or create campaign artifacts without separate operator approval
+- Dissent is preserved in the brief — never suppressed
+- Brand scope is locked at session start — council cannot create NULL-brand artifacts
+
+---
+
+## What Changed From the Prior Model
+
+| Old model | New model |
+|---|---|
+| 5 fixed roles: Strategist, Analyst, Creative, Channel Spec, Devil's Advocate | No fixed roles — all CMO caliber by default; optional named identity + ideology |
+| Single pass: all seats → synthesis → brief | Live rounds: independent → cross-examine → repeat until done |
+| Static one-shot output | Streaming transcript that evolves round by round |
+| No operator participation during deliberation | C6 is Council #6 — full participant at every round boundary |
+| AI-generated synthesis step | Settlement extracted from final round transcript; no separate synthesis model |
+| Fixed 5 seats always | Variable — 2 to 5 active seats, whatever the operator configured |
+| Round-end question was AI-generated (complexity risk) | Round-end question is hardcoded and simple ("What do you think?") |
+| Automatic trigger on persistent deferral | Manual only — explicit @council invocation |
+
+---
+
+## Engineering Contracts (not yet specced — design is locked, build is next)
+
+### Session lifecycle
+
+```
+created         — @council received, brand context loaded
+round_1_active  — all seats firing in parallel
+awaiting_c6     — round complete, simple prompt displayed to C6
+round_N_active  — C6 response (or pass) consumed, next round firing
+finalizing      — C6 called close or natural convergence detected
+settled         — council_brief artifact written, session closed
+```
+
+### Data shape (CouncilSession — extends existing model)
 
 ```python
-class CouncilBrief:
-    id: UUID
-    workspace_id: UUID
-    brand_id: UUID
-    objective_id: UUID
-    topic_tag: str               # budget | creative_fatigue | ...
-    triggered_by: str            # "dismissed 2× in 5 days" | "operator request"
-    evidence: list[str]
-    voices: list[CouncilVoice]
-    synthesis: str
-    questions: list[str]         # 4 direct questions for operator
-    do_not_list: list[str]
-    constraint_flags: list[str]
-    confidence: float
-    status: str                  # pending | decided | dismissed
-    created_at: datetime
-    decided_at: datetime | None
-    decision_rationale: str | None  # written after operator records decision
+status: Literal["round_1_active", "awaiting_c6", "round_N_active", "finalizing", "settled"]
+current_round: int
+rounds: list[list[dict]]      # rounds[n] = list of {seat_id, content, timestamp}
+c6_injections: list[dict]     # {round_boundary, content, timestamp}
+pending_c6_prompt: str | None # the hardcoded question currently shown to C6
+safety_ceiling: int           # default 10 — stops runaway sessions, not a design limit
 ```
 
-### New model: CouncilVoice
+### Round-end C6 prompts (hardcoded pool, rotate or randomize)
+
 ```python
-class CouncilVoice:
-    role: str        # Strategist | Analyst | Creative | Channel Spec | Devil's Advocate
-    position: str
-    confidence: str  # High | Medium | Low
-    dissent: bool
+C6_PROMPTS = [
+    "What do you think?",
+    "Any comments before we continue?",
+    "Anything to add or redirect?",
+    "Do you want the council to keep going?",
+    "Any thoughts?",
+]
 ```
 
-### MemoryEvent types triggered by council
-```text
-artifact_created        → when council_brief is generated
-decision_made           → when operator records decision after council
-decision_not_to_act     → when operator dismisses council brief with rationale
-constraint_flag         → when a do_not_list item would be violated by a proposed action
+### Seat prompt contracts
+
+**Round 1 system addendum:**
+```
+This is Round 1. Present your independent position. Do not reference other council members
+— you have not heard them yet. Speak as a senior CMO addressing the question directly.
 ```
 
-### Triggering logic (to implement in DecisionBrief v0 or separate watcher)
-```text
-On every dismiss of a card with topic_tags:
-  - Query recent dismissed cards for same topic_tag + brand_id + objective_id
-  - If count >= N within window:
-    - Check if a pending council_brief already exists for this topic_tag
-    - If not: generate council_brief, create stream card
+**Round 2+ system addendum:**
+```
+This is Round {N}. You have now heard your peers. Address their positions directly —
+name who you agree with and why, name who you disagree with and why.
+If your view has changed from Round 1, say so and state what changed it.
 ```
 
-### CMO interaction (Option C hybrid — if agreed)
-```text
-1. Operator sends message about council card (or taps "record decision")
-2. CMO responds with 4 questions visible, invites freeform answer
-3. Operator responds in any form
-4. CMO runs extraction pass: identify which questions were answered and how
-5. CMO produces structured summary: "Here is what I heard — confirm?"
-6. Operator confirms or corrects
-7. On confirmation: write decision_made MemoryEvent with extracted answers as rationale
-8. council_brief.status → decided
-9. Stream: council_brief card updates / dismisses
+**C6 injection addendum (appended when C6 responded):**
+```
+The business leader has added: "{c6_input}"
+Factor this into your position.
 ```
 
----
+### Endpoints needed
 
-## UX/UI implications
-
-Not designing yet — depends on Q1–Q3 answers above. Notes for when design begins:
-
-### Stream card
-- Current prototype shows voices, synthesis, questions, do_not_list — agreed shape
-- Missing: constraint_flags display, `triggered_by` context line, status update after decision recorded
-
-### CMO surface
-- Needs a new "council mode" context bar — shows which council_brief is active
-- If Option C (hybrid), CMO needs to surface questions as a structured block, not just conversation
-- After decision recorded: CMO should show confirmation + what was written to memory
-
-### Admin
-- Council history could live in Memory & Audit — not a separate admin section
-- No operator-facing council configuration needed for Gate 2 (composition is system-determined)
-
----
-
-## Decision checklist before building
-
-```text
-[ ] Q1: Triggering model — automatic only / manual only / both?
-[ ] Q1a: If automatic, what is N (dismissal count) and window (days)?
-[ ] Q1b: Can a council_brief itself be dismissed and re-trigger?
-[ ] Q2: CMO interaction model — one-shot / guided / hybrid extraction?
-[ ] Q3: Council composition — fixed 5 / adaptive / fixed core + adaptive specialist?
-[ ] Q3a: If adaptive, confirm role-to-topic_tag mapping
-[ ] Confirm: does council_brief need its own database table, or is it a variant of DecisionBrief?
-[ ] Confirm: where does council history live in the UI?
+```
+POST /council/convene              — start session, run Round 1, return session + first C6 prompt
+POST /council/{id}/c6-respond      — C6 injects or passes, trigger next round
+POST /council/{id}/finalize        — C6 closes session, produce council_brief artifact
+GET  /council/{id}/stream          — SSE stream of live seat responses
+GET  /council/sessions             — existing
+GET  /council/sessions/{id}        — existing
+GET  /council/seats                — existing
+PUT  /council/seats/{seat_id}      — existing
 ```
 
 ---
 
-## Related files
+## Approved sample
 
-- `sample/bos_stream_sample.md` — agreed card contract with council_brief spec
-- `BACKLOG.md` — build items 2.4 (DecisionBrief), 2.5 (PendingDecision), 2.2 (MemoryEvent)
-- `wireframes/bos-stream-first.html` — council_brief card prototype (card id:6, Motormoto)
-- `sample/bos_gate2_ux_ui_coordination.md` — notes watchpoints and council as elevated from parked
+`sample/council_brief_artifact_v1.md` remains valid as the target output artifact shape (the finalized Stream card). The deliberation transcript format is captured in this document.
+
+The boardroom exchange sample agreed in session (2026-06-02) shows the expected dialogue format:
+- Seats named and attributed per contribution
+- Each seat directly addresses peers by name
+- C6 injection appears inline as a natural contribution
+- Convergence happens through the dialogue, not through a vote or synthesis model
+- Final decision emerges as a table of marching orders + parked items
+
+---
+
+## Build sequence (when approved)
+
+```
+1. Rewrite council module.py orchestrator
+   — parallel Round 1, sequential within Round 2+
+   — hardcoded C6 prompt pool
+   — SSE streaming of seat responses
+   — C6 inject/pass handling
+   — finalize → council_brief artifact write
+
+2. Update CouncilSession model + migration
+   — status enum, current_round, c6_injections, pending_c6_prompt, safety_ceiling
+
+3. Update council router
+   — /c6-respond endpoint
+   — /finalize endpoint
+   — /stream SSE endpoint
+
+4. Stream card — council session
+   — live deliberation card (rounds, seat streaming, C6 input area)
+   — finalized card (settlement, marching orders, parked, expandable transcript)
+
+5. CMO chat — @council handling
+   — short acknowledgement only
+   — link to Stream card
+
+6. Memory
+   — approved settlement → MemoryEvent
+   — dismissed → decision_not_to_act event
+```

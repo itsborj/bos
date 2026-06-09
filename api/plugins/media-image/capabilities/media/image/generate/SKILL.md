@@ -2,7 +2,7 @@
 id: media.image.generate
 module_id: media.image.generate
 name: image-generate
-description: Generate any image or visual creative from a text prompt — including Google Ads image ads, display ads, social creatives, hero images, product images, and banners. This is the only installed image generation capability. Use it whenever the user asks for an image, ad creative, visual asset, or image ad regardless of the target platform.
+description: Generate any image or visual creative from a text prompt — including sample images, Google Ads image ads, display ads, social creatives, hero images, product images, and banners. This is the only installed image generation capability. Use it whenever the user asks for an image, sample image, ad creative, visual asset, or image ad regardless of the target platform. A bare request like “get me sample image” means dispatch immediately using the active brand brief; do not ask what kind of image.
 scope: module
 status: active
 version: 1.0.0
@@ -45,7 +45,7 @@ metadata:
 
 ## When to activate
 
-Activate when the user asks for any image or visual asset — with or without a specific description. The module auto-generates a prompt from the active brand brief (product, tone, audience) when no explicit prompt is provided. Dispatch immediately; do not ask the user for a prompt or image type before dispatching.
+Activate when the user asks for any image or visual asset — with or without a specific description. A bare “sample image” / “get me sample image” request is enough. The module auto-generates a prompt from the active brand brief (product, tone, audience) when no explicit prompt is provided. Dispatch immediately; do not ask the user for a prompt or image type before dispatching.
 
 ## When NOT to activate
 
@@ -70,3 +70,9 @@ Returns an `image_asset` block:
 ```
 
 The underlying provider is configured via `IMAGE_GEN_WORKER_URL` and `IMAGE_GEN_API_KEY` plugin credentials. Swapping providers requires only updating the stored credentials — this module ID and output contract remain stable.
+
+---
+
+## Stream load performance note
+
+Resolved 2026-05-26. `GET /runs/{run_id}` supports `include_assets=false` so bulk Stream hydration can omit large inline fields such as `image_data_b64` while preserving prompt, dimensions, MIME type, and metadata. `Stream.tsx` uses bounded-concurrency hydration and only requests inline assets for explicit pending-review runs.

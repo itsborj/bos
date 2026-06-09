@@ -176,7 +176,7 @@ Required full set: approve, revise, dismiss, ask CMO, investigate, record outcom
 Add:
 - `revise` — call `openCMOFromCard(card, 'revise')` (depends on S4)
 - `investigate` — opens detail overlay or navigates to card detail route
-- `configure` — only on `setup_blocker` type; routes to `/admin/connectors` or `/admin/objective-loop` based on `data_json.config_target`
+- `configure` — only on `setup_blocker` type; routes to `/admin/modules` for specialist connector setup or `/admin/objective-loop` based on `data_json.config_target`
 
 Render only actions present in `update.data_json.allowed_actions`. Do not show all actions on every card.
 

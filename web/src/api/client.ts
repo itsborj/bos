@@ -9,6 +9,10 @@ import type {
   ChatResponse,
   ChatStreamEvent,
   BrandKitResponse,
+  CouncilSeat,
+  CouncilSeatUpdate,
+  CouncilSessionState,
+  CouncilFinalizeResult,
   DecisionBriefListResponse,
   DecisionBriefOut,
   EvaluateOutcomeOut,
@@ -135,7 +139,7 @@ export async function validateKey(key: string): Promise<{ valid: boolean; messag
   }
 }
 
-function buildQuery(params?: Record<string, string | number | undefined>): string {
+function buildQuery(params?: Record<string, string | number | boolean | undefined>): string {
   if (!params) return '';
   const q = new URLSearchParams();
   for (const [k, v] of Object.entries(params)) {
@@ -185,6 +189,9 @@ export const api = {
   getCapabilities: () =>
     request<{ capabilities: CapabilityInfo[] }>('/capabilities'),
 
+  getAvailableModels: () =>
+    request<{ models: import('./types').ProviderModelLive[] }>('/providers/models'),
+
   getBackendOverrides: () =>
     request<{ overrides: BackendOverride[] }>('/settings/backends'),
 
@@ -211,13 +218,19 @@ export const api = {
     brand_id?: string;
     created_after?: string;
     created_before?: string;
+    include_preview?: boolean;
     limit?: number;
     offset?: number;
   }) =>
-    request<RunListResponse>('/runs' + buildQuery(params as Record<string, string | number | undefined>)),
+    request<RunListResponse>('/runs' + buildQuery(params as Record<string, string | number | boolean | undefined>)),
 
-  getRun: (runId: string) =>
-    request<RunResponse>(`/runs/${runId}`),
+  getRun: (runId: string, options?: { includeAssets?: boolean }) =>
+    request<RunResponse>(`/runs/${runId}` + buildQuery({
+      include_assets: options?.includeAssets === false ? 'false' : options?.includeAssets === true ? 'true' : undefined,
+    })),
+
+  getStrategyWorkflow: (workflowId: string) =>
+    request<Record<string, unknown>>(`/strategy-workflows/${workflowId}`),
 
   getAgentState: () =>
     request<AgentStateResponse>('/agent/state'),
@@ -295,6 +308,7 @@ export const api = {
     const reader = resp.body!.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
+    let sawDone = false;
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -305,12 +319,20 @@ export const api = {
         const line = part.trim();
         if (line.startsWith('data: ')) {
           try {
-            yield JSON.parse(line.slice(6)) as ChatStreamEvent;
+            const event = JSON.parse(line.slice(6)) as ChatStreamEvent;
+            if (event.type === 'done') sawDone = true;
+            yield event;
           } catch {
             // malformed event — skip
           }
         }
       }
+    }
+    if (!sawDone) {
+      yield {
+        type: 'error',
+        message: 'Chat stream ended before completion. Please retry; the request may still be running.',
+      };
     }
   },
 
@@ -427,7 +449,7 @@ export const api = {
     request<{ access_token: string; api_key: string; app_id: string }>(`/social/drive/picker-config?brand_id=${brand_id}`),
 
   listDriveFolders: (brand_id: string, parent_id?: string) =>
-    request<{ folders: { id: string; name: string }[] }>(
+    request<{ folder_id?: string; folder_name?: string | null; folders: { id: string; name: string }[] }>(
       `/social/drive/folders?brand_id=${encodeURIComponent(brand_id)}${parent_id ? `&parent_id=${encodeURIComponent(parent_id)}` : ''}`
     ),
 
@@ -448,8 +470,8 @@ export const api = {
       body: JSON.stringify({ brand_id, folder_id, folder_name, folder_path }),
     }),
 
-  listPlugins: () =>
-    request<{ plugins: import('./types').PluginInfo[] }>('/plugins'),
+  listPlugins: (brand_id?: string) =>
+    request<{ plugins: import('./types').PluginInfo[] }>('/plugins' + buildQuery({ brand_id })),
 
   savePluginCredentials: (pluginId: string, vars: Record<string, string>) =>
     request<{ ok: boolean; plugin_id: string }>(`/plugins/${encodeURIComponent(pluginId)}/credentials`, {
@@ -465,6 +487,18 @@ export const api = {
 
   deletePluginCredentials: (pluginId: string) =>
     request<void>(`/plugins/${encodeURIComponent(pluginId)}/credentials`, { method: 'DELETE' }),
+
+  activatePlugin: (pluginId: string, brandId?: string | null) =>
+    request<{ ok: boolean; plugin_id: string; status: string }>(
+      `/plugins/${encodeURIComponent(pluginId)}/activate`,
+      { method: 'POST', body: JSON.stringify({ brand_id: brandId ?? null }) },
+    ),
+
+  deactivatePlugin: (pluginId: string, brandId?: string | null) =>
+    request<void>(
+      `/plugins/${encodeURIComponent(pluginId)}/activate${brandId ? `?brand_id=${brandId}` : ''}`,
+      { method: 'DELETE' },
+    ),
 
   listCalendarPages: (brand_id?: string) =>
     request<import('./types').CalendarPageResponse[]>(
@@ -549,4 +583,25 @@ export const api = {
   // Gate 2 — Handoff brief
   getHandoffBrief: (brand_id?: string) =>
     request<HandoffBriefOut>('/handoff/brief' + buildQuery({ brand_id })),
+
+  // Council
+  getCouncilSeats: () =>
+    request<CouncilSeat[]>('/council/seats'),
+
+  putCouncilSeat: (seatId: string, body: CouncilSeatUpdate) =>
+    request<CouncilSeat>(`/council/seats/${seatId}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    }),
+
+  councilC6Respond: (sessionId: string, input: string | null) =>
+    request<CouncilSessionState>(`/council/${sessionId}/c6-respond`, {
+      method: 'POST',
+      body: JSON.stringify({ input }),
+    }),
+
+  councilFinalize: (sessionId: string) =>
+    request<CouncilFinalizeResult>(`/council/${sessionId}/finalize`, {
+      method: 'POST',
+    }),
 };

@@ -1,7 +1,7 @@
 ---
 id: marketing.analytics.google_tag_manager
 name: google-tag-manager
-description: Google Tag Manager — containers, workspaces, tags, triggers, variables, publishing Use when the user wants to configure GTM containers, add or edit tags, set up triggers or variables, publish a GTM workspace, or audit tag firing.
+description: Google Tag Manager — containers, workspaces, tags, triggers, variables, publishing. Use only when GTM means Google Tag Manager or tag containers. Do not activate for go-to-market / GTM strategy, GTM plan, launch strategy, market-entry, first-channel, or first-users planning requests; those belong to marketing.planning.gtm_plan.
 scope: atomic_task
 status: active
 allowed_from_chat: true
@@ -11,7 +11,6 @@ requires_intent:
   - generation
 triggers:
   - google tag manager
-  - gtm
   - tag manager
   - gtm container
   - gtm tags
@@ -31,6 +30,16 @@ excluded_triggers:
   - universal analytics
   - campaigns
   - ad copy
+  - gtm strategy
+  - gtm plan
+  - go to market
+  - go-to-market
+  - launch strategy
+  - launch plan
+  - plan a launch
+  - market entry
+  - first channels
+  - first users
 memory_slots:
   - brand_profile
 quality_gates:

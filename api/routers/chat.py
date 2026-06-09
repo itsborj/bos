@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from artifacts import ArtifactRef, artifact_ref_from_run
 from auth import require_api_key
-from capability_manifest import build_dispatchable_manifest, format_manifest_for_prompt
+from capability_manifest import build_dispatchable_manifest, format_manifest_for_prompt, format_manifest_for_brand
 from config import get_settings
 from db import get_db
 from executor import get_adapter, get_platform_key
@@ -44,12 +44,21 @@ logger = logging.getLogger("bos.chat")
 
 _RUN_RE = re.compile(r"RUN:\s*([a-zA-Z0-9_.-]+)")
 _ACTION_RE = re.compile(r"ACTION:\s*([0-9a-fA-F-]{36})\s+([a-zA-Z0-9_-]+)")
+_ACTION_AUTHORIZATION_RE = re.compile(
+    r"\b(approve|approved|apply|publish|post|send|dismiss|revise|redo|update|delete|remove|confirm|yes,? do it|go ahead)\b",
+    re.IGNORECASE,
+)
 # Matches key: value lines immediately following a RUN: directive (until blank line or next RUN:)
 _RUN_PARAMS_RE = re.compile(
     r"RUN:\s*([a-zA-Z0-9_.-]+)((?:\n(?![ \t]*RUN\s*:)[ \t]*[a-zA-Z_][a-zA-Z0-9_]*\s*:[^\n]*)*)",
     re.MULTILINE,
 )
-
+# Matches blocks of 2+ consecutive lowercase_snake_case key: value lines that appear outside
+# any RUN: directive — "orphan params" emitted when the LLM retries or errors mid-generation.
+_ORPHAN_PARAM_BLOCK_RE = re.compile(
+    r"(?:^[ \t]*[a-z][a-z0-9_]+[ \t]*:[^\n]+)(?:\n[ \t]*[a-z][a-z0-9_]+[ \t]*:[^\n]+)+",
+    re.MULTILINE,
+)
 # ── @council command routing ──────────────────────────────────────────────────
 _COUNCIL_RE = re.compile(r"^\s*@council\b", re.IGNORECASE)
 
@@ -212,6 +221,7 @@ def _strip_control_directives(text: str) -> str:
     # under it (e.g. caption:, image_prompt:) — so hidden params never leak into the
     # user-visible reply. _RUN_PARAMS_RE matches RUN lines with or without params.
     cleaned = _RUN_PARAMS_RE.sub("", without_scope)
+    cleaned = _ORPHAN_PARAM_BLOCK_RE.sub("", cleaned)
     cleaned = _RUN_RE.sub("", cleaned)
     cleaned = _ACTION_RE.sub("", cleaned)
     cleaned = re.sub(r"[ \t]+\n", "\n", cleaned)
@@ -225,29 +235,61 @@ def _strip_run_directives(text: str) -> str:
     return _strip_control_directives(text)
 
 
+def _dedupe_preserve_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    deduped: list[str] = []
+    for value in values:
+        if value in seen:
+            continue
+        seen.add(value)
+        deduped.append(value)
+    return deduped
 
-def _chat_modules() -> list[dict]:
-    """All modules the CMO is allowed to dispatch. LLM decides when to invoke each."""
+
+
+async def _chat_modules(db: AsyncSession, brand_id=None) -> list[dict]:
+    """All modules the CMO is allowed to dispatch for this Brand."""
+    from plugin_loader import get_active_plugin_ids, get_plugin_for_module
+
+    active_plugin_ids = await get_active_plugin_ids(db, brand_id)
     allowed_module_ids = {
         s.module_id for s in list_skill_manifests()
         if s.allowed_from_chat and s.module_id
     }
-    return [m for m in list_all() if m["id"] in allowed_module_ids]
+    modules: list[dict] = []
+    for module in list_all():
+        module_id = module.get("id")
+        if module_id not in allowed_module_ids:
+            continue
+        plugin = get_plugin_for_module(module_id)
+        if plugin and plugin.manifest.plugin_id not in active_plugin_ids:
+            continue
+        modules.append(module)
+    return modules
 
 
 def _marketing_plan_module_id() -> str | None:
-    """Find the installed native marketing.plan artifact capability from SKILL.md metadata."""
+    """Find the installed native marketing.plan artifact capability from SKILL.md metadata.
+
+    Prefer the Strategy Workflow contract. This keeps @klar plan generic while
+    letting SKILL.md metadata, not chat phrase rules, own which module implements
+    the top-level planning artifact.
+    """
+    fallback: str | None = None
     for skill in list_skill_manifests():
         metadata = getattr(skill, "metadata", {}) or {}
-        if (
+        if not (
             skill.allowed_from_chat
             and skill.module_id
             and metadata.get("implements") == "marketing.plan"
             and metadata.get("artifact_type") == "plan_artifact"
-            and metadata.get("specialist") == "planning"
         ):
+            continue
+        if metadata.get("output_contract") == "strategy_workflow":
             return skill.module_id
-    return None
+        if metadata.get("platform") == "planning" or metadata.get("specialist") in {"planning", "gtm_planning"}:
+            fallback = fallback or skill.module_id
+    return fallback
 
 
 def _module_label_from_manifest(module_id: str) -> str:
@@ -510,15 +552,8 @@ class ChatReviseRequest(BaseModel):
 
 
 
-_CHANNEL_DISPLAY = {
-    "google_drive": "Google Drive (creative asset storage)",
-    "facebook": "Facebook",
-    "instagram": "Instagram",
-    "meta": "Meta (Facebook/Instagram)",
-    "gmail": "Gmail",
-    "youtube": "YouTube",
-    "google_calendar": "Google Calendar",
-}
+def _platform_display_name(platform: str) -> str:
+    return platform.replace("_", " ").replace("-", " ").title()
 
 
 async def _brand_channel_readiness(db: AsyncSession, brand: Brand | None) -> str:
@@ -530,10 +565,28 @@ async def _brand_channel_readiness(db: AsyncSession, brand: Brand | None) -> str
         return ""
     from models.social import SocialConnection
 
+    from plugin_loader import get_active_plugin_ids, get_loaded_plugins
+
+    active_plugin_ids = await get_active_plugin_ids(db, brand.id)
+    active_plugins = [p for pid, p in get_loaded_plugins().items() if pid in active_plugin_ids]
+    allowed_platforms = {
+        platform
+        for plugin in active_plugins
+        for platform in list(plugin.manifest.requires_social_connection)
+    } | {
+        conn.platform
+        for plugin in active_plugins
+        for conn in plugin.manifest.connections
+        if conn.platform
+    }
+    if not allowed_platforms:
+        return ""
+
     rows = (await db.execute(
         select(SocialConnection).where(
             SocialConnection.brand_id == brand.id,
             SocialConnection.status == "connected",
+            SocialConnection.platform.in_(allowed_platforms),
         )
     )).scalars().all()
     # Google Drive requires a root folder selection before it can store assets.
@@ -545,7 +598,7 @@ async def _brand_channel_readiness(db: AsyncSession, brand: Brand | None) -> str
         or (r.token_meta_json or {}).get("drive_root_folder_id")
     })
     if connected:
-        names = ", ".join(_CHANNEL_DISPLAY.get(p, p) for p in connected)
+        names = ", ".join(_platform_display_name(p) for p in connected)
         connected_line = f"Connected for {brand.name}: {names}."
     else:
         connected_line = f"No external channels are connected for {brand.name} yet."
@@ -690,7 +743,7 @@ async def _build_system_prompt(db: AsyncSession, ws, skill_context: str = "", br
             if kit_excerpt:
                 workspace_ctx += "Campaign Brand Kit excerpt:\n" + kit_excerpt + "\n"
 
-    modules_str = format_manifest_for_prompt()
+    modules_str = await format_manifest_for_brand(db, brand.id if brand else None)
     actionable_artifacts = await _actionable_artifacts_context(db, ws, brand=brand)
     channel_readiness = await _brand_channel_readiness(db, brand)
 
@@ -721,6 +774,7 @@ HARD RULES — no exceptions:
 6. Active brand isolation: when Known project context says `brand: X`, use only that brand's profile/products/audiences/docs as business facts. Ignore chat-history facts that refer to a different brand unless the scope-resolution note sets a different execution_brand for a new artifact.
 7. Hidden scope directive: every reply must start with a SCOPE block exactly like the scope-resolution skill describes. If you append any RUN line, `execution_brand` must be one existing Brand name, not none.
 8. When the scope-resolution note sets a clear execution_brand for a new/equivalent artifact, append the matching RUN line if the installed capability exists. Do not ask for Brand profile details; BOS hydrates the execution Brand for the module.
+8a. If a capability requires upstream contracts (buyer maps, message architecture, briefs, reports, or other substrate), do not ask the user to provide those internal artifacts. Append the RUN line for the requested capability; BOS execution will load or generate required upstream contracts from the Brand Brief.
 9. RUN lines must use ONLY the exact module IDs listed under "Deployable capabilities" below. Never invent, guess, or extrapolate a module ID. If no listed capability matches the request, say so — do not fabricate a RUN line.
 9a. Passing parameters to a RUN: when a capability's description asks for inputs (e.g. `caption`, `image_prompt`), append them as indented `key: value` lines directly under the RUN line, one per line, no blank line between. Example:
    RUN: creative.post.image
@@ -857,15 +911,17 @@ def _specialist_result_summaries(run_results: list[RunResponse]) -> list[dict]:
         if not isinstance(allowed_actions, list) or not allowed_actions:
             allowed_actions = ["review", "revise", "dismiss", "ask_cmo"]
         summary = block.get("summary") if isinstance(block.get("summary"), str) else None
+        error = block.get("error") or block.get("message") if isinstance(block, dict) else None
+        is_failed_ref = ref.status == "failed"
         summaries.append({
             "run_id": run.run_id,
             "artifact_ref": ref.artifact_id,
             "artifact_title": ref.title,
             "artifact_type": ref.type,
-            "status": ref.status if run.status == "completed" else run.status,
-            "summary": summary or f"{ref.title} created for Stream review.",
+            "status": "failed" if is_failed_ref else (ref.status if run.status == "completed" else run.status),
+            "summary": summary or (str(error) if is_failed_ref and error else f"{ref.title} created for Stream review."),
             "self_check": _normalize_self_check(run.result.self_check if run.result else None),
-            "recommended_decision": "review" if ref.status in {"pending_review", "saved"} else ref.status,
+            "recommended_decision": "fix_setup" if ref.type == "setup_blocker" else ("review" if ref.status in {"pending_review", "saved"} else ref.status),
             "objective_ref": run.campaign_id,
             "brand_ref": run.brand_id,
             "allowed_actions": allowed_actions,
@@ -875,6 +931,15 @@ def _specialist_result_summaries(run_results: list[RunResponse]) -> list[dict]:
 
 def _extract_action_directives(text: str) -> list[tuple[str, str]]:
     return [(match.group(1), match.group(2)) for match in _ACTION_RE.finditer(text or "")]
+
+
+def _user_authorized_artifact_action(message: str) -> bool:
+    """Return true only when the latest user turn explicitly asks to act on an artifact.
+
+    The CMO may recommend review after a specialist returns, but it cannot approve,
+    publish, send, dismiss, or mutate artifacts merely because synthesis is running.
+    """
+    return bool(_ACTION_AUTHORIZATION_RE.search(message or ""))
 
 
 async def _actionable_artifacts_context(db: AsyncSession, ws, brand: Brand | None = None) -> str:
@@ -924,7 +989,7 @@ def _build_synthesis_context(run_results: list[RunResponse], *, final_turn: bool
         "Write the operator-facing CMO reply only after reading these summaries.",
         "Use artifact references/titles only; do not paste native artifact content, copy, prompts, targeting, budgets, or provider details.",
         "Do not mention raw module IDs in the visible reply.",
-        "If useful and allowed, you may emit RUN directives for additional installed specialists only when more work is truly required." if not final_turn else "This is the final allowed loop turn. Do not emit RUN directives; summarize current results and next review action.",
+        "If useful and allowed, you may emit RUN directives for additional installed specialists only when more work is truly required. Do not emit ACTION directives unless the latest user message explicitly approved or requested that action." if not final_turn else "This is the final allowed loop turn. Do not emit RUN or ACTION directives; summarize current results and next review action.",
         "Specialist result summaries:",
         "```json",
         json.dumps(_specialist_result_summaries(run_results), indent=2),
@@ -993,6 +1058,9 @@ async def _continue_cmo_loop_after_results(
         final_execution_brand = scope_execution_brand or final_execution_brand
 
         requested_actions = _extract_action_directives(reply_without_scope)
+        if requested_actions and not _user_authorized_artifact_action(body.message):
+            logger.warning("CMO synthesis emitted unauthorized ACTION directives — skipping: %s", requested_actions)
+            requested_actions = []
         if requested_actions and not final_turn:
             yield {"type": "step", "label": "Executing approved artifact action..."}
             async for event in _run_actions_streaming(db, requested_actions, settings):
@@ -1004,7 +1072,16 @@ async def _continue_cmo_loop_after_results(
         invalid = [mid for mid in requested_modules if mid not in allowed_module_ids]
         if invalid:
             logger.warning("CMO synthesis triggered modules outside allowed set — skipping: %s", invalid)
-        requested_modules = [mid for mid in requested_modules if mid in allowed_module_ids]
+        requested_modules = _dedupe_preserve_order([mid for mid in requested_modules if mid in allowed_module_ids])
+
+        # Never re-dispatch a module already run in this CMO turn. Synthesis may explain,
+        # revise, or ask for approval, but it must not create duplicate artifacts unless a
+        # later user turn explicitly requests another version.
+        already_ran = {run.module_id for run in all_run_results}
+        duplicate_requests = [mid for mid in requested_modules if mid in already_ran]
+        if duplicate_requests:
+            logger.warning("CMO synthesis re-requested already-run modules — skipping: %s", duplicate_requests)
+        requested_modules = [mid for mid in requested_modules if mid not in already_ran]
 
         # Never re-dispatch a module that already produced a permanent credential/config failure.
         # These errors require operator action (e.g. connect an account); retrying won't help.
@@ -1034,7 +1111,12 @@ async def _continue_cmo_loop_after_results(
 
         conversation_lines = [f"{h.role.upper()}: {h.text}" for h in body.history[-12:]] + [f"USER: {body.message}"]
         brief = await _brand_scoped_brief(
-            db, ws, execution_brand or active_brand, {"conversation_context": "\n".join(conversation_lines)}
+            db, ws, execution_brand or active_brand, {
+                "request": body.message,
+                "objective": body.message,
+                "message": body.message,
+                "conversation_context": "\n".join(conversation_lines),
+            }
         )
         run_inline_params = _parse_run_inline_params(reply_without_scope)
         yield {"type": "step", "label": "Routing to specialists..."}
@@ -1114,6 +1196,46 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
                     action="brand_switch",
                     data={"brand_id": str(_matched.id), "brand_name": _matched.name},
                 )
+
+    # ── @council command ──────────────────────────────────────────────────────
+    if _is_council_command(body.message):
+        from council import start_session as _council_start
+        from models.workspace import Brand as _Brand
+        _council_brief = _parse_council_brief(body.message)
+        if not _council_brief:
+            yield _sse({"type": "reply", "text": "What question should the council deliberate on?\n\nUsage: @council <question>", "klar_action": None})
+            yield _sse({"type": "done"})
+            return
+        yield _sse({"type": "step", "label": "Convening council…"})
+        _council_brand: _Brand | None = None
+        if body.brand_id:
+            _council_brand = (await db.execute(
+                select(_Brand).where(_Brand.id == UUID(body.brand_id))
+            )).scalar_one_or_none()
+        _council_result = await _council_start(
+            brief=_council_brief,
+            db=db,
+            ws=ws,
+            brand=_council_brand,
+        )
+        if _council_result.get("error"):
+            yield _sse({"type": "reply", "text": _council_result["error"], "klar_action": None})
+        else:
+            yield _sse({"type": "reply", "text": "", "klar_action": {
+                "action": "council_session",
+                "data": {
+                    "session_id": _council_result["session_id"],
+                    "brief": _council_brief,
+                    "status": _council_result["status"],
+                    "current_round": _council_result["current_round"],
+                    "rounds_completed": _council_result["rounds_completed"],
+                    "rounds": _council_result["rounds"],
+                    "c6_injections": _council_result["c6_injections"],
+                    "pending_c6_prompt": _council_result["pending_c6_prompt"],
+                },
+            }})
+        yield _sse({"type": "done"})
+        return
 
     # ── @klar commands ────────────────────────────────────────────────────────
     if _is_klar_command(body.message):
@@ -1303,7 +1425,7 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
         if contextual_routed.module_ids:
             routed = contextual_routed
 
-    modules = _chat_modules()
+    modules = await _chat_modules(db, active_brand.id if active_brand else None)
     activated_skill_ids = [route.skill.id for route in routed.routes]
     memory_slots = sorted({slot for route in routed.routes for slot in route.skill.memory_slots})
 
@@ -1343,7 +1465,7 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
     invalid = [mid for mid in triggered_modules if mid not in allowed_module_ids]
     if invalid:
         logger.warning("LLM triggered modules outside allowed set — skipping: %s", invalid)
-    triggered_modules = [mid for mid in triggered_modules if mid in allowed_module_ids]
+    triggered_modules = _dedupe_preserve_order([mid for mid in triggered_modules if mid in allowed_module_ids])
 
     run_results: list[RunResponse] = []
 
@@ -1353,6 +1475,10 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
             active_campaign_uuid = UUID(body.campaign_id)
         except (ValueError, TypeError):
             pass
+
+    if triggered_actions and not _user_authorized_artifact_action(body.message):
+        logger.warning("CMO emitted unauthorized ACTION directives — skipping: %s", triggered_actions)
+        triggered_actions = []
 
     if triggered_actions and ws:
         yield _sse({"type": "step", "label": "Executing approved artifact action..."})
@@ -1371,6 +1497,9 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
         try:
             conversation_lines = [f"{h.role.upper()}: {h.text}" for h in body.history[-12:]] + [f"USER: {body.message}"]
             brief = await _brand_scoped_brief(db, ws, execution_brand or active_brand, {
+                "request": body.message,
+                "objective": body.message,
+                "message": body.message,
                 "conversation_context": "\n".join(conversation_lines),
                 "cmo_directive_text": reply_without_scope,
             })
@@ -1490,7 +1619,7 @@ async def chat(
 
     # ── @council command routing ──────────────────────────────────────────────
     if _is_council_command(body.message):
-        from capabilities.workspace.council.module import convene as _council_convene
+        from council import start_session as _council_start
         _council_brief = _parse_council_brief(body.message)
         if not _council_brief:
             return ChatResponse(reply="What question should the council deliberate on?\n\nUsage: @council <question>")
@@ -1499,13 +1628,30 @@ async def chat(
             _council_brand = (await db.execute(
                 select(Brand).where(Brand.id == UUID(body.brand_id))
             )).scalar_one_or_none()
-        _council_result = await _council_convene(
+        _council_result = await _council_start(
             brief=_council_brief,
             db=db,
             ws=ws,
             brand=_council_brand,
         )
-        return ChatResponse(reply=_council_result["formatted_output"])
+        if _council_result.get("error"):
+            return ChatResponse(reply=_council_result["error"])
+        return ChatResponse(
+            reply="",
+            klar_action=KlarAction(
+                action="council_session",
+                data={
+                    "session_id": _council_result["session_id"],
+                    "brief": _council_brief,
+                    "status": _council_result["status"],
+                    "current_round": _council_result["current_round"],
+                    "rounds_completed": _council_result["rounds_completed"],
+                    "rounds": _council_result["rounds"],
+                    "c6_injections": _council_result["c6_injections"],
+                    "pending_c6_prompt": _council_result["pending_c6_prompt"],
+                },
+            ),
+        )
 
     # ── @klar command routing ─────────────────────────────────────────────────
     if _is_klar_command(body.message):
@@ -1755,7 +1901,7 @@ async def chat(
         if contextual_routed.module_ids:
             routed = contextual_routed
 
-    modules = _chat_modules()
+    modules = await _chat_modules(db, active_brand.id if active_brand else None)
     user_message = body.message
     activated_skill_ids = [route.skill.id for route in routed.routes]
     memory_slots = sorted({slot for route in routed.routes for slot in route.skill.memory_slots})
@@ -1829,7 +1975,7 @@ async def chat(
         invalid = [mid for mid in triggered_modules if mid not in allowed_module_ids]
         if invalid:
             logger.warning("LLM triggered modules outside allowed set — skipping: %s", invalid)
-        triggered_modules = [mid for mid in triggered_modules if mid in allowed_module_ids]
+        triggered_modules = _dedupe_preserve_order([mid for mid in triggered_modules if mid in allowed_module_ids])
         logger.warning("CMO dispatch: %s", triggered_modules)
 
     run_results: list[RunResponse] = []
@@ -1839,6 +1985,10 @@ async def chat(
             active_campaign_uuid = UUID(body.campaign_id)
         except (ValueError, TypeError):
             pass
+
+    if triggered_actions and not _user_authorized_artifact_action(body.message):
+        logger.warning("CMO emitted unauthorized ACTION directives — skipping: %s", triggered_actions)
+        triggered_actions = []
 
     if triggered_actions and ws:
         async for event in _run_actions_streaming(db, triggered_actions, settings):
@@ -1857,6 +2007,9 @@ async def chat(
                 f"{h.role.upper()}: {h.text}" for h in body.history[-12:]
             ] + [f"USER: {body.message}"]
             chat_overrides = {
+                "request": body.message,
+                "objective": body.message,
+                "message": body.message,
                 "conversation_context": "\n".join(conversation_lines),
                 "cmo_directive_text": reply_without_scope,
             }
@@ -1944,11 +2097,11 @@ async def chat_revise_run(
     original_run, original_result = row
     previous_content = original_result.content if original_result else ""
     feedback = body.feedback.strip() or "Make this draft stronger, clearer, and more conversion-focused while preserving the original intent."
-    modules = _chat_modules()
+    revise_brand: Brand | None = await resolve_brand(db, str(original_run.brand_id) if original_run.brand_id else None)
+    modules = await _chat_modules(db, revise_brand.id if revise_brand else original_run.brand_id)
     module_cls = next((m for m in modules if m["id"] == original_run.module_id), None)
     channel = (module_cls.get("platform_hint") if module_cls else original_run.module_id.rsplit(".", 1)[-1]) or "asset"
 
-    revise_brand: Brand | None = await resolve_brand(db, str(original_run.brand_id) if original_run.brand_id else None)
     system = await _build_system_prompt(db, ws, brand=revise_brand) + """
 
 Revision thread mode:

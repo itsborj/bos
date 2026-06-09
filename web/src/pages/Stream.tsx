@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/client';
 import { useUI } from '../context/UIContext';
@@ -12,9 +12,9 @@ import { EmailPreview } from '../components/blocks/previews/EmailPreview';
 import { PinterestPreview } from '../components/blocks/previews/PinterestPreview';
 import { TwitterFeedPreview } from '../components/blocks/previews/TwitterFeedPreview';
 import { ApprovalBundle } from '../components/blocks/ApprovalBundle';
-import type { ObjectiveOut, RunResponse, StreamUpdateOut } from '../api/types';
+import type { ObjectiveOut, RunListItem, RunResponse, StreamUpdateOut } from '../api/types';
 
-type ArtifactStatus = 'pending' | 'approved' | 'dismissed' | 'complete';
+type ArtifactStatus = 'pending' | 'approved' | 'dismissed' | 'complete' | 'failed';
 
 function titleCase(value: string): string {
   return value
@@ -29,8 +29,11 @@ function artifactTitle(run: RunResponse): string {
   if (!run?.module_id) return 'Artifact';
   const id = run.module_id.toLowerCase();
   const platform = titleCase(run.result?.platform || run.module_id.split('.').pop() || 'asset');
+  if (id.includes('strategy_workflow')) return 'Strategy Workflow';
+  if (id.includes('gtm_plan') || id.includes('gtm')) return 'GTM Strategy';
   if (id.includes('email') && id.includes('plan')) return 'Email Campaign Plan';
   if (id.includes('email')) return 'Email Draft';
+  if (id.includes('gbp') || platform.toLowerCase().includes('google business')) return 'Google Business Profile Audit';
   if (id.includes('plan')) return 'Campaign Plan';
   if (id.includes('report') || id.includes('analytics')) return 'Marketing Report';
   if (id.includes('creative.post')) return 'Facebook Post Creative';
@@ -46,12 +49,10 @@ function artifactTitle(run: RunResponse): string {
   return `${platform} Draft`;
 }
 
-function artifactPlatform(run: RunResponse): string {
-  return titleCase(run.result?.platform || run.module_id.split('.').pop() || 'asset');
-}
 
 function artifactStatus(run: RunResponse): ArtifactStatus {
   const status = (run as any).approval_status || (run.result as any)?.approval_status;
+  if (run.status === 'failed' || (run.result?.block as any)?.status === 'failed') return 'failed';
   if (status === 'approved') return 'approved';
   if (status === 'rejected') return 'dismissed';
   if (status === 'pending') return 'pending';
@@ -63,6 +64,37 @@ function runTimestamp(run: Partial<RunResponse>): number {
   return Number.isFinite(ts) ? ts : 0;
 }
 
+function runFromListItem(item: RunListItem): RunResponse {
+  return {
+    run_id: item.run_id,
+    module_id: item.module_id,
+    vertical: item.vertical,
+    status: item.status,
+    approval_status: item.approval_status,
+    campaign_id: item.campaign_id,
+    brand_id: item.brand_id,
+    brand_name: item.brand_name,
+    result: item.result || undefined,
+    execution: item.provider ? {
+      provider: item.provider,
+      model: item.model || '',
+      mode: 'preview',
+      attempts: 1,
+      latency_ms: item.latency_ms || 0,
+      tokens_used: item.tokens || undefined,
+      provider_cost: item.cost || undefined,
+    } : undefined,
+    created_at: item.created_at,
+  };
+}
+
+let artifactHydrationQueue: Promise<void> = Promise.resolve();
+
+function enqueueArtifactHydration(task: () => Promise<void>): Promise<void> {
+  artifactHydrationQueue = artifactHydrationQueue.then(task).catch(() => undefined);
+  return artifactHydrationQueue;
+}
+
 function updateBrandRef(update: StreamUpdateOut): string | null {
   const ref = update.data_json?.brand_ref ?? update.data_json?.brand_id;
   return typeof ref === 'string' && ref ? ref : null;
@@ -71,8 +103,45 @@ function updateBrandRef(update: StreamUpdateOut): string | null {
 function statusText(status: ArtifactStatus): string {
   if (status === 'approved') return 'Approved';
   if (status === 'dismissed') return 'Dismissed';
+  if (status === 'failed') return 'Failed';
   if (status === 'pending') return 'Needs review';
   return 'Saved';
+}
+
+function artifactBrandName(run: RunResponse, fallback: string): string {
+  return run.result?.block?.brand_name || run.result?.brand_name || run.brand_name || fallback;
+}
+
+function StrategyWorkflowStreamCard({ block, onOpen }: { block: any; onOpen: () => void }) {
+  const archetype = (block.archetype || 'direct_sales').replace(/_/g, ' ');
+  const thesis = (block.components || []).find((c: any) => c.type === 'strategic_thesis')?.data || {};
+  const wedge = thesis.wedge || block.wedge || '';
+  const motion = thesis.primary_motion || block.primary_motion || '';
+  const componentCount = (block.components || []).filter((c: any) => c.status === 'complete').length;
+  const workOrders = (block.components || []).find((c: any) => c.type === 'work_orders');
+  const briefCount = workOrders?.data?.briefs?.length || 0;
+
+  return (
+    <div style={{ marginTop: 12, border: '1px solid #e5dccb', borderRadius: 12, overflow: 'hidden', background: '#fffdf8' }}>
+      <div style={{ background: '#0B3D2E', color: '#d8c9a8', padding: '10px 14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+        <span style={{ fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.1em' }}>Strategy Workflow · {archetype}</span>
+        {motion && <span style={{ fontSize: 11, background: '#1a5c42', borderRadius: 6, padding: '2px 8px', fontWeight: 700 }}>{motion}</span>}
+      </div>
+      <div style={{ padding: '12px 14px' }}>
+        {wedge && <div style={{ fontSize: 13, lineHeight: 1.5, color: '#374151', fontStyle: 'italic', marginBottom: 10 }}>"{wedge}"</div>}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 12 }}>
+          {componentCount > 0 && <span style={{ fontSize: 11, background: '#dcfce7', color: '#166534', borderRadius: 999, padding: '2px 8px', fontWeight: 700 }}>{componentCount} components active</span>}
+          {briefCount > 0 && <span style={{ fontSize: 11, background: '#f0eadc', color: '#826D40', borderRadius: 999, padding: '2px 8px', fontWeight: 700 }}>{briefCount} work orders</span>}
+        </div>
+        <button
+          onClick={onOpen}
+          style={{ background: '#0B3D2E', color: '#fff', border: 0, borderRadius: 8, padding: '8px 14px', fontSize: 12, fontWeight: 850, cursor: 'pointer', width: '100%' }}
+        >
+          Open Strategy Workflow →
+        </button>
+      </div>
+    </div>
+  );
 }
 
 function renderNativePreview(run: RunResponse) {
@@ -81,8 +150,8 @@ function renderNativePreview(run: RunResponse) {
 
   const moduleId = run.module_id.toLowerCase();
   const channel = `${moduleId} ${(result.platform || '').toLowerCase()}`;
-  const brandName = result.block?.brand_name || result.brand_name || 'Klaroha';
-  const socialHandle = result.block?.brand_handle || result.brand_handle || '@klarohahq';
+  const brandName = result.block?.brand_name || result.brand_name || run.brand_name || 'Unknown brand';
+  const socialHandle = result.block?.brand_handle || result.brand_handle || '@brand';
 
   if (moduleId.includes('google') && (moduleId.includes('text') || moduleId.includes('search'))) {
     const block = result.block;
@@ -156,6 +225,34 @@ function renderNativePreview(run: RunResponse) {
   if (channel.includes('pinterest')) {
     return <PinterestPreview title={result.headline || 'Title Missing'} description={result.content || 'Description missing'} />;
   }
+  if (result.block?.type === 'gbp_completeness_result') {
+    const b = result.block as any;
+    if (b.status === 'failed' || b.error) {
+      return (
+        <div style={{ padding: '18px 20px', fontSize: 13, color: '#7f1d1d', border: '1px solid #fecaca', borderRadius: 12, background: '#fef2f2' }}>
+          <div style={{ fontWeight: 800, marginBottom: 4 }}>Google Business Profile not connected</div>
+          <div>{b.error || result.content || 'Connect Google Business Profile in Admin → Brands.'}</div>
+        </div>
+      );
+    }
+    const fields: any[] = Array.isArray(b.fields) ? b.fields : [];
+    return (
+      <div style={{ padding: '16px 20px', fontSize: 13, color: '#1f2937', border: '1px solid #dbeafe', borderRadius: 12, background: '#eff6ff', maxWidth: 560 }}>
+        <div style={{ fontSize: 11, color: '#1d4ed8', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>Google Business Profile audit</div>
+        <div style={{ display: 'flex', alignItems: 'baseline', gap: 10, marginBottom: 8 }}>
+          <span style={{ fontSize: 30, fontWeight: 900 }}>{b.score ?? 0}</span>
+          <span style={{ fontWeight: 800 }}>{b.rating || 'Unscored'}</span>
+          {b.raw_score != null && <span style={{ color: '#6b7280' }}>{b.raw_score}/{b.max_score || 16} pts</span>}
+        </div>
+        {fields.slice(0, 4).map((field, idx) => (
+          <div key={idx} style={{ padding: '6px 0', borderTop: idx ? '1px solid #bfdbfe' : 'none' }}>
+            <strong>{field.name}</strong> · {field.status}
+            {field.note && <div style={{ color: '#4b5563', fontSize: 12 }}>{field.note}</div>}
+          </div>
+        ))}
+      </div>
+    );
+  }
   if (result.block?.type === 'meta_page_posts') {
     const b = result.block as any;
     if (b.status === 'failed') {
@@ -196,6 +293,50 @@ function renderNativePreview(run: RunResponse) {
       </div>
     );
   }
+  if (result.block?.type === 'strategy_workflow') {
+    const block = result.block as any;
+    const thesis = (block.components || []).find((c: any) => c.type === 'strategic_thesis')?.data || {};
+    const wedge = thesis.wedge || block.wedge || '';
+    const motion = thesis.primary_motion || block.primary_motion || '';
+    const archetype = (block.archetype || '').replace(/_/g, ' ');
+    return (
+      <div style={{ padding: '14px 16px', fontSize: 13, color: '#1f2937', border: '1px solid #e5dccb', borderRadius: 12, background: '#fffdf8' }}>
+        <div style={{ fontSize: 11, color: '#826D40', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>Strategy Workflow{archetype ? ` · ${archetype}` : ''}</div>
+        {motion && <div style={{ fontWeight: 700, marginBottom: 6 }}>{motion} motion</div>}
+        {wedge && <div style={{ color: '#4b5563', lineHeight: 1.45, fontStyle: 'italic' }}>"{wedge}"</div>}
+      </div>
+    );
+  }
+  if (result.block?.type === 'gtm_strategy') {
+    const block = result.block as any;
+    const stack = block.channel_stack || {};
+    const doNow: any[] = Array.isArray(stack.do_now) ? stack.do_now : [];
+    const gaps: any[] = Array.isArray(block.critical_gaps) ? block.critical_gaps : [];
+    return (
+      <div style={{ padding: '16px 20px', fontSize: 13, color: '#1f2937', border: '1px solid #e5e7eb', borderRadius: 12, maxWidth: 560, background: '#fff' }}>
+        <div style={{ color: '#6b7280', fontSize: 11, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>GTM strategy</div>
+        <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 8 }}>{block.title || artifactTitle(run)}</div>
+        {block.best_current_motion && <div style={{ lineHeight: 1.45, marginBottom: 10 }}><strong>Motion:</strong> {block.best_current_motion}</div>}
+        {block.positioning_angle && <div style={{ color: '#4b5563', marginBottom: 10 }}>{block.positioning_angle}</div>}
+        {doNow.length > 0 && (
+          <div style={{ marginBottom: 10 }}>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Do now</div>
+            {doNow.slice(0, 3).map((ch: any, idx: number) => (
+              <div key={idx} style={{ color: '#4b5563' }}>• {ch.channel || ch.name}{ch.role ? ` — ${ch.role}` : ''}</div>
+            ))}
+          </div>
+        )}
+        {gaps.length > 0 && (
+          <div>
+            <div style={{ fontWeight: 700, marginBottom: 4 }}>Critical gaps</div>
+            {gaps.slice(0, 2).map((gap: any, idx: number) => (
+              <div key={idx} style={{ color: '#4b5563' }}>• {gap.gap || gap.name}{gap.unlocks ? ` — ${gap.unlocks}` : ''}</div>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  }
   if (result.block?.type === 'marketing_plan' || moduleId.includes('marketing.plan')) {
     const block = result.block || {};
     const channels: any[] = Array.isArray((block as any).recommended_channels) ? (block as any).recommended_channels : [];
@@ -230,6 +371,16 @@ function renderNativePreview(run: RunResponse) {
       </div>
     );
   }
+  if (result.block?.type === 'image_asset' && (result.block as any).asset_omitted) {
+    const b = result.block as any;
+    return (
+      <div style={{ padding: 16, textAlign: 'center', color: '#6b7280', fontSize: 13, border: '1px dashed #d1d5db', borderRadius: 10 }}>
+        <div style={{ fontWeight: 700, color: '#374151', marginBottom: 4 }}>Image asset</div>
+        {b.width && b.height && <div style={{ fontSize: 12, marginBottom: 4 }}>{b.width}×{b.height} · {b.mime_type || 'image/png'}</div>}
+        {b.prompt && <div style={{ fontSize: 12, fontStyle: 'italic' }}>{b.prompt}</div>}
+      </div>
+    );
+  }
   if (result.block?.type === 'image_asset' && (result.block as any).status === 'failed') {
     return (
       <div style={{ padding: 20, textAlign: 'center', color: '#ef4444', fontSize: 13 }}>
@@ -261,7 +412,7 @@ function renderNativePreview(run: RunResponse) {
       </div>
     );
   }
-  if (result.block?.type === 'creative_shortform_video') {
+  if (result.block?.type === 'creative_shortform_video' || result.block?.type === 'video_asset') {
     const b = result.block as any;
     if (b.status !== 'succeeded') {
       return (
@@ -271,7 +422,7 @@ function renderNativePreview(run: RunResponse) {
       );
     }
     const filename = (b.video_path || '').split('/').pop();
-    const videoSrc = filename ? `/api/media/video/${filename}` : undefined;
+    const videoSrc = filename ? `/api/media/video/${filename}` : b.video_url;
     return <FacebookFeedPreview pageName={brandName} adCopy={b.hook_text || ''} videoSrc={videoSrc} ctaText={b.cta_text || 'Learn More'} />;
   }
   return <div className="stream-artifact-fallback">{result.content || 'Artifact content unavailable.'}</div>;
@@ -390,38 +541,85 @@ function StreamDataCard({ update, brandName, objectiveTitle, onDismiss, onAskCMO
   );
 }
 
-function StreamArtifactCard({ run, brandName, objectiveTitle, onApproved, onDismissed, onRevised }: {
+function StreamArtifactCard({ run, brandName, objectiveTitle, focused = false, registerCard, onApproved, onDismissed, onRevised }: {
   run: RunResponse;
   brandName: string;
   objectiveTitle: string;
+  focused?: boolean;
+  registerCard?: (runId: string, node: HTMLElement | null) => void;
   onApproved: (run: RunResponse) => void;
   onDismissed: (run: RunResponse) => void;
   onRevised: (original: RunResponse) => void;
 }) {
+  const [hydratedRun, setHydratedRun] = useState<RunResponse | null>(null);
+  const [hydrating, setHydrating] = useState(false);
+  const [hasEnteredView, setHasEnteredView] = useState(false);
+  const cardRef = useRef<HTMLElement | null>(null);
+  const navigate = useNavigate();
   const status = artifactStatus(run);
-  const createdAt = new Date(run.created_at).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  const source = artifactPlatform(run) + ' · ' + createdAt + ' · ' + timeAgo(run.created_at);
+  const displayRun = hydratedRun || run;
+  const displayBrandName = artifactBrandName(displayRun, brandName);
+
+  const setCardNode = useCallback((node: HTMLElement | null) => {
+    cardRef.current = node;
+    registerCard?.(run.run_id, node);
+  }, [registerCard, run.run_id]);
+
+  useEffect(() => {
+    return () => registerCard?.(run.run_id, null);
+  }, [registerCard, run.run_id]);
+
+  useEffect(() => {
+    const node = cardRef.current;
+    if (!node || hasEnteredView) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        setHasEnteredView(true);
+        observer.disconnect();
+      }
+    }, { rootMargin: '240px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasEnteredView]);
+
+  useEffect(() => {
+    if (!hasEnteredView || hydratedRun || hydrating) return;
+    setHydrating(true);
+    enqueueArtifactHydration(async () => {
+      const fullRun = await api.getRun(run.run_id, { includeAssets: true }).catch(() => null);
+      if (fullRun) {
+        setHydratedRun({ ...fullRun, approval_status: run.approval_status, brand_id: fullRun.brand_id || run.brand_id, brand_name: fullRun.brand_name || run.brand_name } as RunResponse);
+      }
+      setHydrating(false);
+    });
+  }, [hasEnteredView, hydratedRun, hydrating, run]);
 
   return (
-    <article className="g2card">
+    <article className={`g2card${focused ? ' stream-focused-artifact' : ''}`} ref={setCardNode}>
       <div className="g2top">
         <span className="g2type pending_artifact">{artifactTitle(run)}</span>
         <span className={`g2conf ${status === 'approved' ? 'green' : 'amber'}`}>{statusText(status)}</span>
       </div>
       <div className="g2obj">{objectiveTitle || 'Active objective'}</div>
-      <div className="g2brand">{brandName}</div>
-      <div className="g2src-row"><span className="g2src">{source}</span></div>
-      {status === 'pending' ? (
+      <div className="g2brand">{displayBrandName}</div>
+      {hydrating && !hydratedRun ? (
+        <div className="stream-artifact-fallback" style={{ marginTop: 10 }}><span className="spinner" /> Loading artifact…</div>
+      ) : displayRun.result?.block?.type === 'strategy_workflow' ? (
+        <StrategyWorkflowStreamCard block={displayRun.result.block as any} onOpen={() => {
+          const url = (displayRun.result?.block as any)?.workflow_url;
+          if (url) navigate(url);
+        }} />
+      ) : status === 'pending' ? (
         <ApprovalBundle
-          run={run}
+          run={displayRun}
           surfaceContext="panel"
-          revisionHistory={[{ role: 'ai', text: run.result?.content || '' }]}
+          revisionHistory={[{ role: 'ai', text: displayRun.result?.content || '' }]}
           onApproved={onApproved}
           onDismissed={onDismissed}
-          onRevision={(_, _revised) => onRevised(run)}
+          onRevision={(_, _revised) => onRevised(displayRun)}
         />
       ) : (
-        <div className="stream-artifact-preview" style={{ marginTop: 10 }}>{renderNativePreview(run)}</div>
+        <div className="stream-artifact-preview" style={{ marginTop: 10 }}>{renderNativePreview(displayRun)}</div>
       )}
     </article>
   );
@@ -478,7 +676,9 @@ function StreamUpdatePanel({ update, onClose }: { update: StreamUpdateOut; onClo
   );
 }
 
-export function Stream() {
+const RUN_PAGE_SIZE = 20;
+
+export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
   const navigate = useNavigate();
   const { pendingRunItems, removePendingRun, activeBrand } = useUI();
   const [artifacts, setArtifacts] = useState<RunResponse[]>([]);
@@ -486,47 +686,80 @@ export function Stream() {
   const [activeObjective, setActiveObjective] = useState<ObjectiveOut | null>(null);
   const [loading, setLoading] = useState(false);
   const [panelItem, setPanelItem] = useState<StreamUpdateOut | null>(null);
+  const [runOffset, setRunOffset] = useState(0);
+  const [hasMoreRuns, setHasMoreRuns] = useState(true);
+  const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
+  const [focusedRunId, setFocusedRunId] = useState<string | null>(null);
   const knownRunIds = useRef(new Set<string>());
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const artifactCardRefs = useRef(new Map<string, HTMLElement>());
 
-  // When CMO chat dispatches a new run, surface it in the feed immediately.
+  const registerArtifactCard = useCallback((runId: string, node: HTMLElement | null) => {
+    if (node) artifactCardRefs.current.set(runId, node);
+    else artifactCardRefs.current.delete(runId);
+  }, []);
+
+  // When CMO chat references an artifact, focus the exact matching Stream card.
+  // If it is outside the currently loaded page, fetch a lightweight preview and inject it.
   useEffect(() => {
-    const handleFocusArtifact = (e: Event) => {
-      const focusedRun = (e as CustomEvent<RunResponse>).detail;
-      if (!focusedRun?.run_id) return;
+    const upsertFocusedRun = (focusedRun: RunResponse) => {
+      knownRunIds.current.add(focusedRun.run_id);
       setArtifacts(prev => {
-        const ids = new Set(prev.map(r => r.run_id));
-        return ids.has(focusedRun.run_id) ? prev : [focusedRun, ...prev];
+        const exists = prev.some(r => r.run_id === focusedRun.run_id);
+        if (!exists) return [focusedRun, ...prev];
+        return prev.map(r => r.run_id === focusedRun.run_id ? ({ ...r, ...focusedRun } as RunResponse) : r);
       });
+    };
+
+    const handleFocusArtifact = (e: Event) => {
+      const detail = (e as CustomEvent<Partial<RunResponse> & { artifact_id?: string }>).detail;
+      const runId = detail?.run_id || detail?.artifact_id;
+      if (!runId) return;
+      setFocusedRunId(runId);
+      if (detail.module_id) {
+        upsertFocusedRun(detail as RunResponse);
+        return;
+      }
+      api.getRun(runId, { includeAssets: false })
+        .then(run => upsertFocusedRun(run))
+        .catch(() => {});
     };
     window.addEventListener('bos:focus-artifact', handleFocusArtifact);
     return () => window.removeEventListener('bos:focus-artifact', handleFocusArtifact);
   }, []);
 
   useEffect(() => {
+    if (!focusedRunId) return;
+    const timer = window.setTimeout(() => {
+      const node = artifactCardRefs.current.get(focusedRunId);
+      if (node) {
+        node.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        window.setTimeout(() => setFocusedRunId(current => current === focusedRunId ? null : current), 1800);
+      }
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [focusedRunId, artifacts.length]);
+
+  useEffect(() => {
     let cancelled = false;
     const brandId = activeBrand?.id;
     setLoading(true);
     Promise.all([
-      api.getRuns({ limit: 40, brand_id: brandId }).then(async r => {
-        const candidates = r.runs.filter(run =>
-          run.status !== 'failed' &&
-          run.approval_status !== 'rejected' &&
-          (!brandId || run.brand_id === brandId)
-        );
-        const full = await Promise.all(
-          candidates.map(async run => {
-            const fullRun = await api.getRun(run.run_id).catch(() => null);
-            return fullRun ? ({ ...fullRun, approval_status: run.approval_status, brand_id: fullRun.brand_id || run.brand_id } as RunResponse) : null;
-          })
-        );
-        return full.filter((run): run is RunResponse => !!run && (!brandId || run.brand_id === brandId));
+      api.getRuns({ limit: RUN_PAGE_SIZE, offset: 0, brand_id: brandId, include_preview: true }).then(r => {
+        setRunOffset(r.runs.length);
+        setHasMoreRuns(r.runs.length >= RUN_PAGE_SIZE && r.runs.length < r.total);
+        const byId = new Map<string, RunResponse>();
+        r.runs
+          .filter(run => run.status !== 'failed' && run.approval_status !== 'rejected' && (!brandId || run.brand_id === brandId))
+          .forEach(run => { if (!byId.has(run.run_id)) byId.set(run.run_id, runFromListItem(run)); });
+        return Array.from(byId.values());
       }),
       api.refreshStream().catch(() => null).then(() => api.getStream(false).catch(() => ({ updates: [], total: 0 }))),
       api.getActiveObjective(brandId).catch(() => null),
     ])
       .then(([fullRuns, stream, objective]) => {
         if (!cancelled) {
-          fullRuns.forEach(r => knownRunIds.current.add(r.run_id));
+          knownRunIds.current = new Set(fullRuns.map(r => r.run_id));
           setArtifacts(fullRuns);
           setStreamUpdates((stream.updates || []).filter(update =>
             ['outcome', 'decision_brief', 'setup_blocker', 'pending_artifact'].includes(update.type) &&
@@ -540,6 +773,41 @@ export function Stream() {
     return () => { cancelled = true; };
   }, [activeBrand?.id]);
 
+  const loadMoreRuns = useCallback(async () => {
+    if (loadingMoreRuns || !hasMoreRuns) return;
+    const brandId = activeBrand?.id;
+    setLoadingMoreRuns(true);
+    try {
+      const r = await api.getRuns({ limit: RUN_PAGE_SIZE, offset: runOffset, brand_id: brandId, include_preview: true });
+      setRunOffset(prev => prev + r.runs.length);
+      setHasMoreRuns(r.runs.length >= RUN_PAGE_SIZE && runOffset + r.runs.length < r.total);
+      const next = r.runs
+        .filter(run =>
+          run.status !== 'failed' &&
+          run.approval_status !== 'rejected' &&
+          (!brandId || run.brand_id === brandId) &&
+          !knownRunIds.current.has(run.run_id)
+        )
+        .map(runFromListItem);
+      if (next.length > 0) {
+        next.forEach(run => knownRunIds.current.add(run.run_id));
+        setArtifacts(prev => [...prev, ...next]);
+      }
+    } finally {
+      setLoadingMoreRuns(false);
+    }
+  }, [activeBrand?.id, hasMoreRuns, loadingMoreRuns, runOffset]);
+
+  useEffect(() => {
+    const node = loadMoreRef.current;
+    if (!node || !hasMoreRuns) return;
+    const observer = new IntersectionObserver(entries => {
+      if (entries.some(entry => entry.isIntersecting)) loadMoreRuns();
+    }, { rootMargin: '600px 0px' });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMoreRuns, loadMoreRuns]);
+
   // Poll every 15 s for new runs — makes Stream a live TikTok-style feed.
   useEffect(() => {
     if (loading) return;
@@ -547,7 +815,7 @@ export function Stream() {
 
     const poll = async () => {
       try {
-        const r = await api.getRuns({ limit: 10, brand_id: brandId });
+        const r = await api.getRuns({ limit: 10, brand_id: brandId, include_preview: true });
         const newCandidates = r.runs.filter(run =>
           run.status !== 'failed' &&
           run.approval_status !== 'rejected' &&
@@ -555,15 +823,9 @@ export function Stream() {
           !knownRunIds.current.has(run.run_id)
         );
         if (newCandidates.length === 0) return;
-        const fullRuns = await Promise.all(
-          newCandidates.map(async run => {
-            const fullRun = await api.getRun(run.run_id).catch(() => null);
-            return fullRun
-              ? ({ ...fullRun, approval_status: run.approval_status, brand_id: fullRun.brand_id || run.brand_id } as RunResponse)
-              : null;
-          })
-        );
-        const valid = fullRuns.filter((r): r is RunResponse => !!r && (!brandId || r.brand_id === brandId));
+        const byId = new Map<string, RunResponse>();
+        newCandidates.map(runFromListItem).forEach(run => { if (!byId.has(run.run_id)) byId.set(run.run_id, run); });
+        const valid = Array.from(byId.values()).filter((r): r is RunResponse => !!r && (!brandId || r.brand_id === brandId));
         if (valid.length > 0) {
           valid.forEach(r => knownRunIds.current.add(r.run_id));
           setArtifacts(prev => {
@@ -607,7 +869,8 @@ export function Stream() {
 
   function configureFromCard(update: StreamUpdateOut) {
     const target = String(update.data_json?.config_target || 'objective-loop');
-    if (target.includes('connector') || target.includes('gmail')) navigate('/admin/connectors');
+    if (target.includes('connector')) navigate('/admin/modules');
+    else if (target.includes('gmail')) navigate('/admin/brands');
     else navigate('/admin/objective-loop');
   }
 
@@ -621,7 +884,7 @@ export function Stream() {
   const objectiveTitle = activeObjective?.summary || 'Active objective';
 
   return (
-    <div className="stream-fullscreen">
+    <div className={`stream-fullscreen${embedded ? ' stream-embedded' : ''}`}>
       <div className={`stream-feed-col${panelItem ? ' stream-panel-open' : ''}`}>
         <div className="stream-content-inner">
           <div className="stream-header-zone">
@@ -662,11 +925,14 @@ export function Stream() {
                   run={run}
                   brandName={brandLabel}
                   objectiveTitle={objectiveTitle}
+                  focused={focusedRunId === run.run_id}
+                  registerCard={registerArtifactCard}
                   onApproved={r => updateLocalStatus(r, 'approved')}
                   onDismissed={r => updateLocalStatus(r, 'rejected')}
                   onRevised={original => setArtifacts(prev => prev.filter(r => r.run_id !== original.run_id))}
                 />
               ))}
+              {hasMoreRuns && <div ref={loadMoreRef} className="stream-load-more">{loadingMoreRuns ? 'Loading more…' : 'Scroll for more'}</div>}
             </div>
           )}
         </div>

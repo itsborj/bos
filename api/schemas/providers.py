@@ -37,6 +37,20 @@ class ProviderModelInfo(BaseModel):
     status: str
 
 
+class ProviderModelLive(BaseModel):
+    """A model available for selection — sourced live from provider APIs or seeded catalog."""
+    provider: str
+    model_id: str
+    name: str
+    is_free: bool
+    input_cost_per_token: float
+    output_cost_per_token: float
+    context_length: int
+    quality_tier: str  # "high" | "medium" | "low"
+    supports_json: bool
+    modality: str = "text"  # "text" | "image" | "video"
+
+
 class ProviderInfo(BaseModel):
     provider: str
     brand_id: str | None = None

@@ -1,8 +1,12 @@
+import asyncio
+import inspect
+import json
 import logging
 import os
+import re
 import tempfile
 from datetime import datetime
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -13,7 +17,7 @@ from uuid import UUID
 from auth import require_api_key
 from capability_router import route
 from config import get_settings
-from plugin_loader import inject_channel_credentials
+from plugin_loader import get_active_plugin_ids, get_plugin_for_module, inject_channel_credentials
 from db import get_db
 from errors import BosError
 from executor import execute_live, execute_mock, get_platform_key
@@ -23,9 +27,11 @@ from provider_auth import resolve_stored_provider_credential
 from routers.backend_settings import resolve_backend_override
 from models.document import WorkspaceDocument
 from models.run import Run, RunAttempt, RunResult, RunTrace
+from models.workflow import WorkflowComponent, WorkflowRun
 from models.workspace import Audience, Brand, Campaign, Product, Workspace
 from registry import get_module
 from routers.workspace import get_singleton
+from skills.loader import get_skill, list_skill_manifests
 from schemas.runs import (
     RunExecutionOut,
     RunListItem,
@@ -38,6 +44,274 @@ from schemas.runs import (
 
 router = APIRouter(tags=["runs"])
 logger = logging.getLogger("bos.runs")
+
+
+def _contract_brief_key(contract: str) -> str:
+    """Map contract ids like buyer_map.v1 to brief keys like buyer_map."""
+    raw = (contract or "").strip()
+    if not raw:
+        return ""
+    return re.sub(r"\.v\d+$", "", raw).replace(".", "_").replace("-", "_")
+
+
+def _has_contract_value(brief: dict, contract: str) -> bool:
+    key = _contract_brief_key(contract)
+    candidates = {contract, contract.replace(".", "_"), key}
+    return any(bool(brief.get(candidate)) for candidate in candidates if candidate)
+
+
+def _module_skill(module_id: str):
+    return next((skill for skill in list_skill_manifests() if skill.module_id == module_id), None)
+
+
+def _producer_module_for_contract(contract: str) -> str | None:
+    """Find the module whose SKILL.md declares it produces this contract."""
+    for skill in list_skill_manifests():
+        if skill.module_id and contract in skill.outputs:
+            return skill.module_id
+    return None
+
+
+def _dependency_contract_text(skill_id: str, *, limit: int = 12000) -> str:
+    skill = get_skill(skill_id)
+    if not skill:
+        return ""
+    body = skill.body.strip()
+    if len(body) > limit:
+        body = body[:limit].rstrip() + "…"
+    outputs = ", ".join(skill.outputs) or "none"
+    required = ", ".join(skill.required_upstream) or "none"
+    return (
+        f"## {skill.id} — {skill.name}\n"
+        f"Outputs: {outputs}\n"
+        f"Required upstream: {required}\n\n"
+        f"{body}"
+    )
+
+
+async def _find_upstream_contract_content(
+    db: AsyncSession,
+    ws: "Workspace",
+    contract: str,
+    brand_id: UUID | None,
+) -> str | None:
+    """Load a previously persisted upstream artifact by contract/doc/block type.
+
+    This is generic dependency hydration: modules declare required_upstream in
+    SKILL.md; the host looks for a matching artifact/document and passes it into
+    the brief. It does not dispatch capability-specific logic from chat.
+    """
+    key = _contract_brief_key(contract)
+    if not key:
+        return None
+    aliases = {contract, contract.replace(".", "_"), key}
+
+    doc_query = select(WorkspaceDocument).where(
+        WorkspaceDocument.workspace_id == ws.id,
+        WorkspaceDocument.doc_type.in_(aliases),
+    )
+    if brand_id:
+        doc_query = doc_query.where(WorkspaceDocument.brand_id == brand_id)
+    else:
+        doc_query = doc_query.where(WorkspaceDocument.brand_id.is_(None))
+    doc = (
+        await db.execute(doc_query.order_by(WorkspaceDocument.updated_at.desc()).limit(1))
+    ).scalar_one_or_none()
+    if doc and doc.content_markdown:
+        return doc.content_markdown[:12000]
+
+    run_query = (
+        select(Run, RunResult, RunTrace)
+        .join(RunResult, RunResult.run_id == Run.id, isouter=True)
+        .join(RunTrace, RunTrace.run_id == Run.id, isouter=True)
+        .where(Run.workspace_id == ws.id)
+        .where(Run.status.in_(["success", "partial"]))
+        .order_by(Run.updated_at.desc())
+        .limit(40)
+    )
+    if brand_id:
+        run_query = run_query.where(Run.brand_id == brand_id)
+    else:
+        run_query = run_query.where(Run.brand_id.is_(None))
+
+    rows = (await db.execute(run_query)).all()
+    for run, result, trace in rows:
+        block = ((trace.lineage_json or {}).get("block") if trace and trace.lineage_json else None) or {}
+        block_markers = {
+            str(block.get("type") or ""),
+            str(block.get("artifact_type") or ""),
+            str(block.get("output_contract") or ""),
+            str(block.get("contract") or ""),
+        }
+        if aliases.intersection(marker for marker in block_markers if marker):
+            content = result.content if result else ""
+            return content[:12000] if content else str(block)[:12000]
+    return None
+
+
+async def _hydrate_module_upstream_context(
+    db: AsyncSession,
+    ws: "Workspace",
+    module_id: str,
+    brief: dict,
+    brand_id: UUID | None,
+    settings=None,
+    policy: str | None = None,
+    campaign_id: UUID | None = None,
+    upstream_stack: tuple[str, ...] | None = None,
+) -> dict:
+    """Inject SKILL.md-declared upstream contracts into a module brief.
+
+    `required_upstream` is an execution contract, not prompt decoration. The host
+    first loads an existing contract artifact. If none exists and a producer
+    module is installed, it runs that producer as a supporting substrate before
+    the requested module runs. If the contract still cannot be produced, module
+    execution is blocked rather than silently inferring from a surface Brand Brief.
+    """
+    skill = _module_skill(module_id)
+    if not skill or not skill.required_upstream:
+        return brief
+
+    enriched = dict(brief)
+    missing: list[str] = []
+    loaded: list[str] = []
+    generated: list[str] = []
+    stack = tuple(upstream_stack or ()) + (module_id,)
+    for contract in skill.required_upstream:
+        if _has_contract_value(enriched, contract):
+            loaded.append(contract)
+            continue
+        content = await _find_upstream_contract_content(db, ws, contract, brand_id)
+        if content:
+            enriched[_contract_brief_key(contract)] = content
+            loaded.append(contract)
+            continue
+
+        producer_module_id = _producer_module_for_contract(contract)
+        if producer_module_id and settings is not None and producer_module_id not in stack:
+            logger.info("Hydrating upstream contract %s via %s for %s", contract, producer_module_id, module_id)
+            upstream_result = await _execute_module(
+                db,
+                ws,
+                producer_module_id,
+                enriched,
+                settings,
+                policy=policy,
+                campaign_id=campaign_id,
+                brand_id=brand_id,
+                _upstream_stack=stack,
+                _supporting=True,
+            )
+            if upstream_result.status != "success" or not upstream_result.result:
+                raise BosError(
+                    424,
+                    "UPSTREAM_CONTRACT_FAILED",
+                    f"Required upstream contract '{contract}' could not be generated by {producer_module_id}",
+                    {"contract": contract, "producer_module_id": producer_module_id, "status": upstream_result.status},
+                )
+            enriched[_contract_brief_key(contract)] = upstream_result.result.content
+            loaded.append(contract)
+            generated.append(contract)
+            continue
+
+        missing.append(contract)
+
+    dependency_ids = [dep for dep in skill.depends_on if dep and dep != "brand_brief"]
+    dependency_text = "\n\n---\n\n".join(
+        text for dep in dependency_ids if (text := _dependency_contract_text(dep))
+    )
+    if dependency_text:
+        enriched.setdefault("upstream_dependency_instructions", dependency_text)
+
+    enriched["required_upstream_contracts"] = list(skill.required_upstream)
+    enriched["loaded_upstream_contracts"] = loaded
+    enriched["generated_upstream_contracts"] = generated
+    enriched["missing_upstream_contracts"] = missing
+    if missing:
+        raise BosError(
+            424,
+            "UPSTREAM_CONTRACT_MISSING",
+            f"Required upstream contracts are missing for {module_id}: {', '.join(missing)}",
+            {"module_id": module_id, "missing": missing},
+        )
+    enriched.setdefault(
+        "upstream_contract_status",
+        "Required upstream contracts loaded before module execution.",
+    )
+    return enriched
+
+
+def _brand_handle_from_json(brand_json: dict | None) -> str | None:
+    social_handles = (brand_json or {}).get("social_handles") or {}
+    return social_handles.get("facebook") or social_handles.get("instagram") or social_handles.get("x") or social_handles.get("twitter")
+
+
+def _scope_artifact_block(
+    block: dict | None,
+    *,
+    brand_id: Any = None,
+    brand_name: str | None = None,
+    brand_handle: str | None = None,
+) -> dict | None:
+    """Attach owning Brand display metadata to artifact blocks without changing native fields.
+
+    This keeps Stream/Workspace previews tied to the run's persisted Brand, not
+    the currently selected UI Brand or workspace fallback. It intentionally does
+    not invent channel page/account fields.
+    """
+    if not isinstance(block, dict):
+        return block
+    scoped = dict(block)
+    if brand_id:
+        scoped.setdefault("brand_id", str(brand_id))
+    if brand_name:
+        scoped.setdefault("brand_name", brand_name)
+    if brand_handle:
+        scoped.setdefault("brand_handle", brand_handle)
+    return scoped
+
+
+def _scope_result_out(
+    *,
+    content: str,
+    self_check: str,
+    platform: str | None,
+    block: dict | None,
+    brand_id: Any = None,
+    brand_name: str | None = None,
+    brand_handle: str | None = None,
+) -> RunResultOut:
+    return RunResultOut(
+        content=content,
+        self_check=self_check,
+        platform=platform,
+        brand_name=brand_name,
+        brand_handle=brand_handle,
+        block=_scope_artifact_block(block, brand_id=brand_id, brand_name=brand_name, brand_handle=brand_handle),
+    )
+
+
+def _brand_fields_from_row(brand: Brand | None) -> tuple[str | None, str | None]:
+    if not brand:
+        return None, None
+    return brand.name, _brand_handle_from_json(brand.brand_json)
+
+
+def _self_check_repair_guidance(failures: list[str]) -> str:
+    guidance: list[str] = []
+    for failure in failures:
+        if failure == "unsupported_do_now_channel_without_context:email_list":
+            guidance.append("Move Email marketing/newsletter/email nurture out of Do now and into Hold unless an owned list, CRM, subscribers, opt-ins, or lead database is explicitly loaded.")
+        elif failure.startswith("unsupported_do_now_channel_without_context:"):
+            channel = failure.rsplit(":", 1)[-1].replace("_", " ")
+            guidance.append(f"Remove {channel} from Do now unless the loaded context explicitly proves the prerequisite asset exists; put it in Hold or Avoid with an unlock condition.")
+        elif failure == "invalid_motion_taxonomy":
+            guidance.append("Use exactly one of these motion names: founder-led, product-led, sales-led, content-led, partner-led, community-led.")
+        elif failure == "invented_numeric_target_or_proof":
+            guidance.append("Remove fabricated numbers, budgets, percentages, lead counts, revenue targets, and proof thresholds unless supplied in the brief.")
+        elif failure == "too_many_do_now_channels":
+            guidance.append("Limit Do now to at most three channels.")
+    return "\n".join(f"- {item}" for item in guidance)
 
 
 # ── Brief resolution ───────────────────────────────────────────────────────────
@@ -102,13 +376,30 @@ async def _inject_campaign_brand_kit_style(
     brand_id,
     db: AsyncSession,
 ) -> dict:
-    """Attach approved Campaign Brand Kit excerpt/style constraints for image generation."""
-    if brief.get("campaign_brand_kit_excerpt") or brief.get("brand_visual_constraints"):
+    """Attach approved Campaign Brand Kit / Brand Guidelines style constraints.
+
+    Chat dispatch already injects raw ``campaign_brand_kit_excerpt`` and
+    ``brand_guidelines_excerpt`` into the brief. Do not treat the presence of raw
+    excerpts as proof that visual constraints were extracted: image/video
+    providers need a compact, brand-locked constraint string, not the top of a
+    markdown document or overview table.
+    """
+    if brief.get("brand_visual_constraints"):
         return brief
+
+    existing_sources = [
+        str(brief.get("campaign_brand_kit_excerpt") or "").strip(),
+        str(brief.get("brand_guidelines_excerpt") or "").strip(),
+    ]
+    existing_markdown = "\n\n".join(s for s in existing_sources if s)
+    if existing_markdown:
+        constraints = _extract_visual_constraints(existing_markdown)
+        if constraints:
+            return {**brief, "brand_visual_constraints": constraints}
 
     filters = [
         WorkspaceDocument.workspace_id == ws.id,
-        WorkspaceDocument.doc_type == "campaign_brand_kit",
+        WorkspaceDocument.doc_type.in_(["campaign_brand_kit", "brand_guideline"]),
         WorkspaceDocument.status == "approved",
     ]
     if brand_id:
@@ -116,44 +407,114 @@ async def _inject_campaign_brand_kit_style(
     else:
         filters.append(WorkspaceDocument.brand_id.is_(None))
 
-    doc = (
+    docs = (
         await db.execute(
             select(WorkspaceDocument)
             .where(*filters)
-            .order_by(WorkspaceDocument.approved_at.desc().nullslast(), WorkspaceDocument.updated_at.desc())
-            .limit(1)
+            .order_by(WorkspaceDocument.doc_type.asc(), WorkspaceDocument.approved_at.desc().nullslast(), WorkspaceDocument.updated_at.desc())
         )
-    ).scalar_one_or_none()
-    if not doc:
+    ).scalars().all()
+    if not docs:
         return brief
 
-    excerpt = (doc.content_markdown or "")[:2500]
-    if not excerpt:
+    latest_by_type: dict[str, WorkspaceDocument] = {}
+    for doc in docs:
+        latest_by_type.setdefault(doc.doc_type, doc)
+
+    kit_excerpt = (latest_by_type.get("campaign_brand_kit").content_markdown or "")[:5000] if latest_by_type.get("campaign_brand_kit") else ""
+    guideline_excerpt = (latest_by_type.get("brand_guideline").content_markdown or "")[:5000] if latest_by_type.get("brand_guideline") else ""
+    combined = "\n\n".join(s for s in (kit_excerpt, guideline_excerpt) if s)
+    if not combined:
         return brief
     return {
         **brief,
-        "campaign_brand_kit_excerpt": excerpt,
-        "brand_visual_constraints": _extract_visual_constraints(excerpt),
+        "campaign_brand_kit_excerpt": brief.get("campaign_brand_kit_excerpt") or kit_excerpt,
+        "brand_guidelines_excerpt": brief.get("brand_guidelines_excerpt") or guideline_excerpt,
+        "brand_visual_constraints": _extract_visual_constraints(combined),
     }
 
 
 def _extract_visual_constraints(markdown: str) -> str:
-    """Small heuristic extractor for image prompt style constraints."""
+    """Extract compact brand constraints for media prompts.
+
+    Prefer actual color / voice / typography / CTA rules over introductory
+    document titles and overview tables. Provider prompts should receive a
+    concise brand contract, not raw markdown.
+    """
     keep: list[str] = []
-    keywords = (
-        "color", "colour", "palette", "visual", "style", "tone", "logo",
-        "typography", "font", "imagery", "photography", "brand voice", "avoid",
+    active_section = ""
+    section_keywords = (
+        "color", "colour", "palette", "visual", "imagery", "photography",
+        "style", "tone", "voice", "logo", "typography", "font", "cta",
+        "component", "motion", "avoid", "forbidden", "banned", "do / don't",
     )
+    line_keywords = section_keywords + ("#", "manrope", "inter", "hex", "contrast")
+    skip_phrases = (
+        "campaign brand kit overview",
+        "brand name",
+        "approval owner",
+        "primary product/service",
+        "target audience",
+        "this campaign brand kit",
+        "long-lived onboarding artifact",
+        "category | description",
+    )
+
+    def _clean(raw: str) -> str:
+        line = raw.strip()
+        if not line:
+            return ""
+        if not line.replace("|", "").replace(":", "").replace("-", "").strip():
+            return ""
+        if line.startswith("|") and line.endswith("|"):
+            cells = [c.strip(" `") for c in line.strip("|").split("|")]
+            cells = [c for c in cells if c and c.replace(":", "").replace("-", "").strip()]
+            line = ": ".join(cells)
+        line = line.strip(" -#\t")
+        return " ".join(line.split())
+
     for raw in markdown.splitlines():
-        line = raw.strip(" -#\t")
+        stripped = raw.strip()
+        if stripped.startswith("#"):
+            heading = _clean(stripped).lower()
+            active_section = heading if any(k in heading for k in section_keywords) else ""
+            continue
+
+        line = _clean(raw)
         if not line:
             continue
         lowered = line.lower()
-        if any(k in lowered for k in keywords):
+        if any(skip in lowered for skip in skip_phrases):
+            continue
+        if active_section or any(k in lowered for k in line_keywords):
             keep.append(line)
-        if len("; ".join(keep)) > 700:
+        if len("; ".join(keep)) > 1500:
             break
-    return "; ".join(keep)[:900]
+
+    constraints = "; ".join(dict.fromkeys(keep))[:1800]
+    if constraints:
+        constraints += "; Never generate fake text, random UI labels, or baked-in logos inside AI media. Leave safe space for BOS-applied captions, CTA, typography, and logo overlays."
+    return constraints[:2200]
+
+
+async def _is_plugin_module_active(module_id: str, brand_id, db: AsyncSession) -> bool:
+    plugin = get_plugin_for_module(module_id)
+    if not plugin:
+        return True
+    return plugin.manifest.plugin_id in await get_active_plugin_ids(db, brand_id)
+
+
+async def _is_plugin_platform_active(platform: str, brand_id, db: AsyncSession) -> bool:
+    from plugin_loader import get_loaded_plugins
+    active_ids = await get_active_plugin_ids(db, brand_id)
+    for pid, state in get_loaded_plugins().items():
+        if pid not in active_ids:
+            continue
+        if any(s.type == "social_token" and s.platform == platform for s in state.manifest.credential_slots):
+            return True
+        if any(conn.platform == platform for conn in state.manifest.connections):
+            return True
+    return False
 
 
 async def _inject_generated_image(
@@ -168,6 +529,8 @@ async def _inject_generated_image(
     Channel modules read these fields from brief — no cross-plugin imports needed.
     """
     try:
+        if not await _is_plugin_module_active("media.image.generate", brand_id, db):
+            return brief
         from registry import get_module as _get_module
         img_cls = _get_module("media.image.generate")
         if not img_cls:
@@ -212,6 +575,8 @@ async def _resolve_drive_attachment(
         ).strip()
         return {**brief, "_image_data_b64": existing_b64, "_image_mime": mime}
     try:
+        if not await _is_plugin_platform_active("google_drive", brand_id, db):
+            return brief
         from routers.social import get_page_token
         brand_id_str = str(brand_id) if brand_id else None
         if not brand_id_str:
@@ -266,6 +631,8 @@ async def _resolve_drive_video(
         return brief  # local copy present, no swap requested — use it
 
     try:
+        if not await _is_plugin_platform_active("google_drive", brand_id, db):
+            return brief
         from routers.social import get_page_token
         brand_id_str = str(brand_id) if brand_id else None
         if not brand_id_str:
@@ -314,6 +681,8 @@ async def _sync_run_to_pm(run: Run, brand: Brand, db: AsyncSession, settings) ->
     plugin = cfg["plugin"]
     create_id = f"marketing.channel.{plugin}.tasks.create"
     try:
+        if not await _is_plugin_module_active(create_id, run.brand_id, db):
+            return None
         cls = get_module(create_id)
         if not cls:
             return None
@@ -342,6 +711,8 @@ async def _update_pm_task_status(run: Run, new_bos_status: str, brand: Brand, db
     new_pm_status = cfg.get("status_map", {}).get(new_bos_status, new_bos_status)
     update_id = f"marketing.channel.{plugin}.tasks.update"
     try:
+        if not await _is_plugin_module_active(update_id, run.brand_id, db):
+            return
         cls = get_module(update_id)
         if not cls:
             return
@@ -350,6 +721,118 @@ async def _update_pm_task_status(run: Run, new_bos_status: str, brand: Brand, db
         cls().execute_tool_result(brief)
     except Exception:
         logger.exception("PM task status update failed for run %s plugin=%s", run.id, plugin)
+
+
+# ── Strategy workflow persistence ──────────────────────────────────────────────
+
+# Component types that are generated in the initial full-chain run
+_WIRED_COMPONENTS = [
+    "buyer_map",
+    "strategic_thesis",
+    "offer_architecture",
+    "channel_stack",
+    "tactical_funnel",
+    "work_orders",
+]
+
+# Component types that are placeholders (not_wired) in the initial run
+_NOT_WIRED_COMPONENTS = [
+    "market_context",
+    "framework_lenses",
+    "channel_content_matrix",
+    "measurement_model",
+]
+
+
+async def _persist_workflow_record(
+    db: AsyncSession,
+    ws: "Workspace",
+    run: "Run",
+    brand_id: "Optional[UUID]",
+    brief: dict,
+    block: dict,
+) -> dict:
+    """Create WorkflowRun + WorkflowComponent rows from a strategy_workflow block.
+
+    Returns the block with workflow_id and workflow_url injected.
+    """
+    try:
+        archetype = block.get("archetype") or "direct_sales"
+        request = brief.get("request") or brief.get("message") or brief.get("objective") or ""
+
+        wf = WorkflowRun(
+            workspace_id=ws.id,
+            brand_id=brand_id,
+            run_id=run.id,
+            archetype=archetype,
+            request=str(request)[:2000],
+            status="complete",
+        )
+        db.add(wf)
+        await db.flush()  # populate wf.id before creating components
+
+        # Wired components from block data
+        component_list = block.get("components") or []
+        comp_map = {c.get("type"): c for c in component_list if c.get("type")}
+
+        for ctype in _WIRED_COMPONENTS:
+            comp_data = comp_map.get(ctype, {})
+            db.add(WorkflowComponent(
+                workflow_run_id=wf.id,
+                component_type=ctype,
+                status="complete",
+                version=1,
+                data=comp_data.get("data") or {},
+                summary=_component_summary(ctype, comp_data.get("data") or {}),
+                run_id=run.id,
+            ))
+
+        for ctype in _NOT_WIRED_COMPONENTS:
+            db.add(WorkflowComponent(
+                workflow_run_id=wf.id,
+                component_type=ctype,
+                status="not_wired",
+                version=1,
+                data={},
+                summary=None,
+                run_id=None,
+            ))
+
+        block = {**block, "workflow_id": str(wf.id), "workflow_url": f"/strategy-workflows/{wf.id}"}
+        logger.info("WorkflowRun created: %s (archetype=%s)", wf.id, archetype)
+    except Exception:
+        logger.exception("Failed to persist WorkflowRun — block returned without workflow_id")
+
+    return block
+
+
+def _component_summary(component_type: str, data: dict) -> str | None:
+    """One-sentence summary for Stream card / CMO chat from component data."""
+    if component_type == "buyer_map":
+        al = data.get("awareness_level", "")
+        bt = data.get("buyer_type", "")
+        tg = data.get("trust_gap", "")
+        if al and bt:
+            return f"{bt.replace('_', ' ').title()} buyer at {al.replace('_', ' ')} stage — trust gap: {tg}" if tg else f"{bt.replace('_', ' ').title()} buyer at {al.replace('_', ' ')} stage."
+    if component_type == "strategic_thesis":
+        motion = data.get("primary_motion", "")
+        wedge = data.get("wedge", "")
+        return f"{motion.replace('-', ' ').title()} motion — {wedge}" if motion and wedge else None
+    if component_type == "offer_architecture":
+        mc = data.get("micro_commitment", "")
+        return f"Entry: {mc}" if mc else None
+    if component_type == "channel_stack":
+        do_now = data.get("do_now") or []
+        if do_now:
+            channels = ", ".join(c.get("channel", "") for c in do_now[:3] if c.get("channel"))
+            return f"Do now: {channels}." if channels else None
+    if component_type == "tactical_funnel":
+        cta = data.get("action_cta", "")
+        return f"CTA: {cta}" if cta else None
+    if component_type == "work_orders":
+        briefs = data.get("briefs") or []
+        return f"{len(briefs)} work order{'s' if len(briefs) != 1 else ''} generated." if briefs else None
+    return None
 
 
 # ── Core execution (shared by /runs and /chat) ─────────────────────────────────
@@ -363,14 +846,44 @@ async def _execute_module(
     policy: str | None = None,
     campaign_id: UUID | None = None,
     brand_id: UUID | None = None,
+    _upstream_stack: tuple[str, ...] | None = None,
+    _supporting: bool = False,
 ) -> RunResponse:
     """Route, execute, persist, and return a RunResponse for any module."""
     module_cls = get_module(module_id)
     if not module_cls:
         raise BosError(404, "MODULE_NOT_FOUND", f"Module '{module_id}' is not registered", None)
+
+    plugin_state = get_plugin_for_module(module_id)
+    if plugin_state:
+        active_plugin_ids = await get_active_plugin_ids(db, brand_id)
+        if plugin_state.manifest.plugin_id not in active_plugin_ids:
+            raise BosError(
+                403,
+                "PLUGIN_INACTIVE",
+                f"Plugin '{plugin_state.manifest.plugin_id}' is installed but not active for this Brand",
+                {"plugin_id": plugin_state.manifest.plugin_id, "module_id": module_id, "brand_id": str(brand_id) if brand_id else None},
+            )
+
     module = module_cls()
 
     eff_policy = policy or module.policy_default
+
+    if brand_id:
+        brand = (await db.execute(select(Brand).where(Brand.id == brand_id))).scalar_one_or_none()
+        if brand:
+            scoped_brief = dict(brief)
+            scoped_brief["brand_name"] = brand.name
+            bj = brand.brand_json or {}
+            for field in ("tone", "voice", "values", "domain", "website_url", "social_handles"):
+                if bj.get(field):
+                    scoped_brief[field] = bj[field]
+            handle = _brand_handle_from_json(bj)
+            if handle:
+                scoped_brief["brand_handle"] = handle
+            if bj.get("domain") or bj.get("website_url"):
+                scoped_brief.setdefault("display_url", bj.get("domain") or bj.get("website_url"))
+            brief = scoped_brief
 
     brief = await inject_channel_credentials(module_id, brief, brand_id, db, settings)
 
@@ -389,6 +902,195 @@ async def _execute_module(
     if brief.get("video_path") or brief.get("drive_file_id"):
         brief = await _resolve_drive_video(brief, brand_id, db, settings)
 
+    try:
+        brief = await _hydrate_module_upstream_context(
+            db,
+            ws,
+            module_id,
+            brief,
+            brand_id,
+            settings=settings,
+            policy=eff_policy,
+            campaign_id=campaign_id,
+            upstream_stack=_upstream_stack,
+        )
+    except BosError as upstream_exc:
+        # Persist a failed Run so chat can surface an artifact reference instead of silence.
+        failed_run = Run(
+            workspace_id=ws.id, module_id=module_id, status="failed",
+            campaign_id=campaign_id, brand_id=brand_id,
+        )
+        db.add(failed_run)
+        await db.flush()
+        db.add(RunTrace(
+            run_id=failed_run.id,
+            routing_json={"error": upstream_exc.message, "code": upstream_exc.code},
+            lineage_json=None,
+        ))
+        await db.commit()
+        raise
+
+    # ── New SDK path: async execute() → klaroha_sdk.RunResult ────────────────
+    _sdk_execute = getattr(module, "execute", None)
+    if callable(_sdk_execute) and asyncio.iscoroutinefunction(_sdk_execute):
+        run = Run(
+            workspace_id=ws.id,
+            module_id=module_id,
+            status="running",
+            campaign_id=campaign_id,
+            brand_id=brand_id,
+            approval_status="supporting" if _supporting else "pending",
+        )
+        db.add(run)
+        await db.flush()
+
+        try:
+            sdk_result = await _sdk_execute(brief)
+        except Exception as exc:
+            logger.exception("SDK execute() raised for run %s", run.id)
+            run.status = "failed"
+            run.approval_status = "failed"
+            await db.commit()
+            raise BosError(500, "MODULE_EXECUTE_FAILED", str(exc), None) from exc
+
+        # Convert sdk_result to the legacy attempt_data + result_data + block format
+        _plugin_prefix = (module_id or "sdk").split(".")[0]
+        _platform = getattr(module, "platform_hint", "") or _plugin_prefix
+        _capability = getattr(module, "capability", "marketing.execute") or "marketing.execute"
+
+        attempt_data = {
+            "provider": _platform,
+            "model_id": module_id,
+            "mode": "tool",
+            "status": "succeeded" if sdk_result.status != "failed" else "failed",
+            "tokens_input": 0,
+            "tokens_output": 0,
+            "provider_cost": 0.0,
+            "latency_ms": sdk_result.metadata.get("latency_ms", 0),
+            "error": sdk_result.error,
+        }
+
+        # First artifact block becomes the canonical block for Stream rendering
+        _sdk_block: dict | None = None
+        if sdk_result.artifact_blocks:
+            _ab = sdk_result.artifact_blocks[0]
+            _sdk_block = {
+                "type": _ab.block_type,
+                "artifact_type": "action_result",
+                "platform": _platform,
+                "status": "succeeded" if sdk_result.status == "success" else sdk_result.status,
+                "allowed_actions": _ab.allowed_actions,
+                "renderer_hint": _ab.renderer_hint,
+                **_ab.content,
+            }
+            _sdk_block = _scope_artifact_block(
+                _sdk_block,
+                brand_id=brand_id,
+                brand_name=brief.get("brand_name"),
+                brand_handle=brief.get("brand_handle"),
+            )
+
+        _content = sdk_result.metadata.get("content") or (
+            json.dumps(_sdk_block) if _sdk_block else ""
+        )
+        verdict = sdk_result.self_check or "pass"
+        failures: list[str] = []
+
+        db.add(RunAttempt(run_id=run.id, **attempt_data))
+        run_result_row = RunResult(
+            run_id=run.id,
+            content=_content,
+            self_check_verdict=verdict,
+            sell_price=None,
+        )
+        db.add(run_result_row)
+
+        routing_meta = {
+            "capability": _capability,
+            "policy": eff_policy,
+            "candidates_considered": 1,
+            "candidates_filtered": 0,
+            "winner": f"{_platform}/{module_id}",
+            "routing_reason": "sdk execute() — external plugin",
+        }
+        db.add(RunTrace(
+            run_id=run.id,
+            routing_json=routing_meta,
+            lineage_json={
+                "connector": _platform,
+                "self_check": verdict,
+                "self_check_failures": failures,
+                "block": _sdk_block,
+            },
+        ))
+
+        _attempt_failed = attempt_data["status"] == "failed"
+        run.status = "success" if verdict == "pass" and not _attempt_failed else "partial"
+        if _attempt_failed and not _supporting:
+            run.approval_status = "failed"
+        _allowed_actions = (_sdk_block or {}).get("allowed_actions") or []
+        _needs_publish = any(str(a).startswith("publish") for a in _allowed_actions)
+        if run.status == "success" and not _needs_publish and not _supporting:
+            run.approval_status = "approved"
+
+        await write_memory_event(
+            db,
+            workspace_id=ws.id,
+            brand_id=brand_id,
+            event_type="artifact_created",
+            topic_tags=[],
+            summary=f"Artifact created by {module_id}",
+            source_ref=f"run:{run.id}",
+            full_record={
+                "run_id": str(run.id),
+                "module_id": module_id,
+                "status": run.status,
+                "approval_status": run.approval_status,
+            },
+        )
+        await db.commit()
+        await db.refresh(run)
+
+        return RunResponse(
+            run_id=str(run.id),
+            module_id=run.module_id,
+            vertical=getattr(module, "vertical", "marketing"),
+            status=run.status,
+            approval_status=run.approval_status,
+            campaign_id=str(run.campaign_id) if run.campaign_id else None,
+            brand_id=str(run.brand_id) if run.brand_id else None,
+            brand_name=brief.get("brand_name"),
+            result=_scope_result_out(
+                content=_content,
+                self_check=verdict,
+                platform=_platform,
+                block=_sdk_block,
+                brand_id=brand_id,
+                brand_name=brief.get("brand_name"),
+                brand_handle=brief.get("brand_handle"),
+            ),
+            execution=RunExecutionOut(
+                provider=_platform,
+                model=module_id,
+                mode="tool",
+                attempts=1,
+                latency_ms=attempt_data["latency_ms"],
+                tokens_used=0,
+                provider_cost=0.0,
+                sell_price=None,
+            ),
+            trace=RunTraceOut(
+                capability=_capability,
+                policy=eff_policy,
+                candidates_considered=1,
+                candidates_filtered=0,
+                winner=f"{_platform}/{module_id}",
+                routing_reason="sdk execute() — external plugin",
+            ),
+            created_at=run.created_at,
+        )
+    # ─────────────────────────────────────────────────────────────────────────
+
     tool_executor = getattr(module, "execute_tool_result", None)
     if callable(tool_executor):
         run = Run(
@@ -397,16 +1099,32 @@ async def _execute_module(
             status="running",
             campaign_id=campaign_id,
             brand_id=brand_id,
+            approval_status="supporting" if _supporting else "pending",
         )
         db.add(run)
         await db.flush()
 
         attempt_data, result_data = tool_executor(brief)
+        # Guard: tool modules that fail early may omit provider/model_id, which
+        # are NOT NULL in run_attempts. Fill required fields so the row is valid.
+        attempt_data.setdefault("provider", module_id.split(".")[0])
+        attempt_data.setdefault("model_id", module_id)
+        attempt_data.setdefault("mode", "tool")
+        attempt_data.setdefault("status", "succeeded")
+        attempt_data.setdefault("latency_ms", 0)
         try:
             verdict, failures = module.self_check(result_data["content"], brief)
         except Exception as exc:
             logger.exception("self_check raised for run %s", run.id)
             verdict, failures = "fail", [str(exc)]
+
+        if isinstance(result_data.get("block"), dict):
+            result_data["block"] = _scope_artifact_block(
+                result_data.get("block"),
+                brand_id=brand_id,
+                brand_name=brief.get("brand_name"),
+                brand_handle=brief.get("brand_handle"),
+            )
 
         db.add(RunAttempt(run_id=run.id, **attempt_data))
         run_result_row = RunResult(
@@ -436,13 +1154,19 @@ async def _execute_module(
             },
         ))
 
-        run.status = "success" if verdict == "pass" else "partial"
         block_data = result_data.get("block") or {}
+        _attempt_failed = str(attempt_data.get("status") or "").lower() == "failed"
+        _block_failed = isinstance(block_data, dict) and str(block_data.get("status") or "").lower() == "failed"
+        run.status = "success" if verdict == "pass" and not _attempt_failed and not _block_failed else "partial"
+        # Failed provider/setup/tool results are reviewable facts, not approvable drafts.
+        # Keep the run visible for audit/history, but remove it from the approval queue.
+        if (_attempt_failed or _block_failed) and not _supporting:
+            run.approval_status = "failed"
         # Don't auto-approve artifacts that still require a human publish action.
         # These arrive on Stream as 'pending' so the operator can review and publish.
         _allowed_actions = block_data.get("allowed_actions") or []
         _needs_publish = any(str(a).startswith("publish") for a in _allowed_actions)
-        if run.status == "success" and block_data.get("status") == "succeeded" and not _needs_publish:
+        if run.status == "success" and block_data.get("status") == "succeeded" and not _needs_publish and not _supporting:
             run.approval_status = "approved"
         await write_memory_event(
             db,
@@ -480,11 +1204,15 @@ async def _execute_module(
             approval_status=run.approval_status,
             campaign_id=str(run.campaign_id) if run.campaign_id else None,
             brand_id=str(run.brand_id) if run.brand_id else None,
-            result=RunResultOut(
+            brand_name=brief.get("brand_name"),
+            result=_scope_result_out(
                 content=run_result_row.content,
                 self_check=verdict,
                 platform=module.platform_hint,
                 block=result_data.get("block"),
+                brand_id=brand_id,
+                brand_name=brief.get("brand_name"),
+                brand_handle=brief.get("brand_handle"),
             ),
             execution=RunExecutionOut(
                 provider=attempt_data["provider"],
@@ -508,13 +1236,15 @@ async def _execute_module(
         )
 
     candidates, routing_meta = await route(db, module.capability, eff_policy)
+    original_candidates = list(candidates)
 
     model_override = await resolve_backend_override(db, ws.id, module_id) or get_module_model_override(settings, module_id)
+    override_is_strict = effective_strict(settings, model_override) if model_override else False
     if model_override and candidates:
         candidates = reorder_candidates_for_model_override(
             candidates,
             model_override,
-            strict=effective_strict(settings, model_override),
+            strict=override_is_strict,
         )
         override_display_id = f"{model_override.provider}/{model_override.model_id or model_override.tool_id or 'unknown'}"
         routing_meta["backend_override"] = {
@@ -522,7 +1252,7 @@ async def _execute_module(
             "model_id": model_override.model_id,
             "tool_id": model_override.tool_id,
             "modality": model_override.modality,
-            "strict": effective_strict(settings, model_override),
+            "strict": override_is_strict,
         }
         routing_meta["routing_reason"] = (
             f"operator-configured backend override for {module_id}: "
@@ -556,6 +1286,7 @@ async def _execute_module(
     run = Run(
         workspace_id=ws.id, module_id=module_id, status="running",
         campaign_id=campaign_id, brand_id=brand_id,
+        approval_status="supporting" if _supporting else "pending",
     )
     db.add(run)
     await db.flush()
@@ -566,35 +1297,60 @@ async def _execute_module(
     failed_attempts: list[dict] = []
     last_error: str | None = None
 
-    for candidate in candidates:
-        provider = candidate["provider"]
-        api_key, auth_mode = await resolve_stored_provider_credential(db, ws.id, provider, settings, brand_id=brand_id)
-        if api_key:
-            run_mode = "oauth" if auth_mode == "oauth" else "byok"
-        else:
-            api_key = get_platform_key(provider, settings)
-            auth_mode = None
-            run_mode = "platform" if api_key else None
+    attempted_fallback_for_missing_override_credential = False
+    while True:
+        missing_credential_candidates: list[dict] = []
+        for candidate in candidates:
+            provider = candidate["provider"]
+            api_key, auth_mode = await resolve_stored_provider_credential(db, ws.id, provider, settings, brand_id=brand_id)
+            if api_key:
+                run_mode = "oauth" if auth_mode == "oauth" else "byok"
+            else:
+                api_key = get_platform_key(provider, settings)
+                auth_mode = None
+                run_mode = "platform" if api_key else None
 
-        if not api_key:
-            continue
+            if not api_key:
+                missing_credential_candidates.append(candidate)
+                continue
 
-        try:
-            attempt_data, result_data = await execute_live(
-                candidate, prompt, api_key, settings.markup_multiplier, byok=(run_mode != "platform"), auth_mode=auth_mode
-            )
+            try:
+                attempt_data, result_data = await execute_live(
+                    candidate, prompt, api_key, settings.markup_multiplier, byok=(run_mode != "platform"), auth_mode=auth_mode
+                )
+                break
+            except Exception as exc:
+                logger.warning("Candidate %s/%s failed: %s", provider, candidate["model_id"], exc)
+                failed_attempts.append({
+                    "provider": provider, "model": candidate["model_id"],
+                    "status": "failed", "error": str(exc),
+                })
+                db.add(RunAttempt(
+                    run_id=run.id, provider=provider, model_id=candidate["model_id"],
+                    mode=run_mode, status="failed", error=str(exc),
+                ))
+                last_error = str(exc)
+
+        if attempt_data is not None:
             break
-        except Exception as exc:
-            logger.warning("Candidate %s/%s failed: %s", provider, candidate["model_id"], exc)
-            failed_attempts.append({
-                "provider": provider, "model": candidate["model_id"],
-                "status": "failed", "error": str(exc),
-            })
-            db.add(RunAttempt(
-                run_id=run.id, provider=provider, model_id=candidate["model_id"],
-                mode=run_mode, status="failed", error=str(exc),
-            ))
-            last_error = str(exc)
+        if (
+            override_is_strict
+            and model_override
+            and not attempted_fallback_for_missing_override_credential
+            and original_candidates
+        ):
+            fallback_reason = "execution_failed" if last_error else "missing_credentials"
+            logger.warning(
+                "Strict backend override for %s %s; falling back to normal model routing",
+                module_id,
+                fallback_reason,
+            )
+            routing_meta["strict_override_fallback"] = fallback_reason
+            candidates = original_candidates
+            attempted_fallback_for_missing_override_credential = True
+            last_error = None
+            continue
+        break
 
     if attempt_data is None:
         if last_error:
@@ -624,11 +1380,52 @@ async def _execute_module(
             )
             run_mode = "mock"
 
+    normalizer = getattr(module, "normalize_content", None)
+    if callable(normalizer) and result_data and result_data.get("content"):
+        result_data["content"] = normalizer(result_data["content"], brief)
+
     try:
         verdict, failures = module.self_check(result_data["content"], brief)
     except Exception as exc:
         logger.exception("self_check raised for run %s", run.id)
         verdict, failures = "fail", [str(exc)]
+
+    repair_round = 0
+    while verdict == "fail" and attempt_data is not None and result_data is not None and api_key and repair_round < 2:
+        repair_round += 1
+        repair_prompt = "\n\n".join([
+            prompt,
+            "SELF-CHECK FAILED. Revise the artifact and return the full corrected artifact only.",
+            "Failures: " + ", ".join(failures[:12]),
+            "Required fixes:\n" + (_self_check_repair_guidance(failures) or "Correct every listed failure explicitly."),
+            "Do not include placeholder instruction text. Do not violate any listed self-check failure.",
+        ])
+        try:
+            retry_attempt, retry_result = await execute_live(
+                candidate,
+                repair_prompt,
+                api_key,
+                settings.markup_multiplier,
+                byok=(run_mode != "platform"),
+                auth_mode=auth_mode,
+            )
+            if callable(normalizer) and retry_result.get("content"):
+                retry_result["content"] = normalizer(retry_result["content"], brief)
+            retry_verdict, retry_failures = module.self_check(retry_result["content"], brief)
+            if retry_verdict == "pass" or len(retry_failures) <= len(failures):
+                failed_attempts.append({
+                    "provider": attempt_data["provider"],
+                    "model": attempt_data["model_id"],
+                    "status": "self_check_failed",
+                    "failures": failures,
+                })
+                attempt_data, result_data = retry_attempt, retry_result
+                verdict, failures = retry_verdict, retry_failures
+            else:
+                break
+        except Exception as exc:
+            logger.warning("Self-check repair attempt failed for %s: %s", module_id, exc)
+            break
 
     db.add(RunAttempt(run_id=run.id, **attempt_data))
 
@@ -644,9 +1441,23 @@ async def _execute_module(
     block = None
     if hasattr(module, '_build_block') and result_data.get("content"):
         try:
-            block = module._build_block(result_data["content"])
+            build_block = module._build_block
+            if len(inspect.signature(build_block).parameters) >= 2:
+                block = build_block(result_data["content"], brief)
+            else:
+                block = build_block(result_data["content"])
         except Exception:
             pass
+    block = _scope_artifact_block(
+        block,
+        brand_id=brand_id,
+        brand_name=brief.get("brand_name"),
+        brand_handle=brief.get("brand_handle"),
+    )
+
+    # Persist WorkflowRun + WorkflowComponents for strategy_workflow artifacts
+    if block and block.get("type") == "strategy_workflow":
+        block = await _persist_workflow_record(db, ws, run, brand_id, brief, block)
 
     db.add(RunTrace(
         run_id=run.id,
@@ -699,11 +1510,15 @@ async def _execute_module(
         approval_status=run.approval_status,
         campaign_id=str(run.campaign_id) if run.campaign_id else None,
         brand_id=str(run.brand_id) if run.brand_id else None,
-        result=RunResultOut(
+        brand_name=brief.get("brand_name"),
+        result=_scope_result_out(
             content=run_result_row.content,
             self_check=verdict,
             platform=module.platform_hint,
             block=block,
+            brand_id=brand_id,
+            brand_name=brief.get("brand_name"),
+            brand_handle=brief.get("brand_handle"),
         ),
         execution=RunExecutionOut(
             provider=attempt_data["provider"],
@@ -769,6 +1584,7 @@ async def list_runs(
     brand_id: Optional[UUID] = Query(None),
     created_after: Optional[datetime] = Query(None),
     created_before: Optional[datetime] = Query(None),
+    include_preview: bool = Query(False, description="Include compact result/block preview metadata with large inline assets stripped."),
     limit: int = Query(20, ge=1, le=100),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -793,23 +1609,74 @@ async def list_runs(
         count_stmt = count_stmt.where(*filters)
     total = (await db.execute(count_stmt)).scalar_one()
 
-    stmt = select(Run, RunAttempt, Campaign).join(
-        RunAttempt, RunAttempt.run_id == Run.id, isouter=True
-    ).join(
-        Campaign, Campaign.id == Run.campaign_id, isouter=True
-    ).order_by(Run.created_at.desc()).limit(limit).offset(offset)
+    if include_preview:
+        stmt = select(Run, RunAttempt, Campaign, Brand, RunResult, RunTrace).join(
+            RunAttempt, RunAttempt.run_id == Run.id, isouter=True
+        ).join(
+            Campaign, Campaign.id == Run.campaign_id, isouter=True
+        ).join(
+            Brand, Brand.id == Run.brand_id, isouter=True
+        ).join(
+            RunResult, RunResult.run_id == Run.id, isouter=True
+        ).join(
+            RunTrace, RunTrace.run_id == Run.id, isouter=True
+        ).order_by(Run.created_at.desc()).limit(limit).offset(offset)
+    else:
+        stmt = select(Run, RunAttempt, Campaign, Brand).join(
+            RunAttempt, RunAttempt.run_id == Run.id, isouter=True
+        ).join(
+            Campaign, Campaign.id == Run.campaign_id, isouter=True
+        ).join(
+            Brand, Brand.id == Run.brand_id, isouter=True
+        ).order_by(Run.created_at.desc()).limit(limit).offset(offset)
     if filters:
         stmt = stmt.where(*filters)
     result = await db.execute(stmt)
     rows_with_attempts = result.all()
+    # Outer joins can produce duplicate run rows when a run has multiple attempts/traces.
+    # The feed contract is one card per run, so dedupe before serialising.
+    seen_run_ids: set[Any] = set()
+    unique_rows = []
+    for row in rows_with_attempts:
+        run_id = row.Run.id
+        if run_id in seen_run_ids:
+            continue
+        seen_run_ids.add(run_id)
+        unique_rows.append(row)
+    rows_with_attempts = unique_rows
 
-    verticals_cache: dict[str, str] = {}
+    module_cache: dict[str, Any] = {}
+
+    def _module_cls(mid: str) -> Any:
+        if mid not in module_cache:
+            module_cache[mid] = get_module(mid)
+        return module_cache[mid]
 
     def _vertical(mid: str) -> str:
-        if mid not in verticals_cache:
-            cls = get_module(mid)
-            verticals_cache[mid] = cls.vertical if cls else mid.split(".")[0]
-        return verticals_cache[mid]
+        cls = _module_cls(mid)
+        return cls.vertical if cls else mid.split(".")[0]
+
+    def _platform(mid: str) -> str | None:
+        cls = _module_cls(mid)
+        return cls.platform_hint if cls else None
+
+    def _preview(row: Any) -> RunResultOut | None:
+        if not include_preview or not getattr(row, "RunResult", None):
+            return None
+        lineage = row.RunTrace.lineage_json if getattr(row, "RunTrace", None) else {}
+        block = (lineage or {}).get("block")
+        if block:
+            block = _strip_large_block_assets(block)
+        brand_name, brand_handle = _brand_fields_from_row(getattr(row, "Brand", None))
+        return _scope_result_out(
+            content=row.RunResult.content,
+            self_check=row.RunResult.self_check_verdict,
+            platform=_platform(row.Run.module_id),
+            block=block,
+            brand_id=row.Run.brand_id,
+            brand_name=brand_name,
+            brand_handle=brand_handle,
+        )
 
     return RunListResponse(
         runs=[
@@ -822,12 +1689,14 @@ async def list_runs(
                 campaign_id=str(r.Run.campaign_id) if r.Run.campaign_id else None,
                 campaign_name=r.Campaign.name if r.Campaign else None,
                 brand_id=str(r.Run.brand_id) if r.Run.brand_id else None,
+                brand_name=r.Brand.name if getattr(r, "Brand", None) else None,
                 created_at=r.Run.created_at,
                 provider=r.RunAttempt.provider if r.RunAttempt else None,
                 model=r.RunAttempt.model_id if r.RunAttempt else None,
                 latency_ms=r.RunAttempt.latency_ms if r.RunAttempt else None,
                 tokens=r.RunAttempt.tokens_output if r.RunAttempt else None,
                 cost=r.RunAttempt.provider_cost if r.RunAttempt else None,
+                result=_preview(r),
             )
             for r in rows_with_attempts
         ],
@@ -839,31 +1708,61 @@ async def list_runs(
 
 # ── GET /runs/{run_id} ─────────────────────────────────────────────────────────
 
+_LARGE_BLOCK_FIELDS = {
+    "image_data_b64",
+    "_image_data_b64",
+    "content_b64",
+    "audio_data_b64",
+    "video_data_b64",
+}
+
+
+def _strip_large_block_assets(value: Any) -> Any:
+    """Return a copy of a result block with large inline asset payloads removed.
+
+    Stream and history surfaces need artifact metadata quickly; they do not need
+    multi-MB base64 blobs for every prior image/video run on initial load.
+    """
+    if isinstance(value, dict):
+        stripped = False
+        out = {}
+        for key, child in value.items():
+            if key in _LARGE_BLOCK_FIELDS and isinstance(child, str) and child:
+                stripped = True
+                continue
+            out[key] = _strip_large_block_assets(child)
+        if stripped:
+            out["asset_omitted"] = True
+        return out
+    if isinstance(value, list):
+        return [_strip_large_block_assets(item) for item in value]
+    return value
+
+
 @router.get("/runs/{run_id}", response_model=RunResponse, summary="Get run detail with full trace")
 async def get_run(
     run_id: str,
+    include_assets: bool = Query(True, description="Include large inline asset payloads such as image_data_b64."),
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
     settings=Depends(get_settings),
 ):
-    run_row = await db.execute(select(Run).where(Run.id == run_id))
-    run = run_row.scalar_one_or_none()
-    if not run:
+    detail_row = await db.execute(
+        select(Run, RunAttempt, RunResult, RunTrace)
+        .join(RunAttempt, RunAttempt.run_id == Run.id, isouter=True)
+        .join(RunResult, RunResult.run_id == Run.id, isouter=True)
+        .join(RunTrace, RunTrace.run_id == Run.id, isouter=True)
+        .where(Run.id == run_id)
+        .limit(1)
+    )
+    row = detail_row.one_or_none()
+    if not row:
         raise HTTPException(
             status_code=404,
             detail={"error": {"code": "RUN_NOT_FOUND", "message": f"Run '{run_id}' not found", "details": None}},
         )
 
-    attempt_row = await db.execute(
-        select(RunAttempt).where(RunAttempt.run_id == run.id).limit(1)
-    )
-    attempt = attempt_row.scalar_one_or_none()
-
-    result_row = await db.execute(select(RunResult).where(RunResult.run_id == run.id))
-    result = result_row.scalar_one_or_none()
-
-    trace_row = await db.execute(select(RunTrace).where(RunTrace.run_id == run.id))
-    trace = trace_row.scalar_one_or_none()
+    run, attempt, result, trace = row
 
     cls = get_module(run.module_id)
     vertical = cls.vertical if cls else run.module_id.split(".")[0]
@@ -873,8 +1772,15 @@ async def get_run(
     lineage = trace.lineage_json if trace else {}
 
     block = (lineage or {}).get("block")
-    if block and (block.get("video_path") or block.get("drive_file_id")):
+    if block and include_assets and (block.get("video_path") or block.get("drive_file_id")):
         block = await _resolve_drive_video(block, run.brand_id, db, settings)
+    if block and not include_assets:
+        block = _strip_large_block_assets(block)
+
+    brand = None
+    if run.brand_id:
+        brand = (await db.execute(select(Brand).where(Brand.id == run.brand_id))).scalar_one_or_none()
+    brand_name, brand_handle = _brand_fields_from_row(brand)
 
     return RunResponse(
         run_id=str(run.id),
@@ -884,11 +1790,15 @@ async def get_run(
         approval_status=run.approval_status,
         campaign_id=str(run.campaign_id) if run.campaign_id else None,
         brand_id=str(run.brand_id) if run.brand_id else None,
-        result=RunResultOut(
+        brand_name=brand_name,
+        result=_scope_result_out(
             content=result.content,
             self_check=result.self_check_verdict,
             platform=platform,
             block=block,
+            brand_id=run.brand_id,
+            brand_name=brand_name,
+            brand_handle=brand_handle,
         ) if result else None,
         execution=RunExecutionOut(
             provider=attempt.provider,

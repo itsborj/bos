@@ -6,7 +6,7 @@ import secrets
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Protocol
+from typing import Any, Protocol
 from urllib.parse import parse_qs, urlencode, urlparse
 
 import httpx
@@ -151,11 +151,18 @@ _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 _GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v1/userinfo"
 _GOOGLE_SCOPES = "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly openid email"
 _YOUTUBE_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl openid email"
+# Google rejects `https://www.googleapis.com/auth/generative-language` as an OAuth
+# user-consent scope for this API path. Keep Gemini OAuth hidden unless a
+# supported non-API-key flow is proven end-to-end.
+_GEMINI_AI_SCOPES = "https://www.googleapis.com/auth/generative-language openid email"
 _TIKTOK_AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/"
 _TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
 _TIKTOK_USERINFO_URL = "https://open.tiktokapis.com/v2/user/info/"
 _TIKTOK_SCOPES = "user.info.basic"
 _GOOGLE_DRIVE_SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly openid email"
+_GBP_SCOPES = "https://www.googleapis.com/auth/business.manage openid email"
+_GBP_ACCOUNTS_URL = "https://mybusinessaccountmanagement.googleapis.com/v1/accounts"
+_GBP_INFO_BASE = "https://mybusinessbusinessinformation.googleapis.com/v1"
 
 # Paths for each Google OAuth callback — derived from FRONTEND_URL so no per-env redirect URI config is needed.
 _GOOGLE_CALLBACK_PATHS: dict[str, str] = {
@@ -163,6 +170,9 @@ _GOOGLE_CALLBACK_PATHS: dict[str, str] = {
     "google_calendar": "/social/google-calendar/callback",
     "youtube": "/social/youtube/callback",
     "google_drive": "/social/google-drive/callback",
+    "gemini": "/social/gemini/callback",
+    "google": "/api/auth/google/callback",
+    "google_business": "/social/google-business/callback",
 }
 
 
@@ -835,26 +845,551 @@ class FacebookOAuthHandler:
         raise NotImplementedError("Facebook Page Access Tokens do not expire — refresh is not supported")
 
 
+class GoogleBusinessOAuthHandler:
+    provider = "google_business"
+    display_name = "Google Business Profile"
+
+    async def start_login(self, settings) -> LoginStart:
+        if not settings.google_client_id:
+            raise ValueError("GOOGLE_CLIENT_ID is not configured")
+        if not settings.google_client_secret:
+            raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
+        redirect_uri = _google_redirect_uri("google_business", settings)
+        verifier, challenge = _generate_pkce()
+        state = secrets.token_hex(16)
+        params = {
+            "client_id": settings.google_client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": _GBP_SCOPES,
+            "access_type": "offline",
+            "prompt": "consent",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": state,
+        }
+        return LoginStart(
+            login_type="browser",
+            authorize_url=f"{_GOOGLE_AUTHORIZE_URL}?{urlencode(params)}",
+            state=state,
+            verifier=verifier,
+            redirect_uri=redirect_uri,
+        )
+
+    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                    "code_verifier": verifier,
+                },
+            )
+            r.raise_for_status()
+            token_data = r.json()
+
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise ValueError("Google token exchange failed — no access_token in response")
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                _GOOGLE_USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            r.raise_for_status()
+            userinfo = r.json()
+
+        account_name = None
+        location_name = None
+        business_name = None
+        gbp_error = None
+
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get(
+                    _GBP_ACCOUNTS_URL,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                if r.status_code == 200:
+                    accounts = r.json().get("accounts", [])
+                    if accounts:
+                        account_name = accounts[0]["name"]
+                    else:
+                        gbp_error = "no_account_returned"
+                else:
+                    try:
+                        gbp_error = (r.json().get("error") or {}).get("message") or f"accounts_http_{r.status_code}"
+                    except Exception:
+                        gbp_error = f"accounts_http_{r.status_code}"
+        except Exception as exc:
+            gbp_error = f"accounts_request_failed: {exc}"
+
+        if account_name:
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    r = await client.get(
+                        f"{_GBP_INFO_BASE}/{account_name}/locations",
+                        params={"readMask": "name,title"},
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+                    if r.status_code == 200:
+                        locations = r.json().get("locations", [])
+                        if locations:
+                            location_name = locations[0]["name"]
+                            business_name = locations[0].get("title", "")
+                        else:
+                            gbp_error = "no_location_returned"
+                    else:
+                        try:
+                            gbp_error = (r.json().get("error") or {}).get("message") or f"locations_http_{r.status_code}"
+                        except Exception:
+                            gbp_error = f"locations_http_{r.status_code}"
+            except Exception as exc:
+                gbp_error = f"locations_request_failed: {exc}"
+
+        expires_in = token_data.get("expires_in", 3600)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=token_data.get("refresh_token"),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+            metadata={
+                "email": userinfo.get("email"),
+                "name": userinfo.get("name"),
+                "account_name": account_name,
+                "location_name": location_name,
+                "business_name": business_name,
+                "gbp_error": gbp_error,
+            },
+        )
+
+    async def refresh_auth(self, refresh_token: str, settings) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "refresh_token": refresh_token,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+
+        access_token = data.get("access_token")
+        if not access_token:
+            raise ValueError("Google Business Profile token refresh failed")
+        expires_in = data.get("expires_in", 3600)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+        )
+
+
+class GeminiOAuthHandler:
+    provider = "gemini"
+    display_name = "Google Gemini AI"
+
+    async def start_login(self, settings) -> LoginStart:
+        if not settings.google_client_id:
+            raise ValueError("GOOGLE_CLIENT_ID is not configured")
+        if not settings.google_client_secret:
+            raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
+        redirect_uri = _google_redirect_uri("gemini", settings)
+        verifier, challenge = _generate_pkce()
+        state = secrets.token_hex(16)
+        params = {
+            "client_id": settings.google_client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": _GEMINI_AI_SCOPES,
+            "access_type": "offline",
+            "prompt": "consent",
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "state": state,
+        }
+        return LoginStart(
+            login_type="browser",
+            authorize_url=f"{_GOOGLE_AUTHORIZE_URL}?{urlencode(params)}",
+            state=state,
+            verifier=verifier,
+            redirect_uri=redirect_uri,
+        )
+
+    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                    "code_verifier": verifier,
+                },
+            )
+            r.raise_for_status()
+            token_data = r.json()
+
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise ValueError("Google token exchange failed — no access_token in response")
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                _GOOGLE_USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            r.raise_for_status()
+            userinfo = r.json()
+
+        expires_in = token_data.get("expires_in", 3600)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=token_data.get("refresh_token"),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+            metadata={"email": userinfo.get("email"), "name": userinfo.get("name")},
+        )
+
+    async def refresh_auth(self, refresh_token: str, settings) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "refresh_token": refresh_token,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+
+        access_token = data.get("access_token")
+        if not access_token:
+            raise ValueError("Google token refresh failed — no access_token in response")
+        expires_in = data.get("expires_in", 3600)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+        )
+
+# Google Login handler — for admin panel "Sign in with Google".
+# Uses ONLY openid/email/profile scopes (no Gmail/Drive/etc.) so Google
+# never blocks it for unverified apps. Always uses the direct /api/auth/google/callback
+# path regardless of relay settings.
+_GOOGLE_LOGIN_SCOPES = "openid email profile"
+
+
+class GoogleLoginOAuthHandler:
+    provider = "google"
+    display_name = "Google"
+
+    async def start_login(self, settings) -> LoginStart:
+        if not settings.google_client_id:
+            raise ValueError("GOOGLE_CLIENT_ID is not configured")
+        if not settings.google_client_secret:
+            raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
+        # Always use direct callback — never relay
+        base = (settings.frontend_url or "http://localhost").rstrip("/")
+        redirect_uri = f"{base}/api/auth/google/callback"
+        verifier, challenge = _generate_pkce()
+        state = secrets.token_hex(16)
+        params = {
+            "client_id": settings.google_client_id,
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "scope": _GOOGLE_LOGIN_SCOPES,
+            "state": state,
+            "code_challenge": challenge,
+            "code_challenge_method": "S256",
+            "prompt": "select_account",
+        }
+        return LoginStart(
+            login_type="browser",
+            authorize_url=f"{_GOOGLE_AUTHORIZE_URL}?{urlencode(params)}",
+            state=state,
+            verifier=verifier,
+            redirect_uri=redirect_uri,
+        )
+
+    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "authorization_code",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                    "code_verifier": verifier,
+                },
+            )
+            r.raise_for_status()
+            token_data = r.json()
+
+        access_token = token_data.get("access_token")
+        if not access_token:
+            raise ValueError("Google token exchange failed — no access_token")
+
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                _GOOGLE_USERINFO_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            r.raise_for_status()
+            userinfo = r.json()
+
+        expires_in = token_data.get("expires_in", 3600)
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=token_data.get("refresh_token"),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+            metadata={"email": userinfo.get("email"), "name": userinfo.get("name")},
+        )
+
+    async def refresh_auth(self, refresh_token: str, settings) -> OAuthCredential:
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            r = await client.post(
+                _GOOGLE_TOKEN_URL,
+                data={
+                    "grant_type": "refresh_token",
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "refresh_token": refresh_token,
+                },
+            )
+            r.raise_for_status()
+            data = r.json()
+        access_token = data.get("access_token")
+        if not access_token:
+            raise ValueError("Google token refresh failed")
+        return OAuthCredential(
+            access_token=access_token,
+            refresh_token=refresh_token,
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(data.get("expires_in", 3600))),
+        )
+
+
+def _dig_path(data: dict, path: str | None, default=None):
+    if not path:
+        return default
+    current = data
+    for part in str(path).split("."):
+        if isinstance(current, dict):
+            current = current.get(part)
+        elif isinstance(current, list) and part.isdigit():
+            current = current[int(part)] if int(part) < len(current) else None
+        else:
+            return default
+        if current is None:
+            return default
+    return current
+
+
+class GenericPluginOAuthHandler:
+    """Generic OAuth2 handler backed by a plugin's channel.json connection declaration.
+
+    It intentionally implements only protocol mechanics. Platform behavior remains
+    in the plugin: manifest fields describe endpoints/field paths, and the plugin's
+    validation capability proves the connection before downstream use.
+    """
+
+    def __init__(self, connection, plugin_id: str):
+        self.connection = connection
+        self.plugin_id = plugin_id
+        self.provider = connection.platform
+        self.display_name = connection.platform.replace("_", " ").title()
+
+    def _var(self, overrides: dict, name: str | None) -> str:
+        if not name:
+            return ""
+        return str(overrides.get(name.lower()) or overrides.get(name.upper()) or overrides.get(name) or "").strip()
+
+    def _client_id(self, overrides: dict) -> str:
+        value = self._var(overrides, self.connection.client_id_var)
+        if not value:
+            raise ValueError(f"{self.connection.client_id_var} not configured for plugin connection {self.provider}")
+        return value
+
+    def _client_secret(self, overrides: dict) -> str:
+        value = self._var(overrides, self.connection.client_secret_var)
+        if not value:
+            raise ValueError(f"{self.connection.client_secret_var} not configured for plugin connection {self.provider}")
+        return value
+
+    def _redirect_uri(self, settings, overrides: dict) -> str:
+        configured = self._var(overrides, self.connection.redirect_uri_var)
+        if configured:
+            return configured
+        base = (settings.frontend_url or "http://localhost").rstrip("/")
+        callback_path = self.connection.callback_path or f"/social/{self.provider}/callback"
+        if not callback_path.startswith("/"):
+            callback_path = "/" + callback_path
+        return f"{base}{callback_path}"
+
+    async def start_login(self, settings, overrides: dict | None = None) -> LoginStart:
+        overrides = overrides or {}
+        if self.connection.type != "oauth2":
+            raise ValueError(f"Unsupported plugin connection type: {self.connection.type}")
+        if not self.connection.auth_url or not self.connection.token_url:
+            raise ValueError(f"Plugin connection {self.provider} is missing auth_url/token_url")
+        state = secrets.token_hex(16)
+        redirect_uri = self._redirect_uri(settings, overrides)
+        params: dict[str, Any] = {
+            self.connection.auth_client_param: self._client_id(overrides),
+            "redirect_uri": redirect_uri,
+            "response_type": "code",
+            "state": state,
+        }
+        if self.connection.scopes:
+            params["scope"] = self.connection.scope_separator.join(self.connection.scopes)
+        params.update(self.connection.authorization_params or {})
+        return LoginStart(
+            login_type="browser",
+            authorize_url=f"{self.connection.auth_url}?{urlencode(params)}",
+            state=state,
+            verifier=state,
+            redirect_uri=redirect_uri,
+        )
+
+    async def complete_login(self, code: str, settings, *, state: str, verifier: str, redirect_uri: str, overrides: dict | None = None) -> OAuthCredential:
+        overrides = overrides or {}
+        if not code:
+            raise ValueError("Missing authorization code")
+        payload: dict[str, Any] = {
+            "grant_type": "authorization_code",
+            "code": code,
+            "redirect_uri": redirect_uri,
+            self.connection.token_client_param: self._client_id(overrides),
+            self.connection.token_client_secret_param: self._client_secret(overrides),
+        }
+        payload.update(self.connection.token_params or {})
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                self.connection.token_url,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data=payload,
+            )
+            response.raise_for_status()
+            token_data = response.json()
+
+        access_token = _dig_path(token_data, self.connection.access_token_path)
+        if not access_token:
+            raise ValueError(f"Plugin connection {self.provider} token exchange failed — no access token")
+        refresh_token = _dig_path(token_data, self.connection.refresh_token_path)
+        expires_in = _dig_path(token_data, self.connection.expires_in_path)
+        expires_at = None
+        if expires_in is not None:
+            try:
+                expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
+            except Exception:
+                expires_at = None
+
+        account: dict[str, Any] = {"id": self.provider, "name": self.display_name}
+        if self.connection.userinfo_url:
+            params = dict(self.connection.userinfo_params or {})
+            headers = {"Authorization": f"Bearer {access_token}", "Accept": "application/json"}
+            headers.update(self.connection.userinfo_headers or {})
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.get(self.connection.userinfo_url, params=params, headers=headers)
+                response.raise_for_status()
+                userinfo = response.json()
+            account = {
+                "id": str(_dig_path(userinfo, self.connection.id_path, self.provider)),
+                "name": str(_dig_path(userinfo, self.connection.name_path, self.display_name)),
+            }
+            if self.connection.handle_path:
+                account["username"] = str(_dig_path(userinfo, self.connection.handle_path, ""))
+            if self.connection.email_path:
+                email = _dig_path(userinfo, self.connection.email_path)
+                if email:
+                    account["email"] = str(email)
+
+        return OAuthCredential(
+            access_token=str(access_token),
+            refresh_token=str(refresh_token) if refresh_token else None,
+            expires_at=expires_at,
+            metadata={"account": account, "plugin_id": self.plugin_id, "platform": self.provider},
+        )
+
+    async def refresh_auth(self, refresh_token: str, settings, overrides: dict | None = None) -> OAuthCredential:
+        overrides = overrides or {}
+        if not self.connection.token_url:
+            raise ValueError(f"Plugin connection {self.provider} is missing token_url")
+        payload: dict[str, Any] = {
+            "grant_type": "refresh_token",
+            "refresh_token": refresh_token,
+            self.connection.token_client_param: self._client_id(overrides),
+            self.connection.token_client_secret_param: self._client_secret(overrides),
+        }
+        payload.update(self.connection.token_params or {})
+        async with httpx.AsyncClient(timeout=20.0) as client:
+            response = await client.post(
+                self.connection.token_url,
+                headers={"Content-Type": "application/x-www-form-urlencoded"},
+                data=payload,
+            )
+            response.raise_for_status()
+            data = response.json()
+        access_token = _dig_path(data, self.connection.access_token_path)
+        if not access_token:
+            raise ValueError(f"Plugin connection {self.provider} refresh failed")
+        expires_in = _dig_path(data, self.connection.expires_in_path, 3600)
+        return OAuthCredential(
+            access_token=str(access_token),
+            refresh_token=str(_dig_path(data, self.connection.refresh_token_path, refresh_token)),
+            expires_at=datetime.now(timezone.utc) + timedelta(seconds=int(expires_in)),
+            metadata={"plugin_id": self.plugin_id, "platform": self.provider},
+        )
+
+
 _OAUTH_HANDLERS: dict[str, OAuthProviderHandler] = {
     "openai": OpenAICodexOAuthHandler(),
+    "gemini": GeminiOAuthHandler(),
     "gmail": GmailOAuthHandler(),
     "google_calendar": GoogleCalendarOAuthHandler(),
     "youtube": YouTubeOAuthHandler(),
     "tiktok": TikTokOAuthHandler(),
     "google_drive": GoogleDriveOAuthHandler(),
+    "google_business": GoogleBusinessOAuthHandler(),
     "facebook": FacebookOAuthHandler(),
+    "google": GoogleLoginOAuthHandler(),
 }
 
 
 def get_oauth_handler(provider: str):
-    return _OAUTH_HANDLERS.get(provider)
+    built_in = _OAUTH_HANDLERS.get(provider)
+    if built_in:
+        return built_in
+    try:
+        from plugin_loader import get_plugin_connection
+        found = get_plugin_connection(provider)
+        if found:
+            state, connection = found
+            return GenericPluginOAuthHandler(connection, state.manifest.plugin_id)
+    except Exception:
+        return None
+    return None
 
 
 def get_auth_supported(provider: str) -> list[str]:
     supports: list[str] = []
-    if provider in {"openrouter", "gemini", "nvidia", "openai"}:
+    if provider in {"openrouter", "gemini", "nvidia", "openai", "bytedance"}:
         supports.append("api_key")
-    if provider in _OAUTH_HANDLERS:
+    if provider in _OAUTH_HANDLERS and provider != "gemini":
+        supports.append("oauth")
+    elif get_oauth_handler(provider):
         supports.append("oauth")
     return supports
 
@@ -954,7 +1489,7 @@ async def resolve_stored_provider_credential(
 # ── Auth relay helpers ────────────────────────────────────────────────────────
 
 # Google platforms that can use the central relay for token refresh.
-GOOGLE_RELAY_PLATFORMS: frozenset[str] = frozenset({"gmail", "google_calendar", "youtube", "google_drive"})
+GOOGLE_RELAY_PLATFORMS: frozenset[str] = frozenset({"gmail", "google_calendar", "youtube", "google_drive", "gemini", "google_business"})
 
 
 async def relay_claim_handoff(handoff_token: str, settings) -> dict:

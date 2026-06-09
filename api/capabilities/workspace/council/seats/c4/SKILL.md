@@ -5,16 +5,9 @@ status: vacant
 
 model:
   provider: openrouter
-  model_id: ~
+  model_id: "poolside/laguna-xs.2:free"
 
 tools: []
 
 ideology: ~
-
-# Recruitment checklist:
-#   1. Set display_name to the council member's identity
-#   2. Set status: active
-#   3. Set model.model_id
-#   4. Write ideology
-#   5. Grant tools if needed
 ---

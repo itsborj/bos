@@ -38,7 +38,7 @@ class OpenAICodexAdapter:
             "User-Agent": "pi (browser)",
         }
         body: Dict[str, Any] = {
-            "model": model_id,
+            "model": _codex_model(model_id),
             "store": False,
             "stream": True,
             "input": input_items,
@@ -55,9 +55,12 @@ class OpenAICodexAdapter:
         start = time.perf_counter()
         async with httpx.AsyncClient(timeout=60.0) as client:
             async with client.stream("POST", f"{self._base_url}/codex/responses", headers=headers, json=body) as resp:
-                resp.raise_for_status()
-                full_content = []
-                usage = {}
+                if resp.status_code >= 400:
+                    body_bytes = await resp.aread()
+                    detail = body_bytes.decode(errors="replace")[:300]
+                    raise ValueError(f"OpenAI Codex request failed ({resp.status_code}): {detail or resp.reason_phrase}")
+                full_content: List[str] = []
+                usage: Dict[str, Any] = {}
                 async for line in resp.aiter_lines():
                     if not line or not line.startswith("data: "):
                         continue
@@ -66,25 +69,54 @@ class OpenAICodexAdapter:
                         break
                     try:
                         data = json.loads(data_str)
-                        if data.get("type") == "response.completed":
-                            usage = data.get("usage", {})
-                        elif data.get("type") == "message":
-                            content = data.get("content", [])
-                            for item in content:
-                                if isinstance(item, dict) and "text" in item:
-                                    full_content.append(item["text"])
-                                elif isinstance(item, str):
-                                    full_content.append(item)
-                        elif "output_text" in data:
-                            full_content.append(data["output_text"])
                     except json.JSONDecodeError:
                         continue
+
+                    event_type = data.get("type")
+                    if event_type == "error":
+                        message = data.get("message") or data.get("code") or json.dumps(data)[:300]
+                        raise ValueError(f"OpenAI Codex stream error: {message}")
+                    if event_type == "response.failed":
+                        response = data.get("response") or {}
+                        error = response.get("error") if isinstance(response, dict) else None
+                        message = (error or {}).get("message") if isinstance(error, dict) else None
+                        raise ValueError(f"OpenAI Codex response failed: {message or json.dumps(data)[:300]}")
+
+                    if event_type == "response.output_text.delta":
+                        delta = data.get("delta")
+                        if isinstance(delta, str):
+                            full_content.append(delta)
+                        continue
+
+                    if event_type == "response.output_text.done":
+                        text = data.get("text")
+                        if isinstance(text, str) and not full_content:
+                            full_content.append(text)
+                        continue
+
+                    if event_type in {"response.completed", "response.done", "response.incomplete"}:
+                        response = data.get("response") if isinstance(data.get("response"), dict) else data
+                        usage = response.get("usage", {}) if isinstance(response, dict) else {}
+                        text = _extract_text(response) if isinstance(response, dict) and not full_content else ""
+                        if text:
+                            full_content.append(text)
+                        continue
+
+                    if event_type in {"message", "response.output_item.done"}:
+                        item = data.get("item") if event_type == "response.output_item.done" else data
+                        text = _extract_text(item) if isinstance(item, dict) else ""
+                        if text:
+                            full_content.append(text)
+                        continue
+
+                    if isinstance(data.get("output_text"), str):
+                        full_content.append(data["output_text"])
 
         latency_ms = round((time.perf_counter() - start) * 1000)
         input_tokens = usage.get("input_tokens") or usage.get("prompt_tokens") or 0
         output_tokens = usage.get("output_tokens") or usage.get("completion_tokens") or 0
         return ProviderResponse(
-            content="\n".join(full_content),
+            content="".join(full_content).strip(),
             tokens_input=input_tokens,
             tokens_output=output_tokens,
             latency_ms=latency_ms,
@@ -92,15 +124,28 @@ class OpenAICodexAdapter:
 
     async def check(self) -> bool:
         try:
-            await self.complete_messages([
+            response = await self.complete_messages([
                 {"role": "user", "content": "ping"}
-            ], "gpt-5.5")
-            return True
+            ], "gpt-5.3-codex")
+            return bool(response.content.strip())
         except httpx.HTTPStatusError as exc:
             detail = exc.response.text[:300] if exc.response is not None else str(exc)
             raise ValueError(f"OpenAI auth check failed ({exc.response.status_code}): {detail}") from exc
         except Exception as exc:
             raise ValueError(f"OpenAI auth check failed: {exc}") from exc
+
+
+def _codex_model(model_id: str) -> str:
+    normalized = (model_id or "").strip()
+    if normalized.startswith("openai/"):
+        normalized = normalized.split("/", 1)[1]
+    if not normalized:
+        return "gpt-5.3-codex"
+    if "codex" in normalized:
+        return normalized
+    if normalized.startswith("gpt-5.1") or normalized.startswith("gpt-5.2") or normalized.startswith("gpt-5.3"):
+        return "gpt-5.3-codex"
+    return normalized
 
 
 def _extract_account_id(token: str) -> str:

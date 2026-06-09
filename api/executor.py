@@ -3,6 +3,7 @@ import logging
 from typing import Optional, Tuple, Dict
 import time
 
+from providers.bytedance import ByteDanceAdapter
 from providers.gemini import GeminiAdapter
 from providers.nvidia import NvidiaAdapter
 from providers.openai import OpenAIAdapter
@@ -19,12 +20,42 @@ _ADAPTERS = {
     "gemini": GeminiAdapter,
     "nvidia": NvidiaAdapter,
     "openai": OpenAIAdapter,
+    "bytedance": ByteDanceAdapter,
 }
+
+
+class _GoogleIdentityAdapter:
+    """Lightweight adapter for the 'google' login provider.
+    Validates the OAuth access token by calling the userinfo endpoint.
+    Google is not an AI model provider so complete() is not supported.
+    """
+
+    def __init__(self, api_key: str):
+        self._token = api_key
+
+    async def check(self) -> bool:
+        import httpx
+        try:
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                r = await client.get(
+                    "https://www.googleapis.com/oauth2/v1/userinfo",
+                    headers={"Authorization": f"Bearer {self._token}"},
+                )
+                return r.status_code == 200
+        except Exception:
+            return False
+
+    async def complete(self, prompt: str, model_id: str):
+        raise NotImplementedError("Google is a login provider — it does not support AI completions")
 
 
 def get_adapter(provider: str, api_key: str, auth_mode: Optional[str] = None):
     if provider == "openai" and auth_mode == "oauth":
         return OpenAICodexAdapter(api_key)
+    if provider == "google":
+        # Google is a login/identity provider, not an AI model provider.
+        # Return a lightweight adapter that validates the OAuth token.
+        return _GoogleIdentityAdapter(api_key)
     adapter_cls = _ADAPTERS.get(provider)
     if not adapter_cls:
         raise ValueError(f"No live adapter registered for provider '{provider}'")
@@ -42,6 +73,7 @@ def get_platform_key(provider: str, settings) -> Optional[str]:
         "gemini": settings.platform_gemini_key,
         "nvidia": settings.platform_nvidia_key,
         "openai": getattr(settings, "platform_openai_key", ""),
+        "bytedance": getattr(settings, "platform_bytedance_key", ""),
     }
     return mapping.get(provider) or None
 

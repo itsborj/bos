@@ -5,7 +5,7 @@ export type ArtifactStatus = 'pending_review' | 'approved' | 'dismissed' | 'save
 export interface ArtifactRef {
   artifact_id: string;
   title: string;
-  type: 'draft_artifact' | 'plan_artifact' | 'intelligence_artifact' | 'action_result' | 'decision_artifact';
+  type: 'draft_artifact' | 'plan_artifact' | 'intelligence_artifact' | 'action_result' | 'decision_artifact' | 'setup_blocker';
   status: ArtifactStatus;
   renderer: string;
   workspace_url: string;
@@ -25,8 +25,11 @@ export function artifactTitle(run: RunResponse): string {
   const id = run.module_id.toLowerCase();
   const platform = titleCase(run.result?.platform || run.module_id.split('.').pop() || 'asset');
   const platformKey = platform.toLowerCase();
+  if (id.includes('strategy_workflow')) return 'Strategy Workflow';
+  if (id.includes('gtm_plan') || id.includes('gtm')) return 'GTM Strategy';
   if ((id.includes('email') || id.includes('gmail') || platformKey.includes('email')) && id.includes('plan')) return 'Email Campaign Plan';
   if (id.includes('email') || id.includes('gmail') || platformKey.includes('email')) return 'Email Draft';
+  if (id.includes('gbp') || platformKey.includes('google business')) return 'Google Business Profile Audit';
   if (id.includes('plan')) return 'Campaign Plan';
   if (id.includes('report') || id.includes('analytics') || id.includes('inbox') || id.includes('read')) return 'Marketing Intelligence';
   if (id.includes('google')) return 'Google Ad Draft';
@@ -40,6 +43,8 @@ export function artifactTitle(run: RunResponse): string {
 export function artifactType(run: RunResponse): ArtifactRef['type'] {
   if (!run?.module_id) return 'draft_artifact';
   const id = run.module_id.toLowerCase();
+  if ((run.result?.block as any)?.status === 'failed') return 'setup_blocker';
+  if ((run.result?.block as any)?.type === 'gbp_completeness_result' || id.includes('gbp')) return 'intelligence_artifact';
   if (id.includes('plan')) return 'plan_artifact';
   if (id.includes('report') || id.includes('analytics') || id.includes('inbox') || id.includes('read')) return 'intelligence_artifact';
   if (id.includes('send') || id.includes('publish') || id.includes('action')) return 'action_result';
@@ -48,7 +53,7 @@ export function artifactType(run: RunResponse): ArtifactRef['type'] {
 
 export function artifactStatus(run: RunResponse): ArtifactStatus {
   const status = run.approval_status || (run as any).approval_status || (run.result as any)?.approval_status;
-  if (run.status === 'failed') return 'failed';
+  if (run.status === 'failed' || (run.result?.block as any)?.status === 'failed') return 'failed';
   if (status === 'approved') return 'approved';
   if (status === 'rejected' || status === 'dismissed') return 'dismissed';
   if (status === 'pending') return 'pending_review';
@@ -59,7 +64,10 @@ export function artifactRenderer(run: RunResponse): string {
   if (!run?.module_id) return 'artifact_detail';
   const id = run.module_id.toLowerCase();
   const channel = `${id} ${(run.result?.platform || '').toLowerCase()}`;
+  if (id.includes('strategy_workflow')) return 'strategy_workflow_preview';
+  if (id.includes('gtm_plan') || id.includes('gtm')) return 'gtm_strategy_preview';
   if (channel.includes('email')) return 'email_preview';
+  if ((run.result?.block as any)?.type === 'gbp_completeness_result' || id.includes('gbp')) return 'gbp_completeness_preview';
   if (id.includes('google') && (id.includes('text') || id.includes('search'))) return 'google_search_preview';
   if (channel.includes('google') && channel.includes('display')) return 'google_display_preview';
   if (channel.includes('facebook')) return 'facebook_feed_preview';
@@ -72,13 +80,15 @@ export function artifactRenderer(run: RunResponse): string {
 }
 
 export function buildArtifactRef(run: RunResponse): ArtifactRef {
+  const renderer = artifactRenderer(run);
+  const workflowUrl = renderer === 'strategy_workflow_preview' ? (run.result?.block?.workflow_url as string | undefined) : undefined;
   return {
     artifact_id: run.run_id,
     title: artifactTitle(run),
     type: artifactType(run),
     status: artifactStatus(run),
-    renderer: artifactRenderer(run),
-    workspace_url: `/workspace/artifacts/${run.run_id}`,
+    renderer,
+    workspace_url: workflowUrl || `/workspace/artifacts/${run.run_id}`,
   };
 }
 

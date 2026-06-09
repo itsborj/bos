@@ -4,14 +4,39 @@
   "version": "1.0.0",
   "klaroha_min_version": "3.5",
   "capabilities_root": "capabilities/",
-  "implements": ["marketing.execute", "marketing.optimize"],
-  "specialty": ["email_sending", "email_inbox", "outreach_operations"],
-  "platforms": ["gmail"],
+  "implements": [
+    "marketing.execute",
+    "marketing.optimize"
+  ],
+  "specialty": [
+    "email_sending",
+    "email_inbox",
+    "outreach_operations"
+  ],
+  "platforms": [
+    "gmail"
+  ],
   "connector_protocol": "oauth2_google_gmail_api",
   "risk_policy": "send_requires_explicit_approval",
-  "output_contracts": ["email_send_result", "gmail_receive_result", "inbox_intelligence_result"],
-  "requires_social_connection": ["gmail"],
-  "requires_platform_vars": [],
+  "output_contracts": [
+    "email_send_result",
+    "gmail_receive_result",
+    "inbox_intelligence_result"
+  ],
+  "credential_slots": [
+    {
+      "key": "access_token",
+      "type": "social_token",
+      "platform": "gmail"
+    }
+  ],
+  "connections": [
+    {
+      "platform": "gmail",
+      "display_name": "Gmail",
+      "icon": "✉️"
+    }
+  ],
   "capability_ids": [
     "marketing.channel.gmail_auth.email.send",
     "marketing.channel.gmail_auth.email.receive",

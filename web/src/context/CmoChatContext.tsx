@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { buildArtifactRef } from '../utils/artifacts';
 import type { ArtifactRef } from '../utils/artifacts';
-import type { ChatHistoryItem, HandoffBriefOut, KlarAction, ObjectiveOut, RunResponse } from '../api/types';
+import type { ChatHistoryItem, CouncilFinalizeResult, CouncilSessionState, HandoffBriefOut, KlarAction, ObjectiveOut, RunResponse } from '../api/types';
 import { useUI } from './UIContext';
 
 export type MsgRole = 'ai' | 'user';
@@ -11,6 +11,12 @@ export interface OutcomeConfirmData {
   outcomeType: string;
   value: string;
   objectiveSummary?: string;
+}
+
+export interface CouncilRoundMsg {
+  round_num: number;
+  positions: Array<{ seat_id: string; display_name: string; content: string; timestamp: string }>;
+  c6_injection?: { content: string; round_boundary: number };
 }
 
 export interface Msg {
@@ -25,6 +31,8 @@ export interface Msg {
   outcomeForm?: boolean;
   outcomeConfirm?: OutcomeConfirmData;
   handoffBrief?: HandoffBriefOut;
+  councilRound?: CouncilRoundMsg;
+  councilBrief?: CouncilFinalizeResult;
 }
 
 export interface StreamCardCtx {
@@ -67,14 +75,23 @@ function buildHistory(msgs: Msg[]): ChatHistoryItem[] {
     .map(m => ({ role: m.role, text: m.text! }));
 }
 
+export interface ActiveCouncilSession {
+  session_id: string;
+  status: string;
+  pending_c6_prompt: string | null;
+}
+
 export interface CmoChatContextValue {
   msgs: Msg[];
   busy: boolean;
   pendingPlan: boolean;
   streamCardCtx: StreamCardCtx | null;
   activeObjective: ObjectiveOut | null;
+  activeCouncilSession: ActiveCouncilSession | null;
   setPendingPlan: (v: boolean) => void;
   send: (text: string, opts?: { skipUserMessage?: boolean }) => Promise<void>;
+  councilPass: () => Promise<void>;
+  councilFinalize: () => Promise<void>;
   handleOutcomeConfirm: (msgId: string, outcomeType: string, value: string, notes: string, objectiveSummary?: string) => Promise<void>;
   handleOutcomeCancel: (msgId: string) => void;
 }
@@ -95,12 +112,14 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
   const [pendingPlan, setPendingPlan] = useState(false);
   const [streamCardCtx, setStreamCardCtx] = useState<StreamCardCtx | null>(null);
   const [activeObjective, setActiveObjective] = useState<ObjectiveOut | null>(null);
+  const [activeCouncilSession, setActiveCouncilSession] = useState<ActiveCouncilSession | null>(null);
   const skipNextSaveRef = useRef(false);
 
   useEffect(() => {
     skipNextSaveRef.current = true;
     setMsgs(readStoredMessages(activeBrand?.id));
     setStreamCardCtx(null);
+    setActiveCouncilSession(null);
   }, [activeBrand?.id]);
 
   useEffect(() => {
@@ -141,8 +160,8 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  function handleKlarAction(action: KlarAction | null | undefined) {
-    if (!action) return;
+  function handleKlarAction(action: KlarAction | null | undefined): CouncilSessionState | null {
+    if (!action) return null;
     if (action.action === 'brand_switch') {
       const d = action.data as { brand_id: string; brand_name: string };
       setActiveBrand({ id: d.brand_id, name: d.brand_name });
@@ -156,6 +175,55 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
       const d = action.data as { campaign_id: string; campaign_name: string };
       setActiveCampaign({ id: d.campaign_id, name: d.campaign_name });
       setPendingPlan(false);
+    } else if (action.action === 'council_session') {
+      const d = action.data as unknown as CouncilSessionState;
+      setActiveCouncilSession({ session_id: d.session_id, status: d.status, pending_c6_prompt: d.pending_c6_prompt });
+      return d;
+    }
+    return null;
+  }
+
+  function appendCouncilRound(result: CouncilSessionState) {
+    const lastRound = result.rounds[result.rounds.length - 1] ?? [];
+    const roundNum = result.rounds_completed;
+    setActiveCouncilSession({ session_id: result.session_id, status: result.status, pending_c6_prompt: result.pending_c6_prompt });
+    setMsgs(m => [...m, {
+      id: uid(),
+      role: 'ai',
+      time: new Date(),
+      councilRound: { round_num: roundNum, positions: lastRound },
+    }]);
+  }
+
+  async function councilPass() {
+    if (!activeCouncilSession || busy) return;
+    setBusy(true);
+    setMsgs(m => [...m, { id: uid(), role: 'user', text: '(continue)', time: new Date() }]);
+    const typingId = uid();
+    setMsgs(m => [...m, { id: typingId, role: 'ai', text: '__typing__', steps: ['Convening next round…'], time: new Date() }]);
+    try {
+      const result = await api.councilC6Respond(activeCouncilSession.session_id, null);
+      setMsgs(m => m.filter(x => x.id !== typingId));
+      appendCouncilRound(result);
+    } catch (e: unknown) {
+      setMsgs(m => m.filter(x => x.id !== typingId).concat({ id: uid(), role: 'ai', text: `Council error: ${e instanceof Error ? e.message : 'Something went wrong.'}`, time: new Date() }));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function councilFinalize() {
+    if (!activeCouncilSession || busy) return;
+    setBusy(true);
+    setMsgs(m => [...m, { id: uid(), role: 'user', text: '(finalize)', time: new Date() }]);
+    try {
+      const result = await api.councilFinalize(activeCouncilSession.session_id);
+      setActiveCouncilSession(null);
+      setMsgs(m => [...m, { id: uid(), role: 'ai', time: new Date(), councilBrief: result }]);
+    } catch (e: unknown) {
+      setMsgs(m => [...m, { id: uid(), role: 'ai', text: `Finalize error: ${e instanceof Error ? e.message : 'Something went wrong.'}`, time: new Date() }]);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -163,6 +231,24 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
     if (busy) return;
     const trimmed = text.trim();
     if (!trimmed) return;
+
+    // Route to council c6-respond when a session is active
+    if (activeCouncilSession?.status === 'awaiting_c6') {
+      if (!skipUserMessage) setMsgs(m => [...m, { id: uid(), role: 'user', text: trimmed, time: new Date() }]);
+      setBusy(true);
+      const typingId = uid();
+      setMsgs(m => [...m, { id: typingId, role: 'ai', text: '__typing__', steps: ['Convening next round…'], time: new Date() }]);
+      try {
+        const result = await api.councilC6Respond(activeCouncilSession.session_id, trimmed);
+        setMsgs(m => m.filter(x => x.id !== typingId));
+        appendCouncilRound(result);
+      } catch (e: unknown) {
+        setMsgs(m => m.filter(x => x.id !== typingId).concat({ id: uid(), role: 'ai', text: `Council error: ${e instanceof Error ? e.message : 'Something went wrong.'}`, time: new Date() }));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
 
     const history = buildHistory(msgs);
 
@@ -186,15 +272,24 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
             api.getRun(event.artifact_ref.artifact_id).then(addPendingRun).catch(() => {});
           }
         } else if (event.type === 'reply') {
-          handleKlarAction(event.klar_action);
+          const councilData = handleKlarAction(event.klar_action);
           setMsgs(m => {
             const withComplete = m.map(msg =>
               msg.id === typingId ? { ...msg, stepsComplete: true } : msg
             );
             const hasSteps = (m.find(x => x.id === typingId)?.steps ?? []).length > 0;
             const base = hasSteps ? withComplete : m.filter(x => x.id !== typingId);
+            if (councilData) {
+              const lastRound = councilData.rounds[councilData.rounds.length - 1] ?? [];
+              return base.concat([{
+                id: uid(),
+                role: 'ai' as MsgRole,
+                time: new Date(),
+                councilRound: { round_num: councilData.rounds_completed, positions: lastRound },
+              }]);
+            }
             return event.text
-              ? base.concat([{ id: uid(), role: 'ai', text: event.text, time: new Date() }])
+              ? base.concat([{ id: uid(), role: 'ai' as MsgRole, text: event.text, time: new Date() }])
               : base;
           });
         } else if (event.type === 'done') {
@@ -253,8 +348,8 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <CmoChatContext.Provider value={{
-      msgs, busy, pendingPlan, streamCardCtx, activeObjective,
-      setPendingPlan, send, handleOutcomeConfirm, handleOutcomeCancel,
+      msgs, busy, pendingPlan, streamCardCtx, activeObjective, activeCouncilSession,
+      setPendingPlan, send, councilPass, councilFinalize, handleOutcomeConfirm, handleOutcomeCancel,
     }}>
       {children}
     </CmoChatContext.Provider>

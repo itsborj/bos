@@ -89,6 +89,13 @@ Removed the hardcoded Meta publish guard from `api/routers/chat.py`, keeping CMO
 
 ## Validation
 
+### 2026-06-09 Localhost Retest Note
+
+- Image generation + Drive storage passed locally for Klaroha: `creative.post.image` run `7c9dbea8-27e6-4997-b3b4-7c40156f538d`, Drive file `1up6n28CWzOHuJsvhyxHafUDlJMRqedcS`.
+- Localhost Facebook publish failed at Graph API with OAuth code `190`: page token lacked required page impersonation permissions.
+- Operator context: previous Facebook auth was validated on `staging.klaroha.com`; the Meta app/domain validation is staging-based. Do not use localhost as the final live Facebook proof surface unless the Meta app explicitly allows the exact localhost callback and scopes.
+- Next validation should run on `staging.klaroha.com` with fresh Facebook auth for `pages_show_list,pages_read_engagement,pages_manage_posts`, then retry publish from the existing source artifact if available.
+
 ### Code Quality
 - ✅ Python compilation: `docker compose exec -T api python -m py_compile ...`
 - ✅ TypeScript compilation: `cd web && npx tsc -b`
@@ -103,8 +110,8 @@ Removed the hardcoded Meta publish guard from `api/routers/chat.py`, keeping CMO
 ## Next Steps
 
 ### Pending
-- [ ] **Live publish test**: Approve a Meta draft in Stream with **Approve & Publish** and confirm live page result
-- [ ] End-to-end test: draft → approve → publish → result → Stream display
+- [!] **Live publish test deferred to staging**: Approve a Meta draft/creative in Stream with **Approve & Publish** and confirm live page result from `staging.klaroha.com`, not localhost.
+- [ ] End-to-end test: draft/creative → approve → publish → result → Stream display
 
 ### Future Implications
 

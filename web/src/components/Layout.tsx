@@ -1,18 +1,14 @@
 import { useEffect, useState, useCallback } from 'react';
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { api, clearApiKey } from '../api/client';
 import { UIContext } from '../context/UIContext';
 import { CmoChatProvider } from '../context/CmoChatContext';
+import { CmoChat } from '../pages/CmoChat';
 import { WorkspacePanel } from './WorkspacePanel';
 import { SettingsModal } from './SettingsModal';
+import { FooterNav } from './FooterNav';
 import type { ActiveBrand, ActiveCampaign, SettingsTab, WorkspaceTab } from '../context/UIContext';
 import type { BrandResponse, RunResponse } from '../api/types';
-
-const PROTOTYPE_NAV = [
-  { to: '/stream', label: 'Stream', icon: '▶' },
-  { to: '/cmo', label: 'CMO', icon: '◎' },
-  { to: '/admin/objective-loop', label: 'Admin', icon: '⚙' },
-];
 
 const CHAT_MESSAGES_KEY = 'bos_chat_messages';
 const CHAT_CONVERSATIONS_KEY = 'bos_chat_conversations';
@@ -124,6 +120,9 @@ function readPendingRuns(): Record<string, RunResponse> {
 
 export function Layout() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const onCmo = location.pathname === '/cmo';
+  const [mobileStreamActive, setMobileStreamActive] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceTab, setWorkspaceTab]   = useState<WorkspaceTab>('campaigns');
   const [selectedRun, setSelectedRun]     = useState<RunResponse | null>(null);
@@ -158,12 +157,18 @@ export function Layout() {
       const run = (e as CustomEvent).detail;
       if (!run?.run_id) return;
       setPendingRunItems(prev => ({ ...prev, [run.run_id]: run }));
+      setMobileStreamActive(true);
       // Stream's own side panel handles bos:focus-artifact. Do not open the
       // WorkspacePanel slide-over here — that surface was retired.
     };
     window.addEventListener('bos:focus-artifact', handle);
     return () => window.removeEventListener('bos:focus-artifact', handle);
   }, []);
+
+  // When returning to /cmo, scroll chat to bottom in case messages arrived while hidden.
+  useEffect(() => {
+    if (onCmo) window.dispatchEvent(new CustomEvent('bos:chat-scroll-bottom'));
+  }, [onCmo]);
 
   useEffect(() => {
     writePendingRuns(pendingRunItems);
@@ -184,6 +189,13 @@ export function Layout() {
       .catch(() => { if (!cancelled) setBrands([]); });
     return () => { cancelled = true; };
   }, []);
+
+  // Evict stale localStorage brand_id after brands load (e.g. after a staging DB reset that changes UUIDs).
+  useEffect(() => {
+    if (brands.length > 0 && activeBrand && !brands.some(b => b.id === activeBrand.id)) {
+      setActiveBrand(null);
+    }
+  }, [brands, activeBrand]);
 
   const addPendingRun = useCallback((run: RunResponse) => {
     setPendingRunItems(prev => ({ ...prev, [run.run_id]: run }));
@@ -256,7 +268,9 @@ export function Layout() {
       <CmoChatProvider>
       <div className="bos-proto-shell">
         <div className="bos-proto-topbar">
-          <NavLink to="/stream" className="bos-proto-logo">Klaroha</NavLink>
+          <NavLink to="/stream" className="bos-proto-logo" aria-label="Klaroha Stream">
+            <span>Klaroha</span>
+          </NavLink>
           <label className="bos-proto-brand-chip bos-proto-brand-select" title="Filter CMO and Stream by brand">
             <span>Brand</span>
             <select
@@ -284,7 +298,21 @@ export function Layout() {
         </div>
 
         <div className={`bos-proto-page-area ${workspaceOpen ? 'bos-proto-page-area-ws-open' : ''}`}>
-          <Outlet />
+          {/* CmoChat is always mounted so in-flight streams survive navigation.
+              display:none hides it without unmounting — React state and async loops continue. */}
+          <div
+            className={`stream-cmo-shell${mobileStreamActive ? ' mobile-stream-active' : ''}`}
+            style={onCmo ? undefined : { display: 'none' }}
+          >
+            <div className="stream-cmo-chat-col">
+              <CmoChat />
+            </div>
+            <div className="stream-cmo-feed">
+              <button className="mobile-back-btn" onClick={() => setMobileStreamActive(false)}>← Chat</button>
+              {onCmo && <Outlet />}
+            </div>
+          </div>
+          {!onCmo && <Outlet />}
         </div>
 
         <WorkspacePanel
@@ -303,21 +331,7 @@ export function Layout() {
           onClose={() => setSettingsOpen(false)}
         />
 
-        <div className="bos-proto-bottom-tabs">
-          <div className="bos-proto-tab-group">
-            {PROTOTYPE_NAV.map(({ to, label, icon }) => (
-              <NavLink
-                key={to}
-                to={to}
-                className={({ isActive }) => `bos-proto-tab${isActive ? ' active' : ''}`}
-              >
-                <span>{icon}</span>
-                <span>{label}</span>
-                {label === 'Stream' && pendingRunList.length > 0 && <span className="bos-proto-tab-badge">{pendingRunList.length}</span>}
-              </NavLink>
-            ))}
-          </div>
-        </div>
+        <FooterNav pendingCount={pendingRunList.length} />
 
       </div>
       </CmoChatProvider>
