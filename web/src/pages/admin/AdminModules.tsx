@@ -178,7 +178,7 @@ function pluginConnectorFromPlugin(plugin: PluginInfo, label?: string): Connecto
   const sourceText = requiredCount === 0
     ? 'No credentials required'
     : configured ? (plugin.credential_source === 'env_var' ? 'Via .env' : 'Connected') : 'Not configured';
-  const canConfigure = requiredCount > 0 && !(plugin.credential_source === 'env_var' && plugin.media_provider_options.length === 0);
+  const canConfigure = requiredCount > 0 && !(plugin.credential_source === 'env_var' && (!plugin.media_provider_options || plugin.media_provider_options.length === 0));
   return {
     id: plugin.plugin_id,
     label: label || plugin.name,
