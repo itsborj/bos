@@ -61,6 +61,28 @@ localhost  →  staging branch  →  main branch
 
 ---
 
+## Production Down SOP — Read This Before Suggesting Any Fix
+
+> **For agents and developers:** When `hq.klaroha.com` is broken, this is the only valid response tree. Stop before suggesting anything else.
+
+**Do NOT:**
+- SSH into the VDS and run `docker compose build`
+- Run any `docker compose` command targeting the `bos` project on the VDS
+- Suggest rebuilding production containers manually
+- Suggest switching the VDS repo branch and rebuilding
+
+**DO:**
+1. Diagnose using read-only checks: `curl https://hq.klaroha.com/api/`, `GET /api/plugins`, `docker ps` read-only
+2. Reproduce and verify the fix on `staging.klaroha.com` first
+3. Once verified on staging: merge `staging` → `main`
+4. GitHub Actions → CI → Run workflow → target: `production`
+
+**Why this rule exists:** INC-009 (2026-06-09) was caused by running `docker compose build` on the VDS while the repo was on the `staging` branch. The production `bos` stack was silently rebuilt from wrong-branch code. `git_sha: "dev"` in `GET /api/` is the signal it happened. The pipeline is the only path that guarantees the right branch, the right image, and a verifiable deploy.
+
+**The `git_sha: "dev"` signal:** Any time `GET /api/` returns `git_sha: "dev"` on production, the image was built locally on the VDS — not by CI. This is always wrong. CI always bakes the real SHA via `--build-arg GIT_SHA=${{ github.sha }}`. A local build means the pipeline was bypassed.
+
+---
+
 ## Deploy Runbook
 
 ### Deploy to staging (staging.klaroha.com)
@@ -732,6 +754,34 @@ Three failure modes discovered manually during early staging setup:
 - **Fix:** `web/nginx-spa.conf` now includes `gzip on`, `include /etc/nginx/mime.types`, proper `Cache-Control` headers for assets (`immutable`) and `index.html` (`no-cache`). Nginx serves pre-compressed assets directly; Cloudflare receives correctly encoded content and has nothing to transform.
 - **Rule:** `nginx-spa.conf` must always include gzip compression, MIME types, and explicit cache headers. A bare config that serves uncompressed static files to a CDN will cause the CDN to attempt its own transformations, which may fail for large files.
 - **Resolved (2026-06-02):** Full frontend deployed with corrected `nginx-spa.conf`. White screen gone, `staging.klaroha.com` loads correctly.
+
+---
+
+#### INC-009 — 2026-06-09 — `Cannot read properties of undefined (reading 'find')` on hq.klaroha.com login; works on localhost
+
+- **Status:** Root cause confirmed. Not fixing — logged as a permanent diagnostic record.
+- **Symptom:** Logging into `hq.klaroha.com` hits a React render error boundary: `Cannot read properties of undefined (reading 'find')`. Hard refresh does not clear it. localhost (dev machine) has no such error.
+
+**Root cause confirmed:**
+
+Production containers (`bos-web-1`, `bos-api-1`) were rebuilt **locally on the VDS today (03:26 UTC)** while the VDS repo was checked out on the `staging` branch at commit `409e8c3`. This put staging branch code into the production `bos` stack.
+
+Diagnostic trail:
+1. `curl https://hq.klaroha.com/api/` → `git_sha: "dev"` — locally built; CI always bakes the real SHA. A local `docker compose build` never passes the `GIT_SHA` build arg.
+2. `curl -H "X-API-Key: $KEY" https://hq.klaroha.com/api/plugins` → **plugin count: 0** — no `KLAROHA_LOAD_INTERNAL_PLUGINS`, no `~/bos-plugins/` on production.
+3. `docker inspect bos-web-1 --format='{{.Created}}'` → `2026-06-09T03:26:58Z` — built today, not from a CI deploy.
+4. `cd ~/bos && git log --oneline -5` → **`HEAD -> staging`** at `409e8c3` — VDS repo was on the staging branch when the build ran.
+
+The `staging` branch at `409e8c3` is missing commits that exist on `main`:
+- `b2b2612` — Specialists page redesign; introduced `capability_ids.find()` in AdminModules.tsx
+- `8366c68` — thin-core proof complete; full `PluginInfo` `capability_ids` contract
+- `a4a5b6a` — TypeScript fix; null guard for `media_provider_options`
+
+Localhost (dev machine) runs `main` branch code via volume mount → all fixes present → no crash. Production ran `staging` branch code missing those fixes → crash at render.
+
+**Why it happened:** Someone ran `docker compose build` (no `-p staging` flag) on the VDS while the repo was on the `staging` branch. The production `bos` stack and the staging stack share the same `docker-compose.yml` and the same working directory. Without `-p staging --env-file .env.staging`, `docker compose` targets the `bos` (production) project. The production stack was silently rebuilt from staging branch code.
+
+**Rule reinforced:** Before any `docker compose` command on the VDS, confirm `git branch` and that the target project flag (`-p`) is correct. The VDS repo branch must match the stack being built: `main` for production (`bos`), `staging` for the staging project. A rebuild on the wrong branch silently corrupts production, and `git_sha: "dev"` in `GET /api/` is the only external signal it happened.
 
 ---
 

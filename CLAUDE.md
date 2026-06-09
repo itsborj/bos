@@ -22,6 +22,13 @@ localhost  →  staging branch  →  main branch
 
 **Never commit or push mid-feature work to any branch as a way to deploy or test on the server.** Use the local stack at `localhost:8090` for all development validation.
 
+**When hq.klaroha.com has an error — agents must not suggest direct remediation.** No SSH, no `docker compose build` on the VDS, no manual container restarts targeting the `bos` project. The only valid response is the pipeline:
+1. Verify the fix works on `staging.klaroha.com`
+2. Merge `staging` → `main`
+3. GitHub Actions → CI → Run workflow → target: `production`
+
+This rule exists because INC-009 was caused by an agent (and a developer) running `docker compose build` on the VDS while on the wrong branch, silently corrupting production with staging code. The pipeline is the guardrail — bypassing it is the incident.
+
 ## Plugin Lifecycle Rules — Non-Negotiable
 
 **Never use `KLAROHA_LOAD_INTERNAL_PLUGINS=true` as a production or staging restore mechanism.** It is a local dev compatibility shim only. Setting it loads all 18+ bundled `api/plugins/` examples as installed plugins, polluting Admin and the CMO manifest. Production plugins belong in `~/bos-plugins/`.
