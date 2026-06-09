@@ -81,6 +81,18 @@ echo "=== Pulling staging ==="
 git fetch origin
 git reset --hard origin/staging
 
+# ── Point plugin loader at the repo-tracked plugins/ directory ────────────────
+# ~/bos-plugins is a local-only directory on dev machines.
+# On the staging/production server, plugins live in the repo at ./plugins/.
+REPO_PLUGINS_PATH="$(pwd)/plugins"
+if grep -qE "^EXTERNAL_PLUGINS_PATH=" .env.staging 2>/dev/null; then
+  sed -i "s|^EXTERNAL_PLUGINS_PATH=.*|EXTERNAL_PLUGINS_PATH=${REPO_PLUGINS_PATH}|" .env.staging
+else
+  echo "EXTERNAL_PLUGINS_PATH=${REPO_PLUGINS_PATH}" >> .env.staging
+fi
+export EXTERNAL_PLUGINS_PATH="${REPO_PLUGINS_PATH}"
+echo "  EXTERNAL_PLUGINS_PATH=${REPO_PLUGINS_PATH}"
+
 # ── Resolve image tags ────────────────────────────────────────────────────────
 # Always deploy an immutable SHA-tagged image, never the mutable :staging tag.
 # CI sets DEPLOY_SHA to the tested commit SHA. Manual runs derive it from git HEAD
