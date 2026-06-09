@@ -181,7 +181,10 @@ async def list_pages(brand_id: Optional[str] = None, db: AsyncSession = Depends(
     api_base = settings.frontend_url.rstrip("/") + "/api"
     q = select(CalendarPage).where(CalendarPage.workspace_id == ws.id)
     if brand_id:
-        q = q.where(CalendarPage.brand_id == uuid.UUID(brand_id))
+        try:
+            q = q.where(CalendarPage.brand_id == uuid.UUID(brand_id))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid brand_id")
     rows = (await db.execute(q.order_by(CalendarPage.created_at.desc()))).scalars().all()
     return [_page_response(r, api_base) for r in rows]
 
@@ -251,9 +254,15 @@ async def list_bookings(page_id: Optional[str] = None, brand_id: Optional[str] =
         .where(CalendarPage.workspace_id == ws.id)
     )
     if page_id:
-        q = q.where(CalendarBooking.page_id == uuid.UUID(page_id))
+        try:
+            q = q.where(CalendarBooking.page_id == uuid.UUID(page_id))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid page_id")
     if brand_id:
-        q = q.where(CalendarPage.brand_id == uuid.UUID(brand_id))
+        try:
+            q = q.where(CalendarPage.brand_id == uuid.UUID(brand_id))
+        except ValueError:
+            raise HTTPException(status_code=422, detail="Invalid brand_id")
     rows = (await db.execute(q.order_by(CalendarBooking.start_at.asc()))).scalars().all()
     return [
         BookingResponse(
