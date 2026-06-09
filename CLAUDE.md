@@ -6,7 +6,19 @@
 
 ## Deployment Rules — Non-Negotiable
 
-**Never push to the `staging` branch to trigger a deploy.** The auto-deploy CI job (`deploy-staging` in `.github/workflows/ci.yml`) has been permanently disabled. Staging deploys are manual only, executed by the operator via `deploy-staging.sh` on the server. The `staging` branch is a working branch, not a release gate.
+**Branch flow is strictly: `localhost` → `staging` branch → `main` branch.**
+
+```
+localhost  →  staging branch  →  main branch
+                   ↓                  ↓
+        staging.klaroha.com     hq.klaroha.com  ← live clients
+```
+
+- **`staging` branch**: push here first. CI runs tests → builds images → auto-deploys to `staging.klaroha.com`. Verify there before touching main.
+- **`main` branch**: tests only — no auto-deploy to production.
+- **Production deploy**: GitHub Actions UI → Run workflow → target: `production`. Only after staging is verified.
+
+**Never push directly to `main` to deploy to production.** Merge to `main` only after staging is verified, then manually trigger the production deploy via workflow_dispatch.
 
 **Never commit or push mid-feature work to any branch as a way to deploy or test on the server.** Use the local stack at `localhost:8090` for all development validation.
 

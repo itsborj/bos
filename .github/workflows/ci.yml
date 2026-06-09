@@ -1,5 +1,15 @@
 name: CI
 
+# ── Branch strategy ───────────────────────────────────────────────────────────
+# localhost  →  staging branch  →  main branch
+#                    ↓                   ↓
+#           staging.klaroha.com    hq.klaroha.com  (production — live clients)
+#
+# Rules:
+#   • staging branch: tests → build images → auto-deploy to staging.klaroha.com
+#   • main branch:    tests only — NO auto-deploy to production
+#   • Production deploy: manual workflow_dispatch only, after staging is verified
+
 on:
   pull_request:
     branches: [main, staging]
@@ -7,8 +17,16 @@ on:
     branches: [main, staging]
   workflow_dispatch:
     inputs:
+      target:
+        description: 'Deploy target'
+        required: true
+        default: 'staging'
+        type: choice
+        options:
+          - staging
+          - production
       deploy_sha:
-        description: 'Git SHA to deploy (leave blank to use latest origin/staging)'
+        description: 'Git SHA to deploy (leave blank for latest on target branch)'
         required: false
         default: ''
 
@@ -60,8 +78,6 @@ jobs:
 
       - name: Guardrail — no direct _resolve_brief in chat.py dispatch paths
         run: |
-          # _resolve_brief must only appear at import and inside _brand_scoped_brief (line ~189).
-          # Any additional call site means brand isolation is broken.
           COUNT=$(grep -c "await _resolve_brief(" api/routers/chat.py || true)
           if [ "$COUNT" -gt 1 ]; then
             echo "ERROR: $COUNT direct _resolve_brief calls found in chat.py — only 1 allowed (inside _brand_scoped_brief)"
@@ -71,7 +87,6 @@ jobs:
 
       - name: Guardrail — no raw character-limit slicing in plugin modules
         run: |
-          # Plugin modules must use _clip() for length enforcement, not raw [:N] slicing.
           if grep -rn "\[:30\]\|\[:90\]" api/plugins/*/capabilities/ 2>/dev/null | grep "\.py:"; then
             echo "ERROR: Raw [:30] or [:90] slice found in plugin module — use _clip() instead"
             exit 1
@@ -83,7 +98,7 @@ jobs:
           npm ci --silent
           npx tsc -b
 
-  # ── Build & push images to GHCR ──────────────────────────────────────────
+  # ── Build & push images to GHCR (staging branch only) ────────────────────
   build-and-push:
     name: Build & push images
     needs: test
@@ -132,13 +147,11 @@ jobs:
             ghcr.io/itsborj/bos-relay:sha-${{ github.sha }}
             ghcr.io/itsborj/bos-relay:staging
 
-  # ── Deploy to staging (manual only) ─────────────────────────────────────
-  # Triggered via: GitHub Actions UI → "Run workflow" (or gh workflow run CI)
-  # Push to staging builds and pushes images automatically but does NOT deploy.
-  # Deploy when you're ready — not on every push.
-  deploy-staging:
-    name: Deploy → staging
-    if: github.event_name == 'workflow_dispatch'
+  # ── Auto-deploy to staging after images are built ────────────────────────
+  deploy-staging-auto:
+    name: Deploy → staging.klaroha.com
+    needs: build-and-push
+    if: github.ref == 'refs/heads/staging' && github.event_name == 'push'
     runs-on: ubuntu-latest
     permissions:
       packages: read
@@ -148,7 +161,7 @@ jobs:
         uses: appleboy/ssh-action@v1
         env:
           STAGING_ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
-          DEPLOY_SHA: ${{ github.event.inputs.deploy_sha }}
+          DEPLOY_SHA: ${{ github.sha }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           host: ${{ secrets.VDS_HOST }}
@@ -163,23 +176,51 @@ jobs:
               rm -rf "$STAGING_PATH"
               git clone https://github.com/itsborj/bos.git "$STAGING_PATH"
             fi
-            echo "Writing .env.staging from secret"
             printf '%s' "$STAGING_ENV_FILE" > "$STAGING_PATH/.env.staging"
             cd "$STAGING_PATH"
             git fetch origin
             git reset --hard origin/staging
             DEPLOY_SHA="$DEPLOY_SHA" GHCR_TOKEN="$GHCR_TOKEN" bash deploy-staging.sh
 
-  # ── Deploy to production ─────────────────────────────────────────────────
-  deploy-production:
-    name: Deploy → production
-    # Intentionally independent of the test job: production recovery must still run
-    # when GitHub checkout/test infrastructure fails before code is available.
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+  # ── Manual deploy — staging or production ────────────────────────────────
+  # Triggered via: GitHub Actions UI → "Run workflow"
+  # Use target=staging to re-deploy staging without a push.
+  # Use target=production ONLY after staging has been verified.
+  deploy-manual:
+    name: Deploy → ${{ github.event.inputs.target }}
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    permissions:
+      packages: read
 
     steps:
-      - name: SSH deploy to hq.klaroha.com
+      - name: SSH deploy to staging.klaroha.com
+        if: github.event.inputs.target == 'staging'
+        uses: appleboy/ssh-action@v1
+        env:
+          STAGING_ENV_FILE: ${{ secrets.STAGING_ENV_FILE }}
+          DEPLOY_SHA: ${{ github.event.inputs.deploy_sha }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          host: ${{ secrets.VDS_HOST }}
+          username: ${{ secrets.VDS_USER }}
+          key: ${{ secrets.VDS_DEPLOY_KEY }}
+          envs: STAGING_ENV_FILE,DEPLOY_SHA,GHCR_TOKEN
+          script: |
+            set -euo pipefail
+            STAGING_PATH=${{ secrets.STAGING_PATH }}
+            if [ ! -d "$STAGING_PATH/.git" ]; then
+              rm -rf "$STAGING_PATH"
+              git clone https://github.com/itsborj/bos.git "$STAGING_PATH"
+            fi
+            printf '%s' "$STAGING_ENV_FILE" > "$STAGING_PATH/.env.staging"
+            cd "$STAGING_PATH"
+            git fetch origin
+            git reset --hard origin/staging
+            DEPLOY_SHA="$DEPLOY_SHA" GHCR_TOKEN="$GHCR_TOKEN" bash deploy-staging.sh
+
+      - name: SSH deploy to hq.klaroha.com (production)
+        if: github.event.inputs.target == 'production'
         uses: appleboy/ssh-action@v1
         with:
           host: ${{ secrets.VDS_HOST }}
@@ -192,4 +233,4 @@ jobs:
             git reset --hard origin/main
             docker compose up --build -d --force-recreate --remove-orphans
             docker compose exec -T api alembic upgrade head
-            echo "Production deploy complete"
+            echo "Production deploy complete — $(git rev-parse --short HEAD)"
