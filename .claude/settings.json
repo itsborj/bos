@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(docker compose logs *)",
+      "Bash(docker compose ps *)",
+      "Bash(docker compose ps)",
+      "Bash(~/bin/gh api *)",
+      "Bash(docker inspect *)",
+      "Bash(ls /home/ubu/bos-plugins*)",
+      "Bash(ls ~/bos-plugins*)",
+      "Bash(ls /home/ubu/bos/.claude*)",
+      "Bash(ls /home/ubu/bos/specs*)"
+    ]
+  }
+}
