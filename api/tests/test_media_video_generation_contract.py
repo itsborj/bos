@@ -20,3 +20,12 @@ def test_video_generation_failure_self_check_fails() -> None:
 
     assert verdict == "fail"
     assert "generation_failed" in failures
+
+
+def test_video_generation_success_self_check_passes() -> None:
+    module = _load_module_class()()
+
+    verdict, failures = module.self_check("Video generated.\n\nHook: Test hook\nFormat: 9:16 / 10s", {})
+
+    assert verdict == "pass"
+    assert failures == []
