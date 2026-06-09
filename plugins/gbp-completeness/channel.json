@@ -1,0 +1,19 @@
+{
+  "plugin_id": "channel.gbp-completeness",
+  "name": "GBP Profile Completeness",
+  "version": "0.1.1",
+  "klaroha_min_version": "3.5",
+  "sdk_version": "1.0",
+  "capabilities_root": "capabilities/",
+  "implements": ["marketing.execute"],
+  "specialty": ["local_seo", "gbp", "google_business", "profile", "completeness", "audit"],
+  "platforms": ["google_business"],
+  "connector_protocol": "oauth",
+  "risk_policy": "read_only_external_api",
+  "output_contracts": ["gbp_completeness_result"],
+  "hook_subscriptions": [],
+  "capability_ids": ["marketing.intelligence.gbp.completeness_score"],
+  "credential_slots": [
+    { "key": "google_business_token", "type": "social_token", "platform": "google_business" }
+  ]
+}

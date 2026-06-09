@@ -1,0 +1,87 @@
+{
+  "plugin_id": "media.image",
+  "name": "Image Generation",
+  "version": "1.1.0",
+  "klaroha_min_version": "3.5",
+  "capabilities_root": "capabilities/",
+  "implements": [
+    "media.generate"
+  ],
+  "specialty": [
+    "image_generation",
+    "visual_asset"
+  ],
+  "platforms": [
+    "openai",
+    "gemini",
+    "bytedance",
+    "cloudflare_workers_ai",
+    "local_renderer"
+  ],
+  "connector_protocol": "api_key",
+  "risk_policy": "generate_only",
+  "output_contracts": [
+    "image_asset"
+  ],
+  "credential_slots": [
+    {
+      "key": "image_gen_provider",
+      "type": "backend_override_provider",
+      "module": "media.image.generate",
+      "fallback_var": "IMAGE_GEN_PROVIDER"
+    },
+    {
+      "key": "image_gen_model",
+      "type": "backend_override_model",
+      "module": "media.image.generate"
+    },
+    {
+      "key": "provider_api_key",
+      "type": "backend_provider_api_key",
+      "module": "media.image.generate"
+    }
+  ],
+  "capability_ids": [
+    "media.image.generate"
+  ],
+  "provider_options": [
+    {
+      "provider": "openai",
+      "label": "OpenAI",
+      "models": [
+        {"value": "gpt-image-2", "label": "gpt-image-2 — flagship (2026)"},
+        {"value": "gpt-image-1", "label": "gpt-image-1 — deprecating Oct 2026"},
+        {"value": "gpt-image-1-mini", "label": "gpt-image-1-mini — cheapest"}
+      ]
+    },
+    {
+      "provider": "gemini",
+      "label": "Google Gemini",
+      "models": [
+        {"value": "gemini-2.5-flash-image", "label": "Gemini 2.5 Flash Image"},
+        {"value": "imagen-4.0-generate-001", "label": "Imagen 4.0 — paid Gemini plan"}
+      ]
+    },
+    {
+      "provider": "bytedance",
+      "label": "ByteDance ModelArk",
+      "models": [
+        {"value": "seedream-4-0-250828", "label": "Seedream 4.0"},
+        {"value": "seedream-4-5-251128", "label": "Seedream 4.5"},
+        {"value": "seedream-5-0-260128", "label": "Seedream 5.0"}
+      ]
+    },
+    {
+      "provider": "local",
+      "label": "Local Sample Renderer",
+      "models": [
+        {"value": "local-sample-renderer", "label": "Local sample PNG renderer"}
+      ]
+    },
+    {
+      "provider": "custom",
+      "label": "Custom Worker",
+      "models": []
+    }
+  ]
+}

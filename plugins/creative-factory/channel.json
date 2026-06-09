@@ -1,0 +1,42 @@
+{
+  "plugin_id": "creative.factory",
+  "name": "Creative Asset Factory",
+  "version": "0.1.0",
+  "description": "Channel-agnostic creative supply chain for manufacturing brand-consistent primitives and blueprints.",
+  "implements": [
+    "marketing.execute",
+    "marketing.plan"
+  ],
+  "specialty": [
+    "creative_production",
+    "blueprint_assembly",
+    "render_target",
+    "specialist_orchestration"
+  ],
+  "risk_policy": "generate_only",
+  "credential_slots": [
+    {
+      "key": "access_token",
+      "type": "social_token",
+      "platform": "google_drive"
+    },
+    {
+      "key": "drive_root_folder_id",
+      "type": "social_meta_field",
+      "platform": "google_drive",
+      "field": "drive_root_folder_id"
+    },
+    {
+      "key": "drive_root_name",
+      "type": "social_meta_field",
+      "platform": "google_drive",
+      "field": "drive_root_name"
+    }
+  ],
+  "capability_ids": [
+    "creative.pack.generate",
+    "creative.primitive.generate",
+    "creative.blueprint.assemble",
+    "creative.post.image"
+  ]
+}
