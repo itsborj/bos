@@ -46,9 +46,18 @@ Docker project names: `bos` (production), `staging` (staging).
 
 ## Branch Strategy
 
-- `main` → production (hq.klaroha.com)
-- `staging` → staging (staging.klaroha.com)
-- Feature branches → PR to `staging` first, reviewed, then merged to `main`
+```
+localhost  →  staging branch  →  main branch
+                   ↓                  ↓
+        staging.klaroha.com     hq.klaroha.com  ← live clients
+```
+
+- Work locally on `localhost:8090`
+- Push to `staging` branch → CI tests → builds images → auto-deploys to `staging.klaroha.com`
+- Verify on staging, then merge to `main`
+- Deploy to production manually via GitHub Actions → Run workflow → target: `production`
+
+**Never push to `main` expecting a production deploy.** `main` runs tests only.
 
 ---
 
@@ -57,33 +66,22 @@ Docker project names: `bos` (production), `staging` (staging).
 ### Deploy to staging (staging.klaroha.com)
 
 ```bash
-# On local machine — commit and push first (always — see C1)
-git add <files>
-git commit -m "message"
+# Push to staging branch — CI handles everything automatically
 git push origin staging
-
-# On server (SSH in) — or let CI handle it via GitHub Actions
-cd ~/bos
-git fetch origin && git reset --hard origin/staging
-docker compose -p staging -f docker-compose.yml --env-file .env.staging up -d --build --force-recreate web
+# CI: tests → build images → deploy to staging.klaroha.com
 ```
 
-If API changed too:
-```bash
-docker compose -p staging -f docker-compose.yml --env-file .env.staging up -d --build --force-recreate api
-```
+To manually re-deploy staging without a push:
+- GitHub Actions UI → CI → Run workflow → target: `staging`
 
 ### Deploy to production (hq.klaroha.com)
 
-```bash
-# On local machine
-git push origin main
+**Only after verifying on staging.klaroha.com.**
 
-# On server
-cd ~/bos
-git fetch origin && git reset --hard origin/main
-docker compose build web && docker compose up -d web
-```
+1. Merge `staging` → `main`
+2. GitHub Actions UI → CI → Run workflow → target: `production`
+
+CI will SSH into the server, pull `origin/main`, rebuild containers, and run migrations.
 
 ### Pre-push test (runs automatically)
 
