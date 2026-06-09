@@ -76,6 +76,6 @@
       "models": [
         {"value": "local-sample-renderer", "label": "Local sample PNG renderer"}
       ]
-    },
+    }
   ]
 }
