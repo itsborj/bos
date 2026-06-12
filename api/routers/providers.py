@@ -361,11 +361,6 @@ async def login_provider(
     settings = get_settings()
     ws = await _require_workspace(db)
     handler = get_oauth_handler(body.provider)
-    if body.provider == "gemini":
-        raise HTTPException(
-            status_code=400,
-            detail={"error": {"code": "LOGIN_NOT_SUPPORTED", "message": "Google Gemini login is not supported by Google for this API path. Add a Gemini API key instead.", "details": None}},
-        )
     if not handler:
         raise HTTPException(
             status_code=400,
@@ -419,11 +414,6 @@ async def complete_login(
     settings = get_settings()
     ws = await _require_workspace(db)
     handler = get_oauth_handler(body.provider)
-    if body.provider == "gemini":
-        raise HTTPException(
-            status_code=400,
-            detail={"error": {"code": "LOGIN_NOT_SUPPORTED", "message": "Google Gemini login is not supported by Google for this API path. Add a Gemini API key instead.", "details": None}},
-        )
     if not handler:
         raise HTTPException(
             status_code=400,
