@@ -70,7 +70,7 @@ for pair in \
     CRITICAL_MISSING+=("$key")
   fi
 done
-if [[ -z "$_db_url" || "$_db_url" == *"bos:bos"* ]]; then
+if [[ -z "$_db_url" ]]; then
   CRITICAL_MISSING+=("DATABASE_URL")
 fi
 
