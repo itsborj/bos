@@ -146,14 +146,27 @@ export async function validateKey(key: string): Promise<{ valid: boolean; messag
     const res = await fetch(`${BASE}/workspace`, {
       headers: { 'X-API-Key': key, 'Content-Type': 'application/json' },
     });
-    // 200 (workspace exists) or 412 (workspace not initialized) both mean key is valid.
-    // Every other status is invalid for login. In particular, never accept 5xx/502 as
-    // valid — that was allowing arbitrary keys through while staging API was down.
-    if (res.status === 200 || res.status === 412) {
+    const contentType = res.headers.get('content-type') || '';
+
+    // 412 from /workspace means auth succeeded but first-boot workspace setup has
+    // not completed yet, so the key itself is valid.
+    if (res.status === 412 && contentType.includes('application/json')) {
       return { valid: true, message: '' };
     }
+
+    if (res.status === 200 && contentType.includes('application/json')) {
+      const body = await res.json().catch(() => null) as { id?: unknown; name?: unknown } | null;
+      if (typeof body?.id === 'string' || typeof body?.name === 'string') {
+        return { valid: true, message: '' };
+      }
+      return { valid: false, message: 'Unexpected workspace response — check that you are using the BOS nginx URL' };
+    }
+
     if (res.status === 401 || res.status === 403) {
       return { valid: false, message: 'Key not recognized — check it and try again' };
+    }
+    if (res.ok && !contentType.includes('application/json')) {
+      return { valid: false, message: 'BOS API not reached — use http://localhost:8090 locally, not the raw web port' };
     }
     return { valid: false, message: `Server is not ready (HTTP ${res.status}) — try again shortly` };
   } catch {
