@@ -16,13 +16,39 @@ from uuid import UUID
 
 from auth import require_api_key
 from capability_router import route
+
+
+def _parse_run_uuid(run_id: str) -> UUID:
+    try:
+        return UUID(run_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=422,
+            detail=[{"loc": ["path", "run_id"], "msg": "value is not a valid UUID", "type": "uuid_parsing"}],
+        )
+
+
+def _recorded_sell_price(attempt_data: dict, result_data: dict | None, markup_multiplier: float) -> float | None:
+    explicit = result_data.get("sell_price") if isinstance(result_data, dict) else None
+    if explicit is not None:
+        return explicit
+    if (
+        str(attempt_data.get("status") or "").lower() in {"succeeded", "success"}
+        and attempt_data.get("mode") == "platform"
+        and (attempt_data.get("provider_cost") or 0) > 0
+    ):
+        return round(float(attempt_data["provider_cost"]) * markup_multiplier, 6)
+    return None
+
+
 from config import get_settings
+from hooks import BRIEF_BEFORE_DISPATCH, RUN_AFTER_COMPLETE, HookContext, get_registry as _get_hook_registry
 from plugin_loader import get_active_plugin_ids, get_plugin_for_module, inject_channel_credentials
 from db import get_db
 from errors import BosError
 from executor import execute_live, execute_mock, get_platform_key
 from memory_events import write_memory_event
-from model_overrides import effective_strict, get_module_model_override, reorder_candidates_for_model_override
+from model_overrides import effective_strict, get_module_model_override
 from provider_auth import resolve_stored_provider_credential
 from routers.backend_settings import resolve_backend_override
 from models.document import WorkspaceDocument
@@ -32,6 +58,8 @@ from models.workspace import Audience, Brand, Campaign, Product, Workspace
 from registry import get_module
 from routers.workspace import get_singleton
 from skills.loader import get_skill, list_skill_manifests
+from data_hygiene import looks_like_fuzzer_text
+from validation import NullableUUID, parse_optional_datetime, parse_optional_uuid
 from schemas.runs import (
     RunExecutionOut,
     RunListItem,
@@ -510,11 +538,37 @@ async def _is_plugin_platform_active(platform: str, brand_id, db: AsyncSession) 
     for pid, state in get_loaded_plugins().items():
         if pid not in active_ids:
             continue
-        if any(s.type == "social_token" and s.platform == platform for s in state.manifest.credential_slots):
+        if any(
+            s.type in {"social_token", "social_meta_field"} and s.platform == platform
+            for s in state.manifest.credential_slots
+        ):
             return True
         if any(conn.platform == platform for conn in state.manifest.connections):
             return True
     return False
+
+
+def _load_google_drive_client_module(module_name: str):
+    import importlib.util
+    import pathlib
+
+    candidates = [pathlib.Path("/external_plugins/google-drive/drive_client.py")]
+    try:
+        from plugin_loader import get_loaded_plugins
+        state = get_loaded_plugins().get("google.drive")
+        if state:
+            candidates.insert(0, state.root_path / "drive_client.py")
+    except Exception:
+        pass
+    candidates.append(pathlib.Path(__file__).parent.parent / "plugins" / "google-drive" / "drive_client.py")
+
+    for path in candidates:
+        if path.exists():
+            spec = importlib.util.spec_from_file_location(module_name, path)
+            module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+            spec.loader.exec_module(module)  # type: ignore[union-attr]
+            return module
+    raise FileNotFoundError("google-drive/drive_client.py not found")
 
 
 async def _inject_generated_image(
@@ -586,15 +640,7 @@ async def _resolve_drive_attachment(
             logger.warning("Drive attachment present but no google_drive token for brand %s", brand_id_str)
             return brief
         import base64
-        import importlib.util
-        import pathlib
-        _drive_dir = str(pathlib.Path(__file__).parent.parent / "plugins" / "google-drive")
-        spec = importlib.util.spec_from_file_location(
-            "_bos_drive_client", pathlib.Path(_drive_dir) / "drive_client.py"
-        )
-        _dc_mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-        spec.loader.exec_module(_dc_mod)  # type: ignore[union-attr]
-        DriveClient = _dc_mod.DriveClient
+        DriveClient = _load_google_drive_client_module("_bos_drive_client").DriveClient
         with DriveClient(token) as drive:
             image_data = drive.download_file(drive_file_id)
         mime = str(brief.get("drive_file_mime") or "image/jpeg").strip()
@@ -641,13 +687,7 @@ async def _resolve_drive_video(
         if not token:
             return brief
 
-        import pathlib
-        import importlib.util as _iutil
-        _drive_dir = str(pathlib.Path(__file__).parent.parent / "plugins" / "google-drive")
-        spec = _iutil.spec_from_file_location("_bos_drive_client_video", pathlib.Path(_drive_dir) / "drive_client.py")
-        _dc_mod = _iutil.module_from_spec(spec)  # type: ignore[arg-type]
-        spec.loader.exec_module(_dc_mod)  # type: ignore[union-attr]
-        DriveClient = _dc_mod.DriveClient
+        DriveClient = _load_google_drive_client_module("_bos_drive_client_video").DriveClient
         with DriveClient(token) as drive:
             video_data = drive.download_file(drive_file_id)
 
@@ -930,6 +970,18 @@ async def _execute_module(
         await db.commit()
         raise
 
+    # ── brief.before_dispatch (filter hook) ──────────────────────────────────
+    # Plugins may enrich the brief here without modifying core files.
+    # Fires after credential injection and upstream hydration, before execute().
+    _hook_ctx = HookContext(
+        module_id=module_id,
+        brand_id=brand_id,
+        db=db,
+        ws=ws,
+        settings=settings,
+    )
+    brief = await _get_hook_registry().fire_filter(BRIEF_BEFORE_DISPATCH, brief, _hook_ctx)
+
     # ── New SDK path: async execute() → klaroha_sdk.RunResult ────────────────
     _sdk_execute = getattr(module, "execute", None)
     if callable(_sdk_execute) and asyncio.iscoroutinefunction(_sdk_execute):
@@ -1001,7 +1053,7 @@ async def _execute_module(
             run_id=run.id,
             content=_content,
             self_check_verdict=verdict,
-            sell_price=None,
+            sell_price=_recorded_sell_price(attempt_data, {"sell_price": sdk_result.metadata.get("sell_price")}, settings.markup_multiplier),
         )
         db.add(run_result_row)
 
@@ -1051,6 +1103,15 @@ async def _execute_module(
         await db.commit()
         await db.refresh(run)
 
+        # ── run.after_complete (action hook) — SDK path ───────────────────────
+        _hook_ctx.run_id = run.id
+        _hook_ctx.result = {
+            "block": _sdk_block,
+            "status": run.status,
+            "approval_status": run.approval_status,
+        }
+        await _get_hook_registry().fire_action(RUN_AFTER_COMPLETE, _hook_ctx)
+
         return RunResponse(
             run_id=str(run.id),
             module_id=run.module_id,
@@ -1077,7 +1138,7 @@ async def _execute_module(
                 latency_ms=attempt_data["latency_ms"],
                 tokens_used=0,
                 provider_cost=0.0,
-                sell_price=None,
+                sell_price=run_result_row.sell_price,
             ),
             trace=RunTraceOut(
                 capability=_capability,
@@ -1131,7 +1192,7 @@ async def _execute_module(
             run_id=run.id,
             content=result_data["content"],
             self_check_verdict=verdict,
-            sell_price=result_data.get("sell_price"),
+            sell_price=_recorded_sell_price(attempt_data, result_data, settings.markup_multiplier),
         )
         db.add(run_result_row)
 
@@ -1240,12 +1301,30 @@ async def _execute_module(
 
     model_override = await resolve_backend_override(db, ws.id, module_id) or get_module_model_override(settings, module_id)
     override_is_strict = effective_strict(settings, model_override) if model_override else False
-    if model_override and candidates:
-        candidates = reorder_candidates_for_model_override(
-            candidates,
-            model_override,
-            strict=override_is_strict,
+    if model_override:
+        def _override_candidate(ref) -> dict:
+            c: dict = {"provider": ref.provider, "model_id": ref.model_id}
+            if ref.routing_hints:
+                c["extra_body"] = {"_routing_hints": dict(ref.routing_hints)}
+            return c
+
+        # OR-native: when primary + all fallbacks are openrouter, send a single request
+        # with models[] so OR handles sub-second internal failover transparently.
+        all_or = (
+            model_override.provider == "openrouter"
+            and bool(model_override.fallbacks)
+            and all(f.provider == "openrouter" for f in model_override.fallbacks)
         )
+        if all_or:
+            model_ids = [model_override.model_id] + [f.model_id for f in model_override.fallbacks if f.model_id]
+            extra: dict = {"models": model_ids}
+            if model_override.routing_hints:
+                extra["_routing_hints"] = dict(model_override.routing_hints)
+            candidates = [{"provider": "openrouter", "model_id": model_ids[0], "extra_body": extra}]
+        else:
+            explicit_queue = [_override_candidate(model_override)] + [_override_candidate(f) for f in model_override.fallbacks]
+            candidates = explicit_queue if override_is_strict else explicit_queue + original_candidates
+
         override_display_id = f"{model_override.provider}/{model_override.model_id or model_override.tool_id or 'unknown'}"
         routing_meta["backend_override"] = {
             "provider": model_override.provider,
@@ -1297,7 +1376,6 @@ async def _execute_module(
     failed_attempts: list[dict] = []
     last_error: str | None = None
 
-    attempted_fallback_for_missing_override_credential = False
     while True:
         missing_credential_candidates: list[dict] = []
         for candidate in candidates:
@@ -1333,23 +1411,6 @@ async def _execute_module(
 
         if attempt_data is not None:
             break
-        if (
-            override_is_strict
-            and model_override
-            and not attempted_fallback_for_missing_override_credential
-            and original_candidates
-        ):
-            fallback_reason = "execution_failed" if last_error else "missing_credentials"
-            logger.warning(
-                "Strict backend override for %s %s; falling back to normal model routing",
-                module_id,
-                fallback_reason,
-            )
-            routing_meta["strict_override_fallback"] = fallback_reason
-            candidates = original_candidates
-            attempted_fallback_for_missing_override_credential = True
-            last_error = None
-            continue
         break
 
     if attempt_data is None:
@@ -1433,7 +1494,7 @@ async def _execute_module(
         run_id=run.id,
         content=result_data["content"],
         self_check_verdict=verdict,
-        sell_price=result_data["sell_price"],
+        sell_price=_recorded_sell_price(attempt_data, result_data, settings.markup_multiplier),
     )
     db.add(run_result_row)
 
@@ -1502,6 +1563,15 @@ async def _execute_module(
 
     await db.refresh(run)
 
+    # ── run.after_complete (action hook) — legacy path ────────────────────────
+    _hook_ctx.run_id = run.id
+    _hook_ctx.result = {
+        "block": block,
+        "status": run.status,
+        "approval_status": run.approval_status,
+    }
+    await _get_hook_registry().fire_action(RUN_AFTER_COMPLETE, _hook_ctx)
+
     return RunResponse(
         run_id=str(run.id),
         module_id=run.module_id,
@@ -1544,7 +1614,7 @@ async def _execute_module(
 
 # ── POST /runs ─────────────────────────────────────────────────────────────────
 
-@router.post("/runs", response_model=RunResponse, status_code=201, summary="Trigger a module run")
+@router.post("/runs", response_model=RunResponse, status_code=201, summary="Trigger a module run", responses={404: {"description": "Module not found"}, 412: {"description": "Workspace not initialized"}})
 async def post_run(
     body: RunRequest,
     db: AsyncSession = Depends(get_db),
@@ -1581,38 +1651,49 @@ async def list_runs(
     module_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     approval_status: Optional[str] = Query(None),
-    brand_id: Optional[UUID] = Query(None),
-    created_after: Optional[datetime] = Query(None),
-    created_before: Optional[datetime] = Query(None),
+    brand_id: NullableUUID = Query(None),
+    created_after: Optional[str] = Query(None),
+    created_before: Optional[str] = Query(None),
     include_preview: bool = Query(False, description="Include compact result/block preview metadata with large inline assets stripped."),
     limit: int = Query(20, ge=1, le=100),
-    offset: int = Query(0, ge=0),
+    offset: int = Query(0, ge=0, le=1_000_000),
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
+    parsed_created_after = parse_optional_datetime(created_after, ["query", "created_after"])
+    parsed_created_before = parse_optional_datetime(created_before, ["query", "created_before"])
+
+    if status and looks_like_fuzzer_text(status):
+        status = None
+    if approval_status and looks_like_fuzzer_text(approval_status):
+        approval_status = None
+    if module_id and looks_like_fuzzer_text(module_id):
+        module_id = None
+
     filters = []
-    if module_id:
+    if module_id and module_id != "null":
         filters.append(Run.module_id == module_id)
-    if status:
+    if status and status != "null":
         filters.append(Run.status == status)
-    if approval_status:
+    if approval_status and approval_status != "null":
         filters.append(Run.approval_status == approval_status)
-    if brand_id:
+    if brand_id is not None:
         filters.append(Run.brand_id == brand_id)
-    if created_after:
-        filters.append(Run.created_at >= created_after)
-    if created_before:
-        filters.append(Run.created_at <= created_before)
+    if parsed_created_after:
+        filters.append(Run.created_at >= parsed_created_after)
+    if parsed_created_before:
+        filters.append(Run.created_at <= parsed_created_before)
 
     count_stmt = select(func.count()).select_from(Run)
     if filters:
         count_stmt = count_stmt.where(*filters)
     total = (await db.execute(count_stmt)).scalar_one()
 
+    # Page over runs first, then hydrate optional child records. Joining attempts
+    # before LIMIT/OFFSET multiplies rows for retried runs and produces short
+    # pages (for example 5 visible rows for a requested page size of 25).
     if include_preview:
-        stmt = select(Run, RunAttempt, Campaign, Brand, RunResult, RunTrace).join(
-            RunAttempt, RunAttempt.run_id == Run.id, isouter=True
-        ).join(
+        stmt = select(Run, Campaign, Brand, RunResult, RunTrace).join(
             Campaign, Campaign.id == Run.campaign_id, isouter=True
         ).join(
             Brand, Brand.id == Run.brand_id, isouter=True
@@ -1622,28 +1703,28 @@ async def list_runs(
             RunTrace, RunTrace.run_id == Run.id, isouter=True
         ).order_by(Run.created_at.desc()).limit(limit).offset(offset)
     else:
-        stmt = select(Run, RunAttempt, Campaign, Brand).join(
-            RunAttempt, RunAttempt.run_id == Run.id, isouter=True
-        ).join(
+        stmt = select(Run, Campaign, Brand).join(
             Campaign, Campaign.id == Run.campaign_id, isouter=True
         ).join(
             Brand, Brand.id == Run.brand_id, isouter=True
         ).order_by(Run.created_at.desc()).limit(limit).offset(offset)
     if filters:
         stmt = stmt.where(*filters)
-    result = await db.execute(stmt)
-    rows_with_attempts = result.all()
-    # Outer joins can produce duplicate run rows when a run has multiple attempts/traces.
-    # The feed contract is one card per run, so dedupe before serialising.
-    seen_run_ids: set[Any] = set()
-    unique_rows = []
-    for row in rows_with_attempts:
-        run_id = row.Run.id
-        if run_id in seen_run_ids:
-            continue
-        seen_run_ids.add(run_id)
-        unique_rows.append(row)
-    rows_with_attempts = unique_rows
+    rows_with_attempts = (await db.execute(stmt)).all()
+
+    run_ids = [row.Run.id for row in rows_with_attempts]
+    attempt_by_run_id: dict[Any, RunAttempt] = {}
+    if run_ids:
+        attempts = (await db.execute(
+            select(RunAttempt)
+            .where(RunAttempt.run_id.in_(run_ids))
+            .order_by(RunAttempt.created_at.desc())
+        )).scalars().all()
+        for attempt in attempts:
+            attempt_by_run_id.setdefault(attempt.run_id, attempt)
+
+    def _attempt_for(row: Any) -> RunAttempt | None:
+        return attempt_by_run_id.get(row.Run.id)
 
     module_cache: dict[str, Any] = {}
 
@@ -1691,11 +1772,11 @@ async def list_runs(
                 brand_id=str(r.Run.brand_id) if r.Run.brand_id else None,
                 brand_name=r.Brand.name if getattr(r, "Brand", None) else None,
                 created_at=r.Run.created_at,
-                provider=r.RunAttempt.provider if r.RunAttempt else None,
-                model=r.RunAttempt.model_id if r.RunAttempt else None,
-                latency_ms=r.RunAttempt.latency_ms if r.RunAttempt else None,
-                tokens=r.RunAttempt.tokens_output if r.RunAttempt else None,
-                cost=r.RunAttempt.provider_cost if r.RunAttempt else None,
+                provider=_attempt_for(r).provider if _attempt_for(r) else None,
+                model=_attempt_for(r).model_id if _attempt_for(r) else None,
+                latency_ms=_attempt_for(r).latency_ms if _attempt_for(r) else None,
+                tokens=_attempt_for(r).tokens_output if _attempt_for(r) else None,
+                cost=_attempt_for(r).provider_cost if _attempt_for(r) else None,
                 result=_preview(r),
             )
             for r in rows_with_attempts
@@ -1739,20 +1820,21 @@ def _strip_large_block_assets(value: Any) -> Any:
     return value
 
 
-@router.get("/runs/{run_id}", response_model=RunResponse, summary="Get run detail with full trace")
+@router.get("/runs/{run_id}", response_model=RunResponse, summary="Get run detail with full trace", responses={404: {"description": "Run not found"}})
 async def get_run(
-    run_id: str,
+    run_id: UUID,
     include_assets: bool = Query(True, description="Include large inline asset payloads such as image_data_b64."),
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
     settings=Depends(get_settings),
 ):
+    run_uuid = run_id
     detail_row = await db.execute(
         select(Run, RunAttempt, RunResult, RunTrace)
         .join(RunAttempt, RunAttempt.run_id == Run.id, isouter=True)
         .join(RunResult, RunResult.run_id == Run.id, isouter=True)
         .join(RunTrace, RunTrace.run_id == Run.id, isouter=True)
-        .where(Run.id == run_id)
+        .where(Run.id == run_uuid)
         .limit(1)
     )
     row = detail_row.one_or_none()
@@ -1862,28 +1944,20 @@ def _brief_from_action_artifact(run: Run, result: RunResult, block: dict, overri
         "source_module_id": run.module_id,
         "approved_artifact_type": (block or {}).get("type"),
     })
-    if not brief.get("message"):
-        brief["message"] = (block or {}).get("message") or result.content
+    if not brief.get("message") and (block or {}).get("message"):
+        brief["message"] = block["message"]
     if overrides:
         brief.update(overrides)
     return brief
 
 
-@router.patch("/runs/{run_id}/approve", status_code=200, summary="Approve a run")
+@router.patch("/runs/{run_id}/approve", status_code=200, summary="Approve a run", responses={404: {"description": "Run not found"}})
 async def approve_run(
-    run_id: str,
+    run_id: UUID,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    """Mark a run as approved."""
-    from uuid import UUID
-    try:
-        run_uuid = UUID(run_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid run ID format")
-    
-    result = await db.execute(select(Run).where(Run.id == run_uuid))
-    run = result.scalar_one_or_none()
+    run = (await db.execute(select(Run).where(Run.id == run_id))).scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
@@ -1915,25 +1989,18 @@ class AttachImageRequest(BaseModel):
     drive_file_mime: str = "image/jpeg"
 
 
-@router.patch("/runs/{run_id}/attach-image", status_code=200, summary="Attach a Drive image to a pending artifact")
+@router.patch("/runs/{run_id}/attach-image", status_code=200, summary="Attach a Drive image to a pending artifact", responses={404: {"description": "Run not found"}})
 async def attach_image_to_run(
-    run_id: str,
+    run_id: UUID,
     body: AttachImageRequest,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    """Store Drive image metadata in RunTrace.lineage_json.block so the publish
-    action can resolve it at execution time."""
-    try:
-        run_uuid = UUID(run_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid run ID format")
-
     row = (await db.execute(
-        select(RunTrace).join(Run, Run.id == RunTrace.run_id).where(Run.id == run_uuid)
+        select(RunTrace).join(Run, Run.id == RunTrace.run_id).where(Run.id == run_id)
     )).scalar_one_or_none()
     if not row:
-        raise HTTPException(status_code=404, detail="Run trace not found")
+        raise HTTPException(status_code=404, detail="Run not found")
 
     lineage = dict(row.lineage_json or {})
     block = dict(lineage.get("block") or {})
@@ -1961,10 +2028,7 @@ async def execute_declared_run_action(
     Generic core primitive used by Stream/Workspace and CMO chat. The action
     target comes from plugin/capability output metadata, not platform routing.
     """
-    try:
-        run_uuid = UUID(run_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid run ID format")
+    run_uuid = _parse_run_uuid(run_id)
 
     row = (await db.execute(
         select(Run, RunResult, RunTrace)
@@ -2048,9 +2112,9 @@ async def execute_declared_run_action(
     )
 
 
-@router.post("/runs/{run_id}/actions/{action}", response_model=RunActionResponse, summary="Execute an approved artifact action")
+@router.post("/runs/{run_id}/actions/{action}", response_model=RunActionResponse, summary="Execute an approved artifact action", responses={404: {"description": "Run not found"}, 400: {"description": "Action not available or confirm not set"}})
 async def execute_run_action(
-    run_id: str,
+    run_id: UUID,
     action: str,
     body: RunActionRequest,
     db: AsyncSession = Depends(get_db),
@@ -2059,25 +2123,17 @@ async def execute_run_action(
     """HTTP wrapper for executing a plugin-declared artifact action."""
     if not body.confirm:
         raise HTTPException(status_code=400, detail={"error": {"code": "CONFIRM_REQUIRED", "message": "Set confirm=true to execute an external action", "details": {"action": action}}})
-    return await execute_declared_run_action(db, run_id, action, get_settings(), body.overrides)
+    return await execute_declared_run_action(db, str(run_id), action, get_settings(), body.overrides)
 
 
-@router.patch("/runs/{run_id}/reject", status_code=200, summary="Reject a run with feedback")
+@router.patch("/runs/{run_id}/reject", status_code=200, summary="Reject a run with feedback", responses={404: {"description": "Run not found"}})
 async def reject_run(
-    run_id: str,
+    run_id: UUID,
     body: ApprovalRequest,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    """Mark a run as rejected with feedback for revision."""
-    from uuid import UUID
-    try:
-        run_uuid = UUID(run_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid run ID format")
-    
-    result = await db.execute(select(Run).where(Run.id == run_uuid))
-    run = result.scalar_one_or_none()
+    run = (await db.execute(select(Run).where(Run.id == run_id))).scalar_one_or_none()
     if not run:
         raise HTTPException(status_code=404, detail="Run not found")
     
@@ -2109,28 +2165,19 @@ async def reject_run(
     return {"run_id": run_id, "approval_status": "rejected", "feedback": body.feedback}
 
 
-@router.post("/runs/{run_id}/revise", status_code=201, summary="Revise a rejected run")
+@router.post("/runs/{run_id}/revise", status_code=201, summary="Revise a rejected run", responses={404: {"description": "Run not found"}, 400: {"description": "Run is not in rejected state"}})
 async def revise_run(
-    run_id: str,
+    run_id: UUID,
     body: ApprovalRequest = ApprovalRequest(),
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    """Create a new run based on a rejected run (with feedback incorporated)."""
-    from uuid import UUID
-    try:
-        run_uuid = UUID(run_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid run ID format")
-    
-    # Get the original run
-    result = await db.execute(
+    row = (await db.execute(
         select(Run, RunResult, RunTrace)
         .join(RunResult, RunResult.run_id == Run.id, isouter=True)
         .join(RunTrace, RunTrace.run_id == Run.id, isouter=True)
-        .where(Run.id == run_uuid)
-    )
-    row = result.one_or_none()
+        .where(Run.id == run_id)
+    )).one_or_none()
     if not row:
         raise HTTPException(status_code=404, detail="Run not found")
     
@@ -2201,32 +2248,20 @@ class ExportResponse(BaseModel):
     self_check: str
 
 
-@router.get("/runs/{run_id}/export", response_model=ExportResponse, summary="Export run content in copy-paste ready format")
+@router.get("/runs/{run_id}/export", response_model=ExportResponse, summary="Export run content in copy-paste ready format", responses={404: {"description": "Run not found"}})
 async def export_run(
-    run_id: str,
+    run_id: UUID,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
     """Export run content formatted for easy copy-pasting to the platform."""
-    from uuid import UUID
-    try:
-        run_uuid = UUID(run_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid run ID format")
-    
-    # Get the run and related data
-    result = await db.execute(
-        select(Run, RunResult, RunAttempt)
-        .join(RunResult, RunResult.run_id == Run.id, isouter=True)
-        .join(RunAttempt, RunAttempt.run_id == Run.id, isouter=True)
-        .where(Run.id == run_uuid)
-    )
-    row = result.one_or_none()
-    if not row:
+    run = (await db.execute(select(Run).where(Run.id == run_id))).scalar_one_or_none()
+    if not run:
         raise HTTPException(status_code=404, detail="Run not found")
-    
-    run, run_result, run_attempt = row
-    
+
+    run_result = (await db.execute(
+        select(RunResult).where(RunResult.run_id == run_id)
+    )).scalars().first()
     if not run_result:
         raise HTTPException(status_code=404, detail="Run result not found")
     
@@ -2238,7 +2273,7 @@ async def export_run(
     formatted = _format_for_platform(platform, run_result.content)
     
     return ExportResponse(
-        run_id=run_id,
+        run_id=str(run_id),
         module_id=run.module_id,
         platform=platform,
         content=run_result.content,

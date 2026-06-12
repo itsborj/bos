@@ -41,10 +41,12 @@ async def _handle_clickup(request: Request, body: bytes, db: AsyncSession) -> di
     settings = get_settings()
     plugin_vars = await get_plugin_vars("channel.clickup", db, settings)
     secret = os.getenv("CLICKUP_WEBHOOK_SECRET") or plugin_vars.get("clickup_webhook_secret")
-    if secret:
-        sig = request.headers.get("X-Signature", "")
-        if not sig or not _clickup_verify_hmac(body, sig, secret):
-            raise HTTPException(status_code=403, detail="Invalid webhook signature")
+    if not secret:
+        logger.warning("ClickUp webhook rejected because CLICKUP_WEBHOOK_SECRET is not configured")
+        raise HTTPException(status_code=503, detail="Webhook secret is not configured")
+    sig = request.headers.get("X-Signature", "")
+    if not sig or not _clickup_verify_hmac(body, sig, secret):
+        raise HTTPException(status_code=403, detail="Invalid webhook signature")
 
     try:
         payload = json.loads(body)

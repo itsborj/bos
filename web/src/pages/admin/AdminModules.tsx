@@ -123,7 +123,7 @@ const _PROVIDER_LABELS: Record<string, string> = {
   openrouter: 'OpenRouter',
   gemini: 'Google Gemini',
   nvidia: 'NVIDIA',
-  bytedance: 'ByteDance ModelArk',
+  bytedance: 'BytePlus',
 };
 
 function providerLabel(provider: string): string {
@@ -138,7 +138,10 @@ function buildMediaProviderOptions(
   models
     .filter(m => m.modality === modality)
     .forEach(m => {
-      (grouped[m.provider] ??= []).push({ value: m.model_id, label: m.name || m.model_id });
+      (grouped[m.provider] ??= []).push({
+        value: m.model_id,
+        label: m.provider === 'bytedance' ? `BytePlus - ${m.name || m.model_id}` : (m.name || m.model_id),
+      });
     });
 
   const dynamic: MediaProviderOption[] = Object.entries(grouped).map(([provider, models]) => ({
@@ -176,7 +179,7 @@ function pluginConnectorFromPlugin(plugin: PluginInfo, label?: string): Connecto
   const requiredCount = plugin.requires_platform_vars.length;
   const configured = requiredCount > 0 ? plugin.credentials_configured : true;
   const sourceText = requiredCount === 0
-    ? 'No credentials required'
+    ? 'No setup needed'
     : configured ? (plugin.credential_source === 'env_var' ? 'Via .env' : 'Connected') : 'Not configured';
   const canConfigure = requiredCount > 0 && !(plugin.credential_source === 'env_var' && (!plugin.media_provider_options || plugin.media_provider_options.length === 0));
   return {
@@ -340,8 +343,8 @@ export function AdminModules() {
   };
 
   async function handleToggleActivation(pluginId: string, currentlyActive: boolean) {
-    if (!currentlyActive && !selectedBrandId) {
-      showToast('Select a brand before activating a plugin.');
+    if (!selectedBrandId) {
+      showToast(`Select a brand before ${currentlyActive ? 'deactivating' : 'activating'} a plugin.`);
       return;
     }
     setActivatingPlugin(pluginId);
@@ -1022,49 +1025,51 @@ export function AdminModules() {
                   <div style={{ display: 'grid', gap: 6 }}>
                     <div style={{ fontSize: 11, color: 'var(--text2)', fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em' }}>Accounts</div>
                     {s.connectors.map(connector => (
-                      <div key={connector.id} style={{ border: '.5px solid var(--border)', padding: '8px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 8 }}>
+                      <div key={connector.id} style={{ border: '.5px solid var(--border)', padding: '8px 10px', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 8 }}>
                         <div style={{ minWidth: 0, flex: 1 }}>
                           <div style={{ fontSize: 13, fontWeight: 600 }}>{connector.label}</div>
-                          <div style={{ color: 'var(--text2)', fontSize: 11, marginTop: 2, overflowWrap: 'anywhere' }}>{connector.detail}</div>
+                          <div style={{ color: 'var(--text2)', fontSize: 11, marginTop: 2 }}>{connector.detail}</div>
                         </div>
-                        <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4, flexShrink: 0 }}>
                           <span className={`badge badge-${connectorBadgeClass(connector.status)}`}>{connector.statusText}</span>
-                          {connector.actionLabel && connector.actionType === 'brands' && (
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => navigate('/admin/brands')}>
-                              {connector.actionLabel}
-                            </button>
-                          )}
-                          {connector.actionLabel && connector.actionType === 'plugin' && connector.pluginId && (
-                            <button
-                              className="btn btn-ghost btn-sm"
-                              style={{ fontSize: 11 }}
-                              onClick={() => s.mediaModuleId ? openConfigureMediaAI(s) : openConfigure(connector.pluginId!)}
-                            >
-                              {connector.actionLabel}
-                            </button>
-                          )}
-                          {connector.removable && connector.pluginId && (
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--text2)' }} onClick={() => handleRemoveCredentials(connector.pluginId!)}>
-                              Remove
-                            </button>
-                          )}
-                          {savedPlugin === connector.pluginId && <span style={{ color: 'var(--success)', fontSize: 11 }}>✓</span>}
-                          {connector.actionType === 'plugin' && connector.pluginId && (() => {
-                            const plug = plugins.find(p => p.plugin_id === connector.pluginId);
-                            if (!plug || plug.status === 'error') return null;
-                            const active = isPluginActive(plug, selectedBrandId);
-                            const toggling = activatingPlugin === connector.pluginId;
-                            return (
+                          <div style={{ display: 'flex', gap: 4, alignItems: 'center', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                            {connector.actionLabel && connector.actionType === 'brands' && (
+                              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11 }} onClick={() => navigate('/admin/brands')}>
+                                {connector.actionLabel}
+                              </button>
+                            )}
+                            {connector.actionLabel && connector.actionType === 'plugin' && connector.pluginId && (
                               <button
                                 className="btn btn-ghost btn-sm"
-                                style={{ fontSize: 11, color: active ? 'var(--text2)' : 'var(--accent)', opacity: toggling ? 0.5 : 1 }}
-                                disabled={toggling}
-                                onClick={() => handleToggleActivation(plug.plugin_id, active)}
+                                style={{ fontSize: 11 }}
+                                onClick={() => s.mediaModuleId ? openConfigureMediaAI(s) : openConfigure(connector.pluginId!)}
                               >
-                                {toggling ? '…' : active ? 'Deactivate' : 'Activate'}
+                                {connector.actionLabel}
                               </button>
-                            );
-                          })()}
+                            )}
+                            {connector.removable && connector.pluginId && (
+                              <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, color: 'var(--text2)' }} onClick={() => handleRemoveCredentials(connector.pluginId!)}>
+                                Remove
+                              </button>
+                            )}
+                            {savedPlugin === connector.pluginId && <span style={{ color: 'var(--success)', fontSize: 11 }}>✓</span>}
+                            {connector.actionType === 'plugin' && connector.pluginId && (() => {
+                              const plug = plugins.find(p => p.plugin_id === connector.pluginId);
+                              if (!plug || plug.status === 'error') return null;
+                              const active = isPluginActive(plug, selectedBrandId);
+                              const toggling = activatingPlugin === connector.pluginId;
+                              return (
+                                <button
+                                  className="btn btn-ghost btn-sm"
+                                  style={{ fontSize: 11, color: active ? 'var(--text2)' : 'var(--accent)', opacity: toggling ? 0.5 : 1 }}
+                                  disabled={toggling}
+                                  onClick={() => handleToggleActivation(plug.plugin_id, active)}
+                                >
+                                  {toggling ? '…' : active ? 'Deactivate' : 'Activate'}
+                                </button>
+                              );
+                            })()}
+                          </div>
                         </div>
                       </div>
                     ))}

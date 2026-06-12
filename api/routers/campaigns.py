@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -8,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import require_api_key
+from data_hygiene import contains_fuzzer_garbage, reject_fuzzer_garbage
 from db import get_db
 from models.run import Run, RunAttempt, RunResult
 from models.workspace import Campaign, Workspace
@@ -38,15 +40,9 @@ async def get_workspace(db: AsyncSession) -> Workspace:
     return ws
 
 
-async def get_campaign_or_404(campaign_id: str, db: AsyncSession) -> Campaign:
+async def get_campaign_or_404(campaign_id: UUID, db: AsyncSession) -> Campaign:
     """Get a campaign by ID or raise 404."""
-    from uuid import UUID
-    try:
-        campaign_uuid = UUID(campaign_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid campaign ID format")
-    
-    result = await db.execute(select(Campaign).where(Campaign.id == campaign_uuid))
+    result = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
     campaign = result.scalar_one_or_none()
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
@@ -62,6 +58,7 @@ async def create_campaign(
     _: str = Depends(require_api_key),
 ):
     ws = await get_workspace(db)
+    reject_fuzzer_garbage(payload.name, ["body", "name"])
     
     campaign = Campaign(
         workspace_id=ws.id,
@@ -91,7 +88,7 @@ async def list_campaigns(
     result = await db.execute(
         select(Campaign).where(Campaign.workspace_id == ws.id).order_by(Campaign.created_at.desc())
     )
-    campaigns = result.scalars().all()
+    campaigns = [c for c in result.scalars().all() if not contains_fuzzer_garbage(c.name)]
     
     return [
         CampaignOut(
@@ -105,9 +102,9 @@ async def list_campaigns(
     ]
 
 
-@router.get("/{campaign_id}", response_model=CampaignDetail, summary="Get campaign details")
+@router.get("/{campaign_id}", response_model=CampaignDetail, summary="Get campaign details", responses={404: {"description": "Campaign not found"}})
 async def get_campaign(
-    campaign_id: str,
+    campaign_id: UUID,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
@@ -122,9 +119,9 @@ async def get_campaign(
     )
 
 
-@router.patch("/{campaign_id}", response_model=CampaignOut, summary="Update a campaign")
+@router.patch("/{campaign_id}", response_model=CampaignOut, summary="Update a campaign", responses={404: {"description": "Campaign not found"}})
 async def update_campaign(
-    campaign_id: str,
+    campaign_id: UUID,
     payload: CampaignUpdate,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
@@ -132,6 +129,7 @@ async def update_campaign(
     campaign = await get_campaign_or_404(campaign_id, db)
     
     if payload.name is not None:
+        reject_fuzzer_garbage(payload.name, ["body", "name"])
         campaign.name = payload.name
     if payload.status is not None:
         campaign.status = payload.status
@@ -148,9 +146,9 @@ async def update_campaign(
     )
 
 
-@router.post("/{campaign_id}/run", status_code=202, summary="Run all modules for a campaign")
+@router.post("/{campaign_id}/run", status_code=202, summary="Run all modules for a campaign", responses={404: {"description": "Campaign not found"}})
 async def run_campaign(
-    campaign_id: str,
+    campaign_id: UUID,
     payload: CampaignRunPayload | None = None,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
@@ -213,15 +211,12 @@ class CampaignSummaryResponse(BaseModel):
     modules: list[dict]
 
 
-@router.get("/{campaign_id}/summary", response_model=CampaignSummaryResponse, summary="Get campaign summary with module results and costs")
+@router.get("/{campaign_id}/summary", response_model=CampaignSummaryResponse, summary="Get campaign summary with module results and costs", responses={404: {"description": "Campaign not found"}})
 async def get_campaign_summary(
-    campaign_id: str,
+    campaign_id: UUID,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    """Get a summary of campaign runs, including which modules passed and costs."""
-    from uuid import UUID
-    
     campaign = await get_campaign_or_404(campaign_id, db)
     
     # Get all runs for this campaign (stored in trace lineage_json)

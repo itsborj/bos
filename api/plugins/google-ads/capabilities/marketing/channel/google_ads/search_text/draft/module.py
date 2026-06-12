@@ -115,20 +115,20 @@ class GoogleAdsSearchTextDraftModule(ChannelModule):
             f"Built For {audience}",
             f"Clear {benefit}",
             f"Get {product}",
-            f"Compare Options",
+            "Compare Options",
             f"Book With {brand}",
-            f"See Available Offers",
-            f"Trusted Local Help",
-            f"Simple Next Steps",
+            "See Available Offers",
+            "Trusted Local Help",
+            "Simple Next Steps",
             f"Start With {brand}",
             f"Explore {product}",
-            f"Talk To An Expert",
+            "Talk To An Expert",
         ]
         raw_descriptions = [
             f"Explore {product} from {brand}. Get clear options and helpful next steps today.",
             f"Built for {audience}. Learn how {brand} helps you move from interest to action.",
-            f"Compare choices, ask questions, and choose the path that fits your needs.",
-            f"Review this draft before launch. No campaigns, budgets, or ads were changed.",
+            "Compare choices, ask questions, and choose the path that fits your needs.",
+            "Review this draft before launch. No campaigns, budgets, or ads were changed.",
         ]
 
         headlines = self._dedupe(raw_headlines, self.max_headline_chars)

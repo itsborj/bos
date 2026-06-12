@@ -127,26 +127,42 @@ class DriveClient:
         return r.json().get("files", [])
 
     def search_files(self, mime_types: list[str], parent_id: Optional[str] = None) -> list[dict]:
-        """Search the connected Drive for files matching any of the given MIME types.
+        """Search files matching MIME types, recursively when a root folder is supplied.
 
-        If parent_id is supplied, constrain the search to that folder's direct children.
-        Without parent_id it searches across Drive, which is useful for global asset
-        lookup and backward-compatible picker behavior.
+        Generated BOS assets live under nested folders such as
+        Creative Assets/Meta Posts and Creative Assets/Video. Google Drive query
+        syntax only checks direct parents, so when parent_id is supplied we walk
+        folders breadth-first and collect matching files from each folder.
         """
         mime_q = " or ".join(f"mimeType = '{m}'" for m in mime_types)
-        q = f"({mime_q}) and trashed = false"
-        if parent_id:
-            q += f" and '{parent_id}' in parents"
-        params: dict = {
-            "q": q,
-            "fields": "files(id,name,mimeType,size,webViewLink,thumbnailLink)",
-            "pageSize": 200,
-            "supportsAllDrives": "true",
-            "includeItemsFromAllDrives": "true",
-        }
-        r = self._client.get(_FILES, params=params)
-        r.raise_for_status()
-        return r.json().get("files", [])
+
+        def query(q: str) -> list[dict]:
+            params: dict = {
+                "q": q,
+                "fields": "files(id,name,mimeType,size,webViewLink,thumbnailLink)",
+                "pageSize": 200,
+                "supportsAllDrives": "true",
+                "includeItemsFromAllDrives": "true",
+            }
+            r = self._client.get(_FILES, params=params)
+            r.raise_for_status()
+            return r.json().get("files", [])
+
+        if not parent_id:
+            return query(f"({mime_q}) and trashed = false")
+
+        results: list[dict] = []
+        queue = [parent_id]
+        seen: set[str] = set()
+        while queue:
+            current = queue.pop(0)
+            if current in seen:
+                continue
+            seen.add(current)
+            results.extend(query(f"({mime_q}) and trashed = false and '{current}' in parents"))
+            folders = self.list_children(current, mime_type=_FOLDER_MIME, all_drives=True)
+            queue.extend(f["id"] for f in folders if f.get("id") and f["id"] not in seen)
+        return results
 
     def list_shared_with_me_folders(self) -> list[dict]:
         params = {

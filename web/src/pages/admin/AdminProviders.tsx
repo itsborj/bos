@@ -1,18 +1,19 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { useLocation, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { BackendOverride, KeyListItem, ProviderInfo, ProviderModelLive } from '../../api/types';
+import type { BackendOverride, BrandResponse, KeyListItem, ProviderInfo, ProviderModelLive } from '../../api/types';
 
 type CheckState = { status: string; message: string };
 type LoginState = { login_id: string; authorize_url?: string };
 
 const PROVIDER_LABELS: Record<string, string> = {
   openai:      'OpenAI',
+  anthropic:   'Anthropic',
   openrouter:  'OpenRouter',
   gemini:      'Google Gemini',
   google:      'Google (Login)',
   nvidia:      'NVIDIA AI Cloud',
-  bytedance:   'ByteDance ModelArk',
+  bytedance:   'BytePlus',
 };
 
 function providerLabel(provider: string): string {
@@ -35,7 +36,7 @@ function fmtDateTime(value?: string | null): string {
 }
 
 function modelSummary(provider: ProviderInfo): string {
-  if (!provider.top_models.length) return 'No seeded models';
+  if (!provider.top_models.length) return 'No live models yet';
   return provider.top_models.slice(0, 3).map((m) => m.model_id).join(', ');
 }
 
@@ -53,6 +54,8 @@ function friendlyModelName(modelId: string): string {
   if (id === 'google/gemma-2-9b-it') return 'Gemma 2 9B';
   if (id === 'mistralai/mistral-7b-instruct') return 'Mistral 7B';
   if (id === 'anthropic/claude-sonnet-4-5') return 'Claude Sonnet 4.5';
+  if (id.includes('claude-opus-4')) return 'Claude Opus 4';
+  if (id.includes('claude-sonnet-4')) return 'Claude Sonnet 4';
   if (id === 'openai/gpt-4o') return 'GPT-4o';
   if (id === 'google/gemini-2.5-pro') return 'Gemini 2.5 Pro';
   // Direct providers
@@ -80,6 +83,7 @@ function modelVersionFamily(modelId: string): string {
   if (id.includes('gemma-2')) return 'gemma-2';
   if (id.includes('mistral-7b')) return 'mistral-7b';
   if (id.includes('claude-sonnet-4-5') || id.includes('claude-sonnet-4')) return 'claude-sonnet-4';
+  if (id.includes('claude-opus-4')) return 'claude-opus-4';
   if (id.includes('gpt-4o-mini')) return 'gpt-4o-mini';
   if (id.includes('gpt-4o')) return 'gpt-4o';
   if (id.includes('gemini-2.5')) return 'gemini-25';
@@ -102,12 +106,13 @@ type ModelChoice = {
 export function AdminProviders() {
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
-  // AI Providers is org-level infrastructure — never brand-scoped.
-  // Brand-specific nav state is intentionally ignored here.
+  // AI providers support agency/workspace defaults plus brand/client BYOK overrides.
   void location.state;
 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
   const [keys, setKeys] = useState<KeyListItem[]>([]);
+  const [brands, setBrands] = useState<BrandResponse[]>([]);
+  const [credentialBrandId, setCredentialBrandId] = useState('');
   const [availableModels, setAvailableModels] = useState<ProviderModelLive[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -149,19 +154,21 @@ export function AdminProviders() {
       setError(`Google Gemini connection failed${reason ? `: ${reason}` : ''}.`);
       setSearchParams({}, { replace: true });
     }
-  }, []);
+  }, [searchParams, setSearchParams]);
 
-  async function load() {
+  async function load(scopeBrandId = credentialBrandId) {
     setLoading(true);
     try {
-      const [provResult, keyResult, modelResult, overrideResult] = await Promise.all([
-        api.getProviders().catch(() => ({ providers: [] as ProviderInfo[] })),
-        api.getProviderKeys().catch(() => [] as KeyListItem[]),
+      const [provResult, keyResult, modelResult, overrideResult, brandResult] = await Promise.all([
+        api.getProviders(scopeBrandId || undefined).catch(() => ({ providers: [] as ProviderInfo[] })),
+        api.getProviderKeys(scopeBrandId || undefined).catch(() => [] as KeyListItem[]),
         api.getAvailableModels().catch(() => ({ models: [] as ProviderModelLive[] })),
         api.getBackendOverrides().catch(() => ({ overrides: [] as BackendOverride[] })),
+        api.getBrands().catch(() => ({ brands: [] as BrandResponse[], total: 0 })),
       ]);
       setProviders(provResult.providers ?? []);
       setKeys(keyResult ?? []);
+      setBrands(brandResult.brands ?? []);
       setAvailableModels(modelResult.models ?? []);
       const cmo = overrideResult.overrides.find(o => o.target === 'cmo.main') ?? null;
       setCmoOverride(cmo);
@@ -178,7 +185,7 @@ export function AdminProviders() {
     }
   }
 
-  useEffect(() => { void load(); }, []);
+  useEffect(() => { void load(credentialBrandId); }, [credentialBrandId]);
 
   // ── Computed ────────────────────────────────────────────────────────────────
 
@@ -212,7 +219,11 @@ export function AdminProviders() {
 
   // Whether the current CMO model uses the platform key (not BYOK)
   const cmoUsesPlatformKey = useMemo(() => {
-    if (cmoOverride?.provider) return !providerReady.has(cmoOverride.provider) || primaryProvider?.has_platform_key;
+    if (cmoOverride?.provider) {
+      // Badge shows only when the pinned provider has no connected BYOK key —
+      // i.e. the platform key is the only reason the CMO can run.
+      return !providerReady.has(cmoOverride.provider);
+    }
     return primaryProvider?.has_platform_key && !primaryProvider?.has_byok_key;
   }, [cmoOverride, primaryProvider, providerReady]);
 
@@ -224,10 +235,12 @@ export function AdminProviders() {
   const sortedProviders = useMemo(() => {
     const priority = (p: ProviderInfo) => {
       if (p.provider === 'openai') return 0;
-      if (p.status === 'live') return 1;
-      if (p.status === 'error') return 2;
-      if (p.connected || p.has_platform_key) return 3;
-      return 4;
+      if (p.provider === 'anthropic') return 1;
+      if (p.provider === 'gemini') return 2;
+      if (p.status === 'live') return 3;
+      if (p.status === 'error') return 4;
+      if (p.connected || p.has_platform_key) return 5;
+      return 6;
     };
     return [...providers].sort((a, b) => priority(a) - priority(b) || a.provider.localeCompare(b.provider));
   }, [providers]);
@@ -283,7 +296,7 @@ export function AdminProviders() {
     return groups;
   }, [allModelChoices]);
 
-  // ByteDance video models for the media generation picker
+  // BytePlus video models for the media generation picker
   const videoModelChoices = useMemo(
     () => availableModels.filter(m => m.modality === 'video'),
     [availableModels],
@@ -298,8 +311,10 @@ export function AdminProviders() {
         await api.deleteBackendOverride('cmo.main').catch(() => {});
         setCmoOverride(null);
       } else {
-        const [provider, ...rest] = cmoModel.split('::');
-        const model_id = rest.join('::');
+        const sepIdx = cmoModel.indexOf('::');
+        const provider = sepIdx > 0 ? cmoModel.slice(0, sepIdx) : '';
+        const model_id = sepIdx > 0 ? cmoModel.slice(sepIdx + 2) : '';
+        if (!provider || !model_id) return;
         const saved = await api.putBackendOverride('cmo.main', {
           provider, model_id, tool_id: null, modality: 'text', strict: false,
         });
@@ -319,11 +334,12 @@ export function AdminProviders() {
         await api.deleteBackendOverride('media.video.generate').catch(() => {});
         setVideoOverride(null);
       } else {
-        const [provider, ...rest] = effectiveModel.split('::');
-        const model_id = rest.join('::') || effectiveModel;
-        const actualProvider = rest.length ? provider : 'bytedance';
+        const sepIdx = effectiveModel.indexOf('::');
+        const provider = sepIdx > 0 ? effectiveModel.slice(0, sepIdx) : 'bytedance';
+        const model_id = sepIdx > 0 ? effectiveModel.slice(sepIdx + 2) : effectiveModel;
+        if (!model_id) return;
         const saved = await api.putBackendOverride('media.video.generate', {
-          provider: actualProvider, model_id, tool_id: null, modality: 'video', strict: true,
+          provider, model_id, tool_id: null, modality: 'video', strict: true,
         });
         setVideoOverride(saved);
         setVideoEndpointId('');
@@ -339,12 +355,12 @@ export function AdminProviders() {
     setAdding(true);
     setError(null);
     try {
-      await api.registerKey(addProvider, addKey.trim());
+      await api.registerKey(addProvider, addKey.trim(), credentialBrandId || undefined);
       setAddProvider('');
       setAddKey('');
       await load();
-    } catch (e: unknown) {
-      setError((e as Error).message ?? 'Failed to register key');
+    } catch (err: unknown) {
+      setError((err as Error).message ?? 'Failed to register key');
     } finally {
       setAdding(false);
     }
@@ -352,13 +368,21 @@ export function AdminProviders() {
 
   async function handleDeleteKey(provider: string, brandId?: string | null) {
     if (!confirm(`Remove ${providerLabel(provider)} API key?`)) return;
-    await api.deleteKey(provider, brandId ?? undefined).catch(() => {});
-    await load();
+    try {
+      await api.deleteKey(provider, brandId ?? undefined);
+      await load();
+    } catch (e: unknown) {
+      setError((e as Error).message ?? `Failed to remove ${providerLabel(provider)} key`);
+    }
   }
 
   async function handleDeleteAuth(provider: string) {
     if (!confirm(`Disconnect ${providerLabel(provider)} login?`)) return;
-    await api.deleteProviderAuth(provider).catch(() => {});
+    try {
+      await api.deleteProviderAuth(provider);
+    } catch (e: unknown) {
+      setError((e as Error).message ?? `Failed to disconnect ${providerLabel(provider)}`);
+    }
     await load();
   }
 
@@ -366,7 +390,7 @@ export function AdminProviders() {
     setChecking(provider);
     setCheckResult(prev => { const next = { ...prev }; delete next[provider]; return next; });
     try {
-      const result = await api.checkKey(provider);
+      const result = await api.checkKey(provider, credentialBrandId || undefined);
       setCheckResult(prev => ({ ...prev, [provider]: { status: result.status, message: result.message } }));
       await load();
     } catch (e: unknown) {
@@ -494,7 +518,15 @@ export function AdminProviders() {
             <button
               className="btn btn-dark"
               onClick={handleSaveCmoModel}
-              disabled={savingCmo || cmoModel === (cmoOverride?.model_id ? `${cmoOverride.provider}::${cmoOverride.model_id}` : '')}
+              disabled={savingCmo || (
+                // Disabled when the selected model exactly matches what is already saved.
+                // When cmoOverride exists but model_id is null (stale override), treat the
+                // saved state as null — not '' — so the button stays enabled and the user
+                // can submit to trigger deleteBackendOverride and clean up the orphan row.
+                cmoOverride
+                  ? cmoModel === (cmoOverride.model_id ? `${cmoOverride.provider}::${cmoOverride.model_id}` : null)
+                  : cmoModel === ''
+              )}
             >
               {savingCmo ? 'Saving…' : cmoModel ? 'Save' : 'Reset to auto-select'}
             </button>
@@ -512,9 +544,20 @@ export function AdminProviders() {
       <div className="admin-card" style={{ marginBottom: 16 }}>
         <div className="admin-card-title">Your API Keys</div>
         <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 14 }}>
-          Optional. Add your own API key to use your AI account directly and control costs.
-          Without a key, Klaroha's platform AI handles everything automatically.
+          Optional. Set a workspace/agency default key, or select a brand/client to store BYOK for only that brand.
+          Brand keys take priority; otherwise Klaroha falls back to the workspace key or platform AI.
           Keys are encrypted and never shown after saving.
+        </div>
+
+        <div className="form-group" style={{ maxWidth: 320 }}>
+          <label className="label">Key scope</label>
+          <select className="select" value={credentialBrandId} onChange={e => setCredentialBrandId(e.target.value)}>
+            <option value="">Workspace / agency default</option>
+            {brands.map(brand => (
+              <option key={brand.id} value={brand.id}>{brand.name}</option>
+            ))}
+          </select>
+          <div className="hint">Use brand scope when a client brings their own provider key.</div>
         </div>
 
         {/* Existing keys */}
@@ -565,7 +608,7 @@ export function AdminProviders() {
                 placeholder={
                   addProvider === 'openrouter' ? 'sk-or-v1-…'
                   : addProvider === 'gemini' ? 'AIza…'
-                  : addProvider === 'bytedance' ? 'ARK API key…'
+                  : addProvider === 'bytedance' ? 'BytePlus API key…'
                   : 'sk-…'
                 }
               />
@@ -592,7 +635,7 @@ export function AdminProviders() {
           )}
           {addProvider === 'bytedance' && (
             <div style={{ marginTop: 8, fontSize: 12, color: 'var(--text2)' }}>
-              BytePlus ModelArk API key from <strong>console.byteplus.com → ModelArk → API Keys</strong>. Required for Seedance video generation.
+              BytePlus API key from <strong>console.byteplus.com → ModelArk → API Keys</strong>. Required for Seedance video generation.
             </div>
           )}
         </form>
@@ -600,12 +643,42 @@ export function AdminProviders() {
         {error && <div className="alert alert-error" style={{ marginTop: 10 }}>{error}</div>}
       </div>
 
+      {/* ── Workspace Channel Credentials ───────────────────────────────────── */}
+      {keys.filter(k => k.auth_mode === 'plugin_vars').length > 0 && (
+        <div className="admin-card" style={{ marginBottom: 16 }}>
+          <div className="admin-card-title">Workspace Channel Credentials</div>
+          <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 14 }}>
+            These credentials are set at workspace level and shared across all brands as fallback.
+            A brand-specific connection always takes priority. Managed from{' '}
+            <Link to="/admin/modules" style={{ color: 'var(--accent)' }}>Specialists</Link>.
+          </div>
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            {keys.filter(k => k.auth_mode === 'plugin_vars').map(key => (
+              <div
+                key={key.provider}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 8,
+                  border: '.5px solid var(--border)', padding: '6px 10px', fontSize: 13,
+                }}
+              >
+                <span style={{ color: 'var(--success)' }}>●</span>
+                <span>{key.provider.replace('plugin.', '').replace('channel.', '').replace('media.', '')}</span>
+                <span className="badge badge-muted" style={{ fontSize: 10 }}>agency-level</span>
+                <span style={{ color: 'var(--text2)', fontSize: 11 }}>
+                  · {new Date(key.created_at).toLocaleDateString()}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* ── Media Generation ────────────────────────────────────────────────── */}
       <div className="admin-card" style={{ marginBottom: 16 }}>
         <div className="admin-card-title">Media Generation</div>
         <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>
-          Set the backend for AI video and image generation. ByteDance ModelArk powers Seedance video generation.
-          Requires a ByteDance ModelArk API key added above.
+          Set the backend for AI video and image generation. BytePlus powers Seedance video generation.
+          Requires a BytePlus API key added above.
         </div>
 
         {/* Video backend */}
@@ -613,7 +686,7 @@ export function AdminProviders() {
           <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 4 }}>Video generation</div>
           <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 10 }}>
             {videoOverride?.model_id
-              ? `Active: ${videoOverride.model_id} · ${providerLabel(videoOverride.provider)}`
+              ? `Active: ${videoOverride.provider === 'bytedance' ? `BytePlus - ${videoOverride.model_id}` : `${videoOverride.model_id} · ${providerLabel(videoOverride.provider)}`}`
               : 'No backend configured — video generation unavailable.'}
           </div>
 
@@ -632,7 +705,7 @@ export function AdminProviders() {
                     value={`${m.provider}::${m.model_id}`}
                     disabled={!providerReady.has(m.provider)}
                   >
-                    {m.name || m.model_id}{!providerReady.has(m.provider) ? ' — no key' : ''}
+                    {m.provider === 'bytedance' ? `BytePlus - ${m.name || m.model_id}` : (m.name || m.model_id)}{!providerReady.has(m.provider) ? ' — no key' : ''}
                   </option>
                 ))}
               </select>
@@ -644,7 +717,7 @@ export function AdminProviders() {
                 type="text"
                 value={videoEndpointId}
                 onChange={e => setVideoEndpointId(e.target.value)}
-                placeholder="ep-m-… (ModelArk endpoint ID)"
+                placeholder="ep-m-… (BytePlus endpoint ID)"
               />
             </div>
             <button
@@ -688,7 +761,7 @@ export function AdminProviders() {
 
           {providers.filter(p => p.auth_supported.includes('oauth')).map(prov => {
             const pid = prov.provider;
-            const connected = isProviderConnected(prov);
+            const connected = prov.connected && prov.auth_mode === 'oauth';
             const pending = loginState[pid];
             const checkRes = checkResult[pid];
             return (
@@ -924,7 +997,7 @@ export function AdminProviders() {
                                     <div key={model.model_id} style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 4 }}>
                                       {model.model_id} · {model.quality_tier} · {model.latency_ms}ms{model.supports_json ? ' · JSON' : ''}
                                     </div>
-                                  )) : <div style={{ fontSize: 12, color: 'var(--text2)' }}>No seeded models.</div>}
+                                  )) : <div style={{ fontSize: 12, color: 'var(--text2)' }}>No live models yet.</div>}
                                 </div>
                                 <div>
                                   <div style={{ fontWeight: 700, fontSize: 12, marginBottom: 6 }}>Routing facts</div>

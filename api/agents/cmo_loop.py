@@ -127,7 +127,7 @@ def run_loop(dry_run: bool = False, target_brand_id: Optional[str] = None) -> No
             print(f"  → {module_id}")
 
             if dry_run:
-                print(f"     [dry-run] would POST /agent/execute")
+                print("     [dry-run] would POST /agent/execute")
                 results.append({"brand": brand_name, "module": module_id, "status": "dry_run"})
                 continue
 
@@ -194,9 +194,8 @@ def run_loop(dry_run: bool = False, target_brand_id: Optional[str] = None) -> No
         for r in pending_review:
             print(f"  curl -s -X PATCH {BASE_URL}/agent/review/{r['run_id']} \\")
             print(f"    -H 'X-API-Key: {API_KEY}' \\")
-            print(f"    -H 'Content-Type: application/json' \\")
-            print(f"    -d '{{\"action\":\"approve\"}}'")
-
+            print("    -H 'Content-Type: application/json' \\")
+            print("    -d '{\"action\":\"approve\"}'")  # noqa: Q000
 
 # ── Error injection tests ─────────────────────────────────────────────────────
 

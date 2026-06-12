@@ -40,6 +40,6 @@ class ProviderLoginSession(Base):
     provider: Mapped[str] = mapped_column(String(100), nullable=False)
     login_type: Mapped[str] = mapped_column(String(50), nullable=False)
     state: Mapped[str] = mapped_column(String(255), nullable=False)
-    verifier_encrypted: Mapped[str] = mapped_column(String(1024), nullable=False)
+    verifier_encrypted: Mapped[str] = mapped_column(Text, nullable=False)
     redirect_uri: Mapped[str] = mapped_column(String(512), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())

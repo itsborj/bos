@@ -196,39 +196,20 @@ class MetaPageControlValidator:
                 }
             }
             
-            # Build run brief
-            run_brief = await _resolve_brief(self.db, ws, test_brief)
-            
-            # Create test run (this would be done by the CMO chat normally)
-            from models.run import Run, RunResult
-            from uuid import uuid4
-            
-            test_run = Run(
-                id=uuid4(),
-                module_id='marketing.channel.meta.pages.read',
-                status='success',
-                approval_status='approved',
-                campaign_id=None,
-                brand_id=self.brand_id,
-                workspace_id='test-workspace',
-            )
-            
-            # Create test result
+            # NOTE: run_brief (resolved via _resolve_brief) was computed here but
+            # is not consumed — test_brief is passed directly to execute_tool_result.
+
+            # Execute the module to get the artifact dict used for stream validation.
             module = MetaPagesReadModule()
             try:
                 result, artifact = await module.execute_tool_result(test_brief)
             except Exception as e:
                 logger.error(f"Module execution failed during stream integration test: {e}")
                 return {'status': 'error', 'error': str(e)}
-            
-            test_result = RunResult(
-                run_id=test_run.id,
-                content=artifact.get('content', ''),
-                self_check_verdict='pass',
-                platform='facebook',
-                block=artifact.get('block', {}),
-            )
-            
+
+            # NOTE: test_run / test_result ORM objects are not persisted in this
+            # integration-validation path — only the artifact dict is inspected below.
+
             # Validate artifact structure for Stream
             stream_validation = {
                 'has_block': bool(artifact.get('block')),

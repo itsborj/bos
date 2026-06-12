@@ -868,10 +868,28 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
       );
     }
     if (channel.includes('email') && moduleId.includes('plan')) {
+      const md = result.content || 'Plan content unavailable.';
+      const rendered = md
+        .replace(/^### (.+)$/gm, '<h3 style="margin:14px 0 4px;font-size:12px;font-weight:900;text-transform:uppercase;letter-spacing:.06em;color:#555">$1</h3>')
+        .replace(/^## (.+)$/gm, '<h2 style="margin:16px 0 6px;font-size:13px;font-weight:900;color:#1f2937">$1</h2>')
+        .replace(/^# (.+)$/gm, '<h1 style="margin:0 0 10px;font-size:15px;font-weight:900;color:#0B3D2E">$1</h1>')
+        .replace(/^\|(.+)\|$/gm, (row) => {
+          const cells = row.split('|').slice(1, -1);
+          const isHeader = cells.some(c => /^\s*[-:]+\s*$/.test(c));
+          if (isHeader) return '';
+          const tag = 'td';
+          return `<tr>${cells.map(c => `<${tag} style="padding:3px 8px;border:1px solid #e5e7eb;font-size:11px">${c.trim()}</${tag}>`).join('')}</tr>`;
+        })
+        .replace(/(<tr>.*<\/tr>)/gs, (m) => `<table style="border-collapse:collapse;width:100%;margin:8px 0">${m}</table>`)
+        .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+        .replace(/^- (.+)$/gm, '<li style="margin:2px 0">$1</li>')
+        .replace(/(<li[^>]*>.*<\/li>)/gs, (m) => `<ul style="margin:6px 0;padding-left:18px">${m}</ul>`)
+        .replace(/\n{2,}/g, '<br/><br/>')
+        .replace(/\n/g, '<br/>');
       return (
         <div style={{ padding: '20px', textAlign: 'left', color: '#333', fontSize: '12px', border: '1px dashed #ccc', maxWidth: 520 }}>
           <div style={{ color: '#666', marginBottom: 10 }}>Email campaign plan</div>
-          <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.5 }}>{result.content || 'Plan content unavailable.'}</div>
+          <div style={{ lineHeight: 1.6 }} dangerouslySetInnerHTML={{ __html: rendered }} />
         </div>
       );
     }

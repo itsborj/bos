@@ -436,6 +436,23 @@ function streamCardTitle(update: StreamUpdateOut): string {
   return titleCase(update.type || 'Stream Card');
 }
 
+function buildCmoPrefill(update: StreamUpdateOut): string {
+  const data = update.data_json || {};
+  const title = streamCardTitle(update);
+  const summary = data.why_now || data.summary || data.recommended_next || 'Review this stream card.';
+  const evidence = asStringArray(data.primary_evidence || data.evidence).slice(0, 3);
+  const lines = [
+    `Help me act on this ${title.toLowerCase()}.`,
+    `Card: ${title}`,
+    data.brand_name || data.brand ? `Brand: ${String(data.brand_name || data.brand)}` : null,
+    data.objective_ref || data.objective ? `Objective: ${String(data.objective_ref || data.objective)}` : null,
+    `Context: ${String(summary)}`,
+    evidence.length ? `Evidence: ${evidence.join(' | ')}` : null,
+    update.source_key ? `Source: ${update.source_key}` : null,
+  ].filter(Boolean);
+  return lines.join('\n');
+}
+
 function confidenceColor(value: unknown): 'amber' | 'green' | 'blue' {
   const text = String(value || '').toLowerCase();
   if (text.includes('known') || text.includes('high')) return 'green';
@@ -692,6 +709,7 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
   const [focusedRunId, setFocusedRunId] = useState<string | null>(null);
   const knownRunIds = useRef(new Set<string>());
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const feedColRef = useRef<HTMLDivElement | null>(null);
   const artifactCardRefs = useRef(new Map<string, HTMLElement>());
 
   const registerArtifactCard = useCallback((runId: string, node: HTMLElement | null) => {
@@ -803,7 +821,7 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
     if (!node || !hasMoreRuns) return;
     const observer = new IntersectionObserver(entries => {
       if (entries.some(entry => entry.isIntersecting)) loadMoreRuns();
-    }, { rootMargin: '600px 0px' });
+    }, { root: feedColRef.current, rootMargin: '600px 0px' });
     observer.observe(node);
     return () => observer.disconnect();
   }, [hasMoreRuns, loadMoreRuns]);
@@ -874,6 +892,37 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
     else navigate('/admin/objective-loop');
   }
 
+  function askCmoAboutCard(update: StreamUpdateOut) {
+    window.dispatchEvent(new CustomEvent('bos:stream-card-context', {
+      detail: {
+        sourceType: 'update',
+        id: update.id,
+        type: update.type,
+        actionLabel: 'Ask CMO',
+        data_json: update.data_json,
+        priority: update.priority,
+        source_key: update.source_key,
+      },
+    }));
+    const prefill = buildCmoPrefill(update);
+    try { sessionStorage.setItem('bos:cmo-prefill', prefill); } catch {}
+    window.dispatchEvent(new CustomEvent('bos:cmo-prefill', { detail: prefill }));
+    navigate('/cmo');
+  }
+
+  async function dismissUrgentUnread() {
+    const toDismiss = streamUpdates.filter(update => update.priority === 'urgent');
+    if (toDismiss.length === 0) return;
+    setStreamUpdates(prev => prev.filter(update => update.priority !== 'urgent'));
+    try {
+      await api.dismissStreamUpdates({ priority: 'urgent' });
+    } catch {
+      // Reload the stream if the optimistic bulk-dismiss failed.
+      const brandId = activeBrand?.id;
+      api.getStream(false).then(stream => setStreamUpdates((stream.updates || []).filter(update => !brandId || updateBrandRef(update) === brandId))).catch(() => {});
+    }
+  }
+
   if (loading) {
     return <div className="loading-full"><span className="spinner" /></div>;
   }
@@ -885,7 +934,7 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
 
   return (
     <div className={`stream-fullscreen${embedded ? ' stream-embedded' : ''}`}>
-      <div className={`stream-feed-col${panelItem ? ' stream-panel-open' : ''}`}>
+      <div ref={feedColRef} className={`stream-feed-col${panelItem ? ' stream-panel-open' : ''}`}>
         <div className="stream-content-inner">
           <div className="stream-header-zone">
             <div className="stream-kicker">{dateLabel} · {brandLabel}</div>
@@ -894,6 +943,11 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
               : <h2 className="stream-title">Objective loop quiet</h2>
             }
             <div className="stream-sub">Ranked by urgency. Act on what matters, dismiss what does not.</div>
+            {streamUpdates.some(update => update.priority === 'urgent') && (
+              <button className="btn btn-ghost" style={{ marginBottom: 10 }} onClick={dismissUrgentUnread}>
+                Dismiss urgent alerts ({streamUpdates.filter(update => update.priority === 'urgent').length})
+              </button>
+            )}
             <ObjectiveAnchor objective={activeObjective} onSetup={() => navigate('/admin/objective-loop')} />
           </div>
 
@@ -914,7 +968,7 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
                   brandName={brandLabel}
                   objectiveTitle={objectiveTitle}
                   onDismiss={dismissed => setStreamUpdates(prev => prev.filter(item => item.id !== dismissed.id))}
-                  onAskCMO={() => navigate('/cmo')}
+                  onAskCMO={askCmoAboutCard}
                   onInvestigate={card => setPanelItem(card)}
                   onConfigure={configureFromCard}
                 />

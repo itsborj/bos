@@ -88,10 +88,8 @@ class MediaImageGenerateModule(ChannelModule):
                     "constraints_applied": constraints_applied,
                     "constraints_excerpt": brand_constraints[:300] if brand_constraints else None,
                 },
-                "allowed_actions": ["publish_facebook", "use", "regenerate", "dismiss"],
-                "action_modules": {
-                    "publish_facebook": "marketing.channel.meta.posts.publish",
-                },
+                "allowed_actions": ["use", "regenerate", "dismiss"],
+                "action_modules": {},
             },
         }
 
@@ -185,8 +183,8 @@ class MediaImageGenerateModule(ChannelModule):
         raise ValueError(f"Gemini image response contained no inlineData; parts: {[list(p) for p in parts]}")
 
     def _generate_bytedance(self, api_key: str, prompt: str, model: str | None = None) -> tuple[bytes, str]:
-        """Generate an image via ByteDance ModelArk (Seedream) using the OpenAI-compatible images endpoint."""
-        model_id = model or "seedream-4-5-t2i-250528"
+        """Generate an image via BytePlus (Seedream) using the OpenAI-compatible images endpoint."""
+        model_id = model or "seedream-4-5-251128"
         payload = json.dumps({
             "model": model_id,
             "prompt": prompt,
@@ -328,7 +326,7 @@ class MediaImageGenerateModule(ChannelModule):
             elif provider == "bytedance":
                 api_key = str(creds.get("provider_api_key") or creds.get("image_gen_api_key") or "").strip()
                 if not api_key:
-                    return self._failure(start, "missing_credentials", "ByteDance ModelArk API key not configured — add it via Admin → AI Providers", provider)
+                    return self._failure(start, "missing_credentials", "BytePlus API key not configured — add it via Admin → AI Providers", provider)
                 bd_model = str(creds.get("image_gen_model") or "").strip() or None
                 image_bytes, mime = self._generate_bytedance(api_key, prompt, model=bd_model)
 

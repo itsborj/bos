@@ -73,7 +73,7 @@ If current code contains partial attempts at these, do not expand them as part o
 
 ## Technical Context
 
-**Language/Version**: Python 3.11 target, TypeScript/React for Admin UI  
+**Language/Version**: Python 3.12 target, TypeScript/React for Admin UI  
 **Backend**: FastAPI, SQLAlchemy async, Pydantic  
 **Storage**: PostgreSQL; `plugin_activations` table via migration 038  
 **Plugin source**: external volume mounted at `/external_plugins` from `~/bos-plugins`  

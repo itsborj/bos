@@ -49,11 +49,15 @@ export function AdminRunDetail() {
   }
 
   function handleCopy() {
-    if (run?.result?.content) {
-      navigator.clipboard.writeText(run.result.content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
+    if (!run?.result?.content) return;
+    navigator.clipboard.writeText(run.result.content)
+      .then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000);
+      })
+      .catch(() => {
+        // Clipboard API unavailable (non-HTTPS or permission denied) — fail silently.
+      });
   }
 
   const modeBadge =

@@ -23,6 +23,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import require_api_key
+from data_hygiene import contains_fuzzer_garbage, reject_fuzzer_garbage
 from db import get_db
 from models.council import CouncilSession
 from routers.workspace import get_singleton
@@ -30,6 +31,13 @@ from routers.workspace import get_singleton
 router = APIRouter(prefix="/council", tags=["council"])
 
 _SEATS_DIR = Path(__file__).parent.parent / "capabilities" / "workspace" / "council" / "seats"
+
+
+def _parse_session_uuid(session_id: str) -> uuid.UUID:
+    try:
+        return uuid.UUID(session_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=404, detail="Session not found")
 
 
 # ── Seat schema ───────────────────────────────────────────────────────────────
@@ -41,6 +49,7 @@ class SeatConfig(BaseModel):
     provider: str
     model_id: Optional[str] = None
     ideology: Optional[str] = None
+    config_error: Optional[str] = None
 
 
 class SeatUpdateRequest(BaseModel):
@@ -51,40 +60,70 @@ class SeatUpdateRequest(BaseModel):
     ideology: Optional[str] = None
 
 
+def _default_seat(seat_dir: Path, error: str | None = None) -> SeatConfig:
+    return SeatConfig(
+        seat_id=seat_dir.name,
+        display_name="",
+        status="vacant",
+        provider="openrouter",
+        model_id=None,
+        ideology=None,
+        config_error=error,
+    )
+
+
 def _read_seat(seat_dir: Path) -> SeatConfig | None:
     skill_path = seat_dir / "SKILL.md"
     if not skill_path.exists():
-        return None
-    raw = skill_path.read_text()
+        return _default_seat(seat_dir, "Missing SKILL.md")
+    raw = skill_path.read_text(errors="replace")
     parts = raw.split("---", 2)
     if len(parts) < 2:
-        return None
+        return _default_seat(seat_dir, "Invalid seat frontmatter")
     try:
         meta = yaml.safe_load(parts[1]) or {}
-    except yaml.YAMLError:
-        return None
+    except yaml.YAMLError as exc:
+        # Never make a seat invisible because one field was corrupted. Surface a
+        # vacant/default card so the operator can save over the bad config.
+        return _default_seat(seat_dir, f"Invalid seat YAML: {exc}")
     model = meta.get("model") or {}
+    provider = _sanitize_yaml_str(str(model.get("provider") or "")).strip() or "openrouter"
+    status = _sanitize_yaml_str(str(meta.get("status") or "vacant")).strip() or "vacant"
+    if status not in {"active", "vacant", "draft"}:
+        status = "vacant"
     return SeatConfig(
-        seat_id=meta.get("seat", seat_dir.name),
-        display_name=meta.get("display_name", ""),
-        status=meta.get("status", "vacant"),
-        provider=model.get("provider") or "openrouter",
+        seat_id=str(meta.get("seat") or seat_dir.name),
+        display_name=str(meta.get("display_name") or ""),
+        status=status,
+        provider=provider,
         model_id=model.get("model_id") or None,
         ideology=meta.get("ideology") or None,
     )
 
 
+def _sanitize_yaml_str(v: str | None) -> str:
+    """Strip control characters that break YAML parsing."""
+    if not v:
+        return v or ""
+    return "".join(c for c in v if c.isprintable() or c in ("\t",))
+
+
 def _write_seat(seat_dir: Path, seat_id: str, update: SeatUpdateRequest) -> None:
     skill_path = seat_dir / "SKILL.md"
-    model_id_yaml = f'"{update.model_id}"' if update.model_id else "~"
-    ideology_yaml = f'"{update.ideology}"' if update.ideology else "~"
+    display_name = _sanitize_yaml_str(update.display_name).replace('"', '\\"')
+    status = _sanitize_yaml_str(update.status)
+    provider = _sanitize_yaml_str(update.provider)
+    model_id = _sanitize_yaml_str(update.model_id) if update.model_id else None
+    ideology = _sanitize_yaml_str(update.ideology) if update.ideology else None
+    model_id_yaml = f'"{model_id}"' if model_id else "~"
+    ideology_yaml = f'"{ideology}"' if ideology else "~"
     content = f"""---
 seat: {seat_id}
-display_name: "{update.display_name}"
-status: {update.status}
+display_name: "{display_name}"
+status: {status}
 
 model:
-  provider: {update.provider}
+  provider: {provider}
   model_id: {model_id_yaml}
 
 tools: []
@@ -184,11 +223,16 @@ async def convene(
     from council import start_session
     from models.workspace import Brand
 
+    reject_fuzzer_garbage(body.model_dump(), ["body"])
     ws = await get_singleton(db)
     brand = None
     if body.brand_id:
+        try:
+            brand_uuid = uuid.UUID(body.brand_id)
+        except (ValueError, AttributeError):
+            raise HTTPException(status_code=422, detail=[{"loc": ["body", "brand_id"], "msg": "value is not a valid UUID", "type": "uuid_parsing"}])
         brand = (await db.execute(
-            select(Brand).where(Brand.id == uuid.UUID(body.brand_id))
+            select(Brand).where(Brand.id == brand_uuid)
         )).scalar_one_or_none()
 
     result = await start_session(
@@ -221,7 +265,7 @@ async def c6_respond(
     from models.workspace import Brand
 
     row = (await db.execute(
-        select(CouncilSession).where(CouncilSession.id == uuid.UUID(session_id))
+        select(CouncilSession).where(CouncilSession.id == _parse_session_uuid(session_id))
     )).scalar_one_or_none()
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -264,7 +308,7 @@ async def finalize_session(
     from council import finalize
 
     row = (await db.execute(
-        select(CouncilSession).where(CouncilSession.id == uuid.UUID(session_id))
+        select(CouncilSession).where(CouncilSession.id == _parse_session_uuid(session_id))
     )).scalar_one_or_none()
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -297,6 +341,7 @@ async def list_sessions(
         .order_by(CouncilSession.created_at.desc())
         .limit(50)
     )).scalars().all()
+    rows = [r for r in rows if not contains_fuzzer_garbage([r.brief, r.rounds, r.c6_injections, r.pending_c6_prompt, r.settlement, r.marching_orders, r.parked_decisions])]
     return [
         SessionSummary(
             session_id=str(r.id),
@@ -312,14 +357,14 @@ async def list_sessions(
     ]
 
 
-@router.get("/sessions/{session_id}")
+@router.get("/sessions/{session_id}", responses={404: {"description": "Session not found"}})
 async def get_session(
     session_id: str,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
     row = (await db.execute(
-        select(CouncilSession).where(CouncilSession.id == uuid.UUID(session_id))
+        select(CouncilSession).where(CouncilSession.id == _parse_session_uuid(session_id))
     )).scalar_one_or_none()
     if not row:
         raise HTTPException(status_code=404, detail="Session not found")

@@ -8,15 +8,22 @@ from pathlib import Path
 from klaroha_sdk import ChannelModule
 
 # drive_client lives in the sibling google-drive plugin. Modules are loaded by path
-# (not on sys.path), so load it by its known in-container absolute path.
-_DRIVE_CLIENT_PATH = "/app/plugins/google-drive/drive_client.py"
+# (not on sys.path), so resolve it relative to the active plugin root first.
+_DRIVE_CLIENT_CANDIDATES = [
+    Path(__file__).resolve().parents[5] / "google-drive" / "drive_client.py",
+    Path("/external_plugins/google-drive/drive_client.py"),
+    Path("/app/plugins/google-drive/drive_client.py"),
+]
 
 
 def _load_drive():
-    spec = importlib.util.spec_from_file_location("google_drive_client_cf", _DRIVE_CLIENT_PATH)
-    m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
-    return m
+    for path in _DRIVE_CLIENT_CANDIDATES:
+        if path.exists():
+            spec = importlib.util.spec_from_file_location("google_drive_client_cf", str(path))
+            m = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(m)
+            return m
+    raise FileNotFoundError("google-drive/drive_client.py not found in plugin root")
 
 
 class CreativePostImageModule(ChannelModule):

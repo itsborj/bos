@@ -48,6 +48,42 @@ router = APIRouter(prefix="/social", tags=["social"])
 logger = logging.getLogger("bos.social")
 
 
+def _load_google_drive_client():
+    import importlib.util
+    from pathlib import Path
+
+    candidates = [Path("/external_plugins/google-drive/drive_client.py")]
+    try:
+        from plugin_loader import get_loaded_plugins
+        state = get_loaded_plugins().get("google.drive")
+        if state:
+            candidates.insert(0, state.root_path / "drive_client.py")
+    except Exception:
+        pass
+    candidates.append(Path(__file__).parent.parent / "plugins" / "google-drive" / "drive_client.py")
+
+    for path in candidates:
+        if path.exists():
+            spec = importlib.util.spec_from_file_location("_bos_social_drive_client", path)
+            module = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+            spec.loader.exec_module(module)  # type: ignore[union-attr]
+            return module.DriveClient
+    raise FileNotFoundError("google-drive/drive_client.py not found")
+
+
+def _parse_brand_uuid(brand_id: str | None, field: str = "brand_id") -> uuid.UUID | None:
+    """Return a UUID or raise 422. Treats None and the string 'null' as absent."""
+    if brand_id is None or brand_id == "" or brand_id == "null":
+        return None
+    try:
+        return uuid.UUID(brand_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=422,
+            detail=[{"loc": ["query", field], "msg": "value is not a valid UUID", "type": "uuid_parsing"}],
+        )
+
+
 def _coerce_datetime(value) -> datetime | None:
     if value is None or isinstance(value, datetime):
         return value
@@ -91,21 +127,21 @@ def _admin_connectors_redirect(frontend: str, **params: str | None) -> RedirectR
     clean = {k: v for k, v in params.items() if v is not None and v != ""}
     qs = urlencode(clean)
     suffix = f"?{qs}" if qs else ""
-    return RedirectResponse(url=f"{frontend}/admin/modules{suffix}")
+    return RedirectResponse(url=f"{frontend}/admin/modules{suffix}", status_code=302)
 
 
 def _admin_brands_redirect(frontend: str, **params: str | None) -> RedirectResponse:
     clean = {k: v for k, v in params.items() if v is not None and v != ""}
     qs = urlencode(clean)
     suffix = f"?{qs}" if qs else ""
-    return RedirectResponse(url=f"{frontend}/admin/brands{suffix}")
+    return RedirectResponse(url=f"{frontend}/admin/brands{suffix}", status_code=302)
 
 
 def _admin_providers_redirect(frontend: str, **params: str | None) -> RedirectResponse:
     clean = {k: v for k, v in params.items() if v is not None and v != ""}
     qs = urlencode(clean)
     suffix = f"?{qs}" if qs else ""
-    return RedirectResponse(url=f"{frontend}/admin/providers{suffix}")
+    return RedirectResponse(url=f"{frontend}/admin/providers{suffix}", status_code=302)
 
 
 # ── Start OAuth ───────────────────────────────────────────────────────────────
@@ -128,8 +164,11 @@ async def start_social_connect(
 
     try:
         brand_uuid = uuid.UUID(body.brand_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail={"error": {"code": "INVALID_BRAND_ID", "message": "Invalid brand ID", "details": None}})
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=422,
+            detail=[{"loc": ["body", "brand_id"], "msg": "value is not a valid UUID", "type": "uuid_parsing"}],
+        )
     brand = (await db.execute(
         select(Brand).where(Brand.id == brand_uuid, Brand.workspace_id == ws.id)
     )).scalar_one_or_none()
@@ -216,12 +255,12 @@ async def gmail_callback(
         try:
             payload = await relay_claim_handoff(handoff_token, settings)
         except Exception:
-            return _admin_connectors_redirect(frontend, gmail="error", reason="relay_claim_failed")
+            return _admin_brands_redirect(frontend, gmail="error", reason="relay_claim_failed")
         meta = payload.get("metadata") or {}
         email = meta.get("email", "")
         brand_id = payload.get("brand_id") or ""
         if not email:
-            return _admin_connectors_redirect(frontend, gmail="error", reason="no_email_returned")
+            return _admin_brands_redirect(frontend, gmail="error", reason="no_email_returned")
         ws = await get_singleton(db)
         token_meta = None
         if payload.get("refresh_token"):
@@ -234,10 +273,10 @@ async def gmail_callback(
             "name": meta.get("name") or email, "username": email, "token_meta": token_meta,
         })
         await db.commit()
-        return _admin_connectors_redirect(frontend, gmail="connected", brand_id=brand_id, account=email)
+        return _admin_brands_redirect(frontend, gmail="connected", brand_id=brand_id, account=email)
 
     if error or not code:
-        return _admin_connectors_redirect(frontend, gmail="denied", reason=error or "no_code")
+        return _admin_brands_redirect(frontend, gmail="denied", reason=error or "no_code")
 
     session = (await db.execute(
         select(ProviderLoginSession).where(
@@ -247,7 +286,7 @@ async def gmail_callback(
     )).scalar_one_or_none()
 
     if not session:
-        return _admin_connectors_redirect(frontend, gmail="error", reason="session_not_found")
+        return _admin_brands_redirect(frontend, gmail="error", reason="session_not_found")
 
     raw = decrypt_secret(session.verifier_encrypted, settings)
     stored_verifier, brand_id = (raw.split("|", 1) + [""])[:2]
@@ -266,14 +305,14 @@ async def gmail_callback(
     except Exception:
         await db.delete(session)
         await db.commit()
-        return _admin_connectors_redirect(frontend, gmail="error", reason="token_exchange_failed")
+        return _admin_brands_redirect(frontend, gmail="error", reason="token_exchange_failed")
 
     metadata = credential.metadata or {}
     email = metadata.get("email", "")
     if not email:
         await db.delete(session)
         await db.commit()
-        return _admin_connectors_redirect(frontend, gmail="error", reason="no_email_returned")
+        return _admin_brands_redirect(frontend, gmail="error", reason="no_email_returned")
 
     token_meta = None
     if credential.refresh_token:
@@ -293,7 +332,7 @@ async def gmail_callback(
     await _store_connection(db, ws.id, brand_id or None, settings, "gmail", page)
     await db.delete(session)
     await db.commit()
-    return _admin_connectors_redirect(frontend, gmail="connected", brand_id=brand_id, account=email)
+    return _admin_brands_redirect(frontend, gmail="connected", brand_id=brand_id, account=email)
 
 
 # ── Google Calendar OAuth Callback ───────────────────────────────────────────
@@ -317,12 +356,12 @@ async def google_calendar_callback(
         try:
             payload = await relay_claim_handoff(handoff_token, settings)
         except Exception:
-            return _admin_connectors_redirect(frontend, google_calendar="error", reason="relay_claim_failed")
+            return _admin_brands_redirect(frontend, google_calendar="error", reason="relay_claim_failed")
         meta = payload.get("metadata") or {}
         email = meta.get("email", "")
         brand_id = payload.get("brand_id") or ""
         if not email:
-            return _admin_connectors_redirect(frontend, google_calendar="error", reason="no_email_returned")
+            return _admin_brands_redirect(frontend, google_calendar="error", reason="no_email_returned")
         ws = await get_singleton(db)
         token_meta = None
         if payload.get("refresh_token"):
@@ -335,10 +374,10 @@ async def google_calendar_callback(
             "name": meta.get("name") or email, "username": email, "token_meta": token_meta,
         })
         await db.commit()
-        return _admin_connectors_redirect(frontend, google_calendar="connected", brand_id=brand_id, account=email)
+        return _admin_brands_redirect(frontend, google_calendar="connected", brand_id=brand_id, account=email)
 
     if error or not code:
-        return _admin_connectors_redirect(frontend, google_calendar="denied", reason=error or "no_code")
+        return _admin_brands_redirect(frontend, google_calendar="denied", reason=error or "no_code")
 
     session = (await db.execute(
         select(ProviderLoginSession).where(
@@ -348,7 +387,7 @@ async def google_calendar_callback(
     )).scalar_one_or_none()
 
     if not session:
-        return _admin_connectors_redirect(frontend, google_calendar="error", reason="session_not_found")
+        return _admin_brands_redirect(frontend, google_calendar="error", reason="session_not_found")
 
     raw = decrypt_secret(session.verifier_encrypted, settings)
     stored_verifier, brand_id = (raw.split("|", 1) + [""])[:2]
@@ -367,14 +406,14 @@ async def google_calendar_callback(
     except Exception:
         await db.delete(session)
         await db.commit()
-        return _admin_connectors_redirect(frontend, google_calendar="error", reason="token_exchange_failed")
+        return _admin_brands_redirect(frontend, google_calendar="error", reason="token_exchange_failed")
 
     metadata = credential.metadata or {}
     email = metadata.get("email", "")
     if not email:
         await db.delete(session)
         await db.commit()
-        return _admin_connectors_redirect(frontend, google_calendar="error", reason="no_email_returned")
+        return _admin_brands_redirect(frontend, google_calendar="error", reason="no_email_returned")
 
     token_meta = None
     if credential.refresh_token:
@@ -394,7 +433,7 @@ async def google_calendar_callback(
     await _store_connection(db, ws.id, brand_id or None, settings, "google_calendar", page)
     await db.delete(session)
     await db.commit()
-    return _admin_connectors_redirect(frontend, google_calendar="connected", brand_id=brand_id, account=email)
+    return _admin_brands_redirect(frontend, google_calendar="connected", brand_id=brand_id, account=email)
 
 
 # ── YouTube OAuth Callback ──────────────────────────────────────────────────
@@ -414,13 +453,13 @@ async def youtube_callback(
         try:
             payload = await relay_claim_handoff(handoff_token, settings)
         except Exception:
-            return _admin_connectors_redirect(frontend, youtube="error", reason="relay_claim_failed")
+            return _admin_brands_redirect(frontend, youtube="error", reason="relay_claim_failed")
         meta = payload.get("metadata") or {}
         email = meta.get("email", "")
         channel_id = meta.get("channel_id", "")
         brand_id = payload.get("brand_id") or ""
         if not email or not channel_id:
-            return _admin_connectors_redirect(frontend, youtube="error", reason="incomplete_metadata")
+            return _admin_brands_redirect(frontend, youtube="error", reason="incomplete_metadata")
         ws = await get_singleton(db)
         token_meta = None
         if payload.get("refresh_token"):
@@ -433,10 +472,10 @@ async def youtube_callback(
             "name": meta.get("name") or email, "username": email, "token_meta": token_meta,
         })
         await db.commit()
-        return _admin_connectors_redirect(frontend, youtube="connected", brand_id=brand_id, account=meta.get("name") or email)
+        return _admin_brands_redirect(frontend, youtube="connected", brand_id=brand_id, account=meta.get("name") or email)
 
     if error or not code:
-        return _admin_connectors_redirect(frontend, youtube="denied", reason=error or "no_code")
+        return _admin_brands_redirect(frontend, youtube="denied", reason=error or "no_code")
 
     session = (await db.execute(
         select(ProviderLoginSession).where(
@@ -446,7 +485,7 @@ async def youtube_callback(
     )).scalar_one_or_none()
 
     if not session:
-        return _admin_connectors_redirect(frontend, youtube="error", reason="session_not_found")
+        return _admin_brands_redirect(frontend, youtube="error", reason="session_not_found")
 
     raw = decrypt_secret(session.verifier_encrypted, settings)
     stored_verifier, brand_id = (raw.split("|", 1) + [""])[:2]
@@ -465,7 +504,7 @@ async def youtube_callback(
     except Exception:
         await db.delete(session)
         await db.commit()
-        return _admin_connectors_redirect(frontend, youtube="error", reason="token_exchange_failed")
+        return _admin_brands_redirect(frontend, youtube="error", reason="token_exchange_failed")
 
     metadata = credential.metadata or {}
     email = metadata.get("email", "")
@@ -474,7 +513,7 @@ async def youtube_callback(
     if not email or not channel_id:
         await db.delete(session)
         await db.commit()
-        return _admin_connectors_redirect(frontend, youtube="error", reason="incomplete_metadata")
+        return _admin_brands_redirect(frontend, youtube="error", reason="incomplete_metadata")
 
     token_meta = None
     if credential.refresh_token:
@@ -494,7 +533,7 @@ async def youtube_callback(
     await _store_connection(db, ws.id, brand_id or None, settings, "youtube", page)
     await db.delete(session)
     await db.commit()
-    return _admin_connectors_redirect(frontend, youtube="connected", brand_id=brand_id, account=metadata.get("name") or email)
+    return _admin_brands_redirect(frontend, youtube="connected", brand_id=brand_id, account=metadata.get("name") or email)
 
 
 # ── TikTok OAuth Callback ────────────────────────────────────────────────────
@@ -510,7 +549,7 @@ async def tiktok_callback(
     frontend = settings.frontend_url.rstrip("/")
 
     if error or not code:
-        return _admin_connectors_redirect(frontend, tiktok="denied", reason=error or "no_code")
+        return _admin_brands_redirect(frontend, tiktok="denied", reason=error or "no_code")
 
     session = (await db.execute(
         select(ProviderLoginSession).where(
@@ -520,7 +559,7 @@ async def tiktok_callback(
     )).scalar_one_or_none()
 
     if not session:
-        return _admin_connectors_redirect(frontend, tiktok="error", reason="session_not_found")
+        return _admin_brands_redirect(frontend, tiktok="error", reason="session_not_found")
 
     raw = decrypt_secret(session.verifier_encrypted, settings)
     stored_verifier, brand_id = (raw.split("|", 1) + [""])[:2]
@@ -541,14 +580,14 @@ async def tiktok_callback(
     except Exception:
         await db.delete(session)
         await db.commit()
-        return _admin_connectors_redirect(frontend, tiktok="error", reason="token_exchange_failed")
+        return _admin_brands_redirect(frontend, tiktok="error", reason="token_exchange_failed")
 
     metadata = credential.metadata or {}
     open_id = metadata.get("open_id", "")
     if not open_id:
         await db.delete(session)
         await db.commit()
-        return _admin_connectors_redirect(frontend, tiktok="error", reason="no_account_returned")
+        return _admin_brands_redirect(frontend, tiktok="error", reason="no_account_returned")
 
     token_meta = None
     if credential.refresh_token:
@@ -570,7 +609,7 @@ async def tiktok_callback(
     await _store_connection(db, ws.id, brand_id or None, settings, "tiktok", page)
     await db.delete(session)
     await db.commit()
-    return _admin_connectors_redirect(frontend, tiktok="connected", brand_id=brand_id, account=metadata.get("display_name") or open_id)
+    return _admin_brands_redirect(frontend, tiktok="connected", brand_id=brand_id, account=metadata.get("display_name") or open_id)
 
 
 # ── Google Drive OAuth Callback ───────────────────────────────────────────────
@@ -683,9 +722,12 @@ class SetDriveRootRequest(BaseModel):
 
 
 async def _drive_connection_row(db: AsyncSession, brand_id: str) -> SocialConnection | None:
+    brand_uuid = _parse_brand_uuid(brand_id)
+    if brand_uuid is None:
+        return None
     return (await db.execute(
         select(SocialConnection).where(
-            SocialConnection.brand_id == uuid.UUID(brand_id),
+            SocialConnection.brand_id == brand_uuid,
             SocialConnection.platform == "google_drive",
             SocialConnection.status.in_(["connected", "needs_reauth"]),
         ).order_by(SocialConnection.created_at.desc()).limit(1)
@@ -712,21 +754,32 @@ def _drive_reauth_exception() -> HTTPException:
     )
 
 
-@router.get("/drive/picker-config", dependencies=[Depends(require_api_key)])
+@router.get("/drive/picker-config", dependencies=[Depends(require_api_key)], responses={404: {"description": "Drive not connected for this brand"}, 422: {"description": "Invalid brand UUID"}})
 async def drive_picker_config(
-    brand_id: str,
+    brand_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
 ):
     """Return what the browser Google Picker needs: a fresh OAuth token, the browser
     API key, and the app (project) id. The token is the operator's own Drive token —
     exposed only to the authenticated admin UI for the Picker session."""
-    token, _ = await get_page_token(db, brand_id, "google_drive", settings)
+    token, _ = await get_page_token(db, str(brand_id), "google_drive", settings)
     if not token:
         raise HTTPException(status_code=404, detail={"error": {"code": "DRIVE_NOT_CONNECTED", "message": "Connect Google Drive for this brand first", "details": None}})
     if not settings.google_picker_api_key:
         raise HTTPException(status_code=412, detail={"error": {"code": "PICKER_KEY_MISSING", "message": "GOOGLE_PICKER_API_KEY is not configured", "details": None}})
-    app_id = (settings.google_client_id or "").split("-", 1)[0]
+    app_id = settings.google_picker_app_id or (settings.google_client_id or "").split("-", 1)[0]
+    if not app_id:
+        raise HTTPException(
+            status_code=412,
+            detail={
+                "error": {
+                    "code": "PICKER_APP_ID_MISSING",
+                    "message": "GOOGLE_PICKER_APP_ID is not configured. Set it to the Google Cloud project number for the Picker-enabled project.",
+                    "details": None,
+                }
+            },
+        )
     return {"access_token": token, "api_key": settings.google_picker_api_key, "app_id": app_id}
 
 
@@ -741,12 +794,7 @@ async def list_drive_folders(
 
     Without parent_id, starts at the brand's configured Drive root folder.
     """
-    import sys
-    import os
-    plugin_dir = os.path.join(os.path.dirname(__file__), "..", "plugins", "google-drive")
-    if plugin_dir not in sys.path:
-        sys.path.insert(0, plugin_dir)
-    from drive_client import DriveClient
+    DriveClient = _load_google_drive_client()
 
     token, _ = await get_page_token(db, brand_id, "google_drive", settings)
     if not token:
@@ -800,12 +848,7 @@ async def list_drive_images(
     Uses the folder_id query param if supplied, otherwise the brand's stored
     drive_root_folder_id. Falls back to Drive 'root' if nothing is set.
     """
-    import sys
-    import os
-    plugin_dir = os.path.join(os.path.dirname(__file__), "..", "plugins", "google-drive")
-    if plugin_dir not in sys.path:
-        sys.path.insert(0, plugin_dir)
-    from drive_client import DriveClient
+    DriveClient = _load_google_drive_client()
 
     token, _ = await get_page_token(db, brand_id, "google_drive", settings)
     if not token:
@@ -842,9 +885,12 @@ async def set_drive_root(
 ):
     """Store the operator-picked root folder on the brand's Drive connection.
     The creative factory, channel specialists, and CMO resolve asset paths from here."""
+    brand_uuid = _parse_brand_uuid(body.brand_id)
+    if brand_uuid is None:
+        raise HTTPException(status_code=422, detail=[{"loc": ["body", "brand_id"], "msg": "value is not a valid UUID", "type": "uuid_parsing"}])
     row = (await db.execute(
         select(SocialConnection).where(
-            SocialConnection.brand_id == uuid.UUID(body.brand_id),
+            SocialConnection.brand_id == brand_uuid,
             SocialConnection.platform == "google_drive",
             SocialConnection.status == "connected",
         ).order_by(SocialConnection.created_at.desc()).limit(1)
@@ -1159,20 +1205,22 @@ async def facebook_callback(
     return _admin_brands_redirect(frontend, facebook="select_page", session_id=str(session.id))
 
 
-@router.get("/facebook/pending-pages", dependencies=[Depends(require_api_key)])
+@router.get(
+    "/facebook/pending-pages",
+    dependencies=[Depends(require_api_key)],
+    responses={
+        400: {"description": "Pending page session is corrupt"},
+        404: {"description": "Pending page session not found"},
+    },
+)
 async def facebook_pending_pages(
-    session_id: str,
+    session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
 ):
-    try:
-        sid = uuid.UUID(session_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail={"error": {"code": "INVALID_SESSION", "message": "Invalid session_id", "details": None}})
-
     session = (await db.execute(
         select(ProviderLoginSession).where(
-            ProviderLoginSession.id == sid,
+            ProviderLoginSession.id == session_id,
             ProviderLoginSession.provider == "facebook",
         )
     )).scalar_one_or_none()
@@ -1254,8 +1302,11 @@ async def facebook_direct_connect(
     """
     try:
         brand_uuid = uuid.UUID(body.brand_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail={"error": {"code": "INVALID_BRAND_ID", "message": "Invalid brand_id", "details": None}})
+    except (ValueError, AttributeError):
+        raise HTTPException(
+            status_code=422,
+            detail=[{"loc": ["body", "brand_id"], "msg": "value is not a valid UUID", "type": "uuid_parsing"}],
+        )
 
     ws = await get_singleton(db)
     if not ws:
@@ -1288,8 +1339,9 @@ async def list_connections(
 ):
     ws = await get_singleton(db)
     q = select(SocialConnection).where(SocialConnection.workspace_id == ws.id)
-    if brand_id:
-        q = q.where(SocialConnection.brand_id == uuid.UUID(brand_id))
+    brand_uuid = _parse_brand_uuid(brand_id)
+    if brand_uuid is not None:
+        q = q.where(SocialConnection.brand_id == brand_uuid)
     rows = (await db.execute(q.order_by(SocialConnection.created_at.desc()))).scalars().all()
     return [
         SocialConnectionResponse(
@@ -1424,9 +1476,12 @@ async def get_page_token(db: AsyncSession, brand_id: str, platform: str, setting
 
     Auto-refreshes tokens within 5 minutes of expiry when a refresh token is stored.
     """
+    brand_uuid = _parse_brand_uuid(brand_id)
+    if brand_uuid is None:
+        return None, None
     row = (await db.execute(
         select(SocialConnection).where(
-            SocialConnection.brand_id == uuid.UUID(brand_id),
+            SocialConnection.brand_id == brand_uuid,
             SocialConnection.platform == platform,
             SocialConnection.status == "connected",
         ).order_by(SocialConnection.created_at.desc()).limit(1)

@@ -29,12 +29,16 @@ REDIS_URL            = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 _GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_URL     = "https://oauth2.googleapis.com/token"
 _GOOGLE_USERINFO_URL  = "https://www.googleapis.com/oauth2/v1/userinfo"
+_GBP_ACCOUNTS_URL   = "https://mybusinessaccountmanagement.googleapis.com/v1/accounts"
+_GBP_INFO_BASE      = "https://mybusinessbusinessinformation.googleapis.com/v1"
 
 _PLATFORM_SCOPES: dict[str, str] = {
     "gmail":           "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly openid email",
     "google_calendar": "https://www.googleapis.com/auth/calendar openid email",
     "youtube":         "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl openid email",
     "google_drive":    "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly openid email",
+    "google_business": "https://www.googleapis.com/auth/business.manage openid email",
+    "gemini":          "https://www.googleapis.com/auth/cloud-platform openid email",
 }
 
 _PLATFORM_BOS_CALLBACK: dict[str, str] = {
@@ -42,6 +46,8 @@ _PLATFORM_BOS_CALLBACK: dict[str, str] = {
     "google_calendar": "/social/google-calendar/callback",
     "youtube":         "/social/youtube/callback",
     "google_drive":    "/social/google-drive/callback",
+    "google_business": "/social/google-business/callback",
+    "gemini":          "/social/gemini/callback",
 }
 
 # ── Redis ─────────────────────────────────────────────────────────────────────
@@ -186,6 +192,52 @@ async def google_callback(
                 items = ch.json().get("items", [])
                 if items:
                     metadata["channel_id"] = items[0].get("id")
+
+    if platform == "google_business":
+        metadata["gbp_error"] = "no_account_returned"
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            accounts_resp = await client.get(
+                _GBP_ACCOUNTS_URL,
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if accounts_resp.is_success:
+                accounts = accounts_resp.json().get("accounts", [])
+                if accounts:
+                    metadata["gbp_error"] = "no_location_returned"
+                for account in accounts:
+                    account_name = account.get("name")
+                    if not account_name:
+                        continue
+                    locations_resp = await client.get(
+                        f"{_GBP_INFO_BASE}/{account_name}/locations",
+                        params={"readMask": "name,title"},
+                        headers={"Authorization": f"Bearer {access_token}"},
+                    )
+                    if not locations_resp.is_success:
+                        try:
+                            metadata["gbp_error"] = (
+                                (locations_resp.json().get("error") or {}).get("message")
+                                or f"locations_http_{locations_resp.status_code}"
+                            )
+                        except Exception:
+                            metadata["gbp_error"] = f"locations_http_{locations_resp.status_code}"
+                        continue
+                    locations = locations_resp.json().get("locations", [])
+                    if locations:
+                        location = locations[0]
+                        metadata["account_name"] = account_name
+                        metadata["location_name"] = location.get("name", "")
+                        metadata["business_name"] = location.get("title", "")
+                        metadata.pop("gbp_error", None)
+                        break
+            else:
+                try:
+                    metadata["gbp_error"] = (
+                        (accounts_resp.json().get("error") or {}).get("message")
+                        or f"accounts_http_{accounts_resp.status_code}"
+                    )
+                except Exception:
+                    metadata["gbp_error"] = f"accounts_http_{accounts_resp.status_code}"
 
     handoff = str(uuid.uuid4())
     await r.setex(

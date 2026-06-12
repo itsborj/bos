@@ -1,6 +1,6 @@
 # BOS — Backlog
 
-**Last updated:** 2026-06-09
+**Last updated:** 2026-06-11 (AdminOverview + AdminCampaigns UX rebuild)
 **Structure:** Topic-based sections. Each topic is self-contained. Read only the section relevant to your task.
 **Active topics:** SOCIAL · DEPLOY · SDK · STRAT · CRTV · CHAN · ARCH
 
@@ -34,7 +34,10 @@
 | [ARCH](#arch) | Campaign Architecture | 🔴 Open | 2026-06-08 |
 | [ADMIN](#admin) | Admin & Onboarding | 🔴 Open | 2026-06-08 |
 | [UX](#ux) | Stream & UX | 🔴 Open | 2026-06-08 |
+| [AIPR](#aipr) | AI Provider Routing | 🟡 In Progress | 2026-06-10 |
+| [BILLING](#billing) | Billing & Cost Attribution | 🟡 In Progress | 2026-06-11 |
 | [CNCL](#cncl) | Council | 🔴 Open | 2026-06-08 |
+| [SCHM](#schm) | API Hardening (Schemathesis audit) | 🔴 Active | 2026-06-10 |
 | [HARD](#hard) | Hardening & Second Vertical | ⚪ Backlog | 2026-05-15 |
 | [Archive](#archive) | Completed Phases 0–5 | ✅ Done | 2026-05-20 |
 | [Parking Lot](#parking-lot) | Deferred | — | — |
@@ -114,6 +117,7 @@ Required social plugins are active org-wide: `media.image`, `media.video`, `crea
 - [x] BUG-SOCIAL-001 · 2026-06-09 · `credentials_configured` false-negative for `backend_override_*` slot types. Fixed: `not missing and social_configured` — plugins with no `platform_var` slots (media.image, media.video) now show `True` when nothing is missing.
 - [x] BUG-SOCIAL-002 · 2026-06-09 · `credentials_configured` false-negative for `social_token` slot types. Fixed: preload connected social platforms at request time; check `social_token_platforms & connected_social_platforms`.
 - [x] BUG-SOCIAL-003 · 2026-06-09 · No CMO manifest inspection endpoint. Fixed: `GET /api/capability-manifest?brand_id=` endpoint added to `api/routers/plugins.py`; returns brand-filtered capability list.
+- [x] BUG-CRED-001 · 2026-06-11 · `backend_provider_api_key` slot never injects API key when no backend override is configured for the module (e.g. media.image, media.video). Root cause: `backend_override_provider` slot has no value to offer the second-pass resolver. Fix: `plugin_loader.inject_channel_credentials` now seeds un-resolved `backend_override_provider` and `backend_override_model` slots from `default_backend` in channel.json as a last-resort fallback. ByteDance image/video generation now works without explicit admin backend config.
 - [x] BUG-DEPLOY-001 · 2026-06-09 · Production deploy used `docker compose up --build` — rebuilt from source on VDS, bypassed CI-built GHCR image, produced `git_sha: "dev"`, diverged completely from the staging deploy path. Root cause of INC-009. Fixed: production deploy now pulls SHA-tagged GHCR image and uses `--no-build`, identical path to staging.
 
 ---
@@ -351,6 +355,7 @@ Port topology: 8090=local/prod nginx, 8091=staging nginx, 8080=reserved. Staging
 - [x] SDK-023 · 2026-06-09 · CLEANUP (T099): Dead `api/plugins/youtube/module.py` deleted. `test_youtube_plugin_smoke.py` updated to remove `YouTubeModule` references; `requires_social_connection` assertions updated to use `credential_slots`.
 - [x] SDK-038 · 2026-06-09 · BUG FIXED: Orphan RUN params leaked into visible reply. Added `_ORPHAN_PARAM_BLOCK_RE` to `chat.py` — strips 2+ consecutive `snake_case_key: value` lines that appear outside any `RUN:` directive. Applied in `_strip_control_directives()` after the RUN block strip pass. `api/routers/chat.py`.
 - [x] SDK-039 · 2026-06-09 · BUG FIXED: `get_plugin_for_module()` returns None for youtube/tiktok after invariant tests run — autouse fixture in `test_plugin_host_invariants.py` cleared `_module_to_plugin` but left `registry._scanned=True`, so subsequent tests found an empty mapping with no rescan. Fix: fixture now also resets `reg._scanned=False` and `reg._registry.clear()`. Added `api/tests/conftest.py` setting `KLAROHA_LOAD_INTERNAL_PLUGINS=true` so routing/manifest tests can assert against bundled SDK examples. TikTok pipeline/routing tests skipped (plugin not production-ready; `requires_social_connection` assertion stale after credential_slots migration). `api/tests/test_plugin_host_invariants.py`, `api/tests/conftest.py`, `api/tests/test_tiktok_plugin_smoke.py`.
+- [x] SDK-040 · 2026-06-11 · Production hook system implemented: `api/hooks.py` — `HookRegistry`, `HookContext`, `fire_filter` (returns enriched data), `fire_action` (side-effects only), `register_plugin_hooks`, `_load_handler` (importlib load from plugin dir). `hook_subscriptions: List[dict]` added to `ChannelPluginManifest`; registration wired in `plugin_loader.py` `_scan_root()` after plugin accepted. Three fire points in `_execute_module`: `brief.before_dispatch` at line 982 (after credential injection + hydration, before SDK/legacy split); `run.after_complete` at line 1112 (SDK path, after commit); `run.after_complete` at line 1572 (legacy path, after commit + pm sync). Subscriber failures swallowed — a bad plugin can never abort the pipeline. No BOS imports in `hooks.py` — zero circular dep risk.
 
 ### Completed: Core Architecture ✓ (2026-06-08)
 
@@ -386,9 +391,14 @@ Port topology: 8090=local/prod nginx, 8091=staging nginx, 8080=reserved. Staging
 - `capability_manifest.py` — single source of truth; all phrase-matching removed from `chat.py`
 - Gate 2 passed 2026-05-20: Objective → Artifact → OutcomeRecord → MemoryEvent → DecisionBrief → Stream
 
+### Completed: @klar Removal ✓ (2026-06-11)
+
+- [x] STRAT-BUG-001 · 2026-06-11 · BUG: CMO leaked `video_prompt:` / `thumbnail_prompt:` param names into visible reply text when orphan params had empty values. `_ORPHAN_PARAM_BLOCK_RE` used `[^\n]+` (required 1+ chars), missing empty-value lines. Fixed: changed to `[^\n]*`. Also added explicit system prompt rule forbidding param label echo in visible text.
+- [x] STRAT-010 · 2026-06-11 · Remove all @klar command routing from chat.py (both stream and sync endpoints). Commands called `_is_klar_command` / `_parse_klar_command` which were never defined — dead code. Removed: @klar blocks, brand-reply replay detection, `pending_plan_action` variable, `pendingPlan` confirm button in CmoChat.tsx.
+
 ### Completed: @klar Command System ✓ (2026-05-10)
 
-Brand switching via `@klar check brand X`, `@klar list brands`, `@klar plan`, `@klar org`. `SCOPE:` directive. brand_id threaded into chat requests.
+Brand switching via `@klar check brand X`, `@klar list brands`, `@klar plan`, `@klar org`. `SCOPE:` directive. brand_id threaded into chat requests. Removed 2026-06-11 — helper functions were never defined; all routing was dead code.
 
 ---
 
@@ -660,7 +670,9 @@ Gate 2 passed 2026-05-20. Objective → Artifact → OutcomeRecord → MemoryEve
 
 ### Open
 
-- [ ] ADMIN-001 · 2026-05-10 · Brand switcher dropdown in admin header (alongside @klar chat switching)
+- [x] ADMIN-011 · 2026-06-11 · AdminOverview → Brand Command Centre: replaced tech-ops stats (tokens/costs/module IDs) with brand cards showing pending_approvals, active campaign count, last activity, and recent run feed with brand labels. Data from getAgentState + getBrands + getRuns + listCampaigns.
+- [x] ADMIN-012 · 2026-06-11 · AdminCampaigns → wired list + working form: replaced dead creation form (handleCreate never called API) with full campaign list grouped by status (Active / Draft / Completed), working POST /campaigns create, PATCH /campaigns/{id} status advance (Draft → Active → Complete → Archived). Added listCampaigns / createCampaign / updateCampaign to API client.
+- [ ] ADMIN-001 · 2026-05-10 · Brand switcher dropdown in admin header
 - [ ] ADMIN-002 · 2026-05-10 · Frontend tests: KlarAction handling, brand context state
 - [ ] ADMIN-003 · 2026-05-18 · SETUP REQUIRED: Create Meta Developer App; add FACEBOOK_APP_ID + META_APP_SECRET to `.env`; App Review for production use (see also CHAN-043)
 - [ ] ADMIN-004 · 2026-05-16 · Frontend tests: `web/src/tests/BlockRenderer.test.tsx` — layout_hint → correct component
@@ -753,6 +765,34 @@ Renderer registry (web/src/components/blocks/renderers/index.ts):
 
 ---
 
+## AIPR — AI Provider Routing {#aipr}
+
+> Per-specialist AI model routing: each capability module can be assigned a different AI model with explicit fallback chains and OpenRouter-native multi-model failover.
+> Spec: `ai_providers.md` — decisions locked, do not re-add review notes.
+
+### Completed: Core Routing ✓ (2026-06-10)
+
+- [x] AIPR-001 · 2026-06-10 · `BackendRef`: added `fallbacks: tuple[BackendRef, ...]` and `routing_hints: dict` fields. `parse_backend_ref` updated to recursively parse both from dict input.
+- [x] AIPR-002 · 2026-06-10 · `ProviderResponse.actual_model`: captures model OR actually served (differs from requested when OR-native failover fires).
+- [x] AIPR-003 · 2026-06-10 · `OpenAICompatAdapter.complete` / `complete_messages`: `extra_body` param passthrough for OR-specific fields.
+- [x] AIPR-004 · 2026-06-10 · `OpenRouterAdapter`: rewritten with `_routing_hints` extraction from `extra_body`, `provider` field construction, `actual_model` capture from `data["model"]`.
+- [x] AIPR-005 · 2026-06-10 · `execute_live`: cost field `.get()` safety, `extra_body` passthrough, `actual_model_id` from `response.actual_model`.
+- [x] AIPR-006 · 2026-06-10 · DB: `fallbacks_json` (JSONB) + `routing_hints_json` (JSONB) columns added to `execution_backend_overrides`. Migration 040.
+- [x] AIPR-007 · 2026-06-10 · Schemas: `FallbackModel` class; `BackendOverrideIn` + `BackendOverrideOut` updated with `fallbacks` and `routing_hints`.
+- [x] AIPR-008 · 2026-06-10 · `resolve_backend_override`: now always returns `BackendRef | None`. Precedence: Admin DB → channel.json `default_backend` → env var.
+- [x] AIPR-009 · 2026-06-10 · `ChannelPluginManifest.default_backend`: plugins can declare preferred AI backend in `channel.json`. `get_plugin_default_backend()` in plugin_loader.
+- [x] AIPR-010 · 2026-06-10 · `runs.py`: replaced `reorder_candidates_for_model_override` with explicit queue construction; OR-native `models[]` path when all fallbacks are openrouter; removed legacy strict escape hatch (was INC-009-class bypassing the hard boundary).
+- [x] AIPR-011 · 2026-06-10 · Frontend: `FallbackModel` type, `BackendOverride.fallbacks` + `routing_hints`, `putBackendOverride` body updated.
+
+### Open
+
+- [x] AIPR-015 · 2026-06-11 · Gemini OAuth login for image/video generation: enable OAuth in registry + providers router; image+video modules use Bearer auth when auth_mode=oauth.
+- [ ] AIPR-012 · 2026-06-10 · Council C2–C5: assign diverse models per seat using the new per-specialist routing. Proves end-to-end.
+- [ ] AIPR-013 · 2026-06-10 · Admin UI: fallback chain editor in AdminModules (ordered list, add/remove). OR sort selector for routing_hints. Source indicator (db/env/plugin default).
+- [ ] AIPR-014 · 2026-06-10 · Run trace: surface `actual_model` in Stream run card when OR-native failover fired (shows which model was actually used).
+
+---
+
 ## CNCL — Council {#cncl}
 
 > `@council <question>` in CMO chat → staggered Round 1 → C6 injection → finalize.
@@ -772,6 +812,98 @@ Renderer registry (web/src/components/blocks/renderers/index.ts):
 - `routers/council.py`: POST /council/convene, POST /council/{id}/c6-respond, POST /council/{id}/finalize, GET sessions, GET seats, PUT seats
 - Frontend: `CouncilRoundMessage` (per-seat collapsible cards), `CouncilBriefMessage` (settlement + marching orders)
 - Verified: 6-round session + finalize with 2 active seats — all rounds clean
+
+---
+
+## BILLING — Billing & Cost Attribution {#billing}
+
+> Agency operators manage multiple client brands from one deployment. Cost attribution must be brand-scoped so the agency knows what each client costs and can pass it through. Reference: `TOKEN_BILLING.md`.
+
+### Completed ✓
+
+- [x] BILLING-001 · 2026-06-11 · Per-brand billing API: `GET /billing/summary?brand_id=<uuid>` — filters both `run_attempts` (via `Run.brand_id`) and `cmo_token_usage` (via new `brand_id` column) to a single brand. Migration 042 adds `brand_id FK` to `cmo_token_usage`. `chat.py` now writes `brand_id` on every `CmoTokenUsage` row when a brand is active. `TOKEN_BILLING.md` updated.
+
+### Open
+
+- [x] BILLING-002 · 2026-06-11 · Per-brand billing UI: add cost summary card to `AdminBrandDetail` (tokens consumed, provider cost, estimated sell price) sourced from `GET /billing/summary?brand_id=`. Agency owner needs per-client cost at a glance.
+- [x] BILLING-003 · 2026-06-11 · Setup flow split: separate workspace-level setup (AI provider, once per deployment) from per-brand setup (channel credentials, brand brief, brand kit — once per client). Redesign `AdminGettingStarted` around brand readiness, not workspace state. See `docs/agency_day_in_life.md` for requirements.
+- [x] BILLING-004 · 2026-06-11 · Agency master credential concept: workspace-level plugin_vars entries (Meta, Gmail, ClickUp, media plugins with brand_id=NULL) surfaced in AdminProviders as "Workspace Channel Credentials" with fallback label. GET /providers/keys now returns plugin_vars entries + auth_mode field. KeyListItem schema updated.
+- [x] BILLING-005 · 2026-06-11 · Cost markup / pass-through UI: brand detail stat strip expanded to 4 columns — Tokens, Provider Cost, Billed (est.) with markup %, Runs. sell_price and calculated markup visible per client brand from AdminBrandDetail.
+
+---
+
+## SCHM — API Hardening (Schemathesis audit) {#schm}
+
+> **Active priority as of 2026-06-10.**
+> Triggered by: pre-deploy Schemathesis audit for a client deploying BOS for YouTube + Facebook post management.
+> Full audit: `docs/schemathesis-audit-2026-06-10.md`
+> Fix sequence: P0 500s first → P1 input validation → P2 spec gaps.
+
+### P0 — Server Crashes (500s) — Fix Before Any Deploy
+
+Each of these returns `500 INTERNAL_ERROR` with real-looking inputs. Agents: pick the topmost `[ ]` and work it.
+
+- [x] SCHM-001 · 2026-06-10 · P0: `GET /social/connections` returns 500 when `brand_id` contains non-UUID bytes. Add UUID guard before any DB query in `api/routers/social.py`. Should return 422.
+- [x] SCHM-002 · 2026-06-10 · P0: `GET /social/drive/folders` returns 500 when `brand_id` is empty string. Same guard needed. Should return 422.
+- [x] SCHM-003 · 2026-06-10 · P0: `GET /social/drive/images` returns 500 when `brand_id` is empty string. Same guard. Should return 422.
+- [x] SCHM-004 · 2026-06-10 · P0: `POST /social/drive/root` returns 500 when `brand_id` or `folder_id` is empty string. Add input guards before DB write. Should return 422.
+- [x] SCHM-005 · 2026-06-10 · P0: `PUT /brands/{brand_id}` returns 500 when body contains Unicode surrogate chars in string fields (e.g. `domain`). Pydantic model accepts them; downstream crashes. Add Pydantic `str_strip_whitespace` + catch encoding errors.
+- [x] SCHM-006 · 2026-06-10 · P0: `POST /brands` returns 500 with Unicode/surrogate body. Same root cause as SCHM-005. Fix brand create model in `api/routers/brands.py`.
+- [x] SCHM-007 · 2026-06-10 · P0: `PUT /council/seats/{seat_id}` returns 500 "Failed to read seat after write" in stateful test (write succeeds, read fails). Root cause: control characters in SKILL.md YAML fields. Fixed: `_sanitize_yaml_str` strips non-printable chars before write.
+- [x] SCHM-008 · 2026-06-10 · P0: `POST /council/convene` returns 500 with adversarial body (extra unknown fields with deeply nested values). Fixed: UUID guard on `brand_id` before DB lookup.
+- [x] SCHM-009 · 2026-06-10 · P0: `POST /council/{session_id}/finalize` returns 500 when `session_id` is binary bytes (non-UUID path param). Fixed: `_parse_session_uuid` helper returns 404 for non-UUID.
+- [x] SCHM-010 · 2026-06-10 · P0: `PATCH /calendar/pages/{page_id}` returns 500 in stateful test when body contains extra unknown fields. Fixed: UUID guard on `connection_id` + db commit wrapped in try/except.
+- [x] SCHM-011 · 2026-06-10 · P0: `GET /billing/runs/{run_id}` returns 500 when `run_id=0` (integer, not UUID). Fixed: UUID guard returns 422.
+
+### P1 — Valid Requests Rejected — Fix Before Client Deploy
+
+- [x] SCHM-012 · 2026-06-10 · P1: String `"null"` in query params causes UUID/enum/datetime parse crashes across ~8 endpoints (`brand_id=null`, `status=null`, `created_before=null`, etc.). Add a shared `coerce_null_str` query dependency or Pydantic before-validator that converts the string `"null"` to `None`. Affected: `GET /memory/events`, `GET /outcomes`, `GET /pending-decisions`, `GET /objectives`, `GET /workspace/documents`, `GET /onboarding/brand-kit/latest`, `GET /runs`.
+- [x] SCHM-013 · 2026-06-10 · P1: `GET /objectives/active` without `brand_id` returns 400 "brand_id required when brands exist" — but schema marks `brand_id` as optional. Either mark it required in schema, or return 404 "no active objective" when no brand is selected.
+- [x] SCHM-014 · 2026-06-10 · P1: `PATCH /objectives/{id}` with `brand_id: null` returns 400. Schema allows null. Either accept null as "clear brand scope" or return proper Pydantic 422. (Fixed as part of SCHM-013 — `_validate_brand_scope` now returns 422 consistently)
+- [x] SCHM-015 · 2026-06-10 · P1: `GET /handoff/brief` without `brand_id` returns 400 "brand_id required when brands exist" but schema marks it optional. Align schema (mark required) or behavior (return 400 only as a 422 with proper detail body).
+- [x] SCHM-016 · 2026-06-10 · P1: `POST /providers/keys` — `brand_id` is not in OpenAPI schema as required, but API enforces it. Add `brand_id` as a required field in the request schema.
+- [x] SCHM-017 · 2026-06-10 · P1: `POST /plugins/{id}/activate` returns 400 "brand_id required" but schema shows no required fields. Mark `brand_id` required (when not using `scope=org`) in the schema.
+- [x] SCHM-018 · 2026-06-10 · P1: `GET /brands/{brand_id}` / `GET /campaigns/{id}` / similar path params return 400 for binary input instead of 422. Replace manual `if not is_valid_uuid(x): raise HTTPException(400)` with a Pydantic path dependency that raises 422.
+
+### P0 (Wave 2) — New 500s from second Schemathesis run
+
+- [x] SCHM-023 · 2026-06-10 · P0: `PUT /workspace/brand` → 500 on Unicode surrogate pairs in brand data. Add `_safe_json()` guard + DBAPIError catch (same fix pattern as SCHM-005).
+- [x] SCHM-024 · 2026-06-10 · P0: `PUT /workspace/products` → 500 on Unicode surrogate pairs in product name/tagline/benefits. Same fix.
+- [x] SCHM-025 · 2026-06-10 · P0: `POST /brands` → 422 detail body was a string instead of `ValidationError` array, breaking OpenAPI contract. Changed to array format.
+
+### P1 (Wave 2) — OAuth path fixes
+
+- [x] SCHM-026 · 2026-06-10 · P1: `POST /social/connect/start` with invalid brand_id returns 400 with non-standard error body. Changed to 422 with Pydantic-format detail.
+- [x] SCHM-027 · 2026-06-10 · P1: `POST /social/facebook/direct-connect` with invalid brand_id returns 400 same non-standard error. Changed to 422.
+
+### P1 (Wave 2) — Brand scope enforcement (non-YT/FB path, cleanup)
+
+- [ ] SCHM-028 · 2026-06-10 · P1: `POST /decision-briefs`, `POST /decision-briefs/generate`, `POST /memory/events`, `POST /outcomes/evaluate` return 400 "brand_id required" when brands exist. Should be 422 with Pydantic-style detail. Same pattern as SCHM-013/015.
+
+### General Backend Bug Audit (Wave 3) — 2026-06-12
+
+- [x] GENB-001 · 2026-06-12 · P0: `config.py` validate_settings() only warned for one default API_SECRET_KEY pattern; missed `.env.example` value. Now raises RuntimeError for non-dev DBs with known-bad key patterns.
+- [x] GENB-002 · 2026-06-12 · P1: `GET/PUT/DELETE /brands/{brand_id}` were not workspace-scoped — added `workspace_id` filter to all three endpoints.
+- [x] GENB-003 · 2026-06-12 · P1: `resolve_brand()` silently dropped invalid UUIDs; `ChatRequest.brand_id` changed to `Optional[UUID]` so Pydantic raises 422 for non-UUID input. `resolve_brand()` updated to accept pre-parsed UUID objects.
+- [x] GENB-004 · 2026-06-12 · P1: `get_singleton()` returned first workspace row with no ORDER BY — added `order_by(created_at.asc())` for deterministic result.
+- [x] GENB-005 · 2026-06-12 · P2: `DELETE /plugins/{id}/activate` had no org-wide deactivation guard — added same `scope=org&confirm_org_wide=true` requirement as the activate endpoint.
+- [x] GENB-006 · 2026-06-12 · P2: `agent_execute` did not verify brand belongs to current workspace before execution — added brand ownership check.
+- [x] GENB-007 · 2026-06-12 · P4: `_brief_from_action_artifact()` fell back to raw `result.content` when block lacked a message field — removed fallback; publish actions now receive no message rather than unreviewed LLM output.
+- [x] GENB-008 · 2026-06-12 · P5: `PUT /workspace/products` and `PUT /workspace/audiences` only upserted; omitted rows were never deleted. Added delete-omitted-rows logic (replace semantics) for workspace-level rows.
+- [x] GENB-009 · 2026-06-12 · P5: `PUT /brands/{brand_id}` relied on DB error for duplicate name detection — added pre-check that returns clean 409.
+- [ ] GENB-010 · 2026-06-12 · P2: Agent `/agent/capabilities` ignores plugin activation state — lists all chat-allowed skills regardless of whether their plugin is activated for the brand.
+- [ ] GENB-011 · 2026-06-12 · P3: Provider health can be stale — `model_options` catalog health not degraded by recent live provider failures. Needs expiry/degrade logic.
+- [ ] GENB-012 · 2026-06-12 · P4: Failed provider attempts can be persisted inconsistently as partial/success — audit of run/attempt status logic needed.
+- [ ] GENB-013 · 2026-06-12 · P8: Stale plugin activation rows for uninstalled plugins remain in DB — need safe cleanup path.
+- [ ] GENB-014 · 2026-06-12 · P8: Fuzzer cleanup migration 039 did not cover `execution_backend_overrides` — existing garbage rows need targeted follow-up migration.
+- [ ] GENB-015 · 2026-06-12 · P6: Public calendar booking endpoints still need DB-level unique slug constraint as a safety boundary (read-time filtering is not sufficient).
+
+### P2 — OpenAPI Spec Gaps (Spec-Only, No Behavior Change)
+
+- [ ] SCHM-019 · 2026-06-10 · P2: Add `401` response to all 109 authenticated endpoints in the OpenAPI spec. Use a shared `responses` dict passed to each router. One PR covers all.
+- [ ] SCHM-020 · 2026-06-10 · P2: OAuth callback endpoints (`/social/*/callback`) document only `application/json` but return `text/html` (browser redirect to React SPA). Update OpenAPI response to include `text/html` and `302`.
+- [ ] SCHM-021 · 2026-06-10 · P2: `GET /calendar/widget.js` returns `application/javascript` but OpenAPI says `application/json`. Update response media type in route definition.
+- [ ] SCHM-022 · 2026-06-10 · P2: Add missing `404`/`409` responses to resource-fetch and resource-create endpoints across `brands`, `campaigns`, `objectives`, `runs`, `council`, `workspace/documents`.
 
 ---
 
@@ -844,6 +976,7 @@ Renderer registry (web/src/components/blocks/renderers/index.ts):
 
 | Date | Decision | Rationale |
 |---|---|---|
+| 2026-06-10 | Per-specialist AI model routing via `execution_backend_overrides`. Explicit `fallbacks` chain + `routing_hints`. OR-native `models[]` path when all candidates are openrouter. `strict: true` is a hard boundary — legacy escape hatch removed. Precedence: Admin DB → `channel.json` `default_backend` → env var → catalog. | Per-specialist models needed for council diversity (C1–C5) and creative vs. text quality tiers. OR-native failover is sub-second vs. BOS-layer retry; use it when all fallbacks are OR. The legacy escape hatch allowed strict overrides to silently fall back to catalog — same class of silent behavior that caused INC-009. Removed. |
 | 2026-06-09 | **Claude Code caused regressions by not following documented task order and agreed process.** Claude Code read `PLUGIN_LIFECYCLE_GAPS.md` and independently invented a task ordering (C1–C6, then T090/T091/T093) without reading `BACKLOG.md` first, without finding the first `[ ]` task, without marking it `[~]`, and without working tasks in documented sequence. Specific harms: (1) C2 code change (blocking org-wide activation) was merged before D3 DB cleanup, leaving the system in a state where the Admin UI cannot activate plugins without a brand selected while 6 org-wide active rows still exist in the DB. (2) C3 code change (deactivating for a brand silently demotes org-wide rows) creates unexpected side effects if the operator deactivates any plugin from Admin before D3 is complete. (3) T090/T091/T093 were done out of order and without the operator asking for them. **Rule added:** Claude Code must read `BACKLOG.md` at the start of every session, find the first `[ ]` item in the active topic, mark it `[~]`, and work only that task. No task may be started that is not the next sequential item unless the operator explicitly instructs otherwise. Out-of-order or self-directed task selection by Claude Code is a process violation. | Claude Code does not respect workflow. The fix is a documented rule in the Decisions Log that is enforceable in future sessions. |
 | 2026-06-09 | `credential_slots` supersedes `requires_social_connection` and `requires_platform_vars`. Seven slot types: `social_token`, `social_meta_field`, `platform_var`, `brand_json_path`, `backend_override_provider`, `backend_override_model`, `backend_provider_api_key`. Resolver loop in `inject_channel_credentials` has zero platform-specific branches. Legacy fields supported via compatibility adapter at load time. | Old fields were a per-platform whitelist in core. Any new platform required a core edit. Slot contract is declarative — plugins own what they need; core resolves generically. |
 | 2026-06-09 | `workspace/council` SKILL.md `allowed_from_chat: false`. `api/council.py` is the core service; `chat.py` imports from it directly via `@council` command path, not capability dispatch. `council/module.py` is a clean stub. | FR-013 (no BOS internal imports in capability modules). Council needed `db`, `settings`, `models` — those belong in the core service, not in a manifest-dispatchable capability. If `allowed_from_chat: true`, the CMO might try to dispatch it as a capability, leaking LLM session state into `module.execute()`. |

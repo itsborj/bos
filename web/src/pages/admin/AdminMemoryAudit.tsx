@@ -54,15 +54,18 @@ export function AdminMemoryAudit() {
   const records = [
     ...outcomes.map(o => ({
       key: o.id,
+      sortKey: o.recorded_at,
       label: `Outcome · ${o.summary.slice(0, 60)}`,
       desc: `Recorded ${timeAgoShort(o.recorded_at)} · ${o.confidence_source}`,
     })),
     ...events.filter(e => e.event_type.startsWith('decision')).map(e => ({
       key: e.id,
+      sortKey: e.created_at,
       label: `${eventLabel(e.event_type)} · ${e.summary.slice(0, 60)}`,
       desc: `${timeAgoShort(e.created_at)}${e.rationale ? ` · ${e.rationale.slice(0, 80)}` : ''}`,
     })),
-  ].sort((a, b) => b.key.localeCompare(a.key)).slice(0, 10);
+  // ISO 8601 timestamps sort correctly as strings; sort descending for newest-first.
+  ].sort((a, b) => b.sortKey.localeCompare(a.sortKey)).slice(0, 10);
 
   const firstAction = brief?.recommended_first_action;
   const knownRisks = brief?.known_risks ?? [];

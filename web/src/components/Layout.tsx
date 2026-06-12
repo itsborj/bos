@@ -272,7 +272,7 @@ export function Layout() {
             <span>Klaroha</span>
           </NavLink>
           <label className="bos-proto-brand-chip bos-proto-brand-select" title="Filter CMO and Stream by brand">
-            <span>Brand</span>
+            <span>{activeBrand ? 'Brand' : 'All Brands'}</span>
             <select
               aria-label="Filter by brand"
               value={activeBrand?.id ?? ''}
@@ -286,7 +286,6 @@ export function Layout() {
             </select>
           </label>
           <div className="bos-proto-topbar-right">
-            <span className="bos-proto-date">May 20</span>
             <button
               className="bos-proto-signout"
               title="Sign out"

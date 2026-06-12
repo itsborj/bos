@@ -1,8 +1,8 @@
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import case, func, select
+from fastapi import APIRouter, Depends, HTTPException, Request
+from sqlalchemy import String, case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import require_api_key
@@ -10,7 +10,7 @@ from config import get_settings
 from db import get_db
 from models.stream import StreamUpdate
 from routers.workspace import get_singleton
-from schemas.stream import StreamListResponse, StreamRefreshOut, StreamUpdateOut
+from schemas.stream import StreamBulkDismissOut, StreamListResponse, StreamRefreshOut, StreamUpdateOut
 from stream.builder import build
 from stream.types import PRIORITY_ORDER
 
@@ -27,10 +27,20 @@ _PRIORITY_CASE = case(
 
 @router.get("/stream", response_model=StreamListResponse, summary="Briefing blocks for workspace")
 async def get_stream(
+    request: Request,
     include_read: bool = False,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
+    extra_query_keys = sorted(set(request.query_params.keys()) - {"include_read"})
+    if extra_query_keys:
+        raise HTTPException(
+            status_code=422,
+            detail=[
+                {"loc": ["query", key], "msg": "extra query parameter is not permitted", "type": "extra_forbidden"}
+                for key in extra_query_keys
+            ],
+        )
     ws = await get_singleton(db)
     if not ws:
         return StreamListResponse(updates=[], total=0)
@@ -43,7 +53,9 @@ async def get_stream(
         filters.append(StreamUpdate.read_at.is_(None))
 
     total = (
-        await db.execute(select(func.count()).select_from(StreamUpdate).where(*filters))
+        await db.execute(
+            select(func.count(func.distinct(func.coalesce(StreamUpdate.source_key, cast(StreamUpdate.id, String))))).where(*filters)
+        )
     ).scalar_one()
 
     rows = (
@@ -51,25 +63,27 @@ async def get_stream(
             select(StreamUpdate)
             .where(*filters)
             .order_by(_PRIORITY_CASE, StreamUpdate.created_at.desc())
-            .limit(50)
+            .limit(100)
         )
     ).scalars().all()
+    seen: set[str] = set()
+    deduped: list[StreamUpdate] = []
+    for row in rows:
+        key = row.source_key or str(row.id)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(row)
+        if len(deduped) >= 50:
+            break
 
     return StreamListResponse(
-        updates=[StreamUpdateOut.model_validate(r) for r in rows],
+        updates=[StreamUpdateOut.model_validate(r) for r in deduped],
         total=total,
     )
 
 
-@router.post(
-    "/stream/refresh",
-    response_model=StreamRefreshOut,
-    summary="Rebuild stream blocks from current workspace state",
-)
-async def refresh_stream(
-    db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_api_key),
-):
+async def _refresh_stream_blocks(db: AsyncSession) -> StreamRefreshOut:
     settings = get_settings()
     ws = await get_singleton(db)
     if not ws:
@@ -82,6 +96,30 @@ async def refresh_stream(
         created=created,
         message=f"{created} new block(s) added to stream." if created else "Stream is up to date.",
     )
+
+
+@router.post(
+    "/stream/refresh",
+    response_model=StreamRefreshOut,
+    summary="Rebuild stream blocks from current workspace state",
+)
+async def refresh_stream(
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    return await _refresh_stream_blocks(db)
+
+
+@router.get(
+    "/stream/refresh",
+    response_model=StreamRefreshOut,
+    summary="Rebuild stream blocks from current workspace state (GET-compatible)",
+)
+async def refresh_stream_get(
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    return await _refresh_stream_blocks(db)
 
 
 @router.post(
@@ -100,6 +138,40 @@ async def mark_read(
         await db.commit()
         await db.refresh(update)
     return StreamUpdateOut.model_validate(update)
+
+
+@router.post(
+    "/stream/dismiss",
+    response_model=StreamBulkDismissOut,
+    summary="Bulk-dismiss unread stream updates",
+)
+async def bulk_dismiss_updates(
+    priority: str | None = None,
+    type: str | None = None,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    ws = await get_singleton(db)
+    if not ws:
+        return StreamBulkDismissOut(dismissed=0, message="No workspace configured.")
+    filters = [
+        StreamUpdate.workspace_id == ws.id,
+        StreamUpdate.dismissed_at.is_(None),
+    ]
+    if priority:
+        filters.append(StreamUpdate.priority == priority)
+    if type:
+        filters.append(StreamUpdate.type == type)
+    rows = (await db.execute(select(StreamUpdate).where(*filters))).scalars().all()
+    now = datetime.now(UTC)
+    for update in rows:
+        update.dismissed_at = now
+    if rows:
+        await db.commit()
+    return StreamBulkDismissOut(
+        dismissed=len(rows),
+        message=f"Dismissed {len(rows)} stream update(s).",
+    )
 
 
 @router.delete(

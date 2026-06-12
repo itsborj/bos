@@ -77,7 +77,7 @@ export function AdminLoopFlow() {
   return (
     <div>
       <div className="admin-section-title">Loop Flow</div>
-      <div className="admin-section-sub">Eight steps from first signal to compounding memory. Use this to trace how a decision moved through the system.</div>
+      <div className="admin-section-sub">{STEPS.length} steps from first signal to compounding memory. Use this to trace how a decision moved through the system.</div>
 
       <div className="flow-legend">
         <div className="legend-item">

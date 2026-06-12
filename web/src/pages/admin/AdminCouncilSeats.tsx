@@ -147,6 +147,12 @@ function SeatCard({
         )}
       </div>
 
+      {seat.config_error && (
+        <div style={{ color: '#92400e', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 6, padding: '6px 8px', fontSize: 12, marginBottom: 8 }}>
+          Seat config was repaired with safe defaults: {seat.config_error}. Save this seat to overwrite the bad config.
+        </div>
+      )}
+
       {seat.error && (
         <div style={{ color: 'var(--red, #ef4444)', fontSize: 12, marginBottom: 8 }}>{seat.error}</div>
       )}

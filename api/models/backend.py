@@ -3,7 +3,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, UniqueConstraint, func
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from db import Base
@@ -23,5 +23,7 @@ class ExecutionBackendOverride(Base):
     tool_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     modality: Mapped[str] = mapped_column(String(50), nullable=False, default="text")
     strict: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    fallbacks_json: Mapped[Optional[list]] = mapped_column(JSONB, nullable=True, default=list)
+    routing_hints_json: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True, default=dict)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())

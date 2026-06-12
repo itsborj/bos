@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import base64
 import email.mime.text
+import re
 import uuid
 from datetime import date, datetime, timedelta, timezone
-from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import httpx
@@ -15,11 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import require_api_key
 from config import get_settings
+from data_hygiene import contains_fuzzer_garbage, reject_fuzzer_garbage
 from db import get_db
 from models.calendar import CalendarBooking, CalendarPage
-from models.social import SocialConnection
 from routers.social import get_page_token
 from routers.workspace import get_singleton
+from validation import NullableUUID
 from schemas.calendar import (
     AvailabilityResponse,
     BookingRequest,
@@ -31,6 +32,12 @@ from schemas.calendar import (
 )
 
 router = APIRouter(prefix="/calendar", tags=["calendar"])
+
+_PUBLIC_SLUG_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,79}$")
+
+
+class JavaScriptResponse(Response):
+    media_type = "application/javascript"
 
 _DAY_NAMES = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"]
 _DEFAULT_HOURS = {
@@ -47,6 +54,48 @@ def _tz(name: str) -> ZoneInfo:
         return ZoneInfo(name)
     except (ZoneInfoNotFoundError, Exception):
         return ZoneInfo("UTC")
+
+
+def _public_not_found() -> HTTPException:
+    return HTTPException(
+        status_code=404,
+        detail={"error": {"code": "NOT_FOUND", "message": "Booking page not found", "details": None}},
+    )
+
+
+def _duplicate_slug_error() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={"error": {"code": "DUPLICATE_BOOKING_PAGE_SLUG", "message": "Booking page slug is ambiguous", "details": None}},
+    )
+
+
+async def _get_public_page(db: AsyncSession, slug: str) -> CalendarPage:
+    if not _PUBLIC_SLUG_RE.fullmatch(slug or "") or contains_fuzzer_garbage(slug):
+        raise _public_not_found()
+    rows = (await db.execute(
+        select(CalendarPage)
+        .where(CalendarPage.slug == slug, CalendarPage.is_active == True)  # noqa: E712
+        .order_by(CalendarPage.created_at.asc(), CalendarPage.id.asc())
+        .limit(2)
+    )).scalars().all()
+    rows = [r for r in rows if not contains_fuzzer_garbage([r.slug, r.title, r.description])]
+    if not rows:
+        raise _public_not_found()
+    if len(rows) > 1:
+        raise _duplicate_slug_error()
+    return rows[0]
+
+
+async def _assert_unique_active_slug(db: AsyncSession, slug: str, *, exclude_page_id: uuid.UUID | None = None) -> None:
+    q = select(CalendarPage.id).where(CalendarPage.slug == slug, CalendarPage.is_active == True)  # noqa: E712
+    if exclude_page_id is not None:
+        q = q.where(CalendarPage.id != exclude_page_id)
+    if (await db.execute(q.limit(1))).scalar_one_or_none():
+        raise HTTPException(
+            status_code=409,
+            detail={"error": {"code": "DUPLICATE_SLUG", "message": "An active booking page with this slug already exists", "details": None}},
+        )
 
 
 def _page_response(p: CalendarPage, api_base: str) -> CalendarPageResponse:
@@ -176,16 +225,14 @@ async def _send_confirm(token: str, page: CalendarPage, booking: CalendarBooking
 # ── Authenticated: page management ────────────────────────────────────────────
 
 @router.get("/pages", response_model=list[CalendarPageResponse], dependencies=[Depends(require_api_key)])
-async def list_pages(brand_id: Optional[str] = None, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
+async def list_pages(brand_id: NullableUUID = None, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
     ws = await get_singleton(db)
     api_base = settings.frontend_url.rstrip("/") + "/api"
     q = select(CalendarPage).where(CalendarPage.workspace_id == ws.id)
     if brand_id:
-        try:
-            q = q.where(CalendarPage.brand_id == uuid.UUID(brand_id))
-        except ValueError:
-            raise HTTPException(status_code=422, detail="Invalid brand_id")
+        q = q.where(CalendarPage.brand_id == brand_id)
     rows = (await db.execute(q.order_by(CalendarPage.created_at.desc()))).scalars().all()
+    rows = [r for r in rows if not contains_fuzzer_garbage([r.slug, r.title, r.description])]
     return [_page_response(r, api_base) for r in rows]
 
 
@@ -193,11 +240,22 @@ async def list_pages(brand_id: Optional[str] = None, db: AsyncSession = Depends(
 async def create_page(body: CalendarPageCreate, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
     ws = await get_singleton(db)
     api_base = settings.frontend_url.rstrip("/") + "/api"
+    reject_fuzzer_garbage(body.model_dump(), ["body"])
+    if body.is_active:
+        await _assert_unique_active_slug(db, body.slug)
+    try:
+        brand_id = uuid.UUID(body.brand_id) if body.brand_id else None
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail=[{"loc": ["body", "brand_id"], "msg": "value is not a valid UUID", "type": "uuid_parsing"}])
+    try:
+        connection_id = uuid.UUID(body.connection_id) if body.connection_id else None
+    except (ValueError, AttributeError):
+        raise HTTPException(status_code=422, detail=[{"loc": ["body", "connection_id"], "msg": "value is not a valid UUID", "type": "uuid_parsing"}])
     page = CalendarPage(
         id=uuid.uuid4(),
         workspace_id=ws.id,
-        brand_id=uuid.UUID(body.brand_id) if body.brand_id else None,
-        connection_id=uuid.UUID(body.connection_id) if body.connection_id else None,
+        brand_id=brand_id,
+        connection_id=connection_id,
         slug=body.slug,
         title=body.title,
         description=body.description,
@@ -214,29 +272,43 @@ async def create_page(body: CalendarPageCreate, db: AsyncSession = Depends(get_d
     return _page_response(page, api_base)
 
 
-@router.patch("/pages/{page_id}", response_model=CalendarPageResponse, dependencies=[Depends(require_api_key)])
-async def update_page(page_id: str, body: CalendarPageUpdate, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
+@router.patch("/pages/{page_id}", response_model=CalendarPageResponse, dependencies=[Depends(require_api_key)], responses={404: {"description": "Page not found"}})
+async def update_page(page_id: uuid.UUID, body: CalendarPageUpdate, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
     ws = await get_singleton(db)
     api_base = settings.frontend_url.rstrip("/") + "/api"
     page = (await db.execute(
-        select(CalendarPage).where(CalendarPage.id == uuid.UUID(page_id), CalendarPage.workspace_id == ws.id)
+        select(CalendarPage).where(CalendarPage.id == page_id, CalendarPage.workspace_id == ws.id)
     )).scalar_one_or_none()
     if not page:
         raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "Page not found", "details": None}})
-    for field, value in body.model_dump(exclude_unset=True).items():
+    updates = body.model_dump(exclude_unset=True)
+    reject_fuzzer_garbage(updates, ["body"])
+    if updates.get("is_active") is True and not page.is_active:
+        await _assert_unique_active_slug(db, page.slug, exclude_page_id=page.id)
+    for field, value in updates.items():
         if field == "connection_id" and value:
-            value = uuid.UUID(value)
+            try:
+                value = uuid.UUID(value)
+            except (ValueError, AttributeError):
+                raise HTTPException(status_code=422, detail=[{"loc": ["body", "connection_id"], "msg": "value is not a valid UUID", "type": "uuid_parsing"}])
         setattr(page, field, value)
-    await db.commit()
+    try:
+        await db.commit()
+    except Exception:
+        await db.rollback()
+        raise HTTPException(
+            status_code=422,
+            detail=[{"loc": ["body"], "msg": "Invalid page data", "type": "value_error"}],
+        )
     await db.refresh(page)
     return _page_response(page, api_base)
 
 
-@router.delete("/pages/{page_id}", dependencies=[Depends(require_api_key)])
-async def delete_page(page_id: str, db: AsyncSession = Depends(get_db)):
+@router.delete("/pages/{page_id}", dependencies=[Depends(require_api_key)], responses={404: {"description": "Page not found"}})
+async def delete_page(page_id: uuid.UUID, db: AsyncSession = Depends(get_db)):
     ws = await get_singleton(db)
     page = (await db.execute(
-        select(CalendarPage).where(CalendarPage.id == uuid.UUID(page_id), CalendarPage.workspace_id == ws.id)
+        select(CalendarPage).where(CalendarPage.id == page_id, CalendarPage.workspace_id == ws.id)
     )).scalar_one_or_none()
     if not page:
         raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "Page not found", "details": None}})
@@ -246,7 +318,7 @@ async def delete_page(page_id: str, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/bookings", response_model=list[BookingResponse], dependencies=[Depends(require_api_key)])
-async def list_bookings(page_id: Optional[str] = None, brand_id: Optional[str] = None, db: AsyncSession = Depends(get_db)):
+async def list_bookings(page_id: NullableUUID = None, brand_id: NullableUUID = None, db: AsyncSession = Depends(get_db)):
     ws = await get_singleton(db)
     q = (
         select(CalendarBooking)
@@ -254,15 +326,9 @@ async def list_bookings(page_id: Optional[str] = None, brand_id: Optional[str] =
         .where(CalendarPage.workspace_id == ws.id)
     )
     if page_id:
-        try:
-            q = q.where(CalendarBooking.page_id == uuid.UUID(page_id))
-        except ValueError:
-            raise HTTPException(status_code=422, detail="Invalid page_id")
+        q = q.where(CalendarBooking.page_id == page_id)
     if brand_id:
-        try:
-            q = q.where(CalendarPage.brand_id == uuid.UUID(brand_id))
-        except ValueError:
-            raise HTTPException(status_code=422, detail="Invalid brand_id")
+        q = q.where(CalendarPage.brand_id == brand_id)
     rows = (await db.execute(q.order_by(CalendarBooking.start_at.asc()))).scalars().all()
     return [
         BookingResponse(
@@ -278,13 +344,13 @@ async def list_bookings(page_id: Optional[str] = None, brand_id: Optional[str] =
     ]
 
 
-@router.delete("/bookings/{booking_id}", dependencies=[Depends(require_api_key)])
-async def cancel_booking(booking_id: str, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
+@router.delete("/bookings/{booking_id}", dependencies=[Depends(require_api_key)], responses={404: {"description": "Booking not found"}})
+async def cancel_booking(booking_id: uuid.UUID, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
     ws = await get_singleton(db)
     booking = (await db.execute(
         select(CalendarBooking)
         .join(CalendarPage, CalendarBooking.page_id == CalendarPage.id)
-        .where(CalendarBooking.id == uuid.UUID(booking_id), CalendarPage.workspace_id == ws.id)
+        .where(CalendarBooking.id == booking_id, CalendarPage.workspace_id == ws.id)
     )).scalar_one_or_none()
     if not booking:
         raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "Booking not found", "details": None}})
@@ -310,13 +376,9 @@ async def cancel_booking(booking_id: str, db: AsyncSession = Depends(get_db), se
 
 # ── Public: availability & booking ────────────────────────────────────────────
 
-@router.get("/availability/{slug}", response_model=AvailabilityResponse)
+@router.get("/availability/{slug}", response_model=AvailabilityResponse, responses={404: {"description": "Booking page not found"}})
 async def get_availability(slug: str, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
-    page = (await db.execute(
-        select(CalendarPage).where(CalendarPage.slug == slug, CalendarPage.is_active == True)  # noqa: E712
-    )).scalar_one_or_none()
-    if not page:
-        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "Booking page not found", "details": None}})
+    page = await _get_public_page(db, slug)
 
     tz = _tz(page.timezone)
     now = datetime.now(tz)
@@ -360,11 +422,7 @@ async def get_availability(slug: str, db: AsyncSession = Depends(get_db), settin
 
 @router.post("/book/{slug}", response_model=BookingResponse)
 async def create_booking(slug: str, body: BookingRequest, db: AsyncSession = Depends(get_db), settings=Depends(get_settings)):
-    page = (await db.execute(
-        select(CalendarPage).where(CalendarPage.slug == slug, CalendarPage.is_active == True)  # noqa: E712
-    )).scalar_one_or_none()
-    if not page:
-        raise HTTPException(status_code=404, detail={"error": {"code": "NOT_FOUND", "message": "Booking page not found", "details": None}})
+    page = await _get_public_page(db, slug)
 
     tz = _tz(page.timezone)
     try:
@@ -376,6 +434,36 @@ async def create_booking(slug: str, body: BookingRequest, db: AsyncSession = Dep
 
     end_at = start_at + timedelta(minutes=page.duration_minutes)
     buf = timedelta(minutes=page.buffer_minutes)
+
+    local_start = start_at.astimezone(tz)
+    now = datetime.now(tz)
+    first_bookable_date = (now + timedelta(days=1)).date()
+    last_bookable_date = first_bookable_date + timedelta(days=page.max_days_ahead)
+    if (
+        local_start.second
+        or local_start.microsecond
+        or local_start.date() < first_bookable_date
+        or local_start.date() >= last_bookable_date
+    ):
+        raise HTTPException(status_code=409, detail={"error": {"code": "SLOT_UNAVAILABLE", "message": "This time slot is not offered", "details": None}})
+
+    day_start = datetime(local_start.year, local_start.month, local_start.day, tzinfo=tz)
+    day_end = day_start + timedelta(days=1)
+    day_existing = (await db.execute(
+        select(CalendarBooking).where(
+            CalendarBooking.page_id == page.id,
+            CalendarBooking.status == "confirmed",
+            CalendarBooking.start_at >= day_start,
+            CalendarBooking.start_at < day_end,
+        )
+    )).scalars().all()
+    busy: list[tuple[datetime, datetime]] = []
+    if page.connection_id and page.brand_id:
+        token, _ = await get_page_token(db, str(page.brand_id), "google_calendar", settings)
+        if token:
+            busy = await _gcal_busy(token, page.timezone, day_start.astimezone(timezone.utc), day_end.astimezone(timezone.utc))
+    if local_start.strftime("%H:%M") not in _slots_for_day(page, local_start.date(), list(day_existing), busy):
+        raise HTTPException(status_code=409, detail={"error": {"code": "SLOT_UNAVAILABLE", "message": "This time slot is not offered", "details": None}})
 
     conflict = (await db.execute(
         select(CalendarBooking).where(
@@ -434,11 +522,11 @@ async def booking_widget(slug: str, settings=Depends(get_settings)):
     )
 
 
-@router.get("/widget.js")
+@router.get("/widget.js", response_class=JavaScriptResponse)
 async def booking_widget_js(settings=Depends(get_settings)):
     api_base = settings.frontend_url.rstrip("/") + "/api"
     js = _WIDGET_JS_TEMPLATE.replace("__API_BASE__", api_base)
-    return Response(content=js, media_type="application/javascript", headers={"Cache-Control": "public, max-age=3600"})
+    return JavaScriptResponse(content=js, headers={"Cache-Control": "public, max-age=3600"})
 
 
 def _widget_html(slug: str, api_base: str) -> str:

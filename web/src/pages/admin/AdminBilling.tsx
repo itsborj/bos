@@ -1,20 +1,29 @@
 import { useEffect, useState } from 'react';
 import { api } from '../../api/client';
-import type { BillingSummary } from '../../api/types';
+import type { BillingSummary, BrandResponse } from '../../api/types';
 
 export function AdminBilling() {
   const [billing, setBilling] = useState<BillingSummary | null>(null);
+  const [brands, setBrands] = useState<BrandResponse[]>([]);
+  const [selectedBrandId, setSelectedBrandId] = useState('');
   const [loading, setLoading] = useState(true);
   const [monthlyLimit, setMonthlyLimit] = useState('200');
   const [alertPct, setAlertPct] = useState('80');
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
-    api.getBillingSummary()
-      .then(b => { setBilling(b); })
+    setLoading(true);
+    Promise.all([
+      api.getBillingSummary(selectedBrandId || null),
+      api.getBrands().catch(() => ({ brands: [] as BrandResponse[], total: 0 })),
+    ])
+      .then(([b, brandResult]) => {
+        setBilling(b);
+        setBrands(brandResult.brands ?? []);
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [selectedBrandId]);
 
   function handleSave(e: React.FormEvent) {
     e.preventDefault();
@@ -23,12 +32,19 @@ export function AdminBilling() {
   }
 
   const limit = parseFloat(monthlyLimit) || 0;
-  const spent = billing?.total_provider_cost ?? 0;
+  const spent = billing?.platform_provider_cost ?? billing?.total_provider_cost ?? 0;
   const remaining = limit > 0 ? Math.max(0, ((limit - spent) / limit) * 100) : null;
 
   const avgCost = billing && billing.total_runs > 0
     ? (billing.total_provider_cost / billing.total_runs).toFixed(4)
     : null;
+  const platformCost = billing?.platform_provider_cost ?? 0;
+  const byokCost = billing?.byok_provider_cost ?? 0;
+  const oauthCost = billing?.oauth_provider_cost ?? 0;
+  const grossMargin = billing?.gross_margin ?? ((billing?.total_sell_price ?? 0) - platformCost);
+  const missingSellPriceRuns = billing?.missing_sell_price_runs ?? 0;
+  const missingSellPriceCost = billing?.missing_sell_price_provider_cost ?? 0;
+  const sellPriceLooksIncomplete = !!billing && missingSellPriceRuns > 0;
 
   if (loading) {
     return (
@@ -43,7 +59,16 @@ export function AdminBilling() {
       <div className="admin-page-header">
         <div>
           <div className="admin-page-title">Billing</div>
-          <div className="admin-page-subtitle">Cost tracking and budgets</div>
+          <div className="admin-page-subtitle">Agency/client cost tracking, BYOK attribution, and budgets</div>
+        </div>
+        <div style={{ minWidth: 220 }}>
+          <label className="label" style={{ fontSize: 12 }}>Scope</label>
+          <select className="select" value={selectedBrandId} onChange={e => setSelectedBrandId(e.target.value)}>
+            <option value="">All brands / workspace</option>
+            {brands.map(brand => (
+              <option key={brand.id} value={brand.id}>{brand.name}</option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -53,12 +78,20 @@ export function AdminBilling() {
         </div>
       )}
 
+      {sellPriceLooksIncomplete && (
+        <div className="alert alert-warning" style={{ marginBottom: 20 }}>
+          Sell price was missing for {missingSellPriceRuns} successful platform run{missingSellPriceRuns !== 1 ? 's' : ''}
+          {' '}(${missingSellPriceCost.toFixed(2)} provider cost). Summary revenue includes an estimated markup for these historical rows until they are backfilled.
+        </div>
+      )}
+
       <div className="admin-stat-grid">
         <div className="admin-stat-card">
-          <div className="admin-stat-label">Provider Cost</div>
+          <div className="admin-stat-label">Platform Spend</div>
           <div className="admin-stat-value">
-            {billing ? `$${billing.total_provider_cost.toFixed(2)}` : '—'}
+            {billing ? `$${platformCost.toFixed(2)}` : '—'}
           </div>
+          <div className="admin-stat-sub">Paid by Klaroha/operator keys</div>
         </div>
         <div className="admin-stat-card">
           <div className="admin-stat-label">Sell Price</div>
@@ -72,8 +105,9 @@ export function AdminBilling() {
           )}
         </div>
         <div className="admin-stat-card">
-          <div className="admin-stat-label">Avg Cost / Run</div>
-          <div className="admin-stat-value">{avgCost ? `$${avgCost}` : '—'}</div>
+          <div className="admin-stat-label">Gross Margin</div>
+          <div className="admin-stat-value">{billing ? `$${grossMargin.toFixed(2)}` : '—'}</div>
+          {avgCost && <div className="admin-stat-sub">Avg tracked cost/run: ${avgCost}</div>}
         </div>
         <div className="admin-stat-card">
           <div className="admin-stat-label">Total Runs</div>
@@ -81,6 +115,30 @@ export function AdminBilling() {
           {billing && (
             <div className="admin-stat-sub">{billing.successful_runs} successful</div>
           )}
+        </div>
+      </div>
+
+      <div className="admin-card">
+        <div className="admin-card-title">Cost Responsibility</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 12 }}>
+          <div>
+            <div className="admin-stat-label">Platform</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>${platformCost.toFixed(2)}</div>
+            <div style={{ fontSize: 12, color: 'var(--text2)' }}>{(billing?.platform_tokens ?? 0).toLocaleString()} tokens</div>
+          </div>
+          <div>
+            <div className="admin-stat-label">Client BYOK</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>${byokCost.toFixed(2)}</div>
+            <div style={{ fontSize: 12, color: 'var(--text2)' }}>{(billing?.byok_tokens ?? 0).toLocaleString()} tokens paid outside Klaroha</div>
+          </div>
+          <div>
+            <div className="admin-stat-label">OAuth / Account Login</div>
+            <div style={{ fontSize: 22, fontWeight: 700 }}>${oauthCost.toFixed(2)}</div>
+            <div style={{ fontSize: 12, color: 'var(--text2)' }}>{(billing?.oauth_tokens ?? 0).toLocaleString()} tokens</div>
+          </div>
+        </div>
+        <div style={{ marginTop: 12, color: 'var(--text2)', fontSize: 13 }}>
+          BYOK and OAuth are usage estimates for client/brand-owned credentials; Platform is the operator-paid provider cost.
         </div>
       </div>
 

@@ -29,10 +29,19 @@ class APIRouter:
 def Depends(dep=None):
     return dep
 
+def Query(default=None, *args, **kwargs):
+    return default
+
+def Path(default=None, *args, **kwargs):
+    return default
+
+def Body(default=None, *args, **kwargs):
+    return default
+
 def Security(dep=None):
     # In real FastAPI this returns a Depends with a security scheme.
     return Depends(dep)
-    return dep
+    # NOTE: the line below was unreachable dead code — removed.
 
 class HTTPException(Exception):
     def __init__(self, status_code: int = 500, detail: str = ""):

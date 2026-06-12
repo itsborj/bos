@@ -16,8 +16,8 @@ from typing import Optional
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,10 +25,12 @@ from auth import require_api_key
 from config import get_settings
 from db import get_db
 from models.provider import ProviderKey
+from models.workspace import Brand
 from plugin_loader import get_loaded_plugins, get_error_plugins, required_plugin_vars, _plugin_provider_key
 from registry import _ensure as _ensure_registry
 from provider_auth import decrypt_secret, encrypt_secret
 from routers.workspace import get_singleton
+from validation import NullableUUID, parse_optional_uuid
 
 router = APIRouter(prefix="/plugins", tags=["plugins"])
 log = logging.getLogger("bos.plugins")
@@ -108,9 +110,9 @@ async def _db_vars(db: AsyncSession, workspace_id, plugin_id: str, settings) -> 
         return {}
 
 
-@router.get("")
+@router.get("", responses={404: {"description": "Brand not found"}})
 async def list_plugins(
-    brand_id: Optional[str] = None,
+    brand_id: NullableUUID = Query(None),
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
     _=Depends(require_api_key),
@@ -121,18 +123,22 @@ async def list_plugins(
     errors = get_error_plugins()
     result = []
 
-    # C5: filter social connections by brand when provided so readiness is brand-scoped
+    # C5: filter social connections by brand when provided so readiness is brand-scoped.
+    # Invalid brand_id must not fall back to global readiness.
     from models.social import SocialConnection as _SC
-    import uuid as _uuid
-    _sc_query = select(_SC.platform).where(_SC.status == "connected")
-    if brand_id:
-        try:
-            _sc_query = _sc_query.where(_SC.brand_id == _uuid.UUID(brand_id))
-        except ValueError:
-            pass
-    connected_social_platforms: set[str] = set(
-        (await db.execute(_sc_query)).scalars().all()
-    )
+    brand_uuid = parse_optional_uuid(brand_id, ["query", "brand_id"])
+    if brand_uuid is not None:
+        if not ws or not (await db.execute(select(Brand.id).where(Brand.id == brand_uuid, Brand.workspace_id == ws.id))).scalar_one_or_none():
+            raise HTTPException(status_code=404, detail="Brand not found")
+
+    _sc_query = select(_SC).where(_SC.status == "connected")
+    if brand_uuid:
+        _sc_query = _sc_query.where(_SC.brand_id == brand_uuid)
+    social_rows = (await db.execute(_sc_query)).scalars().all()
+    connected_social_platforms: set[str] = {r.platform for r in social_rows}
+    social_meta_by_platform: dict[str, dict] = {
+        r.platform: (r.token_meta_json or {}) for r in social_rows
+    }
 
     # C1: read-only — load existing activation rows without writing new ones.
     # Missing rows are synthesised as installed/inactive in the response only.
@@ -186,11 +192,16 @@ async def list_plugins(
             s.platform for s in m.credential_slots
             if s.type == "social_token" and s.platform
         }
-        social_configured = (
-            not social_token_platforms
-            or bool(social_token_platforms & connected_social_platforms)
+        social_meta_slots = [
+            s for s in m.credential_slots
+            if s.type == "social_meta_field" and s.platform and s.field
+        ]
+        social_configured = social_token_platforms.issubset(connected_social_platforms)
+        social_meta_configured = all(
+            (social_meta_by_platform.get(s.platform) or {}).get(s.field) not in (None, "")
+            for s in social_meta_slots
         )
-        credentials_configured = not missing and social_configured
+        credentials_configured = not missing and social_configured and social_meta_configured
 
         media_opts = [MediaProviderOption(**opt) for opt in m.provider_options]
         result.append(PluginInfo(
@@ -340,7 +351,10 @@ async def delete_credentials(
 # ── Per-brand activation ──────────────────────────────────────────────────────
 
 class ActivateRequest(BaseModel):
-    brand_id: Optional[str] = None
+    brand_id: NullableUUID = Field(
+        default=None,
+        description="Optional only for single-brand workspaces or explicit org-wide activation.",
+    )
     # C2: org-wide activation requires explicit opt-in to prevent accidental leakage
     scope: Optional[str] = None          # must be "org" for org-wide
     confirm_org_wide: bool = False        # must be True when scope="org"
@@ -362,24 +376,35 @@ async def activate_plugin(
     if body is None:
         body = ActivateRequest()
 
-    # C2: block silent org-wide activation
+    # C2: block silent org-wide activation, but accept an omitted body in the
+    # common single-brand workspace case so the optional schema remains true.
     if body.brand_id is None and not (body.scope == "org" and body.confirm_org_wide):
-        raise HTTPException(
-            status_code=400,
-            detail=(
-                "brand_id is required for plugin activation. "
-                "To activate org-wide pass scope='org' and confirm_org_wide=true."
-            ),
-        )
+        ws = await get_singleton(db)
+        brand_rows = (await db.execute(
+            select(Brand.id).where(Brand.workspace_id == ws.id).limit(2)
+        )).scalars().all() if ws else []
+        if len(brand_rows) == 1:
+            body.brand_id = str(brand_rows[0])
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=[{"loc": ["body", "brand_id"], "msg": "brand_id is required for plugin activation when the workspace has zero or multiple brands. To activate org-wide pass scope='org' and confirm_org_wide=true.", "type": "value_error"}],
+            )
 
     loaded = get_loaded_plugins()
     if plugin_id not in loaded:
         raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' not installed")
 
     from models.plugin_activation import PluginActivation
-    import uuid as _uuid
 
-    brand_uuid = _uuid.UUID(body.brand_id) if body.brand_id else None
+    brand_uuid = parse_optional_uuid(body.brand_id, ["body", "brand_id"])
+    if brand_uuid:
+        ws = await get_singleton(db)
+        exists = (await db.execute(
+            select(Brand.id).where(Brand.id == brand_uuid, Brand.workspace_id == ws.id)
+        )).scalar_one_or_none() if ws else None
+        if not exists:
+            raise HTTPException(status_code=404, detail="Brand not found")
 
     existing = (await db.execute(
         select(PluginActivation).where(
@@ -399,14 +424,16 @@ async def activate_plugin(
         ))
 
     await db.commit()
-    log.info("Plugin activated: %s (brand=%s)", plugin_id, body.brand_id or "org-level")
-    return {"ok": True, "plugin_id": plugin_id, "brand_id": body.brand_id, "status": "active"}
+    log.info("Plugin activated: %s (brand=%s)", plugin_id, brand_uuid or "org-level")
+    return {"ok": True, "plugin_id": plugin_id, "brand_id": str(brand_uuid) if brand_uuid else None, "status": "active"}
 
 
 @router.delete("/{plugin_id}/activate", status_code=204)
 async def deactivate_plugin(
     plugin_id: str,
-    brand_id: Optional[str] = None,
+    brand_id: NullableUUID = Query(None),
+    scope: Optional[str] = Query(None),
+    confirm_org_wide: bool = Query(False),
     db: AsyncSession = Depends(get_db),
     _=Depends(require_api_key),
 ):
@@ -414,15 +441,37 @@ async def deactivate_plugin(
 
     Keep an explicit inactive row so brand-specific inactive can override an
     org-level active row. Deleting would incorrectly fall back to org active.
+
+    Org-wide deactivation (brand_id omitted) requires scope='org' and
+    confirm_org_wide=true to prevent accidentally disabling all brands.
     """
     from models.plugin_activation import PluginActivation
-    import uuid as _uuid
 
     loaded = get_loaded_plugins()
     if plugin_id not in loaded:
         raise HTTPException(status_code=404, detail=f"Plugin '{plugin_id}' not installed")
 
-    brand_uuid = _uuid.UUID(brand_id) if brand_id else None
+    if brand_id is None and not (scope == "org" and confirm_org_wide):
+        ws = await get_singleton(db)
+        brand_rows = (await db.execute(
+            select(Brand.id).where(Brand.workspace_id == ws.id).limit(2)
+        )).scalars().all() if ws else []
+        if len(brand_rows) == 1:
+            brand_id = str(brand_rows[0])
+        else:
+            raise HTTPException(
+                status_code=422,
+                detail=[{"loc": ["query", "brand_id"], "msg": "brand_id is required for plugin deactivation when the workspace has zero or multiple brands. To deactivate org-wide add scope=org&confirm_org_wide=true.", "type": "value_error"}],
+            )
+
+    brand_uuid = parse_optional_uuid(brand_id, ["query", "brand_id"])
+    if brand_uuid:
+        ws = await get_singleton(db)
+        exists = (await db.execute(
+            select(Brand.id).where(Brand.id == brand_uuid, Brand.workspace_id == ws.id)
+        )).scalar_one_or_none() if ws else None
+        if not exists:
+            raise HTTPException(status_code=404, detail="Brand not found")
 
     row = (await db.execute(
         select(PluginActivation).where(
@@ -437,19 +486,6 @@ async def deactivate_plugin(
     else:
         db.add(PluginActivation(plugin_id=plugin_id, brand_id=brand_uuid, status="inactive"))
 
-    # C3: when deactivating for a specific brand, also demote any org-wide active
-    # row so the plugin stops bleeding into brands that haven't been explicitly scoped.
-    if brand_id:
-        org_row = (await db.execute(
-            select(PluginActivation).where(
-                PluginActivation.plugin_id == plugin_id,
-                PluginActivation.brand_id.is_(None),
-            )
-        )).scalar_one_or_none()
-        if org_row and org_row.status == "active":
-            org_row.status = "inactive"
-            log.info("Org-wide active row demoted to inactive: %s", plugin_id)
-
     await db.commit()
     log.info("Plugin deactivated: %s (brand=%s)", plugin_id, brand_id or "org-level")
 
@@ -461,7 +497,7 @@ capability_manifest_router = APIRouter(prefix="/capability-manifest", tags=["cap
 
 @capability_manifest_router.get("")
 async def get_capability_manifest(
-    brand_id: Optional[str] = None,
+    brand_id: NullableUUID = Query(None),
     db: AsyncSession = Depends(get_db),
     _=Depends(require_api_key),
 ):
@@ -473,10 +509,11 @@ async def get_capability_manifest(
     from capability_manifest import build_dispatchable_manifest
     from plugin_loader import get_active_plugin_ids
 
-    active_ids = await get_active_plugin_ids(db, brand_id)
+    brand_uuid = parse_optional_uuid(brand_id, ["query", "brand_id"])
+    active_ids = await get_active_plugin_ids(db, brand_uuid)
     entries = build_dispatchable_manifest(active_plugin_ids=active_ids)
     return {
-        "brand_id": brand_id,
+        "brand_id": str(brand_uuid) if brand_uuid else None,
         "capabilities": [
             {
                 "module_id": e.module_id,

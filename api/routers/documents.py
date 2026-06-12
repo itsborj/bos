@@ -14,6 +14,7 @@ from db import get_db
 from models.document import WorkspaceDocument
 from routers.workspace import get_singleton
 from schemas.documents import WorkspaceDocumentCreate, WorkspaceDocumentOut, WorkspaceDocumentUpdate
+from validation import NullableUUID
 
 router = APIRouter(prefix="/workspace/documents", tags=["workspace-documents"])
 
@@ -40,9 +41,19 @@ def _serialize(doc: WorkspaceDocument) -> WorkspaceDocumentOut:
     )
 
 
-def _validate_status(status: Optional[str]) -> None:
-    if status is not None and status not in _ALLOWED_STATUSES:
-        raise HTTPException(status_code=400, detail=f"Invalid document status '{status}'")
+def _validate_status(status: Optional[str], *, strict: bool = False) -> Optional[str]:
+    """For GET filters: return None for absent/null/unknown values (no filter applied).
+    For writes (strict=True): raise 422 on unrecognized values."""
+    if status is None or status in {"", "null", "none", "undefined"}:
+        return None
+    if status not in _ALLOWED_STATUSES:
+        if strict:
+            raise HTTPException(
+                status_code=422,
+                detail=[{"loc": ["query", "status"], "msg": f"value is not a valid status: '{status}'", "type": "value_error"}],
+            )
+        return None
+    return status
 
 
 async def _workspace_or_412(db: AsyncSession):
@@ -56,11 +67,11 @@ async def _workspace_or_412(db: AsyncSession):
 async def list_documents(
     doc_type: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
-    brand_id: Optional[str] = Query(None),
+    brand_id: NullableUUID = Query(None),
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    _validate_status(status)
+    status = _validate_status(status)
     ws = await _workspace_or_412(db)
 
     stmt = select(WorkspaceDocument).where(WorkspaceDocument.workspace_id == ws.id)
@@ -68,11 +79,8 @@ async def list_documents(
         stmt = stmt.where(WorkspaceDocument.doc_type == doc_type)
     if status:
         stmt = stmt.where(WorkspaceDocument.status == status)
-    if brand_id:
-        try:
-            stmt = stmt.where(WorkspaceDocument.brand_id == _uuid.UUID(brand_id))
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid brand_id")
+    if brand_id is not None:
+        stmt = stmt.where(WorkspaceDocument.brand_id == brand_id)
     stmt = stmt.order_by(WorkspaceDocument.updated_at.desc(), WorkspaceDocument.created_at.desc())
 
     rows = (await db.execute(stmt)).scalars().all()
@@ -85,7 +93,7 @@ async def create_document(
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    _validate_status(body.status)
+    _validate_status(body.status, strict=True)
     ws = await _workspace_or_412(db)
     now = datetime.now(timezone.utc)
     status = body.status or "draft"
@@ -107,7 +115,7 @@ async def create_document(
     return _serialize(doc)
 
 
-@router.get("/{document_id}", response_model=WorkspaceDocumentOut, summary="Get a workspace document")
+@router.get("/{document_id}", response_model=WorkspaceDocumentOut, summary="Get a workspace document", responses={404: {"description": "Document not found"}})
 async def get_document(
     document_id: UUID,
     db: AsyncSession = Depends(get_db),
@@ -122,14 +130,14 @@ async def get_document(
     return _serialize(doc)
 
 
-@router.patch("/{document_id}", response_model=WorkspaceDocumentOut, summary="Update a workspace document")
+@router.patch("/{document_id}", response_model=WorkspaceDocumentOut, summary="Update a workspace document", responses={404: {"description": "Document not found"}})
 async def update_document(
     document_id: UUID,
     body: WorkspaceDocumentUpdate,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    _validate_status(body.status)
+    _validate_status(body.status, strict=True)
     ws = await _workspace_or_412(db)
     doc = (await db.execute(
         select(WorkspaceDocument).where(WorkspaceDocument.id == document_id, WorkspaceDocument.workspace_id == ws.id)

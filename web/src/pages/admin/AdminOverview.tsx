@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { BillingSummary, ModuleInfo, ProviderInfo, RunListItem } from '../../api/types';
-import { StatusBadge } from '../../components/StatusBadge';
+import type { AgentStateResponse, BillingSummary, BrandResponse, CampaignOut, RunListItem } from '../../api/types';
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -13,155 +12,196 @@ function timeAgo(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+function moduleLabel(moduleId: string): string {
+  const id = moduleId.toLowerCase();
+  if (id.includes('strategy') || id.includes('plan')) return 'Strategy';
+  if (id.includes('image')) return 'Image';
+  if (id.includes('video')) return 'Video';
+  if (id.includes('post') || id.includes('creative')) return 'Creative';
+  if (id.includes('email') || id.includes('copy')) return 'Copy';
+  if (id.includes('analytics') || id.includes('seo') || id.includes('search')) return 'Analysis';
+  if (id.includes('drive')) return 'Drive';
+  return 'Artifact';
+}
+
 export function AdminOverview() {
-  const [billing, setBilling] = useState<BillingSummary | null>(null);
+  const [agentState, setAgentState] = useState<AgentStateResponse | null>(null);
+  const [brands, setBrands] = useState<BrandResponse[]>([]);
   const [recentRuns, setRecentRuns] = useState<RunListItem[]>([]);
-  const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [modules, setModules] = useState<ModuleInfo[]>([]);
+  const [campaigns, setCampaigns] = useState<CampaignOut[]>([]);
+  const [billing, setBilling] = useState<BillingSummary | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
+      api.getAgentState().catch(() => null),
+      api.getBrands().catch(() => ({ brands: [] as BrandResponse[], total: 0 })),
+      api.getRuns({ limit: 8 }).catch(() => null),
+      api.listCampaigns().catch(() => [] as CampaignOut[]),
       api.getBillingSummary().catch(() => null),
-      api.getRuns({ limit: 5 }).catch(() => null),
-      api.getProviders().catch(() => ({ providers: [] as ProviderInfo[] })),
-      api.getVerticals()
-        .then(({ verticals }) =>
-          Promise.all(verticals.map(v => api.getModules(v.vertical).then(r => r.modules)))
-        )
-        .then(groups => groups.flat())
-        .catch(() => [] as ModuleInfo[]),
-    ]).then(([bill, runs, provs, mods]) => {
-      setBilling(bill);
+    ]).then(([state, brandsResp, runs, cams, billingSummary]) => {
+      setAgentState(state);
+      setBrands(brandsResp?.brands ?? []);
       setRecentRuns(runs?.runs ?? []);
-      setProviders(provs?.providers ?? []);
-      setModules(mods);
+      setCampaigns(cams ?? []);
+      setBilling(billingSummary);
       setLoading(false);
     });
   }, []);
 
-  const connectedProviders = providers.filter(p => p.has_platform_key || p.connected);
-  const systemHealthy = connectedProviders.length > 0;
-
   if (loading) {
-    return (
-      <div className="admin-page">
-        <div className="loading-full"><span className="spinner" /></div>
-      </div>
-    );
+    return <div className="admin-page"><div className="loading-full"><span className="spinner" /></div></div>;
   }
+
+  const totalPending = agentState?.total_pending ?? 0;
+  const activeCampaigns = campaigns.filter(c => c.status === 'active').length;
 
   return (
     <div className="admin-page">
       <div className="admin-page-header">
         <div>
-          <div className="admin-page-title">System Overview</div>
-          <div className="admin-page-subtitle">Operational health for AI providers, specialists, billing, and debug logs</div>
+          <div className="admin-page-title">Command Centre</div>
+          <div className="admin-page-subtitle">Brand activity, pending approvals, and recent output</div>
         </div>
-        <Link to="/admin/getting-started" className="btn btn-dark btn-sm">Open setup guide</Link>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <Link to="/admin/billing" className="btn btn-secondary btn-sm">Billing →</Link>
+          <Link to="/admin/getting-started" className="btn btn-dark btn-sm">Setup guide</Link>
+        </div>
       </div>
 
       <div className="admin-stat-grid">
-        <div className="admin-stat-card">
-          <div className="admin-stat-label">Total Runs</div>
-          <div className="admin-stat-value">{billing?.total_runs ?? '—'}</div>
+        <div
+          className="admin-stat-card"
+          style={{ cursor: totalPending > 0 ? 'pointer' : undefined }}
+          onClick={totalPending > 0 ? () => { window.location.href = '/stream'; } : undefined}
+        >
+          <div className="admin-stat-label">Needs Review</div>
+          <div className="admin-stat-value" style={{ color: totalPending > 0 ? 'var(--accent)' : undefined }}>
+            {totalPending}
+          </div>
+          <div className="admin-stat-sub">pending approvals</div>
         </div>
         <div className="admin-stat-card">
-          <div className="admin-stat-label">Provider Cost</div>
+          <div className="admin-stat-label">Active Campaigns</div>
+          <div className="admin-stat-value">{activeCampaigns}</div>
+          <div className="admin-stat-sub">of {campaigns.length} total</div>
+        </div>
+        <div className="admin-stat-card">
+          <div className="admin-stat-label">Brands</div>
+          <div className="admin-stat-value">{brands.length}</div>
+        </div>
+        <Link to="/admin/billing" className="admin-stat-card" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <div className="admin-stat-label">Platform Spend</div>
           <div className="admin-stat-value">
-            {billing ? `$${billing.total_provider_cost.toFixed(2)}` : '—'}
+            {billing ? `$${(billing.platform_provider_cost ?? billing.total_provider_cost).toFixed(2)}` : '—'}
           </div>
-          {billing && (
-            <div className="admin-stat-sub">{billing.total_tokens?.toLocaleString()} tokens</div>
-          )}
-        </div>
-        <div className="admin-stat-card">
-          <div className="admin-stat-label">Sell Price</div>
-          <div className="admin-stat-value">
-            {billing ? `$${billing.total_sell_price.toFixed(2)}` : '—'}
-          </div>
-        </div>
-        <div className="admin-stat-card">
-          <div className="admin-stat-label">System Health</div>
-          <div className="admin-stat-value" style={{ marginTop: 4 }}>
-            {systemHealthy
-              ? <span className="badge badge-success">Healthy</span>
-              : <span className="badge badge-warning">No keys</span>
-            }
-          </div>
-        </div>
+          <div className="admin-stat-sub">billing & BYOK usage →</div>
+        </Link>
       </div>
 
       <div className="admin-two-col">
         <div className="admin-card">
           <div className="admin-card-title">
-            Recent Runs
-            <Link to="/admin/runs" className="btn btn-ghost btn-sm">View all →</Link>
+            Brands
+            <Link to="/admin/brands" className="btn btn-ghost btn-sm">Manage →</Link>
           </div>
-          {recentRuns.length === 0 ? (
+          {brands.length === 0 ? (
             <div className="empty-state" style={{ padding: '24px 0' }}>
-              <div className="empty-state-text">No runs yet.</div>
+              <div className="empty-state-text">No brands yet.</div>
+              <Link to="/admin/brands" className="btn btn-secondary btn-sm" style={{ marginTop: 8 }}>
+                Add brand
+              </Link>
             </div>
           ) : (
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr><th>Module</th><th>Status</th><th>When</th></tr>
-                </thead>
-                <tbody>
-                  {recentRuns.map(run => (
-                    <tr key={run.run_id} className="clickable">
-                      <td>
-                        <Link
-                          to={`/admin/runs/${run.run_id}`}
-                          style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--accent)' }}
-                        >
-                          {run.module_id}
-                        </Link>
-                      </td>
-                      <td><StatusBadge status={run.status} /></td>
-                      <td style={{ color: 'var(--text2)', fontSize: 12 }}>
-                        {timeAgo(run.created_at)}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div>
+              {brands.map((brand, i) => {
+                const brandState = agentState?.brands.find(b => b.brand_id === brand.id);
+                const pending = brandState?.pending_approvals ?? 0;
+                return (
+                  <div
+                    key={brand.id}
+                    style={{
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      padding: '12px 0',
+                      borderBottom: i < brands.length - 1 ? '1px solid var(--border)' : 'none',
+                    }}
+                  >
+                    <div>
+                      <Link
+                        to={`/admin/brands/${brand.id}`}
+                        style={{ fontWeight: 600, color: 'var(--text)', fontSize: 14 }}
+                      >
+                        {brand.name}
+                      </Link>
+                      {brand.domain && (
+                        <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>{brand.domain}</div>
+                      )}
+                    </div>
+                    {pending > 0 ? (
+                      <Link
+                        to="/stream"
+                        className="badge badge-warning"
+                        style={{ textDecoration: 'none', cursor: 'pointer' }}
+                      >
+                        {pending} pending
+                      </Link>
+                    ) : (
+                      <span className="badge badge-success">Up to date</span>
+                    )}
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>
 
         <div className="admin-card">
           <div className="admin-card-title">
-            Specialist Readiness
-            <Link to="/admin/modules" className="btn btn-ghost btn-sm">Browse →</Link>
+            Recent Activity
+            <Link to="/admin/runs" className="btn btn-ghost btn-sm">All runs →</Link>
           </div>
-          {modules.length === 0 ? (
-            <div style={{ color: 'var(--text2)', fontSize: 13 }}>No specialists installed.</div>
+          {recentRuns.length === 0 ? (
+            <div className="empty-state" style={{ padding: '24px 0' }}>
+              <div className="empty-state-text">No runs yet. Ask the CMO to generate something.</div>
+            </div>
           ) : (
             <div>
-              {modules.slice(0, 6).map((mod, i) => (
+              {recentRuns.map((run, i) => (
                 <div
-                  key={mod.id}
+                  key={run.run_id}
                   style={{
                     display: 'flex',
                     justifyContent: 'space-between',
-                    alignItems: 'center',
+                    alignItems: 'flex-start',
                     padding: '10px 0',
-                    borderBottom: i < Math.min(modules.length, 6) - 1 ? '1px solid var(--border)' : 'none',
+                    borderBottom: i < recentRuns.length - 1 ? '1px solid var(--border)' : 'none',
                   }}
                 >
-                  <span style={{ fontFamily: 'var(--mono)', fontSize: 11, color: 'var(--text2)' }}>
-                    {mod.id}
-                  </span>
-                  <span className="badge badge-success">Registered</span>
+                  <div>
+                    <div style={{ fontWeight: 500, fontSize: 13 }}>
+                      {moduleLabel(run.module_id)}
+                      {run.brand_name && (
+                        <span style={{ color: 'var(--text2)', fontWeight: 400 }}> · {run.brand_name}</span>
+                      )}
+                    </div>
+                    <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 2, fontFamily: 'var(--mono)' }}>
+                      {run.module_id}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', flexShrink: 0, marginLeft: 12 }}>
+                    <div style={{ fontSize: 12, color: 'var(--text2)' }}>{timeAgo(run.created_at)}</div>
+                    {run.approval_status === 'pending' && (
+                      <Link to="/stream">
+                        <span className="badge badge-warning" style={{ fontSize: 10, marginTop: 4, display: 'inline-block' }}>
+                          review
+                        </span>
+                      </Link>
+                    )}
+                  </div>
                 </div>
               ))}
-              {modules.length > 6 && (
-                <div style={{ fontSize: 12, color: 'var(--text2)', paddingTop: 10 }}>
-                  +{modules.length - 6} more
-                </div>
-              )}
             </div>
           )}
         </div>

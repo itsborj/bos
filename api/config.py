@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     platform_gemini_key: str = ""
     platform_nvidia_key: str = ""
     platform_openai_key: str = ""
+    platform_anthropic_key: str = ""
     platform_bytedance_key: str = ""
     encryption_key: str = ""
     markup_multiplier: float = 1.35
@@ -34,8 +35,11 @@ class Settings(BaseSettings):
     google_client_secret: str = ""
     google_redirect_uri: str = "http://localhost:8000/social/gmail/callback"
     google_calendar_redirect_uri: str = ""
-    # Browser API key for the Google Picker (folder selection). Separate from the OAuth client.
+    # Browser API key + app/project id for Google Picker (Drive root folder selection).
+    # GOOGLE_PICKER_APP_ID is the Google Cloud project number; if omitted, BOS
+    # falls back to deriving it from GOOGLE_CLIENT_ID for non-relay installs.
     google_picker_api_key: str = ""
+    google_picker_app_id: str = ""
     
     # Whitelist of emails allowed to log in via Google Auth (comma-separated)
     admin_emails: str = ""
@@ -101,10 +105,18 @@ def validate_settings(s: "Settings") -> None:
     else:
         logger.warning("ENCRYPTION_KEY not set — BYOK key storage will not work")
 
-    if s.api_secret_key == "dev-key-change-me":
-        logger.warning("API_SECRET_KEY is the insecure default — auto-generation via first_boot requires a writable /data/secrets volume")
+    _KNOWN_BAD_KEYS = {"dev-key-change-me", "change-me-before-deploying"}
+    _is_dev_db = "bos:bos@" in s.database_url or "localhost" in s.database_url or "127.0.0.1" in s.database_url
+    if s.api_secret_key in _KNOWN_BAD_KEYS or "change-me" in s.api_secret_key:
+        if _is_dev_db:
+            logger.warning("API_SECRET_KEY is a known insecure default — set a strong random key before deploying")
+        else:
+            errors.append(
+                "API_SECRET_KEY is a known insecure default. "
+                "Generate one: python3 -c \"import secrets; print(secrets.token_hex(32))\""
+            )
 
-    has_llm = any([s.platform_openrouter_key, s.platform_gemini_key, s.platform_nvidia_key, s.platform_openai_key])
+    has_llm = any([s.platform_openrouter_key, s.platform_gemini_key, s.platform_nvidia_key, s.platform_openai_key, s.platform_anthropic_key])
     if not has_llm:
         logger.warning("No LLM provider key set — CMO will not function until at least one provider key is configured")
 

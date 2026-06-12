@@ -15,7 +15,11 @@ from klaroha_sdk import ChannelModule
 
 _logger = logging.getLogger(__name__)
 
-_DRIVE_CLIENT_PATH = "/app/plugins/google-drive/drive_client.py"
+_DRIVE_CLIENT_CANDIDATES = [
+    Path(__file__).resolve().parents[5] / "google-drive" / "drive_client.py",
+    Path("/external_plugins/google-drive/drive_client.py"),
+    Path("/app/plugins/google-drive/drive_client.py"),
+]
 
 # Gemini Veo endpoints — veo-3.0 is the default (veo-2.0 requires separate GCP billing)
 _VEO_MODEL = "veo-3.0-generate-001"
@@ -26,7 +30,7 @@ _VEO_POLL_BASE = "https://generativelanguage.googleapis.com/v1beta"
 _VEO_POLL_INTERVAL = 8   # seconds between polls
 _VEO_MAX_POLLS = 45      # ~6 minutes total
 
-# ByteDance ModelArk — Seedance via async task API
+# BytePlus — Seedance via async task API
 _MODELARK_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3"
 _MODELARK_POLL_INTERVAL = 4   # seconds
 _MODELARK_MAX_POLLS = 45      # ~3 minutes
@@ -44,10 +48,13 @@ _VALID_ASPECT_RATIOS = set(_ASPECT_SIZES)
 
 
 def _load_drive():
-    spec = importlib.util.spec_from_file_location("google_drive_client_mv", _DRIVE_CLIENT_PATH)
-    m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
-    return m
+    for p in _DRIVE_CLIENT_CANDIDATES:
+        if p.exists():
+            spec = importlib.util.spec_from_file_location("google_drive_client_mv", str(p))
+            m = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(m)
+            return m
+    raise ImportError(f"google-drive drive_client.py not found in: {_DRIVE_CLIENT_CANDIDATES}")
 
 
 def _http_post(url: str, payload: dict, headers: dict, timeout: int = 120) -> dict:
@@ -67,14 +74,21 @@ def _http_get(url: str, headers: dict | None = None, timeout: int = 30) -> dict:
         return json.loads(r.read())
 
 
-def _generate_gemini_veo(api_key: str, prompt: str, aspect_ratio: str, duration: float, output_path: str) -> str | None:
+def _generate_gemini_veo(api_key: str, prompt: str, aspect_ratio: str, duration: float, output_path: str, *, auth_mode: str | None = None) -> str | None:
     """Submit to Gemini Veo, poll until done, write MP4 to output_path.
     Returns an external video URL if the provider returns one instead of inline bytes."""
     # Cap duration at Veo's maximum (8 seconds for veo-2)
     veo_duration = int(min(duration, 8))
 
+    if auth_mode == "oauth":
+        auth_headers: dict = {"Authorization": f"Bearer {api_key}"}
+        key_param = ""
+    else:
+        auth_headers = {}
+        key_param = f"?key={api_key}"
+
     op = _http_post(
-        f"{_VEO_PREDICT_URL}?key={api_key}",
+        f"{_VEO_PREDICT_URL}{key_param}",
         {
             "instances": [{"prompt": prompt}],
             "parameters": {
@@ -83,7 +97,7 @@ def _generate_gemini_veo(api_key: str, prompt: str, aspect_ratio: str, duration:
                 "durationSeconds": veo_duration,
             },
         },
-        {},
+        auth_headers,
         timeout=60,
     )
     op_name = op.get("name") or op.get("operationId")
@@ -94,7 +108,7 @@ def _generate_gemini_veo(api_key: str, prompt: str, aspect_ratio: str, duration:
     status: dict = {}
     for _ in range(_VEO_MAX_POLLS):
         time.sleep(_VEO_POLL_INTERVAL)
-        status = _http_get(f"{_VEO_POLL_BASE}/{op_name}?key={api_key}")
+        status = _http_get(f"{_VEO_POLL_BASE}/{op_name}{key_param}", auth_headers)
         if status.get("done"):
             break
 
@@ -144,7 +158,7 @@ def _generate_gemini_veo(api_key: str, prompt: str, aspect_ratio: str, duration:
 
 
 def _generate_bytedance_modelark(api_key: str, model_id: str, prompt: str, aspect_ratio: str, duration: float, output_path: str) -> str:
-    """Submit a video generation task to BytePlus ModelArk and poll until done.
+    """Submit a video generation task to BytePlus and poll until done.
     Returns the temporary video URL; does not save to disk (caller handles download if needed)."""
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -312,8 +326,8 @@ class MediaVideoGenerateModule(ChannelModule):
         if aspect_ratio not in _VALID_ASPECT_RATIOS:
             aspect_ratio = "9:16"
         duration = max(5.0, min(60.0, float(brief.get("duration") or 15)))
-        bg_color = str(brief.get("background_color") or brief.get("primary_color") or "#1a1a1a").strip()
-        text_color = str(brief.get("text_color") or "#ffffff").strip()
+        # bg_color / text_color are available in brief for future overlay rendering;
+        # current provider integrations do not use them yet.
         brand_name = str(brief.get("brand_name") or "").strip()
         prompt = str(brief.get("video_prompt") or brief.get("prompt") or hook_text).strip()
 
@@ -324,16 +338,17 @@ class MediaVideoGenerateModule(ChannelModule):
             if provider == "gemini":
                 _pk = str(creds.get("provider_api_key") or creds.get("video_gen_api_key") or "").strip()
                 if not _pk:
-                    return self._fail(start, provider, "missing_credentials", "Gemini platform key not configured — set PLATFORM_GEMINI_KEY")
-                external_video_url = _generate_gemini_veo(_pk, prompt, aspect_ratio, duration, output_path)
+                    return self._fail(start, provider, "missing_credentials", "Gemini platform key not configured — set PLATFORM_GEMINI_KEY or connect via Admin → AI Providers → Login")
+                _veo_auth_mode = str(creds.get("provider_api_key_auth_mode") or "").strip() or None
+                external_video_url = _generate_gemini_veo(_pk, prompt, aspect_ratio, duration, output_path, auth_mode=_veo_auth_mode)
 
             elif provider == "bytedance":
                 _pk = str(creds.get("provider_api_key") or creds.get("video_gen_api_key") or "").strip()
                 if not _pk:
-                    return self._fail(start, provider, "missing_credentials", "ByteDance ModelArk API key not configured — add it via Admin → AI Providers")
+                    return self._fail(start, provider, "missing_credentials", "BytePlus API key not configured — add it via Admin → AI Providers")
                 model_id = str(creds.get("video_gen_model") or "").strip()
                 if not model_id:
-                    return self._fail(start, provider, "missing_credentials", "No ByteDance model selected — choose one via Admin → AI Providers → Media Generation")
+                    return self._fail(start, provider, "missing_credentials", "No BytePlus model selected — choose one via Admin → AI Providers → Media Generation")
                 external_video_url = _generate_bytedance_modelark(_pk, model_id, prompt, aspect_ratio, duration, output_path)
 
             elif provider in ("seedance", "custom", "custom_http"):

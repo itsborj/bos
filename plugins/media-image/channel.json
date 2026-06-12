@@ -49,33 +49,60 @@
       "provider": "openai",
       "label": "OpenAI",
       "models": [
-        {"value": "gpt-image-2", "label": "gpt-image-2 — flagship (2026)"},
-        {"value": "gpt-image-1", "label": "gpt-image-1 — deprecating Oct 2026"},
-        {"value": "gpt-image-1-mini", "label": "gpt-image-1-mini — cheapest"}
+        {
+          "value": "gpt-image-2",
+          "label": "gpt-image-2 — flagship (2026)"
+        },
+        {
+          "value": "gpt-image-1",
+          "label": "gpt-image-1 — deprecating Oct 2026"
+        },
+        {
+          "value": "gpt-image-1-mini",
+          "label": "gpt-image-1-mini — cheapest"
+        }
       ]
     },
     {
       "provider": "gemini",
       "label": "Google Gemini",
       "models": [
-        {"value": "gemini-2.5-flash-image", "label": "Gemini 2.5 Flash Image"},
-        {"value": "imagen-4.0-generate-001", "label": "Imagen 4.0 — paid Gemini plan"}
+        {
+          "value": "gemini-2.5-flash-image",
+          "label": "Gemini 2.5 Flash Image"
+        },
+        {
+          "value": "imagen-4.0-generate-001",
+          "label": "Imagen 4.0 — paid Gemini plan"
+        }
       ]
     },
     {
       "provider": "bytedance",
-      "label": "ByteDance ModelArk",
+      "label": "BytePlus (Seedream)",
       "models": [
-        {"value": "seedream-4-0-250828", "label": "Seedream 4.0"},
-        {"value": "seedream-4-5-251128", "label": "Seedream 4.5"},
-        {"value": "seedream-5-0-260128", "label": "Seedream 5.0"}
+        {
+          "value": "seedream-4-0-250828",
+          "label": "Seedream 4.0"
+        },
+        {
+          "value": "seedream-4-5-251128",
+          "label": "Seedream 4.5"
+        },
+        {
+          "value": "seedream-5-0-260128",
+          "label": "Seedream 5.0"
+        }
       ]
     },
     {
       "provider": "local",
       "label": "Local Sample Renderer",
       "models": [
-        {"value": "local-sample-renderer", "label": "Local sample PNG renderer"}
+        {
+          "value": "local-sample-renderer",
+          "label": "Local sample PNG renderer"
+        }
       ]
     },
     {
@@ -83,5 +110,11 @@
       "label": "Custom Worker",
       "models": []
     }
-  ]
+  ],
+  "default_backend": {
+    "provider": "bytedance",
+    "model_id": "seedream-4-5-251128",
+    "modality": "image",
+    "strict": false
+  }
 }

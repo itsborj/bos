@@ -19,7 +19,11 @@ _logger = logging.getLogger(__name__)
 
 _FFMPEG = os.environ.get("FFMPEG_PATH", "ffmpeg")
 _FONT = "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"
-_DRIVE_CLIENT_PATH = "/app/plugins/google-drive/drive_client.py"
+_DRIVE_CLIENT_CANDIDATES = [
+    Path(__file__).resolve().parents[5] / "google-drive" / "drive_client.py",
+    Path("/external_plugins/google-drive/drive_client.py"),
+    Path("/app/plugins/google-drive/drive_client.py"),
+]
 
 # Gemini Veo endpoints — veo-3.0 is the default (veo-2.0 requires separate GCP billing)
 _VEO_MODEL = "veo-3.0-generate-001"
@@ -30,7 +34,7 @@ _VEO_POLL_BASE = "https://generativelanguage.googleapis.com/v1beta"
 _VEO_POLL_INTERVAL = 8   # seconds between polls
 _VEO_MAX_POLLS = 45      # ~6 minutes total
 
-# ByteDance ModelArk — Seedance via async task API
+# BytePlus — Seedance via async task API
 _MODELARK_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3"
 _MODELARK_POLL_INTERVAL = 4   # seconds
 _MODELARK_MAX_POLLS = 45      # ~3 minutes
@@ -48,10 +52,13 @@ _VALID_ASPECT_RATIOS = set(_ASPECT_SIZES)
 
 
 def _load_drive():
-    spec = importlib.util.spec_from_file_location("google_drive_client_mv", _DRIVE_CLIENT_PATH)
-    m = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(m)
-    return m
+    for p in _DRIVE_CLIENT_CANDIDATES:
+        if p.exists():
+            spec = importlib.util.spec_from_file_location("google_drive_client_mv", str(p))
+            m = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(m)
+            return m
+    raise ImportError(f"google-drive drive_client.py not found in: {_DRIVE_CLIENT_CANDIDATES}")
 
 
 def _esc(text: str) -> str:
@@ -217,7 +224,7 @@ def _generate_gemini_veo(api_key: str, prompt: str, aspect_ratio: str, duration:
 
 
 def _generate_bytedance_modelark(api_key: str, model_id: str, prompt: str, aspect_ratio: str, duration: float, output_path: str) -> str:
-    """Submit a video generation task to BytePlus ModelArk and poll until done.
+    """Submit a video generation task to BytePlus and poll until done.
     Returns the temporary video URL; does not save to disk (caller handles download if needed)."""
     headers = {
         "Authorization": f"Bearer {api_key}",
@@ -403,10 +410,10 @@ class MediaVideoGenerateModule(ChannelModule):
             elif provider == "bytedance":
                 _pk = str(creds.get("provider_api_key") or creds.get("video_gen_api_key") or "").strip()
                 if not _pk:
-                    return self._fail(start, provider, "missing_credentials", "ByteDance ModelArk API key not configured — add it via Admin → AI Providers")
+                    return self._fail(start, provider, "missing_credentials", "BytePlus API key not configured — add it via Admin → AI Providers")
                 model_id = str(creds.get("video_gen_model") or "").strip()
                 if not model_id:
-                    return self._fail(start, provider, "missing_credentials", "No ByteDance model selected — choose one via Admin → AI Providers → Media Generation")
+                    return self._fail(start, provider, "missing_credentials", "No BytePlus model selected — choose one via Admin → AI Providers → Media Generation")
                 external_video_url = _generate_bytedance_modelark(_pk, model_id, prompt, aspect_ratio, duration, output_path)
 
             elif provider in ("seedance", "custom", "custom_http"):

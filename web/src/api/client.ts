@@ -93,9 +93,26 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const res = await fetch(`${BASE}${path}`, { ...options, headers });
 
     if (res.status === 401 || res.status === 403) {
-      clearApiKey();
-      window.location.href = '/auth?error=1';
-      throw new Error('Unauthorized');
+      const body = await res.json().catch(() => ({})) as Record<string, unknown>;
+      let isSessionAuthError = true;
+      const detail = body?.detail;
+      if (detail && typeof detail === 'object') {
+        const d = detail as Record<string, unknown>;
+        const errorCode = (d.error as Record<string, unknown>)?.code;
+        if (errorCode && errorCode !== 'UNAUTHORIZED') {
+          isSessionAuthError = false;
+        }
+      }
+      if (isSessionAuthError) {
+        clearApiKey();
+        window.location.href = '/auth?error=1';
+        throw new Error('Unauthorized');
+      } else {
+        const msg = extractMessage(body) || `Request failed (${res.status})`;
+        const err = new Error(msg) as Error & { status: number };
+        err.status = res.status;
+        throw err;
+      }
     }
 
     if (res.status === 204) return undefined as T;
@@ -162,11 +179,17 @@ export const api = {
       body: JSON.stringify({ name }),
     }),
 
+  getWorkspaceBrand: () =>
+    request<WorkspaceResponse>('/workspace/brand'),
+
   putBrand: (brand: { voice?: string; tone?: string; values?: string[] }) =>
     request<WorkspaceResponse>('/workspace/brand', {
       method: 'PUT',
       body: JSON.stringify(brand),
     }),
+
+  getWorkspaceProducts: () =>
+    request<WorkspaceResponse>('/workspace/products'),
 
   putProducts: (products: Array<{ id?: string; name: string; tagline?: string; benefits: string[] }>) =>
     request<WorkspaceResponse>('/workspace/products', {
@@ -174,11 +197,17 @@ export const api = {
       body: JSON.stringify({ products }),
     }),
 
+  getWorkspaceAudiences: () =>
+    request<WorkspaceResponse>('/workspace/audiences'),
+
   putAudiences: (audiences: Array<{ id?: string; name: string; demographics?: string; pain_points: string[] }>) =>
     request<WorkspaceResponse>('/workspace/audiences', {
       method: 'PUT',
       body: JSON.stringify({ audiences }),
     }),
+
+  getWorkspaceBooking: () =>
+    request<WorkspaceResponse>('/workspace/booking'),
 
   getVerticals: () =>
     request<{ verticals: Array<{ vertical: string; module_count: number }> }>('/verticals'),
@@ -195,7 +224,7 @@ export const api = {
   getBackendOverrides: () =>
     request<{ overrides: BackendOverride[] }>('/settings/backends'),
 
-  putBackendOverride: (target: string, body: { provider: string; model_id?: string | null; tool_id?: string | null; modality: string; strict: boolean }) =>
+  putBackendOverride: (target: string, body: { provider: string; model_id?: string | null; tool_id?: string | null; modality: string; strict: boolean; fallbacks?: import('./types').FallbackModel[]; routing_hints?: Record<string, unknown> }) =>
     request<BackendOverride>(`/settings/backends/${encodeURIComponent(target)}`, {
       method: 'PUT',
       body: JSON.stringify(body),
@@ -244,6 +273,9 @@ export const api = {
   dismissStreamUpdate: (updateId: string) =>
     request<import('./types').StreamUpdateOut>(`/stream/${updateId}`, { method: 'DELETE' }),
 
+  dismissStreamUpdates: (filters?: { priority?: string; type?: string }) =>
+    request<import('./types').StreamBulkDismissOut>('/stream/dismiss' + buildQuery(filters), { method: 'POST' }),
+
   getProviders: (brand_id?: string) =>
     request<{ providers: ProviderInfo[] }>('/providers' + buildQuery({ brand_id })),
 
@@ -280,8 +312,8 @@ export const api = {
       body: JSON.stringify({ provider, brand_id: brand_id || undefined }),
     }),
 
-  getBillingSummary: () =>
-    request<BillingSummary>('/billing/summary'),
+  getBillingSummary: (brandId?: string | null) =>
+    request<BillingSummary>(brandId ? `/billing/summary?brand_id=${brandId}` : '/billing/summary'),
 
   chat: (message: string, history: ChatHistoryItem[], brandId?: string | null, campaignId?: string | null) =>
     request<ChatResponse>('/chat', {
@@ -339,6 +371,15 @@ export const api = {
   getBrands: () =>
     request<BrandListResponse>('/brands'),
 
+  listCampaigns: () =>
+    request<import('./types').CampaignOut[]>('/campaigns'),
+
+  createCampaign: (body: { name: string; status?: string }) =>
+    request<import('./types').CampaignOut>('/campaigns', { method: 'POST', body: JSON.stringify(body) }),
+
+  updateCampaign: (id: string, body: { name?: string; status?: string }) =>
+    request<import('./types').CampaignOut>(`/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
   createBrand: (body: { name: string; voice?: string; tone?: string; values?: string[]; domain?: string; website_url?: string; social_handles?: Record<string, string> }) =>
     request<BrandResponse>('/brands', { method: 'POST', body: JSON.stringify(body) }),
 
@@ -387,13 +428,17 @@ export const api = {
       body: JSON.stringify({ document_text, workspace_name: workspace_name || undefined, brand_id: brand_id || undefined }),
     }),
 
-  getOnboardingStatus: () =>
-    request<OnboardingStatus>('/onboarding/status'),
+  getOnboardingStatus: (brandId?: string | null) =>
+    request<OnboardingStatus>(brandId ? `/onboarding/status?brand_id=${brandId}` : '/onboarding/status'),
 
-  generateBrandKit: (additional_context?: string, brand_id?: string) =>
+  generateBrandKit: (additional_context?: string, brand_id?: string, submitted_profile?: Record<string, unknown>) =>
     request<BrandKitResponse>('/onboarding/brand-kit', {
       method: 'POST',
-      body: JSON.stringify({ additional_context: additional_context || undefined, brand_id: brand_id || undefined }),
+      body: JSON.stringify({
+        additional_context: additional_context || undefined,
+        brand_id: brand_id || undefined,
+        submitted_profile: submitted_profile || undefined,
+      }),
     }),
 
   getLatestBrandKit: (status?: string, brand_id?: string) =>

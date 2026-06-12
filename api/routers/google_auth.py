@@ -34,7 +34,7 @@ def _get_redirect_uri(settings) -> str:
     return f"{base}/api/auth/google/callback"
 
 
-@router.get("/login")
+@router.get("/login", responses={302: {"description": "Redirect to Google OAuth"}, 412: {"description": "Workspace not initialized"}, 500: {"description": "Google OAuth not configured"}})
 async def google_login(
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
@@ -89,7 +89,7 @@ async def google_login(
 
     auth_url = f"{_GOOGLE_AUTHORIZE_URL}?{urlencode(params)}"
     print(f"GOOGLE_AUTH: Redirecting to: {auth_url[:120]}...")
-    return RedirectResponse(url=auth_url)
+    return RedirectResponse(url=auth_url, status_code=302)
 
 
 @router.get("/callback")
@@ -138,7 +138,7 @@ async def google_callback(
                 print(f"GOOGLE_AUTH: Token exchange failed: {r.text}")
                 return RedirectResponse(url=f"{frontend}/auth?error=token_exchange_failed")
             token_data = r.json()
-    except Exception as e:
+    except Exception:
         return RedirectResponse(url=f"{frontend}/auth?error=exchange_exception")
 
     access_token = token_data.get("access_token")

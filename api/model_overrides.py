@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import json
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 logger = logging.getLogger("bos.model_overrides")
@@ -27,6 +27,8 @@ class BackendRef:
     modality: str = "text"
     tool_id: str | None = None
     strict: bool | None = None
+    fallbacks: tuple["BackendRef", ...] = field(default_factory=tuple)
+    routing_hints: dict = field(default_factory=dict)
 
     @property
     def execution_id(self) -> str | None:
@@ -66,8 +68,19 @@ def parse_backend_ref(value: str | dict[str, Any] | None) -> BackendRef | None:
         tool_id = str(value.get("tool_id") or value.get("tool") or "").strip() or None
         modality = str(value.get("modality") or "text").strip() or "text"
         strict = _parse_bool(value.get("strict"))
+        routing_hints = value.get("routing_hints") or {}
+        if not isinstance(routing_hints, dict):
+            routing_hints = {}
+        raw_fallbacks = value.get("fallbacks") or []
+        fallbacks: tuple[BackendRef, ...] = tuple(
+            f for f in (parse_backend_ref(fb) for fb in raw_fallbacks if isinstance(fb, dict))
+            if f is not None
+        )
         if provider and (model_id or tool_id):
-            return BackendRef(provider=provider, model_id=model_id, modality=modality, tool_id=tool_id, strict=strict)
+            return BackendRef(
+                provider=provider, model_id=model_id, modality=modality, tool_id=tool_id,
+                strict=strict, fallbacks=fallbacks, routing_hints=routing_hints,
+            )
         return None
 
     raw = str(value).strip()

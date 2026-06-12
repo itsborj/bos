@@ -3,32 +3,32 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CalendarPageCreate(BaseModel):
     brand_id: Optional[str] = None
     connection_id: Optional[str] = None
-    slug: str
-    title: str
-    description: Optional[str] = None
-    duration_minutes: int = 30
-    buffer_minutes: int = 15
+    slug: str = Field(min_length=2, max_length=80, pattern=r"^[a-z0-9][a-z0-9_-]*$")
+    title: str = Field(min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    duration_minutes: int = Field(default=30, gt=0, le=480)
+    buffer_minutes: int = Field(default=15, ge=0, le=240)
     working_hours_json: Optional[dict] = None
-    timezone: str = "UTC"
-    max_days_ahead: int = 14
+    timezone: str = Field(default="UTC", min_length=1, max_length=100)
+    max_days_ahead: int = Field(default=14, gt=0, le=365)
     is_active: bool = True
 
 
 class CalendarPageUpdate(BaseModel):
     connection_id: Optional[str] = None
-    title: Optional[str] = None
-    description: Optional[str] = None
-    duration_minutes: Optional[int] = None
-    buffer_minutes: Optional[int] = None
+    title: Optional[str] = Field(default=None, min_length=1, max_length=200)
+    description: Optional[str] = Field(default=None, max_length=2000)
+    duration_minutes: Optional[int] = Field(default=None, gt=0, le=480)
+    buffer_minutes: Optional[int] = Field(default=None, ge=0, le=240)
     working_hours_json: Optional[dict] = None
-    timezone: Optional[str] = None
-    max_days_ahead: Optional[int] = None
+    timezone: Optional[str] = Field(default=None, min_length=1, max_length=100)
+    max_days_ahead: Optional[int] = Field(default=None, gt=0, le=365)
     is_active: Optional[bool] = None
 
 
@@ -52,10 +52,10 @@ class CalendarPageResponse(BaseModel):
 
 
 class BookingRequest(BaseModel):
-    attendee_name: str
-    attendee_email: str
-    start_at: str
-    message: Optional[str] = None
+    attendee_name: str = Field(min_length=1, max_length=200)
+    attendee_email: str = Field(min_length=3, max_length=320)
+    start_at: str = Field(min_length=1, max_length=80)
+    message: Optional[str] = Field(default=None, max_length=2000)
 
 
 class BookingResponse(BaseModel):

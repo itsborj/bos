@@ -142,7 +142,7 @@ All persistence MUST use PostgreSQL via SQLAlchemy 2.x async sessions and Alembi
 
 ## Architectural Constraints
 
-**Language & Runtime**: Python 3.11+. Type hints required on all function signatures.
+**Language & Runtime**: Python 3.12+. Type hints required on all function signatures.
 FastAPI with Pydantic v2 for all request/response schemas.
 
 **Security**: BYOK keys stored AES-256 encrypted. No key values ever logged or returned via API.

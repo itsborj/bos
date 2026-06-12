@@ -1,5 +1,6 @@
 import hashlib
 import secrets
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -108,9 +109,9 @@ async def list_keys(
     ]
 
 
-@router.delete("/keys/{key_id}", status_code=204, summary="Revoke an API key")
+@router.delete("/keys/{key_id}", status_code=204, summary="Revoke an API key", responses={404: {"description": "API key not found"}})
 async def delete_key(
-    key_id: str,
+    key_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):

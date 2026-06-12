@@ -1,24 +1,30 @@
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+
+from validation import NullableUUID
 
 
 class KeyRegisterRequest(BaseModel):
     provider: str
     key: str
-    brand_id: str | None = None
+    brand_id: NullableUUID = Field(
+        default=None,
+        description="Optional. Omit for a workspace/agency default AI key; provide for a brand/client BYOK override. Required for non-AI provider keys when multiple brands exist.",
+    )
 
 
 class KeyListItem(BaseModel):
     provider: str
     brand_id: str | None = None
+    auth_mode: str = "api_key"
     created_at: datetime
 
 
 class CheckRequest(BaseModel):
     provider: str
-    brand_id: str | None = None
+    brand_id: NullableUUID = None
 
 
 class CheckResponse(BaseModel):

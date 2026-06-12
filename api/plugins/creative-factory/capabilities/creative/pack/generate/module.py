@@ -28,9 +28,9 @@ class CreativePackGenerateModule(ChannelModule):
         hooks: List[str] = [
             f"Experience clarity in every {product} moment.",
             f"The quiet space {audience} deserves.",
-            f"A private moment for your next big decision.",
+            "A private moment for your next big decision.",
             f"What {product} feels like when it's right for you.",
-            f"Designed for people who value the details.",
+            "Designed for people who value the details.",
         ]
 
         ctas: List[str] = [

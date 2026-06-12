@@ -1542,3 +1542,97 @@ reason: invalid SKILL.md / incompatible sdk_range / duplicate module_id / import
 ```
 
 The live CMO manifest continues serving valid active capabilities while the faulty plugin appears as an Admin/System readiness issue.
+
+---
+
+### B.20 The Unified Model: WordPress + VS Code + pi.dev are one pattern
+
+WordPress, VS Code, and pi.dev are different products at different scales. They share one architectural mechanism.
+
+| Platform | Kernel / Host | Stable event surface | Activation gate | Extension directory |
+|---|---|---|---|---|
+| WordPress | `wp_query`, the WP hook system itself | `add_action` / `add_filter` | Admin → Plugins → Activate **per site** | `/wp-content/plugins/` |
+| VS Code | Extension Host process | `contributes` in `package.json`, activation events | Enable **per workspace** | `~/.vscode/extensions/` |
+| pi.dev | ~50-line core loop, SKILL.md scanner | Lifecycle hooks (`run_start`, `step_start`, etc.) | Install-time trust (single-user tool) | `skills/`, `extensions/` |
+| **BOS (target)** | Pipeline kernel, BITE envelope, brand-scoped security | `run.before_execute`, `brief.before_dispatch`, etc. | `PluginActivation` DB row **per brand** | `~/bos-plugins/` |
+
+**The shared principle in all three:** the host publishes a stable named event surface; extensions subscribe to it; the host never imports an extension; an extension never modifies host internals. Directory presence is not permission to run.
+
+**Why BOS adopts this model specifically:** BOS has experienced the cost of the alternative. `chat.py` has grown past 1,100 lines because every new plugin behavior that needs pipeline context has had nowhere else to live — no hook to subscribe to, so it ends up as a new branch in the core file. That is not a code-quality problem; it is the direct consequence of a missing event surface. The three-platform model is the architectural prescription for this exact failure mode.
+
+---
+
+### B.21 BOS Current-State Mapping Against the Reference Models
+
+This table shows where each BOS layer sits relative to the reference models. Use it to assess whether a proposed change is aligned with the target architecture or pulling in the wrong direction.
+
+| BOS layer | Reference model equivalent | Current status |
+|---|---|---|
+| `api/capabilities/workspace/*`, `onboarding/*` | WordPress core itself — wp_query, the hook system, activation infrastructure | ✅ Correct. These are the BOS operating contract. Never candidates for the plugin model. |
+| `api/capabilities/marketing/*`, `planning/*` | WordPress bundled plugins — shipped with WP but you still activate them. Workflow opinion, not kernel contracts. | ⚠️ Currently ships as core. Should be packageable/replaceable without editing core files. |
+| `api/plugins/` (bundled source) | `/wp-content/plugins/` available but **not yet activated** | ⚠️ Intent correct. Frequently treated as auto-active in dev workflows. Must not create CMO manifest entries, Specialist cards, or credential prompts unless explicitly loaded. |
+| `~/bos-plugins/` (external install root) | Plugins the site admin installed and activated | ⚠️ Install root exists. Extension Host that governs runtime participation does not. |
+| `capability_manifest.py` | WordPress's active plugin registry (served from DB, not filesystem) | ✅ Correct. Generated at runtime from active SKILL.md. Filesystem scan alone does not determine what is live. |
+| `PluginActivation` DB row | WordPress per-site activation record | ⚠️ Model exists. Per-brand scoping and `on_activate`/`on_deactivate` lifecycle are not fully implemented. |
+| `inject_channel_credentials()` manual list in `runs.py` | WordPress `add_filter('credential_resolve', $handler)` — each plugin subscribes its own credential injector | ❌ Currently a manually maintained host-side list. Every new plugin that needs credentials requires a core file edit. Should be a hook subscription declared in `channel.json`. |
+| `chat.py` 7-step pipeline | pi's fixed ~50-line core loop that never changes | ❌ Currently 1,100+ lines. The target is a fixed 7-step contract (~100 lines) with all cross-cutting concerns moved into hook subscriptions. See B.22. |
+| `channel.json` | VS Code `package.json` `contributes` block | ⚠️ Exists as plugin metadata. Does not yet declare hook subscriptions, credential injector keys, or contribution points. Core still wires these manually. |
+| Admin → Specialists page | WordPress Admin → Plugins → Activate | ⚠️ Page exists. Does not yet enforce the installed-vs-active distinction cleanly. Bundled `api/plugins/` source can appear here before explicit activation. |
+
+---
+
+### B.22 The hook system gap is the root cause of `chat.py` growth — not a symptom
+
+This is a causal claim, not a description. Understanding the causal chain is required to avoid treating the symptom (clean up `chat.py`) instead of the cause (build the hook system).
+
+**The causal chain:**
+
+1. A plugin needs to enrich its brief before execution (e.g. inject Drive root folder, set ClickUp workspace, add brand memory slots).
+2. There is no `brief.before_dispatch` hook for the plugin to subscribe to.
+3. The only option is to add the enrichment logic in `chat.py` or `runs.py` — which is a core file.
+4. `chat.py` grows. Locked Rule #1 ("never hardcode capability logic in CMO chat") is violated not through carelessness but because the structural alternative does not exist.
+5. The next plugin adds the same pattern. The file grows again.
+
+The same chain explains `inject_channel_credentials()` as a manually maintained list, and brand-scoping logic hardcoded in `chat.py` instead of living in a `workspace.cmo_context` hook subscription.
+
+**Why cleaning `chat.py` without building hooks is a dead end:** removing the logic still leaves no structural home for it. The next plugin need reintroduces the pattern. The correct sequence is: build the hook surface → migrate existing cross-cutting concerns to first-party hook subscribers → enforce that new plugin behaviors may only reach the pipeline through declared hook subscriptions. The 7-step contract becomes achievable only after the hooks exist, not by rewriting chat.py first.
+
+**BOS guideline:** when cross-cutting concerns accumulate in `chat.py` or `runs.py`, the correct diagnosis is a missing hook point. The correct fix is adding the hook and migrating the concern, not a larger core function or a cleanup pass.
+
+---
+
+### B.23 `workspace/*` and `onboarding/*` are the BOS host operating contract — not packages
+
+This section exists because the "everything is a package" principle (Locked Rule #25) was once misread as implying that `workspace/*` and `onboarding/*` should be migrated to the plugin model. That reading is wrong and dangerous.
+
+**The correct analogy:**
+
+`workspace/cmo_context`, `workspace/scope_resolution`, `workspace/approval_review`, `workspace/cmo_artifact_boundary`, `workspace/council`, and `onboarding/*` are not packages. They are the BOS equivalent of WordPress core — they *are* the hook system and the activation infrastructure. Moving them to `~/bos-plugins/` would be like packaging WordPress's `add_action`/`add_filter` API as a plugin you have to install before other plugins work.
+
+**The test:** can this capability be removed or replaced by a third party without rewriting how the BOS pipeline identifies itself, resolves brand scope, enforces approval boundaries, or handles CMO context? If removing it requires core pipeline rewrites, it is part of the host. If removing it leaves the host intact and just changes a workflow outcome, it is a package candidate.
+
+Applying this test:
+- `workspace/scope_resolution` — governs how the CMO resolves `SCOPE:` directives and enforces brand isolation. Removing it breaks the entire multi-brand pipeline. **Core. Never a plugin.**
+- `workspace/approval_review` — governs when artifacts require human approval before action execution. Removing it disables the approval boundary. **Core. Never a plugin.**
+- `marketing/planning/strategy_workflow` — governs how marketing plans are generated and structured. Removing it means no marketing planning. A different planning approach could replace it. **Workflow opinion. Package candidate.**
+- `onboarding/brand_setup` — governs how a new brand is initialized. Part of the onboarding flow that must run correctly for any brand to be usable. **Core contract. Never a plugin.**
+
+**Why the distinction matters for security:** if `workspace/scope_resolution` were ever installed as an external plugin from `~/bos-plugins/`, a compromised plugin package could override brand scope resolution — allowing one brand's pipeline to access another's artifacts. System contracts that enforce security boundaries must be host-owned and host-version-controlled. They cannot be subject to third-party installation, versioning, or override.
+
+---
+
+### B.24 Per-brand activation: the BOS-specific deviation from pi.dev
+
+pi.dev grants trust at install time. This is correct for a single-developer coding harness where the person installing the extension controls the entire environment. It is wrong for BOS.
+
+**Why BOS activation must be per-brand, not per-install:**
+
+BOS is a multi-brand, multi-client business operating system. A marketing agency running BOS has Brand A (Klaroha) and Brand B (Motormoto) in the same workspace. A plugin installed at the workspace level (e.g. `channel.meta`) that auto-activates for all brands would make the Meta page token for Brand A's Facebook account potentially accessible to Brand B's pipeline runs. The per-brand `PluginActivation` DB record is the mechanism that prevents this.
+
+This is not a UX feature. It is the client data isolation boundary.
+
+**The model analogy:** pi uses install-time trust (single user, single environment). WordPress uses per-site activation (one WordPress install can host multiple sites with different active plugins). BOS uses per-brand activation — functionally identical to per-site WordPress activation, because each brand represents a client's business data that must not leak to another.
+
+**Practical implication for the CMO manifest:** `capability_manifest.py` serves only capabilities from plugins that are active for the current brand. A plugin installed at the workspace level but not yet activated for Brand B contributes zero capabilities to Brand B's CMO system prompt. This is what makes brand-scoped capability isolation work without any per-request filtering code — the manifest is brand-scoped at generation time.
+
+**Practical implication for third-party plugin development:** an external plugin developer should be able to install a test plugin, activate it for a staging brand, run pipeline tests against that brand, and verify it does not affect any other brand. Per-brand activation is what makes this safe. Without it, every plugin test run risks touching production brand data.

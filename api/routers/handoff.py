@@ -16,6 +16,7 @@ from models.outcome import OutcomeRecord
 from models.pending_decision import PendingDecision
 from models.workspace import Brand
 from routers.workspace import get_singleton
+from validation import NullableUUID, parse_optional_uuid
 from schemas.handoff import (
     HandoffBriefOut,
     PendingDecisionCreate,
@@ -27,9 +28,9 @@ from schemas.handoff import (
 router = APIRouter(tags=["handoff"])
 
 
-@router.get("/pending-decisions", response_model=PendingDecisionListResponse, summary="List pending decisions")
+@router.get("/pending-decisions", response_model=PendingDecisionListResponse, summary="List pending decisions", responses={404: {"description": "Brand not found"}})
 async def list_pending_decisions(
-    brand_id: Optional[uuid.UUID] = None,
+    brand_id: NullableUUID = None,
     status: Optional[str] = Query(default="open"),
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
@@ -100,7 +101,7 @@ async def create_pending_decision(
     return PendingDecisionOut.model_validate(pending)
 
 
-@router.post("/pending-decisions/{pending_id}/resolve", response_model=PendingDecisionOut, summary="Resolve a pending decision")
+@router.post("/pending-decisions/{pending_id}/resolve", response_model=PendingDecisionOut, summary="Resolve a pending decision", responses={404: {"description": "Pending decision not found"}})
 async def resolve_pending_decision(
     pending_id: uuid.UUID,
     body: PendingDecisionResolve,
@@ -136,18 +137,20 @@ async def resolve_pending_decision(
 
 @router.get("/handoff/brief", response_model=HandoffBriefOut, summary="Generate handoff brief on demand")
 async def get_handoff_brief(
-    brand_id: Optional[uuid.UUID] = None,
+    brand_id: NullableUUID = None,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
     ws = await get_singleton(db)
     if not ws:
         raise HTTPException(status_code=412, detail="Workspace not initialized")
-    await _validate_brand_scope(db, ws.id, brand_id)
+    parsed_brand_id = brand_id
+    if parsed_brand_id is not None:
+        await _require_brand(db, ws.id, parsed_brand_id)
 
     objective_filters = [Objective.workspace_id == ws.id]
-    if brand_id is not None:
-        objective_filters.append(Objective.brand_id == brand_id)
+    if parsed_brand_id is not None:
+        objective_filters.append(Objective.brand_id == parsed_brand_id)
     objectives = (
         await db.execute(select(Objective).where(*objective_filters).order_by(Objective.updated_at.desc()).limit(5))
     ).scalars().all()
@@ -156,11 +159,11 @@ async def get_handoff_brief(
     memory_filters = [MemoryEvent.workspace_id == ws.id]
     decision_filters = [DecisionBrief.workspace_id == ws.id]
     pending_filters = [PendingDecision.workspace_id == ws.id, PendingDecision.status == "open"]
-    if brand_id is not None:
-        shared_filters.append(OutcomeRecord.brand_id == brand_id)
-        memory_filters.append(MemoryEvent.brand_id == brand_id)
-        decision_filters.append(DecisionBrief.brand_id == brand_id)
-        pending_filters.append(PendingDecision.brand_id == brand_id)
+    if parsed_brand_id is not None:
+        shared_filters.append(OutcomeRecord.brand_id == parsed_brand_id)
+        memory_filters.append(MemoryEvent.brand_id == parsed_brand_id)
+        decision_filters.append(DecisionBrief.brand_id == parsed_brand_id)
+        pending_filters.append(PendingDecision.brand_id == parsed_brand_id)
 
     outcomes = (await db.execute(select(OutcomeRecord).where(*shared_filters).order_by(OutcomeRecord.recorded_at.desc()).limit(8))).scalars().all()
     memories = (await db.execute(select(MemoryEvent).where(*memory_filters).order_by(MemoryEvent.timestamp.desc()).limit(20))).scalars().all()
@@ -174,7 +177,7 @@ async def get_handoff_brief(
     recommended_first_action = _recommended_first_action(pending, decision_briefs, outcomes)
 
     return HandoffBriefOut(
-        brand_id=brand_id,
+        brand_id=parsed_brand_id,
         generated_at=datetime.now(UTC),
         active_objectives=[
             {
@@ -230,7 +233,10 @@ async def _validate_brand_scope(db: AsyncSession, workspace_id: uuid.UUID, brand
         return
     brand_count = (await db.execute(select(func.count()).select_from(Brand).where(Brand.workspace_id == workspace_id))).scalar_one()
     if brand_count:
-        raise HTTPException(status_code=400, detail="brand_id is required when brands exist in this workspace")
+        raise HTTPException(
+            status_code=422,
+            detail=[{"loc": ["query", "brand_id"], "msg": "brand_id is required when brands exist in this workspace", "type": "value_error"}],
+        )
 
 
 def _performance_summary(outcomes: list[OutcomeRecord], decision_briefs: list[DecisionBrief]) -> str:

@@ -5,6 +5,9 @@
 - [PROJECT_BRIEF.md](../PROJECT_BRIEF.md) - Project overview and current status
 - [BITE.md](../BITE.md) - System architecture constitution
 - [BACKLOG.md](../BACKLOG.md) - Development backlog and task tracking
+- [ai_providers.md](../ai_providers.md) - AI Providers & Fallback Routing Mechanism Design
+- [agency_day_in_life.md](agency_day_in_life.md) - Agency business leader cadence + BOS coverage map (living requirements guide)
+
 
 ## Plugin Documentation
 

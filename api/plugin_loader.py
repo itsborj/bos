@@ -72,8 +72,8 @@ class PluginConnectionManifest(BaseModel):
     token_url: Optional[str] = None
     scopes: List[str] = Field(default_factory=list)
     scope_separator: str = " "
-    client_id_var: str = "CLIENT_ID"
-    client_secret_var: str = "CLIENT_SECRET"
+    client_id_var: Optional[str] = None
+    client_secret_var: Optional[str] = None
     redirect_uri_var: Optional[str] = None
     callback_path: Optional[str] = None
     auth_client_param: str = "client_id"
@@ -142,6 +142,32 @@ class ChannelPluginManifest(BaseModel):
     provider_options: List[dict] = Field(default_factory=list)
     # T091: plugin-declared workspace discovery endpoint
     workspace_discovery_url: Optional[str] = None
+    # Plugin-declared preferred AI backend — activates on install without admin config.
+    # Format: {"provider": "openrouter", "model_id": "openai/gpt-4o-mini", "strict": false}
+    default_backend: Optional[dict] = None
+    # Declarative hook subscriptions. Each entry:
+    #   hook       — published hook name, e.g. "brief.before_dispatch"
+    #   handler    — dotted path from plugin root, e.g. "hooks.on_brief_before_dispatch"
+    #   applies_to — optional list of module_ids; omit to apply to all dispatches
+    #   priority   — optional int, default 10 (lower fires first)
+    hook_subscriptions: List[dict] = Field(default_factory=list)
+
+
+def _version_tuple(value: str) -> tuple[int, ...]:
+    parts: list[int] = []
+    for raw in str(value or "").replace("-", ".").split("."):
+        digits = "".join(ch for ch in raw if ch.isdigit())
+        parts.append(int(digits or 0))
+    return tuple(parts or [0])
+
+
+def _version_lt(left: str, right: str) -> bool:
+    l_parts = list(_version_tuple(left))
+    r_parts = list(_version_tuple(right))
+    width = max(len(l_parts), len(r_parts))
+    l_parts.extend([0] * (width - len(l_parts)))
+    r_parts.extend([0] * (width - len(r_parts)))
+    return tuple(l_parts) < tuple(r_parts)
 
 
 def required_plugin_vars(manifest: ChannelPluginManifest) -> list[str]:
@@ -202,9 +228,9 @@ def load_plugin(plugin_dir: Path, source: str = "internal") -> Optional["_Plugin
     if isinstance(raw, dict) and not raw.get("credential_slots"):
         legacy_slots: list[dict] = []
         for platform in raw.get("requires_social_connection") or []:
-            legacy_slots.append({"type": "social_token", "platform": platform})
+            legacy_slots.append({"key": "access_token", "type": "social_token", "platform": platform})
         for var in raw.get("requires_platform_vars") or []:
-            legacy_slots.append({"type": "platform_var", "var": var})
+            legacy_slots.append({"key": str(var).lower(), "type": "platform_var", "var": var})
         if legacy_slots:
             raw = {**raw, "credential_slots": legacy_slots}
             log.debug("Plugin %s: converted legacy credential fields → credential_slots", plugin_id_raw)
@@ -221,7 +247,7 @@ def load_plugin(plugin_dir: Path, source: str = "internal") -> Optional["_Plugin
             }
         return None
 
-    if manifest.klaroha_min_version > _KLAROHA_VERSION:
+    if _version_lt(_KLAROHA_VERSION, manifest.klaroha_min_version):
         reason = (
             f"incompatible_klaroha_version: requires >= {manifest.klaroha_min_version}"
             f" (current: {_KLAROHA_VERSION})"
@@ -295,6 +321,14 @@ def _scan_root(root: Path, source: str) -> list[_PluginState]:
         for connection in state.manifest.connections:
             if connection.platform:
                 _connection_to_plugin[connection.platform] = state.manifest.plugin_id
+
+        if state.manifest.hook_subscriptions:
+            from hooks import register_plugin_hooks
+            register_plugin_hooks(
+                state.manifest.plugin_id,
+                state.root_path,
+                state.manifest.hook_subscriptions,
+            )
 
         log.info(
             "Plugin loaded [%s]: %s v%s — %d capabilities",
@@ -440,6 +474,15 @@ def get_plugin_connection(platform: str) -> Optional[Tuple["_PluginState", Plugi
 def get_plugin_id_for_connection(platform: str) -> Optional[str]:
     found = get_plugin_connection(platform)
     return found[0].manifest.plugin_id if found else None
+
+
+def get_plugin_default_backend(target: str):
+    """Return a BackendRef if the plugin owning `target` declares a default_backend in channel.json."""
+    from model_overrides import parse_backend_ref
+    state = get_plugin_for_module(target)
+    if not state or not state.manifest.default_backend:
+        return None
+    return parse_backend_ref(state.manifest.default_backend)
 
 
 def _plugin_provider_key(plugin_id: str) -> str:
@@ -600,13 +643,18 @@ async def _resolve_slot(
                     break
             if not provider_val:
                 return
+            from executor import get_platform_key
             from provider_auth import resolve_stored_provider_credential
             from routers.workspace import get_singleton as _get_ws
             ws = await _get_ws(db)
             if ws:
-                pk, _ = await resolve_stored_provider_credential(db, ws.id, provider_val, settings)
+                pk, auth_mode = await resolve_stored_provider_credential(db, ws.id, provider_val, settings, brand_id=brand_id)
+                if not pk:
+                    pk = get_platform_key(provider_val, settings)
+                    auth_mode = "platform" if pk else None
                 if pk:
                     credentials[slot.key] = pk
+                    credentials[f"{slot.key}_auth_mode"] = auth_mode
 
     except Exception as exc:
         log.warning("inject credential slot [%s/%s]: %s", slot.type, slot.key, exc)
@@ -642,6 +690,19 @@ async def inject_channel_credentials(
     for slot in slots:
         if slot.type != "backend_provider_api_key":
             await _resolve_slot(slot, credentials, brand_id, db, settings, db_vars, slots)
+
+    # Fallback: seed un-resolved provider/model slots from default_backend declared in
+    # channel.json. This unblocks plugins (e.g. media.image, media.video) that default
+    # to a specific provider/model without requiring an explicit admin backend override.
+    _db = state.manifest.default_backend or {}
+    if isinstance(_db, dict) and _db.get("provider"):
+        _db_provider = str(_db["provider"]).strip()
+        _db_model = str(_db.get("model_id") or _db.get("model") or "").strip()
+        for _s in slots:
+            if _s.type == "backend_override_provider" and _s.key not in credentials and _db_provider:
+                credentials[_s.key] = _db_provider
+            elif _s.type == "backend_override_model" and _s.key not in credentials and _db_model:
+                credentials[_s.key] = _db_model
 
     # Second pass: backend_provider_api_key (depends on provider resolved above)
     for slot in slots:

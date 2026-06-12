@@ -56,7 +56,7 @@ async def create_intent_contract(
     return await create_contract(db, data)
 
 
-@router.get("/intents/{intent_id}", response_model=IntentContractOut, summary="Get intent contract detail")
+@router.get("/intents/{intent_id}", response_model=IntentContractOut, summary="Get intent contract detail", responses={404: {"description": "Intent not found"}})
 async def get_intent_contract(
     intent_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
@@ -126,6 +126,7 @@ async def set_intent_for_campaign(
     "/campaigns/{campaign_id}/intent",
     response_model=CampaignIntentOut,
     summary="Get active campaign intent",
+    responses={404: {"description": "Campaign or intent not found"}},
 )
 async def get_intent_for_campaign(
     campaign_id: uuid.UUID,

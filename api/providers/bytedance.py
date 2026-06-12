@@ -12,7 +12,7 @@ _POLL_TIMEOUT = 180.0
 
 
 class ByteDanceAdapter(OpenAICompatAdapter):
-    """BytePlus ModelArk adapter — supports text completions and async video generation."""
+    """BytePlus adapter — supports text completions and async video generation."""
 
     provider_id = "bytedance"
 
@@ -83,8 +83,8 @@ class ByteDanceAdapter(OpenAICompatAdapter):
                     )
                 if status in ("failed", "cancelled"):
                     raise RuntimeError(
-                        f"ByteDance video generation {status}: {data.get('error', {})}"
+                        f"BytePlus video generation {status}: {data.get('error', {})}"
                     )
         raise TimeoutError(
-            f"ByteDance video generation timed out after {_POLL_TIMEOUT}s (task {task_id})"
+            f"BytePlus video generation timed out after {_POLL_TIMEOUT}s (task {task_id})"
         )

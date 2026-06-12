@@ -14,22 +14,35 @@ while IFS= read -r line; do
   [[ -z "$key" ]] && continue
   if ! grep -qE "^${key}=" .env.staging 2>/dev/null; then
     default_val="${line#*=}"
+    # Never deploy public/example secrets copied from .env.example. Optional
+    # third-party API keys may remain blank, but BOS-owned secrets must be
+    # generated or explicitly supplied by staging secrets.
+    case "$key" in
+      ENCRYPTION_KEY)
+        generated=$(python3 -c "import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())")
+        echo "ENCRYPTION_KEY=${generated}" >> .env.staging
+        echo "  generated Fernet-compatible ENCRYPTION_KEY"
+        continue
+        ;;
+      API_SECRET_KEY|KLAROHA_RELAY_KEY|RELAY_KEY)
+        if [[ -z "$default_val" || "$default_val" == *"change-me"* || "$default_val" == *"example"* ]]; then
+          CRITICAL_MISSING+=("$key")
+          echo "  missing required secret: ${key}"
+          continue
+        fi
+        ;;
+      DATABASE_URL)
+        if [[ -z "$default_val" || "$default_val" == *"bos:bos"* ]]; then
+          CRITICAL_MISSING+=("$key")
+          echo "  missing required non-default DATABASE_URL"
+          continue
+        fi
+        ;;
+    esac
+
     echo "${key}=${default_val}" >> .env.staging
     echo "  auto-filled: ${key}"
-    # Only block deploy for keys that have no usable default and no generator
     case "$key" in
-      DATABASE_URL|API_SECRET_KEY)
-        if [[ -z "$default_val" ]]; then
-          CRITICAL_MISSING+=("$key")
-        fi
-        ;;
-      ENCRYPTION_KEY)
-        if [[ -z "$default_val" ]]; then
-          generated=$(python3 -c "import base64, secrets; print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())")
-          sed -i "s|^ENCRYPTION_KEY=.*|ENCRYPTION_KEY=${generated}|" .env.staging
-          echo "  generated Fernet-compatible ENCRYPTION_KEY"
-        fi
-        ;;
       FRONTEND_URL)
         # Override localhost default with the actual staging domain
         if [[ "$default_val" == *"localhost"* ]]; then
@@ -40,6 +53,26 @@ while IFS= read -r line; do
     esac
   fi
 done < .env.example
+
+# Fail closed if staging already contains public/default BOS-owned secrets.
+_get_env_value() { grep -E "^$1=" .env.staging 2>/dev/null | tail -1 | cut -d= -f2-; }
+_api_secret="$(_get_env_value API_SECRET_KEY)"
+_relay_secret="$(_get_env_value KLAROHA_RELAY_KEY)"
+_legacy_relay_secret="$(_get_env_value RELAY_KEY)"
+_db_url="$(_get_env_value DATABASE_URL)"
+for pair in \
+  "API_SECRET_KEY:${_api_secret}" \
+  "KLAROHA_RELAY_KEY:${_relay_secret}" \
+  "RELAY_KEY:${_legacy_relay_secret}"; do
+  key="${pair%%:*}"
+  val="${pair#*:}"
+  if [[ -z "$val" || "$val" == *"change-me"* || "$val" == *"example"* ]]; then
+    CRITICAL_MISSING+=("$key")
+  fi
+done
+if [[ -z "$_db_url" || "$_db_url" == *"bos:bos"* ]]; then
+  CRITICAL_MISSING+=("DATABASE_URL")
+fi
 
 if [[ ${#CRITICAL_MISSING[@]} -gt 0 ]]; then
   echo ""

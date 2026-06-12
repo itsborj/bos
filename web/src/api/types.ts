@@ -215,6 +215,11 @@ export interface StreamRefreshOut {
   message: string;
 }
 
+export interface StreamBulkDismissOut {
+  dismissed: number;
+  message: string;
+}
+
 export interface CapabilityInfo {
   key: string;
   modality: string;
@@ -232,6 +237,13 @@ export interface CapabilityInfo {
   }>;
 }
 
+export interface FallbackModel {
+  provider: string;
+  model_id?: string | null;
+  tool_id?: string | null;
+  routing_hints?: Record<string, unknown>;
+}
+
 export interface BackendOverride {
   target: string;
   provider: string;
@@ -239,6 +251,8 @@ export interface BackendOverride {
   tool_id?: string | null;
   modality: string;
   strict: boolean;
+  fallbacks: FallbackModel[];
+  routing_hints: Record<string, unknown>;
   source: string;
   created_at?: string | null;
   updated_at?: string | null;
@@ -275,6 +289,7 @@ export interface ProviderInfo {
 export interface KeyListItem {
   provider: string;
   brand_id?: string | null;
+  auth_mode: string;
   created_at: string;
 }
 
@@ -284,6 +299,16 @@ export interface BillingSummary {
   total_provider_cost: number;
   total_sell_price: number;
   total_tokens: number;
+  platform_provider_cost?: number;
+  byok_provider_cost?: number;
+  oauth_provider_cost?: number;
+  external_provider_cost?: number;
+  platform_tokens?: number;
+  byok_tokens?: number;
+  oauth_tokens?: number;
+  gross_margin?: number;
+  missing_sell_price_runs?: number;
+  missing_sell_price_provider_cost?: number;
 }
 
 export interface ApiKeyCreated {
@@ -561,6 +586,14 @@ export interface BrandListResponse {
   total: number;
 }
 
+export interface CampaignOut {
+  id: string;
+  name: string;
+  status: string;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface SocialConnectionResponse {
   id: string;
   brand_id: string | null;
@@ -636,6 +669,7 @@ export interface CouncilSeat {
   provider: string;
   model_id: string | null;
   ideology: string | null;
+  config_error?: string | null;
 }
 
 export interface CouncilSeatUpdate {

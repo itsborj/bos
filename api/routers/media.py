@@ -11,7 +11,7 @@ router = APIRouter(prefix="/media", tags=["media"])
 _ALLOWED_VIDEO = re.compile(r"^(bos_shortform_[a-f0-9]{12}|bos_video_[a-z0-9]+)\.mp4$")
 
 
-@router.get("/video/{filename}")
+@router.get("/video/{filename}", responses={404: {"description": "Video not found or invalid filename"}})
 async def serve_video(filename: str) -> FileResponse:
     """Serve a rendered shortform video from /tmp. No auth — UUID filename is unguessable."""
     if not _ALLOWED_VIDEO.match(filename):

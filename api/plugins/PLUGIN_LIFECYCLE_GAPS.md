@@ -262,7 +262,7 @@ Both agents agree:
 
 ### Addition: Credential scope risk exists alongside activation scope risk
 
-With `brand_id=NULL` activation, `media.image` (ByteDance key, workspace-level credential) will serve any brand. In a single-brand deployment this is harmless. In a multi-brand deployment, Brand B would use the same ByteDance key as Brand A — including for billing. Credential rows in `provider_keys` are currently workspace-scoped (no `brand_id` on the ByteDance row). Activation scope and credential scope are separate concerns that both need to be addressed for multi-brand.
+With `brand_id=NULL` activation, `media.image` (BytePlus key, workspace-level credential) will serve any brand. In a single-brand deployment this is harmless. In a multi-brand deployment, Brand B would use the same BytePlus key as Brand A — including for billing. Credential rows in `provider_keys` are currently workspace-scoped (no `brand_id` on the BytePlus row). Activation scope and credential scope are separate concerns that both need to be addressed for multi-brand.
 
 ### Addition: The near-term visibility fix is a move, but lifecycle fixes are still required
 

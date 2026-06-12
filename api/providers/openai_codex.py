@@ -20,13 +20,12 @@ class OpenAICodexAdapter:
         self._base_url = _BASE_URL
         self._account_id = _extract_account_id(access_token)
 
-    async def complete(self, prompt: str, model_id: str) -> ProviderResponse:
+    async def complete(self, prompt: str, model_id: str, extra_body: dict | None = None) -> ProviderResponse:
         return await self.complete_messages([
             {"role": "user", "content": prompt}
-        ], model_id)
+        ], model_id, extra_body=extra_body)
 
-
-    async def complete_messages(self, messages: List[Dict], model_id: str) -> ProviderResponse:
+    async def complete_messages(self, messages: List[Dict], model_id: str, extra_body: dict | None = None) -> ProviderResponse:
         instructions, input_items = _convert_messages(messages)
         headers = {
             "Authorization": f"Bearer {self._access_token}",

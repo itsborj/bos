@@ -1,7 +1,6 @@
 import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
-from config import get_settings
 from db import get_session_factory
 from routers.runs import list_runs
 from routers.providers import list_providers
@@ -9,7 +8,6 @@ from schemas.runs import RunListResponse
 from schemas.providers import ProviderInfo
 
 async def test_admin_logic():
-    settings = get_settings()
     async with get_session_factory()() as db:
         # 1. Test list_runs logic
         print("Testing list_runs logic...")

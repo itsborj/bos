@@ -389,7 +389,7 @@ class YouTubeOAuthHandler:
     provider = "youtube"
     display_name = "YouTube"
 
-    async def start_login(self, settings) -> LoginStart:
+    async def start_login(self, settings, overrides: dict | None = None) -> LoginStart:
         if not settings.google_client_id:
             raise ValueError("GOOGLE_CLIENT_ID is not configured")
         if not settings.google_client_secret:
@@ -499,7 +499,7 @@ class GoogleDriveOAuthHandler:
     provider = "google_drive"
     display_name = "Google Drive"
 
-    async def start_login(self, settings) -> LoginStart:
+    async def start_login(self, settings, overrides: dict | None = None) -> LoginStart:
         if not settings.google_client_id:
             raise ValueError("GOOGLE_CLIENT_ID is not configured")
         if not settings.google_client_secret:
@@ -921,40 +921,45 @@ class GoogleBusinessOAuthHandler:
                 )
                 if r.status_code == 200:
                     accounts = r.json().get("accounts", [])
-                    if accounts:
-                        account_name = accounts[0]["name"]
-                    else:
+                    if not accounts:
                         gbp_error = "no_account_returned"
+                    else:
+                        gbp_error = "no_location_returned"
+                    for account in accounts:
+                        candidate_account = account.get("name")
+                        if not candidate_account:
+                            continue
+                        loc = await client.get(
+                            f"{_GBP_INFO_BASE}/{candidate_account}/locations",
+                            params={"readMask": "name,title"},
+                            headers={"Authorization": f"Bearer {access_token}"},
+                        )
+                        if loc.status_code == 200:
+                            locations = loc.json().get("locations", [])
+                            if locations:
+                                account_name = candidate_account
+                                location_name = locations[0]["name"]
+                                business_name = locations[0].get("title", "")
+                                gbp_error = None
+                                break
+                        else:
+                            try:
+                                gbp_error = (
+                                    (loc.json().get("error") or {}).get("message")
+                                    or f"locations_http_{loc.status_code}"
+                                )
+                            except Exception:
+                                gbp_error = f"locations_http_{loc.status_code}"
                 else:
                     try:
-                        gbp_error = (r.json().get("error") or {}).get("message") or f"accounts_http_{r.status_code}"
+                        gbp_error = (
+                            (r.json().get("error") or {}).get("message")
+                            or f"accounts_http_{r.status_code}"
+                        )
                     except Exception:
                         gbp_error = f"accounts_http_{r.status_code}"
         except Exception as exc:
-            gbp_error = f"accounts_request_failed: {exc}"
-
-        if account_name:
-            try:
-                async with httpx.AsyncClient(timeout=10.0) as client:
-                    r = await client.get(
-                        f"{_GBP_INFO_BASE}/{account_name}/locations",
-                        params={"readMask": "name,title"},
-                        headers={"Authorization": f"Bearer {access_token}"},
-                    )
-                    if r.status_code == 200:
-                        locations = r.json().get("locations", [])
-                        if locations:
-                            location_name = locations[0]["name"]
-                            business_name = locations[0].get("title", "")
-                        else:
-                            gbp_error = "no_location_returned"
-                    else:
-                        try:
-                            gbp_error = (r.json().get("error") or {}).get("message") or f"locations_http_{r.status_code}"
-                        except Exception:
-                            gbp_error = f"locations_http_{r.status_code}"
-            except Exception as exc:
-                gbp_error = f"locations_request_failed: {exc}"
+            gbp_error = f"gbp_request_failed: {exc}"
 
         expires_in = token_data.get("expires_in", 3600)
         return OAuthCredential(

@@ -4,7 +4,6 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, List, Dict, Tuple, Optional
 
-from typing import Optional
 from pydantic import BaseModel, Field
 
 SkillScope = Literal[

@@ -260,7 +260,7 @@ def sync(token: str, team_id: str, target_list_name: str, dry_run: bool) -> None
                 }
             )
 
-    print(f"\nSync plan:")
+    print("\nSync plan:")
     print(f"  Already in sync : {already_synced}")
     print(f"  Status updates  : {len(to_update)}")
     print(f"  New tasks       : {len(to_create)}")
@@ -348,7 +348,7 @@ def sync(token: str, team_id: str, target_list_name: str, dry_run: bool) -> None
         time.sleep(WRITE_DELAY)
 
     total_errors = len(update_errors) + len(create_errors)
-    print(f"\n─────────────────────────────────")
+    print("\n─────────────────────────────────")
     print(f"Updated : {updated} / {len(to_update)}")
     print(f"Created : {created} / {len(to_create)}")
     print(f"Errors  : {total_errors}")

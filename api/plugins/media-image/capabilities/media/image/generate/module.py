@@ -88,10 +88,8 @@ class MediaImageGenerateModule(ChannelModule):
                     "constraints_applied": constraints_applied,
                     "constraints_excerpt": brand_constraints[:300] if brand_constraints else None,
                 },
-                "allowed_actions": ["publish_facebook", "use", "regenerate", "dismiss"],
-                "action_modules": {
-                    "publish_facebook": "marketing.channel.meta.posts.publish",
-                },
+                "allowed_actions": ["use", "regenerate", "dismiss"],
+                "action_modules": {},
             },
         }
 
@@ -154,27 +152,33 @@ class MediaImageGenerateModule(ChannelModule):
         with urlopen(img_req, timeout=60) as r:
             return r.read(), "image/png"
 
-    def _generate_gemini(self, api_key: str, prompt: str, model: str | None = None) -> tuple[bytes, str]:
+    def _generate_gemini(self, api_key: str, prompt: str, model: str | None = None, *, auth_mode: str | None = None) -> tuple[bytes, str]:
         m = (model or _GEMINI_IMAGE_MODEL_DEFAULT).strip()
+        if auth_mode == "oauth":
+            auth_headers: dict = {"Authorization": f"Bearer {api_key}"}
+            key_param = ""
+        else:
+            auth_headers = {}
+            key_param = f"?key={api_key}"
 
         if m.startswith("imagen-"):
             # Imagen 4+ uses predict endpoint (requires paid Gemini plan)
             data = self._http_post(
-                f"{_GEMINI_GEN_BASE}/{m}:predict?key={api_key}",
+                f"{_GEMINI_GEN_BASE}/{m}:predict{key_param}",
                 {"instances": [{"prompt": prompt}], "parameters": {"sampleCount": 1}},
-                {},
+                auth_headers,
             )
             pred = data["predictions"][0]
             return base64.b64decode(pred["bytesBase64Encoded"]), pred.get("mimeType", "image/png")
 
         # generateContent path — gemini-2.5-flash-image et al. (standard Gemini API tier)
         data = self._http_post(
-            f"{_GEMINI_GEN_BASE}/{m}:generateContent?key={api_key}",
+            f"{_GEMINI_GEN_BASE}/{m}:generateContent{key_param}",
             {
                 "contents": [{"parts": [{"text": prompt}]}],
                 "generationConfig": {"responseModalities": ["TEXT", "IMAGE"]},
             },
-            {},
+            auth_headers,
             timeout=60,
         )
         parts = data["candidates"][0]["content"]["parts"]
@@ -185,8 +189,8 @@ class MediaImageGenerateModule(ChannelModule):
         raise ValueError(f"Gemini image response contained no inlineData; parts: {[list(p) for p in parts]}")
 
     def _generate_bytedance(self, api_key: str, prompt: str, model: str | None = None) -> tuple[bytes, str]:
-        """Generate an image via ByteDance ModelArk (Seedream) using the OpenAI-compatible images endpoint."""
-        model_id = model or "seedream-4-5-t2i-250528"
+        """Generate an image via BytePlus (Seedream) using the OpenAI-compatible images endpoint."""
+        model_id = model or "seedream-4-5-251128"
         payload = json.dumps({
             "model": model_id,
             "prompt": prompt,
@@ -307,14 +311,15 @@ class MediaImageGenerateModule(ChannelModule):
             elif provider == "gemini":
                 api_key = str(creds.get("provider_api_key") or creds.get("image_gen_api_key") or "").strip()
                 if not api_key:
-                    return self._failure(start, "missing_credentials", "Gemini platform key not configured — set PLATFORM_GEMINI_KEY", provider)
+                    return self._failure(start, "missing_credentials", "Gemini platform key not configured — set PLATFORM_GEMINI_KEY or connect via Admin → AI Providers → Login", provider)
                 gemini_model = str(creds.get("image_gen_model") or "").strip() or None
-                image_bytes, mime = self._generate_gemini(api_key, prompt, model=gemini_model)
+                gemini_auth_mode = str(creds.get("provider_api_key_auth_mode") or "").strip() or None
+                image_bytes, mime = self._generate_gemini(api_key, prompt, model=gemini_model, auth_mode=gemini_auth_mode)
 
             elif provider == "bytedance":
                 api_key = str(creds.get("provider_api_key") or creds.get("image_gen_api_key") or "").strip()
                 if not api_key:
-                    return self._failure(start, "missing_credentials", "ByteDance ModelArk API key not configured — add it via Admin → AI Providers", provider)
+                    return self._failure(start, "missing_credentials", "BytePlus API key not configured — add it via Admin → AI Providers", provider)
                 bd_model = str(creds.get("image_gen_model") or "").strip() or None
                 image_bytes, mime = self._generate_bytedance(api_key, prompt, model=bd_model)
 

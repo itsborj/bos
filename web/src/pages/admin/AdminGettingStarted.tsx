@@ -1,95 +1,103 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { OnboardingStatus, ProviderInfo, RunListResponse, WorkspaceResponse } from '../../api/types';
+import type { BrandResponse, OnboardingStatus, ProviderInfo } from '../../api/types';
 
-type Step = {
-  label: string;
-  done: boolean;
-  hint: string;
+type BrandReadiness = {
+  brand: BrandResponse;
+  status: OnboardingStatus | null;
 };
+
+function StatusDot({ done, label }: { done: boolean; label: string }) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+      <span
+        style={{
+          width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
+          background: done ? 'var(--success, #16a34a)' : 'var(--text3, #94a3b8)',
+        }}
+      />
+      <span style={{ fontSize: 12, color: done ? 'var(--text)' : 'var(--text2)' }}>{label}</span>
+    </div>
+  );
+}
+
+function BrandReadinessCard({ item }: { item: BrandReadiness }) {
+  const navigate = useNavigate();
+  const { brand, status } = item;
+
+  const briefDone   = status?.brand_profile_configured ?? false;
+  const kitDone     = status?.campaign_brand_kit_approved ?? false;
+  const readyCount  = [briefDone, kitDone].filter(Boolean).length;
+  const fullyReady  = briefDone && kitDone;
+
+  function nextAction() {
+    if (!briefDone) return navigate('/admin/onboarding', { state: { brand_id: brand.id, brand_name: brand.name } });
+    if (!kitDone)   return navigate('/admin/onboarding', { state: { brand_id: brand.id, brand_name: brand.name } });
+    navigate(`/admin/brands/${brand.id}`);
+  }
+
+  function nextLabel() {
+    if (!briefDone) return 'Import Brief →';
+    if (!kitDone)   return 'Approve Brand Kit →';
+    return 'View Brand →';
+  }
+
+  return (
+    <div
+      style={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: '14px 0',
+        borderBottom: '1px solid var(--border)',
+        gap: 16,
+        flexWrap: 'wrap',
+      }}
+    >
+      <div style={{ minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+          <span style={{ fontWeight: 700, fontSize: 14 }}>{brand.name}</span>
+          {brand.domain && <span style={{ fontSize: 11, color: 'var(--text2)' }}>{brand.domain}</span>}
+          {fullyReady && <span className="badge badge-success" style={{ fontSize: 10 }}>Ready</span>}
+          {!fullyReady && <span className="badge badge-warning" style={{ fontSize: 10 }}>{readyCount}/2 steps</span>}
+        </div>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          <StatusDot done={briefDone} label="Brief imported" />
+          <StatusDot done={kitDone}   label="Brand kit approved" />
+        </div>
+      </div>
+      <button
+        className={`btn btn-sm ${fullyReady ? 'btn-secondary' : 'btn-dark'}`}
+        style={{ flexShrink: 0 }}
+        onClick={nextAction}
+      >
+        {nextLabel()}
+      </button>
+    </div>
+  );
+}
 
 export function AdminGettingStarted() {
   const navigate = useNavigate();
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
-  const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
-  const [runs, setRuns] = useState<RunListResponse | null>(null);
-  const [onboarding, setOnboarding] = useState<OnboardingStatus | null>(null);
+  const [brandItems, setBrandItems] = useState<BrandReadiness[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       api.getProviders().catch(() => ({ providers: [] as ProviderInfo[] })),
-      api.getWorkspace().catch(() => null),
-      api.getRuns({ limit: 1 }).catch(() => ({ runs: [], total: 0, limit: 1, offset: 0 })),
-      api.getOnboardingStatus().catch(() => null),
-    ]).then(([provResult, ws, runResult, onboardingResult]) => {
+      api.getBrands().catch(() => ({ brands: [] as BrandResponse[], total: 0 })),
+    ]).then(async ([provResult, brandResult]) => {
       setProviders(provResult.providers ?? []);
-      setWorkspace(ws);
-      setRuns(runResult);
-      setOnboarding(onboardingResult);
-      setLoading(false);
-    });
+
+      const brands = brandResult.brands ?? [];
+      const statuses = await Promise.all(
+        brands.map(b => api.getOnboardingStatus(b.id).catch(() => null))
+      );
+      setBrandItems(brands.map((b, i) => ({ brand: b, status: statuses[i] })));
+    }).finally(() => setLoading(false));
   }, []);
-
-  const openai = providers.find((p) => p.provider === 'openai') ?? null;
-  const brandImported = Boolean(
-    workspace?.brand?.voice ||
-    workspace?.brand?.tone ||
-    workspace?.brand?.values?.length ||
-    workspace?.products?.length ||
-    workspace?.audiences?.length,
-  );
-  const brandKitApproved = onboarding?.campaign_brand_kit_approved === true;
-  const firstRunDone = (runs?.total ?? 0) > 0;
-
-  const steps = useMemo<Step[]>(() => [
-    {
-      label: 'Connect AI Provider',
-      done: openai?.connected === true,
-      hint: openai?.connected ? 'OpenAI login is connected.' : 'Use login auth or an API key to activate BOS.',
-    },
-    {
-      label: 'Import brand brief',
-      done: brandImported,
-      hint: brandImported
-        ? 'Brand context has been extracted.'
-        : 'Import a brief for your organization or a brand — BOS will guide the setup.',
-    },
-    {
-      label: 'Review brand profile',
-      done: brandImported && Boolean(workspace?.name),
-      hint: workspace?.name
-        ? `Organization: ${workspace.name}`
-        : 'Confirm the extracted brand, products, and audiences are correct before running campaigns.',
-    },
-    {
-      label: 'Approve Campaign Brand Kit',
-      done: brandKitApproved,
-      hint: brandKitApproved
-        ? 'Campaign Brand Kit is approved.'
-        : 'Required for cohesive multi-platform campaigns before first launch.',
-    },
-    {
-      label: 'Create first CMO artifact',
-      done: firstRunDone,
-      hint: firstRunDone
-        ? `${runs?.total ?? 0} specialist execution${(runs?.total ?? 0) !== 1 ? 's' : ''} recorded.`
-        : 'Use the CMO to plan, execute, or optimize once setup is complete.',
-    },
-  ], [openai?.connected, brandImported, workspace?.name, brandKitApproved, firstRunDone, runs?.total]);
-
-  const nextStep = !steps[0].done
-    ? { label: 'Connect AI Provider', action: () => navigate('/admin/providers') }
-    : !steps[1].done
-      ? { label: 'Import brand brief', action: () => navigate('/admin/onboarding') }
-      : !steps[2].done
-        ? { label: 'Review brand profile', action: () => navigate('/admin/brands') }
-        : !steps[3].done
-          ? { label: 'Generate Brand Kit', action: () => navigate('/admin/onboarding') }
-          : !steps[4].done
-            ? { label: 'Go to CMO', action: () => navigate('/cmo') }
-            : { label: 'View brands', action: () => navigate('/admin/brands') };
 
   if (loading) {
     return (
@@ -99,78 +107,103 @@ export function AdminGettingStarted() {
     );
   }
 
+  const aiConnected = providers.some(p => p.connected);
+  const allBrandsReady = brandItems.length > 0 && brandItems.every(
+    item => item.status?.brand_profile_configured && item.status?.campaign_brand_kit_approved
+  );
+
   return (
     <div className="admin-page">
       <div className="admin-page-header">
         <div>
-          <div className="admin-page-title">Getting Started</div>
-          <div className="admin-page-subtitle">Teach BOS the business, approve memory, connect specialists, then operate from the CMO</div>
+          <div className="admin-page-title">Setup</div>
+          <div className="admin-page-subtitle">Platform configuration and per-brand readiness</div>
         </div>
       </div>
 
+      {/* ── Section 1: Platform setup ─────────────────────────────────────── */}
       <div className="admin-card" style={{ marginBottom: 16 }}>
-        <div className="admin-card-title">Business memory status</div>
-        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 16, alignItems: 'flex-start', flexWrap: 'wrap' }}>
+        <div className="admin-card-title" style={{ marginBottom: 4 }}>Platform setup</div>
+        <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 16 }}>
+          Done once for this deployment. Applies to all brands.
+        </div>
+        <div
+          style={{
+            display: 'flex',
+            justifyContent: 'space-between',
+            alignItems: 'center',
+            padding: '12px 0',
+          }}
+        >
           <div>
-            <div style={{ fontSize: 28, fontWeight: 800, marginBottom: 6 }}>
-              {steps.every((step) => step.done) ? 'Ready to operate' : 'Needs setup'}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
+              <span style={{ fontWeight: 600, fontSize: 14 }}>AI Provider</span>
+              <span className={`badge badge-${aiConnected ? 'success' : 'warning'}`} style={{ fontSize: 10 }}>
+                {aiConnected ? 'Connected' : 'Not connected'}
+              </span>
             </div>
-            <div style={{ fontSize: 13, color: 'var(--text2)' }}>
-              {steps.filter((step) => step.done).length} of {steps.length} setup steps complete
+            <div style={{ fontSize: 12, color: 'var(--text2)' }}>
+              {aiConnected
+                ? `${providers.filter(p => p.connected).length} provider${providers.filter(p => p.connected).length !== 1 ? 's' : ''} connected`
+                : 'Connect an AI provider or add a BYOK key to activate the CMO'}
             </div>
           </div>
-          <div style={{ minWidth: 240 }}>
-            <div className="label" style={{ marginBottom: 6 }}>Next required step</div>
-            <button className="btn btn-dark" onClick={nextStep.action}>{nextStep.label} →</button>
-          </div>
+          <button className="btn btn-sm btn-secondary" onClick={() => navigate('/admin/providers')}>
+            Manage →
+          </button>
         </div>
       </div>
 
-      <div className="admin-two-col">
-        <div className="admin-card">
-          <div className="admin-card-title">Setup checklist</div>
-          <div style={{ display: 'grid', gap: 12 }}>
-            {steps.map((step) => (
-              <div key={step.label} style={{ display: 'flex', gap: 12, alignItems: 'flex-start', paddingBottom: 12, borderBottom: '1px solid var(--border)' }}>
-                <span className={`badge badge-${step.done ? 'success' : 'warning'}`} style={{ minWidth: 34, textAlign: 'center' }}>
-                  {step.done ? '✓' : '•'}
-                </span>
-                <div>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{step.label}</div>
-                  <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 3 }}>{step.hint}</div>
-                </div>
+      {/* ── Section 2: Brand readiness ────────────────────────────────────── */}
+      <div className="admin-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+          <div className="admin-card-title" style={{ marginBottom: 0 }}>Brand readiness</div>
+          <Link to="/admin/brands" className="btn btn-ghost btn-sm">Manage brands →</Link>
+        </div>
+        <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 16 }}>
+          Each client brand needs a brief and an approved brand kit before the CMO can run campaigns.
+        </div>
+
+        {brandItems.length === 0 ? (
+          <div className="empty-state" style={{ padding: '24px 0' }}>
+            <div className="empty-state-text">No brands yet.</div>
+            <button
+              className="btn btn-dark btn-sm"
+              style={{ marginTop: 8 }}
+              onClick={() => navigate('/admin/brands')}
+            >
+              Add first brand →
+            </button>
+          </div>
+        ) : (
+          <>
+            <div>
+              {brandItems.map(item => (
+                <BrandReadinessCard key={item.brand.id} item={item} />
+              ))}
+            </div>
+            {allBrandsReady && (
+              <div
+                style={{
+                  marginTop: 16,
+                  padding: '12px 16px',
+                  background: 'var(--success-bg, #f0fdf4)',
+                  borderRadius: 8,
+                  fontSize: 13,
+                  color: 'var(--success-text, #15803d)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                }}
+              >
+                <span>All brands ready — the CMO is fully configured.</span>
+                <button className="btn btn-dark btn-sm" onClick={() => navigate('/cmo')}>
+                  Go to CMO →
+                </button>
               </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="admin-card">
-          <div className="admin-card-title">Quick actions</div>
-          <div style={{ display: 'grid', gap: 10 }}>
-            <button className="btn btn-dark" onClick={() => navigate('/admin/onboarding')}>Import Brand Brief</button>
-            <button className="btn btn-secondary" onClick={() => navigate('/admin/workspace')}>Review Brand Memory</button>
-            <button className="btn btn-secondary" onClick={() => navigate('/admin/providers')}>Manage AI Providers</button>
-            <button className="btn btn-secondary" onClick={() => navigate('/cmo')}>Go to CMO</button>
-          </div>
-          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 14 }}>
-            OpenAI Chat is the primary login-auth provider for this deployment. Other providers remain available through API keys.
-          </div>
-        </div>
-      </div>
-
-      <div className="admin-card" style={{ marginTop: 16 }}>
-        <div className="admin-card-title">Recent activity</div>
-        <div style={{ fontSize: 13, color: 'var(--text2)' }}>
-          {firstRunDone ? (
-            <>
-              {runs?.total ?? 0} specialist execution{(runs?.total ?? 0) !== 1 ? 's' : ''} recorded. <Link to="/admin/runs">View run logs →</Link>
-            </>
-          ) : (
-            <>
-              No specialist executions yet. After setup, use the CMO to create the first plan, draft, or optimization artifact.
-            </>
-          )}
-        </div>
+            )}
+          </>
+        )}
       </div>
     </div>
   );

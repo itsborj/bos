@@ -46,8 +46,9 @@ class DriveFolderSetupModule(ChannelModule):
 
         if not token:
             return fail("missing_credentials", "Google Drive not connected for this brand")
-        # Root resolved by the orchestrator from the connection (operator-picked via Picker).
-        root = str(brief.get("root_folder_id") or "").strip()
+        # Root resolved from brief override or credential slot (set by operator via Picker).
+        creds = brief.get("_channel_credentials") or {}
+        root = str(brief.get("root_folder_id") or creds.get("drive_root_folder_id") or "").strip()
         if not root:
             return fail("missing_root", "root_folder_id required — operator must pick a Drive root folder first")
         campaign = str(brief.get("campaign") or "").strip()

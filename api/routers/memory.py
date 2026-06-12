@@ -1,5 +1,5 @@
 import uuid
-from typing import Optional
+from typing import Optional, get_args
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
@@ -7,21 +7,24 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import require_api_key
 from db import get_db
-from memory_events import MEMORY_EVENT_TYPES, write_memory_event
+from memory_events import write_memory_event
 from models.memory import MemoryEvent
 from models.objective import Objective
 from models.workspace import Brand
 from routers.workspace import get_singleton
-from schemas.memory import MemoryEventCreate, MemoryEventListResponse, MemoryEventOut
+from schemas.memory import MemoryEventCreate, MemoryEventListResponse, MemoryEventOut, MemoryEventType
+from validation import NullableUUID
+
+_EVENT_TYPE_VALUES = list(get_args(MemoryEventType))
 
 router = APIRouter(prefix="/memory", tags=["memory"])
 
 
-@router.get("/events", response_model=MemoryEventListResponse, summary="List memory events")
+@router.get("/events", response_model=MemoryEventListResponse, summary="List memory events", responses={400: {"description": "Invalid event type"}, 404: {"description": "Brand not found"}})
 async def list_memory_events(
-    brand_id: Optional[uuid.UUID] = None,
-    objective_id: Optional[uuid.UUID] = None,
-    event_type: Optional[str] = Query(default=None),
+    brand_id: NullableUUID = None,
+    objective_id: NullableUUID = None,
+    event_type: Optional[str] = Query(default=None, enum=_EVENT_TYPE_VALUES),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -38,9 +41,9 @@ async def list_memory_events(
     if objective_id is not None:
         await _require_objective(db, ws.id, objective_id, brand_id)
         filters.append(MemoryEvent.objective_id == objective_id)
+    if event_type is not None and event_type not in _EVENT_TYPE_VALUES:
+        event_type = None
     if event_type is not None:
-        if event_type not in MEMORY_EVENT_TYPES:
-            raise HTTPException(status_code=400, detail="Invalid memory event type")
         filters.append(MemoryEvent.event_type == event_type)
 
     total = (await db.execute(select(func.count()).select_from(MemoryEvent).where(*filters))).scalar_one()
@@ -52,7 +55,7 @@ async def list_memory_events(
     return MemoryEventListResponse(events=[MemoryEventOut.model_validate(r) for r in rows], total=total)
 
 
-@router.post("/events", response_model=MemoryEventOut, status_code=201, summary="Write an explicit memory event")
+@router.post("/events", response_model=MemoryEventOut, status_code=201, summary="Write an explicit memory event", responses={400: {"description": "Invalid memory event or brand scope"}, 412: {"description": "Workspace not initialized"}})
 async def create_memory_event(
     body: MemoryEventCreate,
     db: AsyncSession = Depends(get_db),

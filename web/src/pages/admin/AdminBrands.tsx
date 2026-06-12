@@ -18,6 +18,13 @@ function profileComplete(brand: BrandResponse): boolean {
 
 type SocialConn = { id: string; brand_id: string | null; platform: string; page_id: string; page_name: string | null; page_handle: string | null; status: string };
 
+const CONNECT_RETURN_KEY = 'bos_connect_return';
+const SOCIAL_CALLBACK_KEYS = ['facebook', 'youtube', 'tiktok', 'google_drive', 'google_business', 'gmail', 'google_calendar'];
+
+function hasSocialCallback(params: URLSearchParams): boolean {
+  return SOCIAL_CALLBACK_KEYS.some(key => params.has(key));
+}
+
 function loadGapiPicker(): Promise<void> {
   return new Promise((resolve, reject) => {
     const w = window as unknown as { gapi?: { load: (n: string, o: { callback: () => void }) => void }; google?: { picker?: unknown } };
@@ -56,6 +63,12 @@ export function AdminBrands() {
   const [toast, setToast]               = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  useEffect(() => {
+    return () => {
+      if (toastTimer.current) clearTimeout(toastTimer.current);
+    };
+  }, []);
+
   function showToast(msg: string) {
     setToast(msg);
     if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -70,7 +83,30 @@ export function AdminBrands() {
     ]).then(([brandsRes, ws, conns]) => {
       setBrands(brandsRes.brands);
       setWorkspace(ws);
-      setConnections(conns as SocialConn[]);
+      const connList = conns as SocialConn[];
+      setConnections(connList);
+      // Populate driveRoots for brands that already have google_drive connected so
+      // the UI shows the current root folder name instead of always saying "Choose folder".
+      const driveConns = connList.filter(c => c.platform === 'google_drive' && c.brand_id);
+      if (driveConns.length > 0) {
+        Promise.allSettled(
+          driveConns.map(c =>
+            api.listDriveFolders(c.brand_id!).then(r => ({
+              brandId: c.brand_id!,
+              folder_id: r.folder_id,
+              folder_name: r.folder_name,
+            }))
+          )
+        ).then(results => {
+          const roots: Record<string, { id: string; name: string }> = {};
+          results.forEach(r => {
+            if (r.status === 'fulfilled' && r.value.folder_id && r.value.folder_id !== 'root') {
+              roots[r.value.brandId] = { id: r.value.folder_id, name: r.value.folder_name || r.value.folder_id };
+            }
+          });
+          if (Object.keys(roots).length > 0) setDriveRoots(prev => ({ ...prev, ...roots }));
+        }).catch(() => {});
+      }
     }).finally(() => setLoading(false));
   }, []);
 
@@ -78,6 +114,14 @@ export function AdminBrands() {
 
   // Handle OAuth callback params from installed connector redirects.
   useEffect(() => {
+    const returnPath = sessionStorage.getItem(CONNECT_RETURN_KEY);
+    if (returnPath && hasSocialCallback(searchParams)) {
+      sessionStorage.removeItem(CONNECT_RETURN_KEY);
+      const qs = searchParams.toString();
+      navigate(`${returnPath}${qs ? `?${qs}` : ''}`, { replace: true });
+      return;
+    }
+
     const gc = searchParams.get('google_calendar');
     if (gc) {
       const reason = searchParams.get('reason') || '';
@@ -185,7 +229,7 @@ export function AdminBrands() {
         showToast(`⚠️ Google Business Profile connection failed — ${reason.replace(/_/g, ' ')}`);
       }
     }
-  }, []);
+  }, [searchParams, setSearchParams, navigate]);
 
   async function handleCreate() {
     const name = newName.trim();
@@ -229,6 +273,7 @@ export function AdminBrands() {
   }
 
   async function handleConnectFacebook(brandId: string) {
+    sessionStorage.removeItem(CONNECT_RETURN_KEY);
     setConnectingId(brandId + '_facebook');
     try {
       const res = await api.startSocialConnect(brandId, 'facebook');
@@ -268,6 +313,7 @@ export function AdminBrands() {
   }
 
   async function handleConnectGmail(brandId: string) {
+    sessionStorage.removeItem(CONNECT_RETURN_KEY);
     setConnectingId(brandId + '_gmail');
     try {
       const res = await api.startSocialConnect(brandId, 'gmail');
@@ -281,6 +327,7 @@ export function AdminBrands() {
   }
 
   async function handleConnectYouTube(brandId: string) {
+    sessionStorage.removeItem(CONNECT_RETURN_KEY);
     setConnectingId(brandId + '_youtube');
     try {
       const res = await api.startSocialConnect(brandId, 'youtube');
@@ -307,6 +354,7 @@ export function AdminBrands() {
   }
 
   async function handleConnectTikTok(brandId: string) {
+    sessionStorage.removeItem(CONNECT_RETURN_KEY);
     setConnectingId(brandId + '_tiktok');
     try {
       const res = await api.startSocialConnect(brandId, 'tiktok');
@@ -320,6 +368,7 @@ export function AdminBrands() {
   }
 
   async function handleConnectDrive(brandId: string) {
+    sessionStorage.removeItem(CONNECT_RETURN_KEY);
     setConnectingId(brandId + '_google_drive');
     try {
       const res = await api.startSocialConnect(brandId, 'google_drive');
@@ -333,6 +382,7 @@ export function AdminBrands() {
   }
 
   async function handleConnectGoogleBusiness(brandId: string) {
+    sessionStorage.removeItem(CONNECT_RETURN_KEY);
     setConnectingId(brandId + '_google_business');
     try {
       const res = await api.startSocialConnect(brandId, 'google_business');
@@ -436,6 +486,7 @@ export function AdminBrands() {
   }
 
   async function handleConnectCalendar(brandId: string) {
+    sessionStorage.removeItem(CONNECT_RETURN_KEY);
     setConnectingId(brandId + '_calendar');
     try {
       const res = await api.startSocialConnect(brandId, 'google_calendar');
@@ -467,8 +518,8 @@ export function AdminBrands() {
     try {
       await api.deleteBrand(id);
       setBrands(prev => prev.filter(b => b.id !== id));
-    } catch {
-      // deletion failed silently; brand stays in list
+    } catch (err: unknown) {
+      showToast(`⚠️ Could not delete brand — ${err instanceof Error ? err.message : 'try again'}`);
     } finally {
       setDeletingId(null);
     }
@@ -711,10 +762,18 @@ export function AdminBrands() {
                             <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>
                               {driveRoots[brand.id]?.name ? `Root: ${driveRoots[brand.id].name}` : (gdConn.page_name || gdConn.page_id)}
                             </span>
-                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
-                            <button className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleChooseDriveFolder(brand.id)}>
-                              {driveRoots[brand.id] ? 'Change folder' : 'Choose folder'}
-                            </button>
+                            <span className={`status-badge ${gdConn.status === 'connected' ? 'approved' : 'pending'}`} style={{ fontSize: 10 }}>
+                              {gdConn.status === 'connected' ? 'Connected' : 'Reconnect required'}
+                            </span>
+                            {gdConn.status === 'connected' ? (
+                              <button className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleChooseDriveFolder(brand.id)}>
+                                {driveRoots[brand.id] ? 'Change folder' : 'Choose folder'}
+                              </button>
+                            ) : (
+                              <button className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleConnectDrive(brand.id)} disabled={connectingId === brand.id + '_google_drive'}>
+                                {connectingId === brand.id + '_google_drive' ? 'Redirecting…' : 'Reconnect'}
+                              </button>
+                            )}
                             <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectDrive(brand.id)}>Disconnect</button>
                           </>
                         ) : (

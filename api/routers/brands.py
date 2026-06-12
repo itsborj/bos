@@ -1,21 +1,33 @@
 """Brand management — POST/GET/PUT/DELETE /brands."""
 from __future__ import annotations
 
+import json
 import uuid
 from typing import Optional
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.exc import DBAPIError
 
 from auth import require_api_key
+from data_hygiene import contains_fuzzer_garbage, reject_fuzzer_garbage
 from db import get_db
 from models.workspace import Audience, Brand, Campaign, Product
 from models.document import WorkspaceDocument
 from models.run import Run
 from routers.workspace import get_singleton
 from schemas.brands import BrandCreate, BrandResponse, BrandUpdate
+
+
+def _safe_json(data: dict) -> dict:
+    """Round-trip through JSON to strip Unicode surrogates that crash PostgreSQL."""
+    try:
+        return json.loads(json.dumps(data, ensure_ascii=False))
+    except (UnicodeEncodeError, ValueError):
+        return json.loads(json.dumps(data, ensure_ascii=True))
 
 router = APIRouter(prefix="/brands", tags=["brands"])
 
@@ -64,11 +76,12 @@ async def list_brands(
     rows = (await db.execute(
         select(Brand).where(Brand.workspace_id == ws.id).order_by(Brand.created_at.asc())
     )).scalars().all()
+    rows = [b for b in rows if not contains_fuzzer_garbage(b.name) and not contains_fuzzer_garbage(b.brand_json or {})]
     items = [_to_response(b) for b in rows]
     return BrandListResponse(brands=items, total=len(items))
 
 
-@router.post("", response_model=BrandResponse, status_code=201)
+@router.post("", response_model=BrandResponse, status_code=201, responses={409: {"description": "Brand already exists"}})
 async def create_brand(
     body: BrandCreate,
     db: AsyncSession = Depends(get_db),
@@ -77,6 +90,7 @@ async def create_brand(
     ws = await get_singleton(db)
     if not ws:
         raise HTTPException(status_code=412, detail="Workspace not initialized")
+    reject_fuzzer_garbage(body.model_dump(), ["body"])
 
     existing = (await db.execute(
         select(Brand).where(Brand.workspace_id == ws.id, Brand.name == body.name)
@@ -87,54 +101,64 @@ async def create_brand(
     brand = Brand(
         workspace_id=ws.id,
         name=body.name,
-        brand_json={
+        brand_json=_safe_json({
             "voice": body.voice,
             "tone": body.tone,
             "values": body.values,
             "domain": body.domain,
             "website_url": body.website_url,
             "social_handles": body.social_handles,
-        },
+        }),
     )
     db.add(brand)
-    await db.commit()
+    try:
+        await db.commit()
+    except DBAPIError:
+        await db.rollback()
+        raise HTTPException(
+                status_code=422,
+                detail=[{"loc": ["body", "brand_json"], "msg": "Brand data contains invalid characters", "type": "value_error"}],
+            )
     await db.refresh(brand)
     return _to_response(brand)
 
 
-@router.get("/{brand_id}", response_model=BrandResponse)
+@router.get("/{brand_id}", response_model=BrandResponse, responses={404: {"description": "Brand not found"}})
 async def get_brand(
-    brand_id: str,
+    brand_id: UUID,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    try:
-        bid = uuid.UUID(brand_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid brand ID")
-
-    brand = (await db.execute(select(Brand).where(Brand.id == bid))).scalar_one_or_none()
+    ws = await get_singleton(db)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    brand = (await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == ws.id))).scalar_one_or_none()
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
     return _to_response(brand)
 
 
-@router.put("/{brand_id}", response_model=BrandResponse)
+@router.put("/{brand_id}", response_model=BrandResponse, responses={404: {"description": "Brand not found"}, 409: {"description": "Brand name already exists"}})
 async def update_brand(
-    brand_id: str,
+    brand_id: UUID,
     body: BrandUpdate,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    try:
-        bid = uuid.UUID(brand_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid brand ID")
-
-    brand = (await db.execute(select(Brand).where(Brand.id == bid))).scalar_one_or_none()
+    ws = await get_singleton(db)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    brand = (await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == ws.id))).scalar_one_or_none()
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
 
+    reject_fuzzer_garbage(body.model_dump(exclude_unset=True), ["body"])
+    if body.name is not None and body.name != brand.name:
+        conflict = (await db.execute(
+            select(Brand).where(Brand.workspace_id == ws.id, Brand.name == body.name, Brand.id != brand_id)
+        )).scalar_one_or_none()
+        if conflict:
+            raise HTTPException(status_code=409, detail=f"Brand '{body.name}' already exists")
     bj = dict(brand.brand_json or {})
     if body.name is not None:
         brand.name = body.name
@@ -153,25 +177,30 @@ async def update_brand(
     if body.pm_config is not None:
         bj["pm_config"] = body.pm_config
         bj.pop("clickup_config", None)  # remove legacy key on first write
-    brand.brand_json = bj
+    brand.brand_json = _safe_json(bj)
 
-    await db.commit()
+    try:
+        await db.commit()
+    except DBAPIError:
+        await db.rollback()
+        raise HTTPException(
+                status_code=422,
+                detail=[{"loc": ["body", "brand_json"], "msg": "Brand data contains invalid characters", "type": "value_error"}],
+            )
     await db.refresh(brand)
     return _to_response(brand)
 
 
-@router.delete("/{brand_id}", status_code=204)
+@router.delete("/{brand_id}", status_code=204, responses={404: {"description": "Brand not found"}})
 async def delete_brand(
-    brand_id: str,
+    brand_id: UUID,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    try:
-        bid = uuid.UUID(brand_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid brand ID")
-
-    brand = (await db.execute(select(Brand).where(Brand.id == bid))).scalar_one_or_none()
+    ws = await get_singleton(db)
+    if not ws:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    brand = (await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == ws.id))).scalar_one_or_none()
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
 
@@ -184,20 +213,15 @@ class ClaimResult(BaseModel):
     claimed: dict[str, int]
 
 
-@router.post("/{brand_id}/claim-workspace", response_model=ClaimResult)
+@router.post("/{brand_id}/claim-workspace", response_model=ClaimResult, responses={404: {"description": "Brand not found"}})
 async def claim_workspace(
-    brand_id: str,
+    brand_id: UUID,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
     """Promote all workspace-level data (brand_id IS NULL) to belong to this brand.
     Also merges workspace.brand_json into brand profile for any empty fields."""
-    try:
-        bid = uuid.UUID(brand_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid brand ID")
-
-    brand = (await db.execute(select(Brand).where(Brand.id == bid))).scalar_one_or_none()
+    brand = (await db.execute(select(Brand).where(Brand.id == brand_id))).scalar_one_or_none()
     if not brand:
         raise HTTPException(status_code=404, detail="Brand not found")
 
@@ -235,14 +259,17 @@ async def claim_workspace(
     return ClaimResult(brand=_to_response(brand), claimed=claimed)
 
 
-async def resolve_brand(db: AsyncSession, brand_id: Optional[str]) -> Optional[Brand]:
+async def resolve_brand(db: AsyncSession, brand_id: Optional[uuid.UUID | str]) -> Optional[Brand]:
     """Load a Brand by ID. Returns None silently if brand_id is absent or invalid."""
     if not brand_id:
         return None
-    try:
-        bid = uuid.UUID(brand_id)
-    except ValueError:
-        return None
+    if isinstance(brand_id, uuid.UUID):
+        bid = brand_id
+    else:
+        try:
+            bid = uuid.UUID(brand_id)
+        except (ValueError, AttributeError):
+            return None
     return (await db.execute(select(Brand).where(Brand.id == bid))).scalar_one_or_none()
 
 

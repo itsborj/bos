@@ -14,7 +14,7 @@ Endpoints:
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -75,12 +75,12 @@ class AgentCapability(BaseModel):
 
 class AgentExecuteRequest(BaseModel):
     module_id: str
-    brand_id: Optional[str] = None
+    brand_id: Optional[UUID] = None
     brief: dict = {}
 
 
 class AgentReviewRequest(BaseModel):
-    action: str  # "approve" | "reject" | "flag"
+    action: Literal["approve", "reject", "flag"]
     reason: Optional[str] = None
 
 
@@ -92,7 +92,7 @@ class AgentReviewResponse(BaseModel):
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
-@router.get("/state", response_model=AgentStateResponse, summary="CMO state: all brands and pending approvals")
+@router.get("/state", response_model=AgentStateResponse, summary="CMO state: all brands and pending approvals", responses={412: {"description": "Workspace not initialized"}})
 async def get_agent_state(
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
@@ -127,16 +127,13 @@ async def get_agent_state(
     )
 
 
-@router.get("/context/{brand_id}", response_model=AgentContextResponse, summary="Brand context for brief building")
+@router.get("/context/{brand_id}", response_model=AgentContextResponse, summary="Brand context for brief building", responses={404: {"description": "Brand not found"}})
 async def get_agent_context(
-    brand_id: str,
+    brand_id: UUID,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    try:
-        brand_uuid = UUID(brand_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid brand_id")
+    brand_uuid = brand_id
 
     brand = (await db.execute(select(Brand).where(Brand.id == brand_uuid))).scalar_one_or_none()
     if not brand:
@@ -183,7 +180,7 @@ async def get_capabilities(
     ]
 
 
-@router.post("/execute", response_model=RunResponse, status_code=201, summary="Execute a capability directly")
+@router.post("/execute", response_model=RunResponse, status_code=201, summary="Execute a capability directly", responses={404: {"description": "Module not found"}, 412: {"description": "Workspace not initialized"}})
 async def agent_execute(
     body: AgentExecuteRequest,
     db: AsyncSession = Depends(get_db),
@@ -196,12 +193,13 @@ async def agent_execute(
     if not ws:
         raise HTTPException(status_code=412, detail="Workspace not initialized")
 
-    brand_uuid: Optional[UUID] = None
-    if body.brand_id:
-        try:
-            brand_uuid = UUID(body.brand_id)
-        except ValueError:
-            raise HTTPException(status_code=400, detail="Invalid brand_id")
+    brand_uuid: Optional[UUID] = body.brand_id
+    if brand_uuid:
+        brand_exists = (await db.execute(
+            select(Brand.id).where(Brand.id == brand_uuid, Brand.workspace_id == ws.id)
+        )).scalar_one_or_none()
+        if not brand_exists:
+            raise HTTPException(status_code=404, detail="Brand not found")
 
     return await _execute_module(
         db, ws, body.module_id, body.brief, get_settings(),
@@ -209,20 +207,14 @@ async def agent_execute(
     )
 
 
-@router.patch("/review/{run_id}", response_model=AgentReviewResponse, summary="Approve, reject, or flag a run")
+@router.patch("/review/{run_id}", response_model=AgentReviewResponse, summary="Approve, reject, or flag a run", responses={404: {"description": "Run not found"}})
 async def agent_review(
-    run_id: str,
+    run_id: UUID,
     body: AgentReviewRequest,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    if body.action not in ("approve", "reject", "flag"):
-        raise HTTPException(status_code=400, detail="action must be one of: approve, reject, flag")
-
-    try:
-        run_uuid = UUID(run_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid run_id")
+    run_uuid = run_id
 
     run = (await db.execute(select(Run).where(Run.id == run_uuid))).scalar_one_or_none()
     if not run:

@@ -310,10 +310,10 @@ function CouncilBriefMessage({ brief }: { brief: CouncilFinalizeResult }) {
 }
 
 export function CmoChat() {
-  const { openSettings, activeBrand } = useUI();
+  const { activeBrand } = useUI();
   const {
-    msgs, busy, pendingPlan, streamCardCtx, activeObjective, activeCouncilSession,
-    setPendingPlan, send, councilPass, councilFinalize, handleOutcomeConfirm, handleOutcomeCancel,
+    msgs, busy, streamCardCtx, activeObjective, activeCouncilSession,
+    send, councilPass, councilFinalize, handleOutcomeConfirm, handleOutcomeCancel,
   } = useCmoChat();
 
   const [input, setInput] = useState('');
@@ -321,6 +321,29 @@ export function CmoChat() {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
+  useEffect(() => {
+    const applyPrefill = (text: string) => {
+      if (!text) return;
+      setInput(text);
+      window.setTimeout(() => {
+        textareaRef.current?.focus();
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+          textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 200) + 'px';
+        }
+      }, 60);
+    };
+    try {
+      const saved = sessionStorage.getItem('bos:cmo-prefill');
+      if (saved) {
+        sessionStorage.removeItem('bos:cmo-prefill');
+        applyPrefill(saved);
+      }
+    } catch {}
+    const handler = (event: Event) => applyPrefill(String((event as CustomEvent).detail || ''));
+    window.addEventListener('bos:cmo-prefill', handler);
+    return () => window.removeEventListener('bos:cmo-prefill', handler);
+  }, []);
   // Scroll to bottom when navigating back to /cmo after messages arrived while hidden.
   useEffect(() => {
     const handler = () => bottomRef.current?.scrollIntoView({ behavior: 'instant' });
@@ -335,7 +358,7 @@ export function CmoChat() {
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     setInput(e.target.value);
     e.target.style.height = 'auto';
-    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+    e.target.style.height = Math.min(e.target.scrollHeight, 200) + 'px';
   }
 
   async function handleOpenArtifact(artifactId: string) {
@@ -510,28 +533,6 @@ export function CmoChat() {
       </div>
 
       <div className="cmo-input-wrap">
-        {pendingPlan && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10, padding: '10px 14px', background: 'var(--green-bg)', borderRadius: 8, border: '1px solid var(--green-border)', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, color: 'var(--green-mid)', flex: 1 }}>Plan drafted — confirm to create the campaign and tag all runs to it.</span>
-            <button
-              className="btn btn-primary"
-              style={{ fontSize: 12 }}
-              onClick={() => send('@klar confirm', { skipUserMessage: false })}
-              disabled={busy}
-            >
-              Confirm Plan
-            </button>
-            <button
-              className="btn btn-ghost"
-              style={{ fontSize: 12 }}
-              onClick={() => setPendingPlan(false)}
-              disabled={busy}
-            >
-              Dismiss
-            </button>
-          </div>
-        )}
-
         {activeCouncilSession?.status === 'awaiting_c6' && (
           <div style={{ display: 'flex', gap: 8, marginBottom: 10, padding: '10px 14px', background: 'var(--amber-bg, #fffbeb)', borderRadius: 8, border: '1px solid var(--amber-border, #fde68a)', alignItems: 'center' }}>
             <span style={{ fontSize: 13, color: '#92400e', flex: 1 }}>
@@ -569,19 +570,13 @@ export function CmoChat() {
             onKeyDown={handleKeyDown}
             disabled={busy}
           />
-          <div className="cmo-composer-foot">
-            <span className="cmo-hint">
-              Shift+Enter for new line ·{' '}
-              <span className="cmo-hint-link" onClick={() => openSettings('history')}>History</span>
-            </span>
-            <button
-              className="btn-send"
-              onClick={doSend}
-              disabled={busy || !input.trim()}
-            >
-              ↑
-            </button>
-          </div>
+          <button
+            className="btn-send"
+            onClick={doSend}
+            disabled={busy || !input.trim()}
+          >
+            ↑
+          </button>
         </div>
       </div>
     </div>

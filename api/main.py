@@ -3,6 +3,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
+from fastapi.routing import APIRoute
 
 from first_boot import ensure_secrets, ensure_workspace
 
@@ -15,10 +17,11 @@ logging.basicConfig(
 # Must run before get_settings() so generated keys are in os.environ when pydantic reads them
 ensure_secrets()
 
+from auth import require_api_key  # noqa: E402
 from config import get_settings, validate_settings  # noqa: E402
 from db import get_engine  # noqa: E402
 from errors import BosError, bos_error_handler, unhandled_error_handler  # noqa: E402
-from middleware import RequestLoggingMiddleware  # noqa: E402
+from middleware import RequestLoggingMiddleware, TraceBlockMiddleware  # noqa: E402
 
 settings = get_settings()
 
@@ -49,6 +52,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(TraceBlockMiddleware)
 app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
@@ -93,3 +97,105 @@ app.include_router(calendar.router)
 app.include_router(council.router)
 app.include_router(media.router)
 app.include_router(strategy_workflows.router)
+
+
+_UNAUTHORIZED_RESPONSE = {
+    "description": "Missing or invalid API key",
+    "content": {
+        "application/json": {
+            "example": {
+                "detail": {
+                    "error": {
+                        "code": "UNAUTHORIZED",
+                        "message": "Missing X-API-Key header",
+                        "details": None,
+                    }
+                }
+            }
+        }
+    },
+}
+
+_REDIRECT_HTML_RESPONSE = {
+    "description": "Redirect to the admin UI after OAuth callback handling",
+    "content": {"text/html": {}},
+    "headers": {
+        "location": {
+            "description": "Admin UI URL with connection status query parameters",
+            "schema": {"type": "string"},
+        }
+    },
+}
+
+_FRONTEND_HTML_RESPONSE = {
+    "description": "Admin UI page after following the OAuth callback redirect",
+    "content": {"text/html": {"schema": {"type": "string"}}},
+}
+
+_JAVASCRIPT_RESPONSE = {
+    "description": "Embeddable booking widget JavaScript",
+    "content": {"application/javascript": {"schema": {"type": "string"}}},
+}
+
+_SSE_RESPONSE = {
+    "description": "Server-sent chat events",
+    "content": {"text/event-stream": {"schema": {"type": "string"}}},
+}
+
+
+def _route_requires_api_key(route: APIRoute) -> bool:
+    def walk(dependant) -> bool:
+        if getattr(dependant, "call", None) is require_api_key:
+            return True
+        return any(walk(dep) for dep in getattr(dependant, "dependencies", []) or [])
+
+    return walk(route.dependant)
+
+
+def _custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+
+    route_map: dict[tuple[str, str], APIRoute] = {}
+    for route in app.routes:
+        if isinstance(route, APIRoute):
+            for method in route.methods or []:
+                route_map[(route.path, method.lower())] = route
+
+    for path, path_item in schema.get("paths", {}).items():
+        for method, operation in path_item.items():
+            if method not in {"get", "post", "put", "patch", "delete", "options", "head"}:
+                continue
+            route = route_map.get((path, method))
+            if route and _route_requires_api_key(route):
+                operation.setdefault("responses", {}).setdefault("401", _UNAUTHORIZED_RESPONSE)
+
+            if method == "get" and (
+                (path.startswith("/social/") and path.endswith("/callback"))
+                or path == "/auth/google/callback"
+            ):
+                operation["responses"] = {"302": _REDIRECT_HTML_RESPONSE, "200": _FRONTEND_HTML_RESPONSE}
+
+            if method == "get" and path == "/calendar/widget.js":
+                operation["responses"] = {"200": _JAVASCRIPT_RESPONSE}
+
+            if method == "post" and path == "/chat/stream":
+                operation["responses"] = {
+                    "200": _SSE_RESPONSE,
+                    "422": {"description": "Validation Error"},
+                }
+                if route and _route_requires_api_key(route):
+                    operation["responses"]["401"] = _UNAUTHORIZED_RESPONSE
+
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = _custom_openapi

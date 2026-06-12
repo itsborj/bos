@@ -12,6 +12,7 @@ export function AdminRuns() {
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [moduleFilter, setModuleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [afterFilter, setAfterFilter] = useState('');
@@ -19,6 +20,7 @@ export function AdminRuns() {
 
   useEffect(() => {
     setLoading(true);
+    setError(null);
     api.getRuns({
       module_id: moduleFilter || undefined,
       status: statusFilter || undefined,
@@ -29,8 +31,9 @@ export function AdminRuns() {
     }).then(res => {
       setRuns(res.runs);
       setTotal(res.total);
-      setLoading(false);
-    }).catch(() => setLoading(false));
+    }).catch((e: unknown) => {
+      setError((e as Error).message || 'Failed to load runs — check your connection and try again');
+    }).finally(() => setLoading(false));
   }, [offset, moduleFilter, statusFilter, afterFilter, beforeFilter]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -42,6 +45,8 @@ export function AdminRuns() {
     setStatusFilter('');
     setAfterFilter('');
     setBeforeFilter('');
+    // Reset offset last — all filters are already cleared so the
+    // subsequent useEffect fires with a fully-reset filter state.
     setOffset(0);
   }
 
@@ -59,6 +64,7 @@ export function AdminRuns() {
           <div className="admin-page-title">Run Logs</div>
           <div className="admin-page-subtitle">System/debug history for specialist executions · {total} total</div>
         </div>
+        <Link to="/admin/billing" className="btn btn-secondary btn-sm">Billing →</Link>
       </div>
 
       <div className="admin-card">
@@ -112,6 +118,8 @@ export function AdminRuns() {
           <div className="flex" style={{ justifyContent: 'center', padding: 48 }}>
             <span className="spinner" style={{ width: 28, height: 28 }} />
           </div>
+        ) : error ? (
+          <div className="alert alert-error">{error}</div>
         ) : runs.length === 0 ? (
           <div className="empty-state">
             <div className="empty-state-icon">≡</div>

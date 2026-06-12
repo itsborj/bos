@@ -13,14 +13,15 @@ from models.outcome import OutcomeRecord
 from models.workspace import Brand
 from routers.workspace import get_singleton
 from schemas.outcome import EvaluateOutcomeIn, EvaluateOutcomeOut, OutcomeListResponse, OutcomeRecordOut
+from validation import NullableUUID
 
 router = APIRouter(prefix="/outcomes", tags=["outcomes"])
 
 
-@router.get("", response_model=OutcomeListResponse, summary="List outcome records")
+@router.get("", response_model=OutcomeListResponse, summary="List outcome records", responses={404: {"description": "Brand not found"}})
 async def list_outcomes(
-    brand_id: Optional[uuid.UUID] = None,
-    objective_id: Optional[uuid.UUID] = None,
+    brand_id: NullableUUID = None,
+    objective_id: NullableUUID = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
     db: AsyncSession = Depends(get_db),

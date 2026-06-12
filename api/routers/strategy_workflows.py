@@ -445,7 +445,7 @@ async def _call_llm(prompt: str, db: AsyncSession, workspace_id: uuid.UUID) -> s
     raise RuntimeError("All provider candidates failed for component re-run")
 
 
-@router.get("/{workflow_id}", dependencies=[Depends(require_api_key)])
+@router.get("/{workflow_id}", dependencies=[Depends(require_api_key)], responses={404: {"description": "Workflow not found"}})
 async def get_workflow(
     workflow_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),

@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 ARG GIT_SHA=dev
 ENV GIT_SHA=${GIT_SHA}

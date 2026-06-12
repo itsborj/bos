@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { BrandKitResponse, BrandResponse, IngestResponse, ProviderInfo, WorkspaceDocument } from '../../api/types';
@@ -48,8 +48,16 @@ export function AdminOnboarding() {
   const [brandKit, setBrandKit]     = useState<WorkspaceDocument | null>(null);
   const [kitBusy, setKitBusy]       = useState(false);
   const [kitCopied, setKitCopied]   = useState(false);
+  const [kitEditing, setKitEditing] = useState(false);
+  const [kitDraft, setKitDraft]     = useState('');
   const [error, setError]           = useState<string | null>(null);
   const [kitWarning, setKitWarning] = useState(false);
+
+  const applyBrandKit = useCallback((doc: WorkspaceDocument | null) => {
+    setBrandKit(doc);
+    setKitDraft(doc?.content_markdown ?? '');
+    setKitEditing(false);
+  }, []);
 
   useEffect(() => {
     api.getProviders().then(r => setProviders(r.providers)).catch(() => {});
@@ -63,7 +71,7 @@ export function AdminOnboarding() {
         .then(docs => { if (docs.length > 0) setKitWarning(true); })
         .catch(() => {});
       api.getDocuments({ doc_type: 'campaign_brand_kit', brand_id: navBrandId })
-        .then(docs => setBrandKit(docs[0] ?? null))
+        .then(docs => applyBrandKit(docs[0] ?? null))
         .catch(() => {});
     } else {
       api.getBrands()
@@ -77,7 +85,7 @@ export function AdminOnboarding() {
         })
         .catch(() => setScopeStep('org_or_brand'));
     }
-  }, [navBrandId]);
+  }, [navBrandId, applyBrandKit]);
 
   // ── Scope step: org vs brand (first-time, no brands exist) ──────────────────
 
@@ -89,7 +97,7 @@ export function AdminOnboarding() {
       .then(docs => { if (docs.length > 0) setKitWarning(true); })
       .catch(() => {});
     api.getDocuments({ doc_type: 'campaign_brand_kit' })
-      .then(docs => setBrandKit(docs[0] ?? null))
+      .then(docs => applyBrandKit(docs[0] ?? null))
       .catch(() => {});
   }
 
@@ -115,7 +123,7 @@ export function AdminOnboarding() {
       .then(docs => { if (docs.length > 0) setKitWarning(true); })
       .catch(() => {});
     api.getDocuments({ doc_type: 'campaign_brand_kit', brand_id: brand.id })
-      .then(docs => setBrandKit(docs[0] ?? null))
+      .then(docs => applyBrandKit(docs[0] ?? null))
       .catch(() => {});
   }
 
@@ -155,12 +163,31 @@ export function AdminOnboarding() {
 
       const res = await api.ingestBrandDoc(
         docText.trim(),
-        scope === 'org' ? (workspaceName.trim() || undefined) : undefined,
+        scope === 'org' || scope === 'update_brand' ? (workspaceName.trim() || undefined) : undefined,
         effectiveBrandId,
       );
+      if (scope === 'update_brand' || scope === 'new_brand') {
+        setTargetBrandName(res.brand_name);
+      }
       setResult(res);
-      setBrandKit(null);
+      applyBrandKit(null);
       setKitWarning(false);
+
+      // Auto-generate the brand kit from the fresh profile so the user doesn't
+      // have to manually click after every brief update.
+      try {
+        setKitBusy(true);
+        const kitRes: BrandKitResponse = await api.generateBrandKit(
+          undefined,
+          effectiveBrandId,
+          res.profile as Record<string, unknown>,
+        );
+        applyBrandKit(kitRes.document);
+      } catch {
+        // Non-fatal: the "Generate Campaign Brand Kit" button remains available.
+      } finally {
+        setKitBusy(false);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Ingestion failed');
     } finally {
@@ -173,8 +200,8 @@ export function AdminOnboarding() {
     setError(null);
     try {
       const effectiveBrandId = scope === 'update_brand' || scope === 'new_brand' ? (targetBrandId || undefined) : undefined;
-      const res: BrandKitResponse = await api.generateBrandKit(additionalContext, effectiveBrandId);
-      setBrandKit(res.document);
+      const res: BrandKitResponse = await api.generateBrandKit(additionalContext, effectiveBrandId, result?.profile as Record<string, unknown> | undefined);
+      applyBrandKit(res.document);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Brand Kit generation failed');
     } finally {
@@ -188,9 +215,26 @@ export function AdminOnboarding() {
     setError(null);
     try {
       const updated = await api.approveDocument(brandKit.id);
-      setBrandKit(updated);
+      applyBrandKit(updated);
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Brand Kit approval failed');
+    } finally {
+      setKitBusy(false);
+    }
+  }
+
+  async function handleSaveBrandKit() {
+    if (!brandKit || !kitDraft.trim()) return;
+    setKitBusy(true);
+    setError(null);
+    try {
+      const updated = await api.updateDocument(brandKit.id, {
+        content_markdown: kitDraft.trim(),
+        status: brandKit.status === 'approved' ? 'draft' : brandKit.status,
+      });
+      applyBrandKit(updated);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Brand Kit save failed');
     } finally {
       setKitBusy(false);
     }
@@ -280,13 +324,47 @@ export function AdminOnboarding() {
           </div>
           {brandKit ? (
             <div>
-              <div style={{ fontSize: 13, marginBottom: 8 }}>
-                <strong>{brandKit.title}</strong> · {brandKit.status}
+              <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', marginBottom: 8 }}>
+                <span style={{ fontSize: 13 }}><strong>{brandKit.title}</strong> · {brandKit.status}</span>
+                <button
+                  className="btn btn-ghost btn-sm"
+                  onClick={() => {
+                    setKitDraft(brandKit.content_markdown);
+                    setKitEditing(!kitEditing);
+                  }}
+                  disabled={kitBusy}
+                >
+                  {kitEditing ? 'Cancel Edit' : 'Edit'}
+                </button>
+                {!kitEditing && (
+                  <button className="btn btn-ghost btn-sm" onClick={() => handleGenerateBrandKit(docText)} disabled={kitBusy}>
+                    {kitBusy ? 'Generating…' : 'Regenerate Draft'}
+                  </button>
+                )}
               </div>
-              <div style={{ maxHeight: 180, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.6, border: '.5px solid var(--border)', borderRadius: 0, padding: 12, marginBottom: 12 }}>
-                {brandKit.content_markdown}
-              </div>
-              {brandKit.status !== 'approved' && (
+              {kitEditing ? (
+                <div>
+                  <textarea
+                    className="input"
+                    value={kitDraft}
+                    onChange={e => setKitDraft(e.target.value)}
+                    style={{ minHeight: 260, resize: 'vertical', fontFamily: 'var(--mono)', fontSize: 12, lineHeight: 1.6 }}
+                  />
+                  <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                    <button className="btn btn-dark" onClick={handleSaveBrandKit} disabled={kitBusy || !kitDraft.trim()}>
+                      {kitBusy ? 'Saving…' : 'Save as Draft'}
+                    </button>
+                    <button className="btn btn-secondary" onClick={() => { setKitDraft(brandKit.content_markdown); setKitEditing(false); }} disabled={kitBusy}>
+                      Discard
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ maxHeight: 180, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.6, border: '.5px solid var(--border)', borderRadius: 0, padding: 12, marginBottom: 12 }}>
+                  {brandKit.content_markdown}
+                </div>
+              )}
+              {brandKit.status !== 'approved' && !kitEditing && (
                 <button className="btn btn-dark" onClick={handleApproveBrandKit} disabled={kitBusy}>
                   {kitBusy ? 'Approving…' : 'Approve Campaign Brand Kit'}
                 </button>
@@ -304,7 +382,7 @@ export function AdminOnboarding() {
           <button
             className="btn btn-dark"
             onClick={() => {
-              if (isBrandScope && targetBrandId) navigate(`/admin/brands/${targetBrandId}`);
+              if (isBrandScope && targetBrandId) navigate(`/admin/brands/${targetBrandId}?tab=brand-kit`);
               else navigate('/admin/workspace');
             }}
           >
@@ -622,19 +700,53 @@ export function AdminOnboarding() {
               </button>
               <button
                 className="btn btn-ghost btn-sm"
-                onClick={() => (isUpdateMode || isNewBrand) && targetBrandId ? navigate(`/admin/brands/${targetBrandId}`) : navigate('/admin/workspace')}
+                onClick={() => (isUpdateMode || isNewBrand) && targetBrandId ? navigate(`/admin/brands/${targetBrandId}?tab=brand-kit`) : navigate('/admin/workspace')}
               >
                 {(isUpdateMode || isNewBrand) && targetBrandId ? 'Open Brand →' : 'Open in Workspace →'}
               </button>
-              {brandKit.status !== 'approved' && (
+              <button
+                className="btn btn-ghost btn-sm"
+                onClick={() => {
+                  setKitDraft(brandKit.content_markdown);
+                  setKitEditing(!kitEditing);
+                }}
+                disabled={kitBusy}
+              >
+                {kitEditing ? 'Cancel Edit' : 'Edit'}
+              </button>
+              {!kitEditing && (
+                <button className="btn btn-ghost btn-sm" onClick={() => handleGenerateBrandKit()} disabled={kitBusy}>
+                  {kitBusy ? 'Generating…' : 'Regenerate Draft'}
+                </button>
+              )}
+              {brandKit.status !== 'approved' && !kitEditing && (
                 <button className="btn btn-dark btn-sm" onClick={handleApproveBrandKit} disabled={kitBusy}>
                   {kitBusy ? 'Approving…' : 'Approve'}
                 </button>
               )}
             </div>
-            <div style={{ maxHeight: 420, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.6, border: '.5px solid var(--border)', borderRadius: 0, padding: 12, background: 'var(--ivory)' }}>
-              {brandKit.content_markdown}
-            </div>
+            {kitEditing ? (
+              <div>
+                <textarea
+                  className="input"
+                  value={kitDraft}
+                  onChange={e => setKitDraft(e.target.value)}
+                  style={{ minHeight: 420, resize: 'vertical', fontFamily: 'var(--mono)', fontSize: 12, lineHeight: 1.6 }}
+                />
+                <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+                  <button className="btn btn-dark btn-sm" onClick={handleSaveBrandKit} disabled={kitBusy || !kitDraft.trim()}>
+                    {kitBusy ? 'Saving…' : 'Save as Draft'}
+                  </button>
+                  <button className="btn btn-secondary btn-sm" onClick={() => { setKitDraft(brandKit.content_markdown); setKitEditing(false); }} disabled={kitBusy}>
+                    Discard
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ maxHeight: 420, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 12, lineHeight: 1.6, border: '.5px solid var(--border)', borderRadius: 0, padding: 12, background: 'var(--ivory)' }}>
+                {brandKit.content_markdown}
+              </div>
+            )}
           </div>
         ) : (
           <button className="btn btn-dark btn-sm" onClick={() => handleGenerateBrandKit()} disabled={kitBusy}>

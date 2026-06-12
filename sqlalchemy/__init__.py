@@ -3,6 +3,17 @@ Provides minimal symbols required for imports in the BOS codebase.
 This is NOT a functional ORM – just enough to satisfy type checking and imports.
 """
 
+class _Func:
+    def __getattr__(self, name):
+        def _call(*args, **kwargs):
+            class _Expr:
+                def label(self, *_a, **_kw):
+                    return self
+            return _Expr()
+        return _call
+
+func = _Func()
+
 # Export a simple ``select`` function used in the code.
 def select(*args, **kwargs):
     """Return a placeholder representing a SELECT statement.

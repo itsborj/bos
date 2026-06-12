@@ -32,7 +32,7 @@ function ByokTab() {
     setSaving(true);
     try {
       await api.registerKey(provider, newKey.trim());
-      setKeys(k => [...k, { provider, created_at: new Date().toISOString() }]);
+      setKeys(k => [...k, { provider, auth_mode: 'api_key', created_at: new Date().toISOString() }]);
       setAdding(null);
       setNewKey('');
       setMsg(`${provider} key registered.`);

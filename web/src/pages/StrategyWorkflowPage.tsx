@@ -336,6 +336,7 @@ export function StrategyWorkflowPage() {
   return (
     <div style={{ minHeight: '100%', background: '#fff', color: '#1f2937', overflowY: 'auto' }}>
       <header style={{ background: '#0B3D2E', color: '#fff', padding: '28px 32px', borderBottom: '5px solid #826D40' }}>
+        <Link to="/stream" style={{ display: 'inline-block', marginBottom: 14, fontSize: 12, color: '#a8c8b8', textDecoration: 'none', fontWeight: 700, letterSpacing: '.04em' }}>← Back to Stream</Link>
         <div className="strategy-workflow-kicker" style={{ fontSize: 11, fontWeight: 900, letterSpacing: '.12em', textTransform: 'uppercase', marginBottom: 8 }}>
           Strategy Workflow · {archetype}
         </div>

@@ -21,16 +21,17 @@ from schemas.decision_brief import (
     DecisionBriefListResponse,
     DecisionBriefOut,
 )
+from validation import NullableUUID
 
 router = APIRouter(prefix="/decision-briefs", tags=["decision-briefs"])
 
 _TOPIC_TAGS = {"creative_fatigue", "tracking", "attribution", "offer", "objection", "commitment", "outcome"}
 
 
-@router.get("", response_model=DecisionBriefListResponse, summary="List decision briefs")
+@router.get("", response_model=DecisionBriefListResponse, summary="List decision briefs", responses={404: {"description": "Brand not found"}})
 async def list_decision_briefs(
-    brand_id: Optional[uuid.UUID] = None,
-    objective_id: Optional[uuid.UUID] = None,
+    brand_id: NullableUUID = None,
+    objective_id: NullableUUID = None,
     status: Optional[str] = None,
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),

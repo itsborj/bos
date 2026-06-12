@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { AudienceOut, BrandResponse, PmConfig, ProductOut, WorkspaceDocument, WorkspaceResponse } from '../../api/types';
+import type { AudienceOut, BillingSummary, BrandResponse, PmConfig, ProductOut, WorkspaceDocument, WorkspaceResponse } from '../../api/types';
 
 type Tab = 'profile' | 'products' | 'audiences' | 'guidelines' | 'brand-kit' | 'project-management' | 'integrations';
 
@@ -587,6 +587,33 @@ const INTEGRATION_PLATFORMS = [
   { id: 'google_calendar', label: 'Google Calendar',  icon: '📅' },
 ] as const;
 
+const CONNECT_RETURN_KEY = 'bos_connect_return';
+const SOCIAL_CALLBACK_KEYS = INTEGRATION_PLATFORMS.map(p => p.id);
+const SOCIAL_CALLBACK_LABELS: Record<string, string> = Object.fromEntries(
+  INTEGRATION_PLATFORMS.map(p => [p.id, p.label])
+);
+const SOCIAL_CALLBACK_DEFAULT_ACCOUNTS: Record<string, string> = {
+  facebook: 'Facebook page',
+  youtube: 'YouTube channel',
+  tiktok: 'TikTok account',
+  google_drive: 'Google Drive',
+  google_business: 'Google Business Profile',
+  gmail: 'Gmail account',
+  google_calendar: 'Google Calendar',
+};
+
+function hasSocialCallback(params: URLSearchParams): boolean {
+  return SOCIAL_CALLBACK_KEYS.some(key => params.has(key));
+}
+
+function tabFromSearchParams(params: URLSearchParams): Tab {
+  const requestedTab = params.get('tab');
+  const validTabs: Tab[] = ['profile', 'products', 'audiences', 'guidelines', 'brand-kit', 'project-management', 'integrations'];
+  if (requestedTab && validTabs.includes(requestedTab as Tab)) return requestedTab as Tab;
+  if (hasSocialCallback(params)) return 'integrations';
+  return 'profile';
+}
+
 function loadGapiPicker(): Promise<void> {
   return new Promise((resolve, reject) => {
     const w = window as unknown as { gapi?: { load: (n: string, o: { callback: () => void }) => void }; google?: { picker?: unknown } };
@@ -607,6 +634,7 @@ function loadGapiPicker(): Promise<void> {
 }
 
 function IntegrationsTab({ brandId }: { brandId: string }) {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [conns, setConns]           = useState<SocialConn[]>([]);
   const [loading, setLoading]       = useState(true);
   const [connectingId, setConnectingId] = useState<string | null>(null);
@@ -622,11 +650,60 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
   }
 
   useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
     api.listSocialConnections(brandId)
-      .then(c => setConns(c as SocialConn[]))
+      .then(c => {
+        if (cancelled) return;
+        const list = c as SocialConn[];
+        setConns(list);
+        if (list.some(x => x.platform === 'google_drive')) {
+          api.listDriveFolders(brandId)
+            .then(r => {
+              if (!cancelled) setDriveRoot(r.folder_id && r.folder_id !== 'root' ? { id: r.folder_id, name: r.folder_name || r.folder_id } : null);
+            })
+            .catch(() => { if (!cancelled) setDriveRoot(null); });
+        } else {
+          setDriveRoot(null);
+        }
+      })
       .catch(() => {})
-      .finally(() => setLoading(false));
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
   }, [brandId]);
+
+  useEffect(() => {
+    const platform = SOCIAL_CALLBACK_KEYS.find(key => searchParams.has(key));
+    if (!platform) return;
+
+    const result = searchParams.get(platform) || '';
+    const brandParam = searchParams.get('brand_id');
+    const label = SOCIAL_CALLBACK_LABELS[platform] || platform;
+    setSearchParams({}, { replace: true });
+
+    if (brandParam && brandParam !== brandId) return;
+
+    if (platform === 'facebook' && result === 'select_page') {
+      const sessionId = searchParams.get('session_id') || '';
+      if (sessionId) {
+        api.facebookPendingPages(sessionId)
+          .then(res => setFbModal({ sessionId, pages: res.pages }))
+          .catch(() => showToast('⚠️ Could not load Facebook pages — try connecting again'));
+      }
+      return;
+    }
+
+    if (result === 'connected') {
+      const account = searchParams.get('account') || SOCIAL_CALLBACK_DEFAULT_ACCOUNTS[platform] || label;
+      showToast(`✅ ${label} "${account}" connected`);
+      api.listSocialConnections(brandId).then(c => setConns(c as SocialConn[])).catch(() => {});
+    } else if (result === 'denied') {
+      showToast(`${label} connection cancelled`);
+    } else {
+      const reason = searchParams.get('reason') || 'unknown';
+      showToast(`⚠️ ${label} connection failed — ${reason.replace(/_/g, ' ')}`);
+    }
+  }, [brandId, searchParams, setSearchParams]);
 
   function conn(platform: string): SocialConn | null {
     return conns.find(c => c.platform === platform) ?? null;
@@ -635,7 +712,7 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
   async function handleConnect(platform: string) {
     setConnectingId(platform);
     // Store return path so the brands list can redirect back here after OAuth
-    sessionStorage.setItem('bos_connect_return', window.location.pathname);
+    sessionStorage.setItem(CONNECT_RETURN_KEY, window.location.pathname);
     try {
       const res = await api.startSocialConnect(brandId, platform);
       window.location.href = res.authorize_url;
@@ -815,21 +892,25 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
 export function AdminBrandDetail() {
   const { brandId } = useParams<{ brandId: string }>();
   const navigate    = useNavigate();
+  const [searchParams] = useSearchParams();
 
-  const [brand, setBrand]       = useState<BrandResponse | null>(null);
-  const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
-  const [loading, setLoading]   = useState(true);
-  const [activeTab, setActiveTab] = useState<Tab>('profile');
-  const [error, setError]       = useState<string | null>(null);
+  const [brand, setBrand]         = useState<BrandResponse | null>(null);
+  const [workspace, setWorkspace]  = useState<WorkspaceResponse | null>(null);
+  const [billing, setBilling]      = useState<BillingSummary | null>(null);
+  const [loading, setLoading]      = useState(true);
+  const [activeTab, setActiveTab]  = useState<Tab>(() => tabFromSearchParams(searchParams));
+  const [error, setError]          = useState<string | null>(null);
 
   useEffect(() => {
     if (!brandId) return;
     Promise.all([
       api.getBrand(brandId),
       api.getWorkspace().catch(() => null),
-    ]).then(([b, ws]) => {
+      api.getBillingSummary(brandId).catch(() => null),
+    ]).then(([b, ws, bill]) => {
       setBrand(b);
       setWorkspace(ws);
+      setBilling(bill);
     }).catch((err: unknown) => {
       setError(err instanceof Error ? err.message : 'Could not load brand');
     }).finally(() => setLoading(false));
@@ -894,6 +975,40 @@ export function AdminBrandDetail() {
           </button>
         </div>
       </div>
+
+      {billing && (
+        <div className="admin-card" style={{ marginBottom: 16 }}>
+          <div className="admin-card-title" style={{ marginBottom: 12 }}>AI Usage — this brand</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Tokens</div>
+              <div style={{ fontSize: 22, fontWeight: 800 }}>{billing.total_tokens.toLocaleString()}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Provider Cost</div>
+              <div style={{ fontSize: 22, fontWeight: 800 }}>${billing.total_provider_cost.toFixed(4)}</div>
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Billed (est.)</div>
+              <div style={{ fontSize: 22, fontWeight: 800 }}>
+                ${billing.total_sell_price.toFixed(4)}
+              </div>
+              {billing.total_provider_cost > 0 && (
+                <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 2 }}>
+                  {((billing.total_sell_price / billing.total_provider_cost - 1) * 100).toFixed(0)}% markup
+                </div>
+              )}
+            </div>
+            <div>
+              <div style={{ fontSize: 11, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 4 }}>Runs</div>
+              <div style={{ fontSize: 22, fontWeight: 800 }}>
+                {billing.successful_runs}
+                <span style={{ fontSize: 13, fontWeight: 400, color: 'var(--text2)', marginLeft: 4 }}>/ {billing.total_runs}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       <div className="admin-card" style={{ padding: 0 }}>
         <div className="tabs" style={{ padding: '0 24px', margin: 0, borderRadius: '14px 14px 0 0' }}>

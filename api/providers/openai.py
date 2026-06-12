@@ -16,18 +16,19 @@ class OpenAIAdapter:
         self._api_key = api_key
         self._base_url = _BASE_URL
 
-    async def complete(self, prompt: str, model_id: str) -> ProviderResponse:
+    async def complete(self, prompt: str, model_id: str, extra_body: dict | None = None) -> ProviderResponse:
         return await self.complete_messages([
             {"role": "user", "content": prompt}
-        ], model_id)
+        ], model_id, extra_body=extra_body)
 
-    from typing import List, Dict
-    async def complete_messages(self, messages: List[Dict], model_id: str) -> ProviderResponse:
+    async def complete_messages(self, messages: List[Dict], model_id: str, extra_body: dict | None = None) -> ProviderResponse:
         headers = {
             "Authorization": f"Bearer {self._api_key}",
             "Content-Type": "application/json",
         }
-        payload = {"model": model_id, "messages": messages}
+        payload: dict = {"model": model_id, "messages": messages}
+        if extra_body:
+            payload.update({k: v for k, v in extra_body.items() if k != "_routing_hints"})
         start = time.perf_counter()
         async with httpx.AsyncClient(timeout=30.0) as client:
             resp = await client.post(f"{self._base_url}/chat/completions", headers=headers, json=payload)

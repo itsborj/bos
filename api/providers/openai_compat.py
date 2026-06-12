@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import time
 from typing import List, Dict
 
@@ -16,9 +18,14 @@ class OpenAICompatAdapter:
         self._base_url = base_url.rstrip("/")
         self._api_key = api_key
 
-    async def complete(self, prompt: str, model_id: str) -> ProviderResponse:
+    async def complete(
+        self,
+        prompt: str,
+        model_id: str,
+        extra_body: dict | None = None,
+    ) -> ProviderResponse:
         return await self.complete_messages(
-            [{"role": "user", "content": prompt}], model_id
+            [{"role": "user", "content": prompt}], model_id, extra_body=extra_body
         )
 
     async def complete_messages(
@@ -27,6 +34,7 @@ class OpenAICompatAdapter:
         model_id: str,
         thinking: bool = False,
         thinking_budget: int = 8000,
+        extra_body: dict | None = None,
     ) -> ProviderResponse:
         headers = {
             "Authorization": f"Bearer {self._api_key}",
@@ -36,6 +44,9 @@ class OpenAICompatAdapter:
 
         if thinking:
             payload.update(self._thinking_params(model_id, thinking_budget))
+
+        if extra_body:
+            payload.update(extra_body)
 
         start = time.perf_counter()
         async with httpx.AsyncClient(timeout=120.0) as client:

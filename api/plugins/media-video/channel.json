@@ -64,19 +64,45 @@
   ],
   "provider_options": [
     {
+      "provider": "bytedance",
+      "label": "BytePlus (Seedance / Dreamina)",
+      "models": [
+        {
+          "value": "dreamina-seedance-2-0-fast-260128",
+          "label": "Seedance 2.0 Fast (Dreamina)"
+        },
+        {
+          "value": "dreamina-seedance-2-0-pro-260128",
+          "label": "Seedance 2.0 Pro (Dreamina)"
+        }
+      ]
+    },
+    {
       "provider": "gemini",
       "label": "Google Gemini (Veo)",
       "models": [
-        {"value": "veo-3.0-generate-001", "label": "Veo 3.0 — preview"},
-        {"value": "veo-2.0-generate-001", "label": "Veo 2.0"}
+        {
+          "value": "veo-3.0-generate-001",
+          "label": "Veo 3.0 — preview"
+        },
+        {
+          "value": "veo-2.0-generate-001",
+          "label": "Veo 2.0"
+        }
       ]
     },
     {
       "provider": "seedance",
       "label": "Seedance",
       "models": [
-        {"value": "seedance-1-lite", "label": "Seedance 1 Lite"},
-        {"value": "seedance-1-pro", "label": "Seedance 1 Pro"}
+        {
+          "value": "seedance-1-lite",
+          "label": "Seedance 1 Lite"
+        },
+        {
+          "value": "seedance-1-pro",
+          "label": "Seedance 1 Pro"
+        }
       ]
     },
     {
@@ -84,5 +110,11 @@
       "label": "Custom Provider",
       "models": []
     }
-  ]
+  ],
+  "default_backend": {
+    "provider": "bytedance",
+    "model_id": "dreamina-seedance-2-0-fast-260128",
+    "modality": "video",
+    "strict": false
+  }
 }

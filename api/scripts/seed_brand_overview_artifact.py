@@ -75,7 +75,7 @@ def _build_brand_block(
     if not social_handles:
         readiness_gaps.append("social handles")
 
-    profile_complete = not readiness_gaps or readiness_gaps == []
+    # readiness_gaps is returned in the artifact; profile_complete was a dead alias.
 
     return {
         "type": "brand_overview",

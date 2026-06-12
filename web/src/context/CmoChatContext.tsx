@@ -84,11 +84,9 @@ export interface ActiveCouncilSession {
 export interface CmoChatContextValue {
   msgs: Msg[];
   busy: boolean;
-  pendingPlan: boolean;
   streamCardCtx: StreamCardCtx | null;
   activeObjective: ObjectiveOut | null;
   activeCouncilSession: ActiveCouncilSession | null;
-  setPendingPlan: (v: boolean) => void;
   send: (text: string, opts?: { skipUserMessage?: boolean }) => Promise<void>;
   councilPass: () => Promise<void>;
   councilFinalize: () => Promise<void>;
@@ -109,7 +107,6 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
 
   const [msgs, setMsgs] = useState<Msg[]>(() => readStoredMessages(activeBrand?.id));
   const [busy, setBusy] = useState(false);
-  const [pendingPlan, setPendingPlan] = useState(false);
   const [streamCardCtx, setStreamCardCtx] = useState<StreamCardCtx | null>(null);
   const [activeObjective, setActiveObjective] = useState<ObjectiveOut | null>(null);
   const [activeCouncilSession, setActiveCouncilSession] = useState<ActiveCouncilSession | null>(null);
@@ -167,14 +164,9 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
       setActiveBrand({ id: d.brand_id, name: d.brand_name });
     } else if (action.action === 'brand_clear') {
       setActiveBrand(null);
-    } else if (action.action === 'plan_draft') {
-      setPendingPlan(true);
-      const pd = action.data as { brand_id?: string; brand_name?: string };
-      if (pd?.brand_id && pd?.brand_name) setActiveBrand({ id: pd.brand_id, name: pd.brand_name });
     } else if (action.action === 'plan_confirmed') {
       const d = action.data as { campaign_id: string; campaign_name: string };
       setActiveCampaign({ id: d.campaign_id, name: d.campaign_name });
-      setPendingPlan(false);
     } else if (action.action === 'council_session') {
       const d = action.data as unknown as CouncilSessionState;
       setActiveCouncilSession({ session_id: d.session_id, status: d.status, pending_c6_prompt: d.pending_c6_prompt });
@@ -348,8 +340,8 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
 
   return (
     <CmoChatContext.Provider value={{
-      msgs, busy, pendingPlan, streamCardCtx, activeObjective, activeCouncilSession,
-      setPendingPlan, send, councilPass, councilFinalize, handleOutcomeConfirm, handleOutcomeCancel,
+      msgs, busy, streamCardCtx, activeObjective, activeCouncilSession,
+      send, councilPass, councilFinalize, handleOutcomeConfirm, handleOutcomeCancel,
     }}>
       {children}
     </CmoChatContext.Provider>

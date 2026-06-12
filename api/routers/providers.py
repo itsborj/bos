@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_provider_registry import is_ai_provider, list_ai_provider_ids, list_dominant_text_provider_ids
 from auth import require_api_key
 from config import get_settings
 from db import get_db
@@ -15,7 +16,7 @@ from executor import get_adapter, get_platform_key
 from models.capability import Capability, ModelOption
 from models.provider import ProviderKey, ProviderLoginSession
 from models.workspace import Brand
-from models.run import RunAttempt
+from models.run import Run, RunAttempt
 from provider_auth import (
     decrypt_secret,
     encrypt_secret,
@@ -24,6 +25,7 @@ from provider_auth import (
     resolve_stored_provider_credential,
 )
 from routers.workspace import get_singleton
+from validation import NullableUUID, is_nullish, parse_optional_uuid
 from schemas.providers import (
     CheckRequest,
     CheckResponse,
@@ -53,13 +55,10 @@ async def _require_workspace(db: AsyncSession):
     return ws
 
 
-async def _resolve_brand_id(db: AsyncSession, workspace_id, brand_id: str | None):
-    if not brand_id:
+async def _resolve_brand_id(db: AsyncSession, workspace_id, brand_id: uuid.UUID | str | None, loc: list[str] | None = None):
+    if is_nullish(brand_id):
         return None
-    try:
-        bid = uuid.UUID(brand_id)
-    except ValueError:
-        raise HTTPException(status_code=400, detail="Invalid brand_id")
+    bid = parse_optional_uuid(brand_id, loc or ["query", "brand_id"])
     brand = (await db.execute(
         select(Brand).where(Brand.id == bid, Brand.workspace_id == workspace_id)
     )).scalar_one_or_none()
@@ -81,7 +80,7 @@ async def _provider_rows_for_scope(db: AsyncSession, workspace_id, brand_id):
             if row.brand_id == brand_id:
                 scoped[row.provider] = row
         for row in rows:
-            if row.brand_id is None and row.auth_mode != "api_key" and row.provider not in scoped:
+            if row.brand_id is None and row.provider not in scoped:
                 scoped[row.provider] = row
         return scoped
     return {
@@ -97,9 +96,9 @@ async def _provider_rows_for_scope(db: AsyncSession, workspace_id, brand_id):
 
 # ── GET /providers ─────────────────────────────────────────────────────────────
 
-@router.get("", response_model=dict[str, list[ProviderInfo]], summary="List all known providers with auth status")
+@router.get("", response_model=dict[str, list[ProviderInfo]], summary="List all known providers with auth status", responses={404: {"description": "Brand not found"}})
 async def list_providers(
-    brand_id: str | None = Query(None),
+    brand_id: NullableUUID = Query(None),
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
@@ -128,15 +127,25 @@ async def list_providers(
     target_brand_id = await _resolve_brand_id(db, ws.id, brand_id) if ws else None
     if ws:
         stored = await _provider_rows_for_scope(db, ws.id, target_brand_id)
-        lat_rows = (await db.execute(
+        lat_stmt = (
             select(RunAttempt.provider, func.avg(RunAttempt.latency_ms))
-            .group_by(RunAttempt.provider)
-        )).all()
+            .join(Run, RunAttempt.run_id == Run.id)
+            .where(Run.workspace_id == ws.id)
+        )
+        if target_brand_id:
+            lat_stmt = lat_stmt.where(Run.brand_id == target_brand_id)
+        lat_rows = (await db.execute(lat_stmt.group_by(RunAttempt.provider))).all()
         latencies = {r.provider: r[1] for r in lat_rows}
 
-        attempt_rows = (await db.execute(
+        attempt_stmt = (
             select(RunAttempt.provider, RunAttempt.status, RunAttempt.error, RunAttempt.created_at)
-            .order_by(RunAttempt.created_at.desc())
+            .join(Run, RunAttempt.run_id == Run.id)
+            .where(Run.workspace_id == ws.id)
+        )
+        if target_brand_id:
+            attempt_stmt = attempt_stmt.where(Run.brand_id == target_brand_id)
+        attempt_rows = (await db.execute(
+            attempt_stmt.order_by(RunAttempt.created_at.desc())
         )).all()
         for provider, status, error, created_at in attempt_rows:
             if provider not in last_used:
@@ -170,7 +179,7 @@ async def list_providers(
             status=option.status,
         ))
 
-    known = set(model_info) | {"openrouter", "gemini", "nvidia", "openai", "google", "bytedance"}
+    known = set(model_info) | set(list_ai_provider_ids()) | {"google"}
 
     providers: list[ProviderInfo] = []
     for provider in sorted(known):
@@ -180,11 +189,18 @@ async def list_providers(
         last_check_at = metadata.get("last_check_at") if isinstance(metadata, dict) else None
         effective_status = model_info.get(provider, {}).get("status", "unknown")
         platform_available = bool(get_platform_key(provider, settings))
+        stored_row = stored.get(provider)
+        expires_at = stored_row.expires_at if stored_row else None
+        if expires_at and expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=timezone.utc)
+        is_expired = bool(expires_at and expires_at <= datetime.now(timezone.utc))
         if provider in stored or platform_available:
             # An explicit provider check is the clearest connectivity signal and
             # should override older failed run attempts. Otherwise the UI can show
             # contradictory states like "Error" beside "last check: connected".
-            if last_check_status == "ok":
+            if is_expired:
+                effective_status = "expired"
+            elif last_check_status == "ok":
                 effective_status = "live"
             elif last_check_status == "error":
                 effective_status = "error"
@@ -220,7 +236,7 @@ async def list_providers(
             auth_supported=get_auth_supported(provider),
             connected=provider in stored,
             auth_mode=stored[provider].auth_mode if provider in stored else None,
-            expires_at=stored[provider].expires_at if provider in stored else None,
+            expires_at=expires_at if provider in stored else None,
             has_platform_key=bool(get_platform_key(provider, settings)),
             has_byok_key=provider in stored and stored[provider].auth_mode == "api_key",
             avg_latency_ms=latencies.get(provider),
@@ -236,15 +252,14 @@ async def list_providers(
 
 # ── POST /providers/keys ───────────────────────────────────────────────────────
 
-@router.post("/keys", status_code=201, summary="Register or replace a direct provider API key")
+@router.post("/keys", status_code=201, summary="Register or replace a direct provider API key", responses={400: {"description": "Invalid provider key"}, 412: {"description": "Workspace not initialized"}})
 async def register_key(
     body: KeyRegisterRequest,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    # AI model providers are workspace-level infrastructure — no brand required.
-    # Plugin/channel providers (social, email, etc.) remain brand-scoped.
-    _AI_PROVIDERS = {"openrouter", "gemini", "nvidia", "openai", "bytedance"}
+    # AI providers can be workspace defaults or brand/client BYOK overrides.
+    # Channel providers remain brand-scoped unless the workspace has a single brand.
     settings = get_settings()
     ws = await _require_workspace(db)
 
@@ -257,15 +272,24 @@ async def register_key(
             detail={"error": {"code": "INVALID_KEY", "message": "API key contains non-ASCII characters. Paste the key directly — do not copy masked text.", "details": None}},
         )
 
-    if body.provider in _AI_PROVIDERS:
-        target_brand_id = None
+    if is_ai_provider(body.provider):
+        # Agency/company operators usually set a workspace default, then override
+        # selected client brands with BYOK. Supplying brand_id stores the key at
+        # that brand scope; omitting it keeps the key as the workspace default.
+        target_brand_id = await _resolve_brand_id(db, ws.id, body.brand_id, ["body", "brand_id"])
     else:
-        target_brand_id = await _resolve_brand_id(db, ws.id, body.brand_id)
+        target_brand_id = await _resolve_brand_id(db, ws.id, body.brand_id, ["body", "brand_id"])
         if target_brand_id is None:
-            raise HTTPException(
-                status_code=400,
-                detail={"error": {"code": "BRAND_REQUIRED", "message": "BYOK API keys must be registered against a specific brand", "details": None}},
-            )
+            brand_rows = (await db.execute(
+                select(Brand.id).where(Brand.workspace_id == ws.id).limit(2)
+            )).scalars().all()
+            if len(brand_rows) == 1:
+                target_brand_id = brand_rows[0]
+            else:
+                raise HTTPException(
+                    status_code=422,
+                    detail=[{"loc": ["body", "brand_id"], "msg": "brand_id is required when registering a non-AI provider key and the workspace has zero or multiple brands", "type": "value_error"}],
+                )
 
     existing = (await db.execute(
         select(ProviderKey).where(
@@ -301,9 +325,9 @@ async def register_key(
 
 # ── GET /providers/keys ────────────────────────────────────────────────────────
 
-@router.get("/keys", response_model=list[KeyListItem], summary="List registered direct provider API keys")
+@router.get("/keys", response_model=list[KeyListItem], summary="List registered provider keys and workspace channel credentials", responses={404: {"description": "Brand not found"}})
 async def list_keys(
-    brand_id: str | None = Query(None),
+    brand_id: NullableUUID = Query(None),
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
@@ -311,22 +335,41 @@ async def list_keys(
     if not ws:
         return []
     target_brand_id = await _resolve_brand_id(db, ws.id, brand_id)
-    rows = (await db.execute(
-        select(ProviderKey).where(
-            ProviderKey.workspace_id == ws.id,
-            ProviderKey.brand_id == target_brand_id if target_brand_id else ProviderKey.brand_id == None,  # noqa: E711
-            ProviderKey.auth_mode == "api_key",
+    if target_brand_id:
+        # Brand-scoped: only direct API keys for that brand
+        rows = (await db.execute(
+            select(ProviderKey).where(
+                ProviderKey.workspace_id == ws.id,
+                ProviderKey.brand_id == target_brand_id,
+                ProviderKey.auth_mode == "api_key",
+            )
+        )).scalars().all()
+    else:
+        # Workspace-level: API keys + plugin_vars (agency master channel credentials)
+        rows = (await db.execute(
+            select(ProviderKey).where(
+                ProviderKey.workspace_id == ws.id,
+                ProviderKey.brand_id == None,  # noqa: E711
+                ProviderKey.auth_mode.in_(["api_key", "plugin_vars"]),
+            )
+        )).scalars().all()
+    return [
+        KeyListItem(
+            provider=r.provider,
+            brand_id=str(r.brand_id) if r.brand_id else None,
+            auth_mode=r.auth_mode,
+            created_at=r.created_at,
         )
-    )).scalars().all()
-    return [KeyListItem(provider=r.provider, brand_id=str(r.brand_id) if r.brand_id else None, created_at=r.created_at) for r in rows]
+        for r in rows
+    ]
 
 
 # ── DELETE /providers/keys/{provider} ─────────────────────────────────────────
 
-@router.delete("/keys/{provider}", status_code=204, summary="Remove a direct provider API key")
+@router.delete("/keys/{provider}", status_code=204, summary="Remove a direct provider API key", responses={404: {"description": "Provider key not found"}})
 async def delete_key(
     provider: str,
-    brand_id: str | None = Query(None),
+    brand_id: NullableUUID = Query(None),
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
@@ -352,7 +395,7 @@ async def delete_key(
 
 # ── POST /providers/login ──────────────────────────────────────────────────────
 
-@router.post("/login", response_model=LoginStartResponse, summary="Start interactive provider login")
+@router.post("/login", response_model=LoginStartResponse, summary="Start interactive provider login", responses={400: {"description": "Provider login not supported"}, 412: {"description": "Workspace not initialized"}})
 async def login_provider(
     body: LoginStartRequest,
     db: AsyncSession = Depends(get_db),
@@ -405,7 +448,7 @@ async def login_provider(
 
 # ── POST /providers/login/complete ────────────────────────────────────────────
 
-@router.post("/login/complete", response_model=LoginCompleteResponse, summary="Complete interactive provider login")
+@router.post("/login/complete", response_model=LoginCompleteResponse, summary="Complete interactive provider login", responses={400: {"description": "Provider login failed or not supported"}, 404: {"description": "Provider login session not found"}, 412: {"description": "Workspace not initialized"}})
 async def complete_login(
     body: LoginCompleteRequest,
     db: AsyncSession = Depends(get_db),
@@ -490,7 +533,7 @@ async def complete_login(
 
 # ── DELETE /providers/auth/{provider} ─────────────────────────────────────────
 
-@router.delete("/auth/{provider}", status_code=204, summary="Remove any stored provider credential")
+@router.delete("/auth/{provider}", status_code=204, summary="Remove any stored provider credential", responses={404: {"description": "Provider auth not found"}})
 async def delete_auth(
     provider: str,
     db: AsyncSession = Depends(get_db),
@@ -513,9 +556,9 @@ async def delete_auth(
     await db.commit()
 
 
-# ── POST /providers/check ──────────────────────────────────────────────────────
+# ── Provider connectivity checks ───────────────────────────────────────────────
 
-@router.post("/check", response_model=CheckResponse, summary="Verify stored provider credential connectivity")
+@router.post("/check", response_model=CheckResponse, summary="Verify stored provider credential connectivity", responses={404: {"description": "Provider credential not found"}, 412: {"description": "Workspace not initialized"}})
 async def check_key(
     body: CheckRequest,
     db: AsyncSession = Depends(get_db),
@@ -523,7 +566,7 @@ async def check_key(
 ):
     settings = get_settings()
     ws = await _require_workspace(db)
-    target_brand_id = await _resolve_brand_id(db, ws.id, body.brand_id)
+    target_brand_id = await _resolve_brand_id(db, ws.id, body.brand_id, ["body", "brand_id"])
     api_key, auth_mode = await resolve_stored_provider_credential(db, ws.id, body.provider, settings, brand_id=target_brand_id)
     if not api_key:
         platform_key = get_platform_key(body.provider, settings)
@@ -650,24 +693,199 @@ def _infer_modality(model_id: str) -> str:
     return "text"
 
 
-# Known image-generation models per provider — surfaced in the image specialist picker
-# when the provider is connected. These are not in the seeded text model catalog.
-_PROVIDER_IMAGE_MODELS: dict[str, list[dict]] = {
-    "openai": [
-        {"model_id": "gpt-image-2", "name": "GPT Image 2", "quality_tier": "high"},
-        {"model_id": "dall-e-3",    "name": "DALL-E 3",    "quality_tier": "high"},
-    ],
-    "gemini": [
-        {"model_id": "gemini-2.5-flash-image",    "name": "Gemini 2.5 Flash Image",  "quality_tier": "medium"},
-        {"model_id": "imagen-4.0-generate-001",   "name": "Imagen 4",                "quality_tier": "high"},
-        {"model_id": "imagen-4.0-ultra-generate-001", "name": "Imagen 4 Ultra",      "quality_tier": "high"},
-    ],
-}
+def _cache_key(provider: str, api_key: str) -> str:
+    return f"{provider}:{hash(api_key)}"
+
+
+def _is_text_model_id(model_id: str) -> bool:
+    return _infer_modality(model_id) == "text"
+
+
+def _provider_model(
+    provider: str,
+    model_id: str,
+    name: str | None = None,
+    *,
+    context_length: int = 0,
+    quality_tier: str = "medium",
+    modality: str | None = None,
+    is_free: bool = False,
+) -> ProviderModelLive:
+    inferred = modality or _infer_modality(model_id)
+    return ProviderModelLive(
+        provider=provider,
+        model_id=model_id,
+        name=name or model_id,
+        is_free=is_free,
+        input_cost_per_token=0.0,
+        output_cost_per_token=0.0,
+        context_length=context_length,
+        quality_tier=quality_tier,
+        supports_json=inferred == "text",
+        modality=inferred,
+    )
+
+
+def _openai_model_rank(model_id: str) -> tuple[int, str]:
+    mid = model_id.lower()
+    if mid.startswith("gpt-5"):
+        return (0, mid)
+    if mid.startswith("gpt-4.1"):
+        return (1, mid)
+    if mid.startswith("gpt-4o"):
+        return (2, mid)
+    if mid.startswith("o"):
+        return (3, mid)
+    if mid.startswith(("gpt-", "chatgpt-")):
+        return (4, mid)
+    return (99, mid)
+
+
+def _openai_text_models_from_payload(data: dict, *, limit: int = 3) -> list[ProviderModelLive]:
+    blocked = (
+        "audio", "embedding", "image", "realtime", "search", "speech", "tts",
+        "transcribe", "whisper", "vision", "dall-e", "preview", "beta", "mini", "nano", "moderation",
+    )
+    rows = []
+    for m in data.get("data", []):
+        model_id = str((m or {}).get("id") or "").strip()
+        mid = model_id.lower()
+        if not model_id or not (mid.startswith("gpt-") or mid.startswith("chatgpt-") or mid.startswith("o")):
+            continue
+        if any(token in mid for token in blocked):
+            continue
+        rows.append((m, model_id))
+    rows.sort(key=lambda pair: (_openai_model_rank(pair[1])[0], -int((pair[0] or {}).get("created") or 0), pair[1].lower()))
+    return [
+        _provider_model("openai", model_id, model_id, quality_tier="high", modality="text")
+        for _, model_id in rows[:limit]
+    ]
+
+
+def _anthropic_text_models_from_payload(data: dict, *, limit: int = 3) -> list[ProviderModelLive]:
+    rows = []
+    for m in data.get("data", []):
+        model_id = str((m or {}).get("id") or "").strip()
+        if not model_id or not model_id.lower().startswith("claude"):
+            continue
+        rows.append(m)
+    rows.sort(key=lambda m: str(m.get("created_at") or m.get("created") or ""), reverse=True)
+    return [
+        _provider_model(
+            "anthropic",
+            str(m.get("id")),
+            m.get("display_name") or m.get("name") or str(m.get("id")),
+            quality_tier="high" if "opus" in str(m.get("id", "")).lower() else "medium",
+            modality="text",
+        )
+        for m in rows[:limit]
+    ]
+
+
+def _gemini_model_rank(model_id: str) -> tuple[int, str]:
+    mid = model_id.lower()
+    if "2.5-pro" in mid:
+        return (0, mid)
+    if "2.5-flash" in mid:
+        return (1, mid)
+    if "2.0-flash" in mid:
+        return (2, mid)
+    if "1.5-pro" in mid:
+        return (3, mid)
+    if "1.5-flash" in mid:
+        return (4, mid)
+    return (9, mid)
+
+
+def _gemini_text_models_from_payload(data: dict, *, limit: int = 3) -> list[ProviderModelLive]:
+    rows = []
+    for m in data.get("models", []):
+        raw_name = str((m or {}).get("name") or "").strip()
+        model_id = raw_name.split("/", 1)[1] if raw_name.startswith("models/") else raw_name
+        mid = model_id.lower()
+        methods = set(m.get("supportedGenerationMethods") or [])
+        if not model_id or "generateContent" not in methods:
+            continue
+        if not mid.startswith("gemini-") or any(x in mid for x in ("embedding", "image", "veo", "tts")):
+            continue
+        rows.append((m, model_id))
+    rows.sort(key=lambda pair: _gemini_model_rank(pair[1]))
+    return [
+        _provider_model(
+            "gemini",
+            model_id,
+            m.get("displayName") or m.get("display_name") or model_id,
+            context_length=int(m.get("inputTokenLimit") or m.get("input_token_limit") or 0),
+            quality_tier="high" if "pro" in model_id.lower() else "medium",
+            modality="text",
+        )
+        for m, model_id in rows[:limit]
+    ]
+
+
+async def _fetch_openai_models(api_key: str, *, limit: int = 3) -> list[ProviderModelLive]:
+    cache_key = _cache_key("openai_live", api_key)
+    cached = _model_cache.get(cache_key)
+    if cached and time.time() - cached[1] < _CACHE_TTL:
+        return cached[0]
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get("https://api.openai.com/v1/models", headers={"Authorization": f"Bearer {api_key}"})
+            r.raise_for_status()
+            models = _openai_text_models_from_payload(r.json(), limit=limit)
+    except Exception as exc:
+        logger.warning("OpenAI model list fetch failed: %s", exc)
+        return _model_cache.get(cache_key, ([], 0))[0]
+    _model_cache[cache_key] = (models, time.time())
+    return models
+
+
+async def _fetch_anthropic_models(api_key: str, *, limit: int = 3) -> list[ProviderModelLive]:
+    cache_key = _cache_key("anthropic_live", api_key)
+    cached = _model_cache.get(cache_key)
+    if cached and time.time() - cached[1] < _CACHE_TTL:
+        return cached[0]
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.get(
+                "https://api.anthropic.com/v1/models",
+                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
+            )
+            r.raise_for_status()
+            models = _anthropic_text_models_from_payload(r.json(), limit=limit)
+    except Exception as exc:
+        logger.warning("Anthropic model list fetch failed: %s", exc)
+        return _model_cache.get(cache_key, ([], 0))[0]
+    _model_cache[cache_key] = (models, time.time())
+    return models
+
+
+async def _fetch_gemini_models(api_key: str, *, limit: int = 3, auth_mode: str | None = None) -> list[ProviderModelLive]:
+    cache_key = _cache_key(f"gemini_live:{auth_mode or 'api_key'}", api_key)
+    cached = _model_cache.get(cache_key)
+    if cached and time.time() - cached[1] < _CACHE_TTL:
+        return cached[0]
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            if auth_mode == "oauth":
+                r = await client.get(
+                    "https://generativelanguage.googleapis.com/v1beta/models",
+                    headers={"Authorization": f"Bearer {api_key}"},
+                )
+            else:
+                r = await client.get("https://generativelanguage.googleapis.com/v1beta/models", params={"key": api_key})
+            r.raise_for_status()
+            models = _gemini_text_models_from_payload(r.json(), limit=limit)
+    except Exception as exc:
+        logger.warning("Gemini model list fetch failed: %s", exc)
+        return _model_cache.get(cache_key, ([], 0))[0]
+    _model_cache[cache_key] = (models, time.time())
+    return models
 
 
 async def _fetch_bytedance_models(api_key: str) -> list[ProviderModelLive]:
-    """Live-fetch available models from BytePlus ModelArk and classify by modality."""
-    cache_key = "bytedance_live"
+    """Live-fetch available BytePlus models and classify by modality."""
+    cache_key = _cache_key("bytedance_live", api_key)
     cached = _model_cache.get(cache_key)
     if cached and time.time() - cached[1] < _CACHE_TTL:
         return cached[0]
@@ -676,7 +894,7 @@ async def _fetch_bytedance_models(api_key: str) -> list[ProviderModelLive]:
         api_key.encode("ascii")
     except UnicodeEncodeError:
         logger.warning(
-            "ByteDance ModelArk API key contains non-ASCII characters — re-enter the key via Admin → AI Providers"
+            "BytePlus API key contains non-ASCII characters — re-enter the key via Admin → AI Providers"
         )
         return []
 
@@ -689,30 +907,32 @@ async def _fetch_bytedance_models(api_key: str) -> list[ProviderModelLive]:
             r.raise_for_status()
             data = r.json()
     except Exception as exc:
-        logger.warning("ByteDance ModelArk model list fetch failed: %s", exc)
+        logger.warning("BytePlus model list fetch failed: %s", exc)
         return _model_cache.get(cache_key, ([], 0))[0]
 
-    models: list[ProviderModelLive] = []
-    for m in data.get("data", []):
-        model_id = m.get("id", "")
-        if not model_id:
-            continue
-        modality = _infer_modality(model_id)
-        models.append(ProviderModelLive(
-            provider="bytedance",
-            model_id=model_id,
-            name=m.get("display_name") or m.get("name") or model_id,
-            is_free=False,
-            input_cost_per_token=0.0,
-            output_cost_per_token=0.0,
+    models = [
+        _provider_model(
+            "bytedance",
+            m.get("id", ""),
+            m.get("display_name") or m.get("name") or m.get("id", ""),
             context_length=m.get("context_window") or 0,
-            quality_tier="medium",
-            supports_json=modality == "text",
-            modality=modality,
-        ))
+        )
+        for m in data.get("data", [])
+        if m.get("id")
+    ]
 
     _model_cache[cache_key] = (models, time.time())
     return models
+
+
+async def _fetch_live_text_models(provider: str, api_key: str, *, limit: int = 3, auth_mode: str | None = None) -> list[ProviderModelLive]:
+    if provider == "openai":
+        return await _fetch_openai_models(api_key, limit=limit)
+    if provider == "anthropic":
+        return await _fetch_anthropic_models(api_key, limit=limit)
+    if provider == "gemini":
+        return await _fetch_gemini_models(api_key, limit=limit, auth_mode=auth_mode)
+    return []
 
 
 @router.get("/models", summary="List available models from connected providers")
@@ -722,21 +942,48 @@ async def list_provider_models(
 ):
     """
     Returns available models for CMO Brain and Specialist selection.
-    - OpenRouter free models: fetched live from OpenRouter API, cached 1 hour.
-    - Direct providers (OpenAI, Gemini, NVIDIA): served from seeded model catalog.
-    Paid OpenRouter proxy entries are excluded — use direct provider keys for paid models.
+    - First-class text providers (OpenAI, Anthropic, Gemini) are fetched live and capped to top 3.
+    - OpenRouter free models are fetched live as optional free fallbacks.
+    - Legacy seeded catalog remains only for non-dominant providers that do not expose a live catalog here.
     """
-    # Live OpenRouter free models
-    free_models = await _fetch_openrouter_free_models()
-
     settings = get_settings()
+    ws = await get_singleton(db)
 
-    # Seeded models — pull every provider in the catalog except openrouter
-    # (openrouter is served live above; no hardcoded provider list here)
+    seen: set[tuple[str, str]] = set()
+    live_text_models: list[ProviderModelLive] = []
+    if ws:
+        for provider in list_dominant_text_provider_ids():
+            stored_key, auth_mode = await resolve_stored_provider_credential(db, ws.id, provider, settings)
+            api_key = stored_key if auth_mode in ("api_key", "oauth") else None
+            effective_auth_mode = auth_mode if api_key else None
+            if not api_key:
+                api_key = get_platform_key(provider, settings)
+                effective_auth_mode = "platform" if api_key else None
+            if not api_key:
+                continue
+            for model in await _fetch_live_text_models(provider, api_key, limit=3, auth_mode=effective_auth_mode):
+                key = (model.provider, model.model_id)
+                if key in seen:
+                    continue
+                seen.add(key)
+                live_text_models.append(model)
+
+    # Live OpenRouter free models remain useful for fallback/proxy use, but are
+    # not the source of truth for direct OpenAI/Anthropic/Gemini provider picks.
+    free_models = []
+    for model in await _fetch_openrouter_free_models():
+        key = (model.provider, model.model_id)
+        if key not in seen:
+            seen.add(key)
+            free_models.append(model)
+
+    # Seeded models — only for non-dominant legacy providers (e.g. NVIDIA). The
+    # dominant providers above must come from live provider catalogs.
     seeded_provider_rows = (await db.execute(
         select(ModelOption.provider).distinct().where(ModelOption.status == "healthy")
     )).scalars().all()
-    seeded_providers = [p for p in seeded_provider_rows if p != "openrouter"]
+    dominant = set(list_dominant_text_provider_ids())
+    seeded_providers = [p for p in seeded_provider_rows if p != "openrouter" and p not in dominant]
 
     providers_with_platform_key = {
         p for p in seeded_providers if bool(get_platform_key(p, settings))
@@ -748,7 +995,6 @@ async def list_provider_models(
         .where(ModelOption.status == "healthy")
     )).scalars().all()
 
-    seen: set[tuple[str, str]] = set()
     direct_models: list[ProviderModelLive] = []
     for o in seeded_opts:
         key = (o.provider, o.model_id)
@@ -768,47 +1014,13 @@ async def list_provider_models(
             modality=_infer_modality(o.model_id),
         ))
 
-    ws = await get_singleton(db)
-
-    # Inject known image-generation models for connected providers (not in text catalog).
-    # A provider is "connected" if it has a platform key or a stored BYOK key.
-    connected_providers = set(providers_with_platform_key)
-    if ws:
-        byok_rows = (await db.execute(
-            select(ProviderKey.provider).where(ProviderKey.workspace_id == ws.id, ProviderKey.brand_id == None)  # noqa: E711
-        )).scalars().all()
-        connected_providers.update(byok_rows)
-
-    for provider, img_models in _PROVIDER_IMAGE_MODELS.items():
-        if provider not in connected_providers:
-            continue
-        is_free = provider in providers_with_platform_key
-        for m in img_models:
-            key = (provider, m["model_id"])
-            if key in seen:
-                continue
-            seen.add(key)
-            direct_models.append(ProviderModelLive(
-                provider=provider,
-                model_id=m["model_id"],
-                name=m["name"],
-                is_free=is_free,
-                input_cost_per_token=0.0,
-                output_cost_per_token=0.0,
-                context_length=0,
-                quality_tier=m["quality_tier"],
-                supports_json=False,
-                modality="image",
-            ))
-
-    # ByteDance ModelArk — live fetch when a key is available
+    # BytePlus — live fetch when a key is available; used by image/video media provider pickers.
     bytedance_models: list[ProviderModelLive] = []
     if ws:
-        from provider_auth import resolve_stored_provider_credential
         bd_key, _ = await resolve_stored_provider_credential(db, ws.id, "bytedance", settings)
         if not bd_key:
             bd_key = get_platform_key("bytedance", settings)
         if bd_key:
             bytedance_models = await _fetch_bytedance_models(bd_key)
 
-    return {"models": [m.model_dump() for m in free_models + direct_models + bytedance_models]}
+    return {"models": [m.model_dump() for m in live_text_models + free_models + direct_models + bytedance_models]}
