@@ -213,14 +213,7 @@ for i in $(seq 1 30); do
   sleep 2
 done
 
-if [[ "$_STATUS" != "ok" || "$_GITSHA" != "$SHA" ]]; then
-  echo ""
-  echo "ERROR: staging API health check failed after deploy"
-  echo "  expected git_sha: $SHA"
-  echo "  actual status:    ${_STATUS:-missing}"
-  echo "  actual git_sha:   ${_GITSHA:-missing}"
-  echo "  uptime_seconds:   ${_UPTIME:-?}"
-  echo "  raw health head:  $(echo "$_HEALTH" | head -c 200)"
+_dump_staging_logs() {
   echo ""
   echo "=== docker compose ps ==="
   docker compose -f docker-compose.yml --env-file .env.staging -p staging ps || true
@@ -230,6 +223,60 @@ if [[ "$_STATUS" != "ok" || "$_GITSHA" != "$SHA" ]]; then
   echo ""
   echo "=== nginx logs tail ==="
   docker compose -f docker-compose.yml --env-file .env.staging -p staging logs --tail=80 nginx || true
+}
+
+if [[ "$_STATUS" != "ok" || "$_GITSHA" != "$SHA" ]]; then
+  echo ""
+  echo "ERROR: staging API health check failed after deploy"
+  echo "  expected git_sha: $SHA"
+  echo "  actual status:    ${_STATUS:-missing}"
+  echo "  actual git_sha:   ${_GITSHA:-missing}"
+  echo "  uptime_seconds:   ${_UPTIME:-?}"
+  echo "  raw health head:  $(echo "$_HEALTH" | head -c 200)"
+  _dump_staging_logs
+  exit 1
+fi
+
+# ── Specialist/plugin discovery check ─────────────────────────────────────────
+echo "=== Checking specialist/plugin discovery ==="
+_PLUGIN_STATUS=0
+_PLUGIN_DIAG=$(docker compose -f docker-compose.yml --env-file .env.staging -p staging exec -T api python - <<'PY'
+import json
+import os
+from pathlib import Path
+from registry import _ensure
+from plugin_loader import get_loaded_plugins, get_error_plugins
+
+root = Path(os.environ.get("EXTERNAL_PLUGINS_DIR", "/external_plugins"))
+try:
+    _ensure()
+    loaded = get_loaded_plugins()
+    errors = get_error_plugins()
+    payload = {
+        "external_root": str(root),
+        "external_root_exists": root.exists(),
+        "external_children": sorted([p.name for p in root.iterdir() if p.is_dir()]) if root.exists() else [],
+        "channel_json_count": len(list(root.glob("*/channel.json"))) if root.exists() else 0,
+        "loaded_count": len(loaded),
+        "loaded_ids": sorted(loaded.keys()),
+        "error_count": len(errors),
+        "errors": errors,
+    }
+    print(json.dumps(payload, sort_keys=True))
+    raise SystemExit(0 if loaded else 2)
+except SystemExit:
+    raise
+except Exception as exc:
+    print(json.dumps({"error": str(exc), "external_root": str(root)}, sort_keys=True))
+    raise SystemExit(2)
+PY
+) || _PLUGIN_STATUS=$?
+_PLUGIN_STATUS=${_PLUGIN_STATUS:-0}
+echo "$_PLUGIN_DIAG"
+if [[ "$_PLUGIN_STATUS" != "0" ]]; then
+  echo ""
+  echo "ERROR: no specialists/plugins loaded after deploy"
+  _dump_staging_logs
   exit 1
 fi
 
@@ -239,4 +286,5 @@ echo " Staging deploy complete"
 echo " image:          ${API_IMAGE}"
 echo " git_sha:        ${_GITSHA}"
 echo " uptime_seconds: ${_UPTIME}s"
+echo " plugins:        $(echo "$_PLUGIN_DIAG" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("loaded_count", "?"))' 2>/dev/null || echo '?')"
 echo "================================================"
