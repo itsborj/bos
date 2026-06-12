@@ -20,6 +20,17 @@ _BAD_TEXT = r"[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]|�"
 
 
 def upgrade() -> None:
+    # Alembic creates alembic_version.version_num as VARCHAR(32) by default.
+    # This revision id is longer than that, so widen the column before Alembic
+    # records this migration as applied.
+    op.alter_column(
+        "alembic_version",
+        "version_num",
+        existing_type=sa.String(32),
+        type_=sa.String(128),
+        existing_nullable=False,
+    )
+
     # Remove obvious Schemathesis/fuzzer rows that contain control/replacement
     # characters or Python sentinel names in user-visible text fields. These rows
     # were created by auth-enabled fuzz tests and should never appear in operator

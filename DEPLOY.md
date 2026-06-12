@@ -830,6 +830,28 @@ curl -sS -i https://staging.klaroha.com/api/ | head -40
 
 ---
 
+#### C24 — Alembic version id exceeds `alembic_version.version_num VARCHAR(32)`
+**Status:** `CONFIRMED — OPEN (2026-06-12)`
+
+Staging API can fail to boot during migrations if a migration revision id is longer than Alembic's default `alembic_version.version_num` length. Run `27394391729` exposed this after C23 made deploy health fail closed: migration `039_cleanup_fuzzer_data_stream_dedupe` ran, then Alembic attempted to update `alembic_version.version_num` to that 37-character id and PostgreSQL raised `StringDataRightTruncationError: value too long for type character varying(32)`.
+
+**Typical symptoms:**
+- API container starts, then exits/restarts or never becomes reachable
+- nginx reports `api could not be resolved`, connection refused, or upstream timeout
+- deploy health loops until failure
+- API logs show `UPDATE alembic_version SET version_num='039_cleanup_fuzzer_data_stream_dedupe'` followed by `value too long for type character varying(32)`
+
+**Confirm:**
+```bash
+gh run view <run_id> --log-failed | grep -E 'alembic_version|StringDataRightTruncation|value too long'
+```
+
+**Rule:** Keep migration revision identifiers <= 32 characters unless the migration widens `alembic_version.version_num` before Alembic records the new revision. This is independent of plugin/specialist loading and must be fixed before debugging zero specialists.
+
+**Fix pattern:** in the first long-id migration, alter `alembic_version.version_num` to a wider type before any other work. Do not manually update the version table on staging as the durable fix.
+
+---
+
 ### Process of Elimination
 
 When a feature breaks after a staging deploy, work through in this order:
@@ -837,18 +859,19 @@ When a feature breaks after a staging deploy, work through in this order:
 1. **C13/C12** — Prove the running code first: `curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'`. If `git_sha` is old/missing/`dev`, this is deploy/code drift. Check the deploy job for that SHA.
 2. **C22** — If `git push` succeeded but staging did not change, check GitHub Actions for image build/push failures such as GHCR `unknown blob` before investigating the VDS.
 3. **C23** — If GitHub deploy is green but `/api/` is 502 or deploy summary says `git_sha: missing`, treat the deploy as failed and inspect post-deploy API/container logs read-only.
-4. **C21** — If auth/login/API-key behavior is permissive, run only negative read-only auth tests with fake keys first. Any fake key returning 200 is a security incident.
-5. **C20** — If the symptom is a white screen, inspect browser console/network and asset headers; reproduce the web build locally before touching staging.
-6. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
-7. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
-8. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
-9. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
-10. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
-11. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
-12. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
-13. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
-14. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
-15. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
+4. **C24** — If API logs show Alembic `value too long for type character varying(32)`, fix migration version storage before investigating UI/plugins.
+5. **C21** — If auth/login/API-key behavior is permissive, run only negative read-only auth tests with fake keys first. Any fake key returning 200 is a security incident.
+6. **C20** — If the symptom is a white screen, inspect browser console/network and asset headers; reproduce the web build locally before touching staging.
+7. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
+8. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
+9. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
+10. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
+11. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
+12. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
+13. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
+14. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
+15. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
+16. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
 
 ### Behavior Parity Checklist — deploy is green, output still differs
 
@@ -1048,6 +1071,14 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 - **Current interpretation:** C22 was transient or resolved on retry, but C23 is now the active deploy verification failure. The script started containers and exited success without proving API health.
 - **Debug rule:** inspect API/container readiness read-only first. Durable fix must make deploy health fail closed; do not manually patch the VDS as the final fix.
 
+#### INC-014 — 2026-06-12 — API down because Alembic cannot store long migration revision id
+
+- **Status:** OPEN — root cause confirmed; code fix required.
+- **Symptom:** After commit `ac9a80d`, deploy correctly failed instead of going green. API remains unavailable and nginx returns 502/504 because the API process fails during Alembic upgrade.
+- **Confirmed by:** GitHub Actions run `27394391729` failed in deploy health. API logs show `StringDataRightTruncationError: value too long for type character varying(32)` while executing `UPDATE alembic_version SET version_num='039_cleanup_fuzzer_data_stream_dedupe' WHERE alembic_version.version_num = '038_plugin_activations'`.
+- **Current interpretation:** this is the current top blocker. It must be fixed before investigating zero specialists, because specialists cannot load while the API is down.
+- **Debug rule:** fix one layer at a time: first migration/API health, then auth boundary, then specialist count/provider/plugin readiness.
+
 ---
 
 ## Open Items
@@ -1064,8 +1095,9 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 - [ ] **C20:** Debug staging white screen offline first: local `web` typecheck/build, browser console/network evidence, asset headers, and API/web SHA parity. Commit/push any fix through `origin/staging`; do not patch the VDS directly.
 - [ ] **C21:** Add/verify a negative auth-boundary test using a fake API key against protected endpoints; any HTTP 200 must fail CI/deploy and be logged as a security incident.
 - [ ] **C22:** Investigate GHCR `unknown blob` image-push failure from run `27393507882`; first retry if transient, then inspect buildx/GHCR cache/provenance settings if it recurs. Retry run `27393813054` built/pushed successfully, so treat C22 as transient unless it recurs.
-- [ ] **C23:** Make `deploy-staging.sh` fail closed when post-deploy health is invalid (`git_sha: missing`, `uptime_seconds: ?s`, non-JSON, wrong SHA) and add a readiness retry loop before failing.
-- [ ] After the secret, path, white-screen, auth-boundary, image-publish, and post-deploy-health fixes, prove the real success criteria with one tiny localhost change → commit → push → CI builds images → auto-deploys → `staging.klaroha.com` returns expected `git_sha` and healthy behavior **without** manual server repair.
+- [x] **C23:** Make `deploy-staging.sh` fail closed when post-deploy health is invalid (`git_sha: missing`, `uptime_seconds: ?s`, non-JSON, wrong SHA) and add a readiness retry loop before failing. Commit `ac9a80d` implemented this and exposed C24.
+- [ ] **C24:** Widen Alembic `alembic_version.version_num` before recording long revision id `039_cleanup_fuzzer_data_stream_dedupe`; keep this separate from specialist/plugin debugging.
+- [ ] After the secret, path, white-screen, auth-boundary, image-publish, post-deploy-health, and migration fixes, prove the real success criteria with one tiny localhost change → commit → push → CI builds images → auto-deploys → `staging.klaroha.com` returns expected `git_sha` and healthy behavior **without** manual server repair.
 - [ ] Set `git config pull.rebase false` (or `--ff-only`) on the server so `git pull` doesn't fail on divergence
 - [x] GitHub secrets: `VDS_HOST`, `VDS_USER`, `VDS_DEPLOY_KEY`, `STAGING_PATH`, `PROD_PATH`, `GHCR_TOKEN`, `STAGING_ENV_FILE` — all wired in `ci.yml` (but `STAGING_ENV_FILE` content is currently the C18 risk)
 - [x] **C13 fix (scale-required):** API image accepts `ARG GIT_SHA`, CI passes `--build-arg GIT_SHA=${{ github.sha }}`, `GET /api/` exposes `git_sha`, and `check-staging.sh` verifies it when `DEPLOY_SHA` is set.
