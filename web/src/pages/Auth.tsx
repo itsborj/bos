@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api, setApiKey } from '../api/client';
+import { api, setApiKey, validateKey } from '../api/client';
 
 export function Auth() {
   const navigate = useNavigate();
@@ -49,10 +49,18 @@ export function Auth() {
     window.location.href = '/api/auth/google/login';
   }
 
-  function handleEnterKey(e: React.FormEvent) {
+  async function handleEnterKey(e: React.FormEvent) {
     e.preventDefault();
     const trimmed = keyInput.trim();
     if (!trimmed) return;
+    setLoading(true);
+    setError(null);
+    const result = await validateKey(trimmed);
+    setLoading(false);
+    if (!result.valid) {
+      setError(result.message);
+      return;
+    }
     setApiKey(trimmed);
     navigate('/cmo');
   }
