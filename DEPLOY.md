@@ -853,9 +853,11 @@ gh run view <run_id> --log-failed | grep -E 'alembic_version|StringDataRightTrun
 ---
 
 #### C25 — Staging has zero specialists/plugins loaded
-**Status:** `HYPOTHESIS — OPEN (2026-06-12)`
+**Status:** `PARTIALLY RULED OUT — PLUGIN DISCOVERY OK; UI/API PERCEPTION STILL TO VERIFY (2026-06-12)`
 
 After API health is restored, staging may still show **0 specialists** if plugin discovery is pointed at the wrong directory, plugin metadata fails validation, internal plugins are intentionally disabled, or the staging env/DB state has no activated plugins. This must be debugged separately from API availability; do not mix it with white-screen/API/migration fixes.
+
+**Findings (2026-06-12):** deploy run `27395023837` added a read-only plugin discovery check inside the running API container. It found `/external_plugins` mounted, 8 `channel.json` packages, 8 loaded plugins, and 0 plugin loader errors: `creative.factory`, `channel.gbp-completeness`, `google.drive`, `channel.hello`, `media.image`, `media.video`, `channel.meta`, `channel.youtube`. Therefore the backend plugin discovery layer is **not zero**. If the UI still shows zero specialists, the next layer is authenticated `/api/plugins` response, brand activation filtering, frontend rendering/state, or stale browser/session state.
 
 **Related context:** `deploy-staging.sh` rewrites `EXTERNAL_PLUGINS_PATH` to `$(pwd)/plugins`, while `docker-compose.yml` mounts `${EXTERNAL_PLUGINS_PATH}` into the API container as `/external_plugins` and plugin loader reads `EXTERNAL_PLUGINS_DIR=/external_plugins`. `.env.example` also has `KLAROHA_LOAD_INTERNAL_PLUGINS=false`, so bundled `api/plugins/` are skipped by default unless explicitly enabled.
 
@@ -1118,9 +1120,10 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 
 - **Status:** OPEN — hypothesis created; debugging starts after API/auth layer verification.
 - **Symptom:** User reports staging has zero specialists.
-- **Preconditions now satisfied:** API health is restored at commit `39c9124`; fake API key is rejected with 401; homepage and JS assets load. This means specialist debugging can proceed without mixing it with API-down/white-screen causes.
-- **Active hypothesis:** C25 — plugin discovery/activation problem.
-- **Debug rule:** one layer at a time. First prove plugin packages are present/discoverable. Do not change provider keys, brand data, or activation state until plugin discovery itself is understood.
+- **Preconditions now satisfied:** API health is restored; fake API key is rejected with 401; homepage and JS assets load. This means specialist debugging can proceed without mixing it with API-down/white-screen causes.
+- **Finding:** commit `c560924` added a deploy-time plugin discovery diagnostic. CI run `27395023837` succeeded and reported `plugins: 8`, `channel_json_count: 8`, `error_count: 0` in the running API container.
+- **Current interpretation:** backend discovery is healthy. If the Admin UI still shows zero specialists, the issue is one layer higher: authenticated `/api/plugins`, brand activation/filtering, frontend rendering, or stale browser state.
+- **Debug rule:** one layer at a time. Do not change provider keys, brand data, or activation state until authenticated plugin API output is checked.
 
 ---
 
@@ -1140,7 +1143,7 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 - [ ] **C22:** Investigate GHCR `unknown blob` image-push failure from run `27393507882`; first retry if transient, then inspect buildx/GHCR cache/provenance settings if it recurs. Retry run `27393813054` built/pushed successfully, so treat C22 as transient unless it recurs.
 - [x] **C23:** Make `deploy-staging.sh` fail closed when post-deploy health is invalid (`git_sha: missing`, `uptime_seconds: ?s`, non-JSON, wrong SHA) and add a readiness retry loop before failing. Commit `ac9a80d` implemented this and exposed C24.
 - [x] **C24:** Widen Alembic `alembic_version.version_num` before recording long revision id `039_cleanup_fuzzer_data_stream_dedupe`; keep this separate from specialist/plugin debugging. Commit `39c9124` restored API health.
-- [ ] **C25:** Debug zero specialists one layer at a time: plugin files present → plugin loader discovers packages → API `/plugins` count → capability count → activation/provider readiness.
+- [ ] **C25:** Debug zero specialists one layer at a time: plugin files present ✓, plugin loader discovers packages ✓ (`plugins: 8` in run `27395023837`) → next: authenticated API `/plugins` count → frontend rendering/brand activation → provider readiness.
 - [ ] After the secret, path, white-screen, auth-boundary, image-publish, post-deploy-health, migration, and specialist-discovery fixes, prove the real success criteria with one tiny localhost change → commit → push → CI builds images → auto-deploys → `staging.klaroha.com` returns expected `git_sha` and healthy behavior **without** manual server repair.
 - [ ] Set `git config pull.rebase false` (or `--ff-only`) on the server so `git pull` doesn't fail on divergence
 - [x] GitHub secrets: `VDS_HOST`, `VDS_USER`, `VDS_DEPLOY_KEY`, `STAGING_PATH`, `PROD_PATH`, `GHCR_TOKEN`, `STAGING_ENV_FILE` — all wired in `ci.yml` (but `STAGING_ENV_FILE` content is currently the C18 risk)
