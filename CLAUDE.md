@@ -274,6 +274,11 @@ http://localhost/social/google-calendar/callback
 http://localhost/social/youtube/callback
 http://localhost/social/google-drive/callback
 http://localhost/social/gemini/callback
+https://staging.klaroha.com/social/gmail/callback
+https://staging.klaroha.com/social/google-calendar/callback
+https://staging.klaroha.com/social/youtube/callback
+https://staging.klaroha.com/social/google-drive/callback
+https://staging.klaroha.com/social/gemini/callback
 https://hq.klaroha.com/social/gmail/callback
 https://hq.klaroha.com/social/google-calendar/callback
 https://hq.klaroha.com/social/youtube/callback
@@ -281,7 +286,7 @@ https://hq.klaroha.com/social/google-drive/callback
 https://hq.klaroha.com/social/gemini/callback
 ```
 > Note: this deployment's `GOOGLE_REDIRECT_URI` uses `http://localhost:8090/...` locally (not port 80). Register the matching `:8090` Gemini/Drive callbacks for local connect, plus the staging/prod hosts.
-> Gemini AI OAuth requires `https://www.googleapis.com/auth/generative-language` scope enabled in your Google Cloud project.
+> Gemini AI OAuth uses `https://www.googleapis.com/auth/cloud-platform` scope (NOT `generative-language` — that scope is restricted and requires Google app verification). Do NOT add `generative-language` to the GCP OAuth consent screen scopes.
 
 **After OAuth changes:** `api/` hot-reloads via Watchfiles. `web/` is a static build — run `docker compose build web && docker compose up -d web` after any frontend change.
 
@@ -309,7 +314,7 @@ open http://localhost:8000/docs
 
 ## Code Standards
 
-- Python 3.11+. Type hints on all function signatures.
+- Python 3.12+. Type hints on all function signatures.
 - FastAPI with Pydantic v2 models for all request/response schemas.
 - SQLAlchemy 2.x with async sessions.
 - Alembic for all schema changes. Never mutate the DB directly.
@@ -334,3 +339,13 @@ For additional context about technologies to be used, project structure,
 shell commands, and other important information, read the current plan
 at specs/001-thin-core-proof/plan.md
 <!-- SPECKIT END -->
+
+## graphify
+
+This project has a knowledge graph at graphify-out/ with god nodes, community structure, and cross-file relationships.
+
+Rules:
+- For codebase questions, first run `graphify query "<question>"` when graphify-out/graph.json exists. Use `graphify path "<A>" "<B>"` for relationships and `graphify explain "<concept>"` for focused concepts. These return a scoped subgraph, usually much smaller than GRAPH_REPORT.md or raw grep output.
+- If graphify-out/wiki/index.md exists, use it for broad navigation instead of raw source browsing.
+- Read graphify-out/GRAPH_REPORT.md only for broad architecture review or when query/path/explain do not surface enough context.
+- After modifying code, run `graphify update .` to keep the graph current (AST-only, no API cost).

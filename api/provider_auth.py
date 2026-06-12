@@ -15,6 +15,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ai_provider_registry import get_ai_auth_supported, is_ai_provider
 from models.provider import ProviderKey
 
 _OPENAI_CODEX_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann"
@@ -151,10 +152,13 @@ _GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
 _GOOGLE_USERINFO_URL = "https://www.googleapis.com/oauth2/v1/userinfo"
 _GOOGLE_SCOPES = "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly openid email"
 _YOUTUBE_SCOPES = "https://www.googleapis.com/auth/youtube.upload https://www.googleapis.com/auth/youtube.force-ssl openid email"
-# Google rejects `https://www.googleapis.com/auth/generative-language` as an OAuth
-# user-consent scope for this API path. Keep Gemini OAuth hidden unless a
-# supported non-API-key flow is proven end-to-end.
-_GEMINI_AI_SCOPES = "https://www.googleapis.com/auth/generative-language openid email"
+# Gemini AI OAuth uses the cloud-platform scope for user consent.
+# The generative-language scope requires explicit addition to the OAuth consent
+# screen in GCP Console (APIs & Services → OAuth consent screen → Add/remove scopes)
+# AND Google app verification before it appears. cloud-platform is the broad
+# scope that passes user consent without verification while in Testing mode.
+# `openid email` lets us label the connected account in Admin.
+_GEMINI_AI_SCOPES = "https://www.googleapis.com/auth/cloud-platform openid email"
 _TIKTOK_AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/"
 _TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
 _TIKTOK_USERINFO_URL = "https://open.tiktokapis.com/v2/user/info/"
@@ -1001,7 +1005,11 @@ class GeminiOAuthHandler:
             raise ValueError("GOOGLE_CLIENT_ID is not configured")
         if not settings.google_client_secret:
             raise ValueError("GOOGLE_CLIENT_SECRET is not configured")
-        redirect_uri = _google_redirect_uri("gemini", settings)
+        # Always use direct BOS callback — Gemini stores its session in BOS DB
+        # (ProviderLoginSession), not relay Redis, so the relay callback cannot
+        # find it and would return session_not_found.
+        base = (settings.frontend_url or "http://localhost").rstrip("/")
+        redirect_uri = f"{base}/social/gemini/callback"
         verifier, challenge = _generate_pkce()
         state = secrets.token_hex(16)
         params = {
@@ -1385,13 +1393,13 @@ def get_oauth_handler(provider: str):
 
 def get_auth_supported(provider: str) -> list[str]:
     supports: list[str] = []
-    if provider in {"openrouter", "gemini", "nvidia", "openai", "bytedance"}:
-        supports.append("api_key")
-    if provider in _OAUTH_HANDLERS and provider != "gemini":
+    if is_ai_provider(provider):
+        supports.extend(get_ai_auth_supported(provider))
+    elif provider in _OAUTH_HANDLERS and provider != "gemini":
         supports.append("oauth")
     elif get_oauth_handler(provider):
         supports.append("oauth")
-    return supports
+    return list(dict.fromkeys(supports))
 
 
 def get_fernet(settings) -> Fernet:
@@ -1431,10 +1439,10 @@ async def resolve_stored_provider_credential(
         except ValueError:
             brand_id = None
     if brand_id:
-        # BYOK credentials are brand-scoped. Do not fall back to a workspace-level
-        # API key for a brand run, or one brand could accidentally spend another
-        # brand/operator credential. Workspace-level OAuth login may still be used
-        # as shared operator auth when no brand credential exists.
+        # Prefer a brand-owned credential, then fall back to the workspace/org
+        # credential saved in Admin. Operators commonly configure one OpenAI or
+        # BytePlus key at workspace scope and expect brand-scoped CMO/media runs
+        # to use it unless a brand-specific override exists.
         row = (await db.execute(
             select(ProviderKey).where(
                 ProviderKey.workspace_id == workspace_id,
@@ -1448,7 +1456,6 @@ async def resolve_stored_provider_credential(
                     ProviderKey.workspace_id == workspace_id,
                     ProviderKey.brand_id == None,  # noqa: E711
                     ProviderKey.provider == provider,
-                    ProviderKey.auth_mode != "api_key",
                 )
             )).scalar_one_or_none()
     else:
