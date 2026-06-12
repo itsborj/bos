@@ -852,6 +852,40 @@ gh run view <run_id> --log-failed | grep -E 'alembic_version|StringDataRightTrun
 
 ---
 
+#### C25 — Staging has zero specialists/plugins loaded
+**Status:** `HYPOTHESIS — OPEN (2026-06-12)`
+
+After API health is restored, staging may still show **0 specialists** if plugin discovery is pointed at the wrong directory, plugin metadata fails validation, internal plugins are intentionally disabled, or the staging env/DB state has no activated plugins. This must be debugged separately from API availability; do not mix it with white-screen/API/migration fixes.
+
+**Related context:** `deploy-staging.sh` rewrites `EXTERNAL_PLUGINS_PATH` to `$(pwd)/plugins`, while `docker-compose.yml` mounts `${EXTERNAL_PLUGINS_PATH}` into the API container as `/external_plugins` and plugin loader reads `EXTERNAL_PLUGINS_DIR=/external_plugins`. `.env.example` also has `KLAROHA_LOAD_INTERNAL_PLUGINS=false`, so bundled `api/plugins/` are skipped by default unless explicitly enabled.
+
+**Typical symptoms:**
+- Admin/Specialists page shows zero specialists or zero plugins
+- `/api/plugins` returns an empty list despite API health being ok
+- `/api/agent/capabilities` count is unexpectedly low
+- deploy logs show `EXTERNAL_PLUGINS_PATH` pointing at a path with no valid plugin packages
+- plugin loader logs show packages skipped due to missing/invalid `plugin.yaml`, no capabilities, or import errors
+
+**Offline/read-only confirm:**
+```bash
+# First prove API is healthy and deployed; do not debug specialists while /api/ is 502.
+curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'
+
+# Offline repo checks: confirm plugin package files exist and are tracked.
+find plugins -maxdepth 3 -name 'plugin.yaml' -o -name 'plugin.yml'
+git ls-files plugins | head
+
+# Authenticated staging checks require a known staging key; never print it in logs.
+curl -s -H "X-API-Key: $KEY" https://staging.klaroha.com/api/plugins | jq
+curl -s -H "X-API-Key: $KEY" https://staging.klaroha.com/api/agent/capabilities | jq 'length'
+```
+
+**Rule:** Fix one layer at a time. Do not enable `KLAROHA_LOAD_INTERNAL_PLUGINS=true` as a blanket staging workaround unless the goal is explicitly to load deprecated bundled examples; that can make Admin show the wrong set of specialists. The durable fix is to make the intended external plugin packages discoverable and valid in the deployed artifact.
+
+**Fix pattern:** verify the mounted `/external_plugins` path contains valid tracked plugin packages, then fix plugin packaging/metadata or deploy path env as code. Add a post-deploy check for plugin/capability count once the intended minimum is defined.
+
+---
+
 ### Process of Elimination
 
 When a feature breaks after a staging deploy, work through in this order:
@@ -862,16 +896,17 @@ When a feature breaks after a staging deploy, work through in this order:
 4. **C24** — If API logs show Alembic `value too long for type character varying(32)`, fix migration version storage before investigating UI/plugins.
 5. **C21** — If auth/login/API-key behavior is permissive, run only negative read-only auth tests with fake keys first. Any fake key returning 200 is a security incident.
 6. **C20** — If the symptom is a white screen, inspect browser console/network and asset headers; reproduce the web build locally before touching staging.
-7. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
-8. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
-9. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
-10. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
-11. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
-12. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
-13. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
-14. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
-15. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
-16. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
+7. **C25** — If API is healthy but Specialists/Admin shows zero, debug plugin discovery/activation only; do not mix with provider-key or brand-state drift yet.
+8. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
+9. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
+10. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
+11. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
+12. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
+13. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
+14. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
+15. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
+16. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
+17. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
 
 ### Behavior Parity Checklist — deploy is green, output still differs
 
@@ -1079,6 +1114,14 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 - **Current interpretation:** this is the current top blocker. It must be fixed before investigating zero specialists, because specialists cannot load while the API is down.
 - **Debug rule:** fix one layer at a time: first migration/API health, then auth boundary, then specialist count/provider/plugin readiness.
 
+#### INC-015 — 2026-06-12 — Staging API healthy, but Specialists page reportedly shows zero specialists
+
+- **Status:** OPEN — hypothesis created; debugging starts after API/auth layer verification.
+- **Symptom:** User reports staging has zero specialists.
+- **Preconditions now satisfied:** API health is restored at commit `39c9124`; fake API key is rejected with 401; homepage and JS assets load. This means specialist debugging can proceed without mixing it with API-down/white-screen causes.
+- **Active hypothesis:** C25 — plugin discovery/activation problem.
+- **Debug rule:** one layer at a time. First prove plugin packages are present/discoverable. Do not change provider keys, brand data, or activation state until plugin discovery itself is understood.
+
 ---
 
 ## Open Items
@@ -1096,8 +1139,9 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 - [ ] **C21:** Add/verify a negative auth-boundary test using a fake API key against protected endpoints; any HTTP 200 must fail CI/deploy and be logged as a security incident.
 - [ ] **C22:** Investigate GHCR `unknown blob` image-push failure from run `27393507882`; first retry if transient, then inspect buildx/GHCR cache/provenance settings if it recurs. Retry run `27393813054` built/pushed successfully, so treat C22 as transient unless it recurs.
 - [x] **C23:** Make `deploy-staging.sh` fail closed when post-deploy health is invalid (`git_sha: missing`, `uptime_seconds: ?s`, non-JSON, wrong SHA) and add a readiness retry loop before failing. Commit `ac9a80d` implemented this and exposed C24.
-- [ ] **C24:** Widen Alembic `alembic_version.version_num` before recording long revision id `039_cleanup_fuzzer_data_stream_dedupe`; keep this separate from specialist/plugin debugging.
-- [ ] After the secret, path, white-screen, auth-boundary, image-publish, post-deploy-health, and migration fixes, prove the real success criteria with one tiny localhost change → commit → push → CI builds images → auto-deploys → `staging.klaroha.com` returns expected `git_sha` and healthy behavior **without** manual server repair.
+- [x] **C24:** Widen Alembic `alembic_version.version_num` before recording long revision id `039_cleanup_fuzzer_data_stream_dedupe`; keep this separate from specialist/plugin debugging. Commit `39c9124` restored API health.
+- [ ] **C25:** Debug zero specialists one layer at a time: plugin files present → plugin loader discovers packages → API `/plugins` count → capability count → activation/provider readiness.
+- [ ] After the secret, path, white-screen, auth-boundary, image-publish, post-deploy-health, migration, and specialist-discovery fixes, prove the real success criteria with one tiny localhost change → commit → push → CI builds images → auto-deploys → `staging.klaroha.com` returns expected `git_sha` and healthy behavior **without** manual server repair.
 - [ ] Set `git config pull.rebase false` (or `--ff-only`) on the server so `git pull` doesn't fail on divergence
 - [x] GitHub secrets: `VDS_HOST`, `VDS_USER`, `VDS_DEPLOY_KEY`, `STAGING_PATH`, `PROD_PATH`, `GHCR_TOKEN`, `STAGING_ENV_FILE` — all wired in `ci.yml` (but `STAGING_ENV_FILE` content is currently the C18 risk)
 - [x] **C13 fix (scale-required):** API image accepts `ARG GIT_SHA`, CI passes `--build-arg GIT_SHA=${{ github.sha }}`, `GET /api/` exposes `git_sha`, and `check-staging.sh` verifies it when `DEPLOY_SHA` is set.
