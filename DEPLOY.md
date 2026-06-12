@@ -807,24 +807,48 @@ curl -sS -i https://staging.klaroha.com/api/ | head -40
 
 ---
 
+#### C23 — Deploy job reports success even when post-deploy API health is missing
+**Status:** `CONFIRMED — OPEN (2026-06-12)`
+
+A staging deploy can be marked green by GitHub Actions even when `deploy-staging.sh` fails to parse a valid API health response. In run `27393813054`, images built and containers started, but the final deploy summary printed `git_sha: missing` and `uptime_seconds: ?s`. The SSH action still reported success, while public `https://staging.klaroha.com/api/` returned Cloudflare 502 immediately after deploy.
+
+**Typical symptoms:**
+- GitHub Actions deploy job is green
+- deploy log final summary has `git_sha: missing` or `uptime_seconds: ?s`
+- public API returns 502 or non-JSON
+- staging homepage may return 200 while `/api/` is broken, causing a white screen after React boot/API calls
+
+**Confirm:**
+```bash
+gh run view <run_id> --log | grep -E 'Staging deploy complete|git_sha:|uptime_seconds:'
+curl -sS -i https://staging.klaroha.com/api/ | head -40
+```
+
+**Rule:** A deploy must not be considered successful unless post-deploy health returns JSON with `status=ok`, expected `git_sha`, and low `uptime_seconds`. `git_sha: missing` is a failed deploy, not a warning.
+
+**Fix pattern:** make `deploy-staging.sh` fail closed when health JSON is missing/invalid or `git_sha != DEPLOY_SHA`; add a short readiness retry loop before evaluating health so normal API boot time does not produce false failures.
+
+---
+
 ### Process of Elimination
 
 When a feature breaks after a staging deploy, work through in this order:
 
 1. **C13/C12** — Prove the running code first: `curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'`. If `git_sha` is old/missing/`dev`, this is deploy/code drift. Check the deploy job for that SHA.
 2. **C22** — If `git push` succeeded but staging did not change, check GitHub Actions for image build/push failures such as GHCR `unknown blob` before investigating the VDS.
-3. **C21** — If auth/login/API-key behavior is permissive, run only negative read-only auth tests with fake keys first. Any fake key returning 200 is a security incident.
-4. **C20** — If the symptom is a white screen, inspect browser console/network and asset headers; reproduce the web build locally before touching staging.
-5. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
-6. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
-7. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
-8. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
-9. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
-10. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
-11. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
-12. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
-13. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
-14. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
+3. **C23** — If GitHub deploy is green but `/api/` is 502 or deploy summary says `git_sha: missing`, treat the deploy as failed and inspect post-deploy API/container logs read-only.
+4. **C21** — If auth/login/API-key behavior is permissive, run only negative read-only auth tests with fake keys first. Any fake key returning 200 is a security incident.
+5. **C20** — If the symptom is a white screen, inspect browser console/network and asset headers; reproduce the web build locally before touching staging.
+6. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
+7. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
+8. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
+9. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
+10. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
+11. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
+12. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
+13. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
+14. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
+15. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
 
 ### Behavior Parity Checklist — deploy is green, output still differs
 
@@ -1016,6 +1040,14 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 - **Current interpretation:** GitHub received the commit, but GHCR did not receive a valid API image artifact. Since the deploy job depends on image publication, staging could not update.
 - **Debug rule:** debug via GitHub Actions/GHCR first. Do not mutate the VDS to compensate for a missing image artifact.
 
+#### INC-013 — 2026-06-12 — CI deploy green but API health missing and public `/api/` returns 502
+
+- **Status:** OPEN — root cause not yet fixed.
+- **Symptom:** Retry commit `fc4c402` produced a green GitHub Actions run `27393813054`; images built and deploy job completed. However the deploy summary printed `git_sha: missing` and `uptime_seconds: ?s`, and public `https://staging.klaroha.com/api/` returned Cloudflare 502 after deploy.
+- **Confirmed by:** `gh run view 27393813054 --log` final deploy lines plus external `curl -i https://staging.klaroha.com/api/`.
+- **Current interpretation:** C22 was transient or resolved on retry, but C23 is now the active deploy verification failure. The script started containers and exited success without proving API health.
+- **Debug rule:** inspect API/container readiness read-only first. Durable fix must make deploy health fail closed; do not manually patch the VDS as the final fix.
+
 ---
 
 ## Open Items
@@ -1031,8 +1063,9 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 - [ ] **C19:** Remove hard-coded `cd ~/bos` / `~/bos/.env.staging` assumptions from `deploy-staging.sh` and `check-staging.sh`; run from `STAGING_PATH`/current checkout and print `pwd`, `git rev-parse HEAD`, and `realpath .env.staging` at start.
 - [ ] **C20:** Debug staging white screen offline first: local `web` typecheck/build, browser console/network evidence, asset headers, and API/web SHA parity. Commit/push any fix through `origin/staging`; do not patch the VDS directly.
 - [ ] **C21:** Add/verify a negative auth-boundary test using a fake API key against protected endpoints; any HTTP 200 must fail CI/deploy and be logged as a security incident.
-- [ ] **C22:** Investigate GHCR `unknown blob` image-push failure from run `27393507882`; first retry if transient, then inspect buildx/GHCR cache/provenance settings if it recurs.
-- [ ] After the secret, path, white-screen, auth-boundary, and image-publish fixes, prove the real success criteria with one tiny localhost change → commit → push → CI builds images → auto-deploys → `staging.klaroha.com` returns expected `git_sha` and healthy behavior **without** manual server repair.
+- [ ] **C22:** Investigate GHCR `unknown blob` image-push failure from run `27393507882`; first retry if transient, then inspect buildx/GHCR cache/provenance settings if it recurs. Retry run `27393813054` built/pushed successfully, so treat C22 as transient unless it recurs.
+- [ ] **C23:** Make `deploy-staging.sh` fail closed when post-deploy health is invalid (`git_sha: missing`, `uptime_seconds: ?s`, non-JSON, wrong SHA) and add a readiness retry loop before failing.
+- [ ] After the secret, path, white-screen, auth-boundary, image-publish, and post-deploy-health fixes, prove the real success criteria with one tiny localhost change → commit → push → CI builds images → auto-deploys → `staging.klaroha.com` returns expected `git_sha` and healthy behavior **without** manual server repair.
 - [ ] Set `git config pull.rebase false` (or `--ff-only`) on the server so `git pull` doesn't fail on divergence
 - [x] GitHub secrets: `VDS_HOST`, `VDS_USER`, `VDS_DEPLOY_KEY`, `STAGING_PATH`, `PROD_PATH`, `GHCR_TOKEN`, `STAGING_ENV_FILE` — all wired in `ci.yml` (but `STAGING_ENV_FILE` content is currently the C18 risk)
 - [x] **C13 fix (scale-required):** API image accepts `ARG GIT_SHA`, CI passes `--build-arg GIT_SHA=${{ github.sha }}`, `GET /api/` exposes `git_sha`, and `check-staging.sh` verifies it when `DEPLOY_SHA` is set.
