@@ -146,11 +146,16 @@ export async function validateKey(key: string): Promise<{ valid: boolean; messag
     const res = await fetch(`${BASE}/workspace`, {
       headers: { 'X-API-Key': key, 'Content-Type': 'application/json' },
     });
+    // 200 (workspace exists) or 412 (workspace not initialized) both mean key is valid.
+    // Every other status is invalid for login. In particular, never accept 5xx/502 as
+    // valid — that was allowing arbitrary keys through while staging API was down.
+    if (res.status === 200 || res.status === 412) {
+      return { valid: true, message: '' };
+    }
     if (res.status === 401 || res.status === 403) {
       return { valid: false, message: 'Key not recognized — check it and try again' };
     }
-    // 200 (workspace exists) or 412 (workspace not initialized) both mean key is valid
-    return { valid: true, message: '' };
+    return { valid: false, message: `Server is not ready (HTTP ${res.status}) — try again shortly` };
   } catch {
     return { valid: false, message: 'Could not reach the server' };
   }

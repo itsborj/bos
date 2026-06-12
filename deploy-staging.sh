@@ -1,8 +1,13 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-cd ~/bos
+cd "${BOS_DEPLOY_PATH:-$(pwd)}"
 export ENV_FILE=.env.staging
+
+echo "=== Deploy path ==="
+echo "  pwd: $(pwd)"
+echo "  head: $(git rev-parse HEAD 2>/dev/null || echo unknown)"
+echo "  env:  $(realpath .env.staging 2>/dev/null || echo .env.staging)"
 
 # ── Env drift check — auto-fill missing keys from .env.example defaults ──────
 echo "=== Checking .env.staging for missing keys ==="
@@ -184,9 +189,49 @@ docker compose -f docker-compose.yml --env-file .env.staging -p staging \
   up -d --no-build --force-recreate
 
 # ── Post-deploy health summary ────────────────────────────────────────────────
-_HEALTH=$(curl -s http://127.0.0.1:8091/api/ || true)
-_UPTIME=$(echo "$_HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('uptime_seconds','?'))" 2>/dev/null || echo "?")
-_GITSHA=$(echo "$_HEALTH" | python3 -c "import json,sys; print(json.load(sys.stdin).get('git_sha','missing'))" 2>/dev/null || echo "missing")
+echo "=== Waiting for API health ==="
+_HEALTH=""
+_STATUS=""
+_GITSHA=""
+_UPTIME=""
+for i in $(seq 1 30); do
+  _HEALTH=$(curl -s http://127.0.0.1:8091/api/ || true)
+  parsed=$(printf '%s' "$_HEALTH" | python3 -c 'import json, sys; d=json.load(sys.stdin); print(d.get("status", ""), d.get("git_sha", ""), d.get("uptime_seconds", ""))' 2>/dev/null || true)
+  if [[ -n "$parsed" ]]; then
+    read -r _STATUS _GITSHA _UPTIME <<< "$parsed"
+  else
+    _STATUS=""
+    _GITSHA=""
+    _UPTIME=""
+  fi
+
+  if [[ "$_STATUS" == "ok" && "$_GITSHA" == "$SHA" ]]; then
+    break
+  fi
+
+  echo "  API not ready or wrong version (attempt $i/30): status=${_STATUS:-missing} git_sha=${_GITSHA:-missing} uptime=${_UPTIME:-?}"
+  sleep 2
+done
+
+if [[ "$_STATUS" != "ok" || "$_GITSHA" != "$SHA" ]]; then
+  echo ""
+  echo "ERROR: staging API health check failed after deploy"
+  echo "  expected git_sha: $SHA"
+  echo "  actual status:    ${_STATUS:-missing}"
+  echo "  actual git_sha:   ${_GITSHA:-missing}"
+  echo "  uptime_seconds:   ${_UPTIME:-?}"
+  echo "  raw health head:  $(echo "$_HEALTH" | head -c 200)"
+  echo ""
+  echo "=== docker compose ps ==="
+  docker compose -f docker-compose.yml --env-file .env.staging -p staging ps || true
+  echo ""
+  echo "=== api logs tail ==="
+  docker compose -f docker-compose.yml --env-file .env.staging -p staging logs --tail=160 api || true
+  echo ""
+  echo "=== nginx logs tail ==="
+  docker compose -f docker-compose.yml --env-file .env.staging -p staging logs --tail=80 nginx || true
+  exit 1
+fi
 
 echo ""
 echo "================================================"

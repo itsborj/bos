@@ -21,12 +21,26 @@ export function Auth() {
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     const key = p.get('key');
-    if (key) {
-      setApiKey(key);
-      // Clean up URL and navigate
+    if (!key) return;
+
+    let cancelled = false;
+    async function validateUrlKey() {
+      setLoading(true);
+      setError(null);
+      const result = await validateKey(key as string);
+      if (cancelled) return;
+      setLoading(false);
+      // Clean up URL whether valid or invalid so keys are not left in browser history.
       window.history.replaceState({}, '', window.location.pathname);
+      if (!result.valid) {
+        setError(result.message);
+        return;
+      }
+      setApiKey(key as string);
       navigate('/cmo');
     }
+    void validateUrlKey();
+    return () => { cancelled = true; };
   }, [navigate]);
 
   async function handleBootstrap() {
@@ -151,7 +165,7 @@ export function Auth() {
               />
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button type="submit" className="btn btn-dark" disabled={!keyInput.trim()}>Connect</button>
+              <button type="submit" className="btn btn-dark" disabled={!keyInput.trim() || loading}>{loading ? 'Checking…' : 'Connect'}</button>
               <button type="button" className="btn" onClick={() => { setMode('choose'); setError(null); }}>Back</button>
             </div>
           </form>
