@@ -3,8 +3,10 @@ import logging
 from typing import Optional, Tuple, Dict
 import time
 
+from ai_provider_registry import get_platform_key as registry_platform_key
+from providers.anthropic import AnthropicAdapter
 from providers.bytedance import ByteDanceAdapter
-from providers.gemini import GeminiAdapter
+from providers.gemini import GeminiAdapter, GeminiOAuthAdapter
 from providers.nvidia import NvidiaAdapter
 from providers.openai import OpenAIAdapter
 from providers.openai_codex import OpenAICodexAdapter
@@ -12,14 +14,12 @@ from providers.openrouter import OpenRouterAdapter
 
 logger = logging.getLogger("bos.executor")
 
-_TOKENS_IN = 250
-_TOKENS_OUT = 312
-
 _ADAPTERS = {
     "openrouter": OpenRouterAdapter,
     "gemini": GeminiAdapter,
     "nvidia": NvidiaAdapter,
     "openai": OpenAIAdapter,
+    "anthropic": AnthropicAdapter,
     "bytedance": ByteDanceAdapter,
 }
 
@@ -52,6 +52,10 @@ class _GoogleIdentityAdapter:
 def get_adapter(provider: str, api_key: str, auth_mode: Optional[str] = None):
     if provider == "openai" and auth_mode == "oauth":
         return OpenAICodexAdapter(api_key)
+    if provider == "gemini" and auth_mode == "oauth":
+        # The OpenAI-compat endpoint only accepts API keys; OAuth tokens need
+        # the native Gemini REST API (/v1beta/models/...:generateContent).
+        return GeminiOAuthAdapter(api_key)
     if provider == "google":
         # Google is a login/identity provider, not an AI model provider.
         # Return a lightweight adapter that validates the OAuth token.
@@ -68,14 +72,7 @@ def get_adapter_class(provider: str):
 
 def get_platform_key(provider: str, settings) -> Optional[str]:
     """Return the configured platform key for a provider, or None if not set."""
-    mapping = {
-        "openrouter": settings.platform_openrouter_key,
-        "gemini": settings.platform_gemini_key,
-        "nvidia": settings.platform_nvidia_key,
-        "openai": getattr(settings, "platform_openai_key", ""),
-        "bytedance": getattr(settings, "platform_bytedance_key", ""),
-    }
-    return mapping.get(provider) or None
+    return registry_platform_key(provider, settings)
 
 
 def execute_mock(
@@ -89,27 +86,21 @@ def execute_mock(
     content = _mock_content(module_id, brief)
     latency_ms = round((time.perf_counter() - start) * 1000 + 180)
 
-    provider_cost = round(
-        _TOKENS_IN * candidate["input_cost_per_token"]
-        + _TOKENS_OUT * candidate["output_cost_per_token"],
-        6,
-    )
-
     attempt = {
         "provider": candidate["provider"],
         "model_id": candidate["model_id"],
         "mode": "mock",
         "status": "succeeded",
-        "tokens_input": _TOKENS_IN,
-        "tokens_output": _TOKENS_OUT,
-        "provider_cost": provider_cost,
+        "tokens_input": 0,
+        "tokens_output": 0,
+        "provider_cost": 0.0,
         "latency_ms": latency_ms,
         "error": None,
     }
 
     result = {
         "content": content,
-        "sell_price": round(provider_cost * markup_multiplier, 6),
+        "sell_price": None,
     }
 
     return attempt, result
@@ -126,17 +117,22 @@ async def execute_live(
     """Call a real provider adapter and return the same shape as execute_mock."""
     provider = candidate["provider"]
     adapter = get_adapter(provider, api_key, auth_mode)
-    response = await adapter.complete(prompt, candidate["model_id"])
+    extra_body = candidate.get("extra_body")
+    response = await adapter.complete(prompt, candidate["model_id"], extra_body=extra_body)
 
+    # Cost fields are present for catalog-sourced candidates; absent for override-constructed ones.
     provider_cost = round(
-        response.tokens_input * candidate["input_cost_per_token"]
-        + response.tokens_output * candidate["output_cost_per_token"],
+        response.tokens_input * candidate.get("input_cost_per_token", 0.0)
+        + response.tokens_output * candidate.get("output_cost_per_token", 0.0),
         6,
     )
 
+    # Use the model OR actually served (differs from requested when OR-native failover fired).
+    actual_model_id = response.actual_model or candidate["model_id"]
+
     attempt = {
         "provider": candidate["provider"],
-        "model_id": candidate["model_id"],
+        "model_id": actual_model_id,
         "mode": auth_mode if auth_mode == "oauth" else ("byok" if byok else "platform"),
         "status": "succeeded",
         "tokens_input": response.tokens_input,
@@ -159,6 +155,7 @@ def _mock_content(module_id: str, brief: dict) -> str:
     audience = brief.get("audience", "your audience")
     benefit = brief.get("key_benefit", "")
     b = f" — {benefit}" if benefit else ""
-    platform = module_id.rsplit(".", 1)[-1]
+    # module_id tail (e.g. "draft") is available as module_id.rsplit(".", 1)[-1]
+    # but is not currently used in the generic mock template.
 
     return f"[mock] {product}{b} — crafted for {audience}."
