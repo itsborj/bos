@@ -1,12 +1,12 @@
 # BOS — Deployment Reference
 
-> Single source of truth for all deploy operations, port topology, localhost ↔ staging breakage runbook, and the future production model.
-> **git.md has been merged into this file and deleted.**
-> Active execution tracker for deploy hypotheses / AI handoff: `DEPLOY_COORDINATION.md`.
-
 ---
 
-## Scale Directive — Non-Negotiable
+## 10K-Org Principle — First Requirement, Always
+
+> **This is the top-level constraint. Every bug fix, workaround, and solution in this document must be evaluated against it before being accepted. A solution that fails this test is not a solution — it is a deferred incident.**
+>
+> Manual SSH recovery, per-org secrets reconstruction, and Klaroha-assisted debugging are tolerated **only during active development and testing** of the Klaroha-owned staging environment. They are never acceptable as a permanent fix, and never acceptable in any customer org context. Every incident resolved manually must have a corresponding automation task in `BACKLOG.md` before it is marked closed.
 
 BOS is built to deploy to **hundreds of organizations per day** and support **10,000+ concurrent org deployments** with minimal Klaroha operational overhead. This is not a future aspiration — it shapes every bug fix, solution, and architectural choice documented here today.
 
@@ -21,13 +21,28 @@ BOS is built to deploy to **hundreds of organizations per day** and support **10
 | **Automated verification** | Any check that requires a human to run and interpret is a liability. Health, migration status, version fingerprint, and env validation must be machine-readable and auto-reported. |
 | **Isolated by default** | Each org has its own DB, keys, and container. Bugs in one org must not affect others. Fixes must never require cross-org operations. |
 
+### Evaluating a proposed fix
+
+Before accepting any fix or workaround, ask:
+
+1. **Would this require SSH on a customer's server?** If yes — not done. Automate it.
+2. **Would this require Klaroha to read a customer's DB or `.env`?** If yes — not done. Surface it in the admin UI or health endpoint.
+3. **Would a new org deploying for the first time hit this same problem?** If yes — it must be handled at first boot, not post-hoc.
+4. **Is the fix a one-time manual step, not codified anywhere?** If yes — it will recur. Write it into the pipeline or the deploy script.
+
 ### What this means for the incident log
 
 Every incident marked `CONFIRMED` that was resolved via manual SSH is a **product gap** — not a closed issue. Before marking such an incident resolved, add a corresponding automation task to `BACKLOG.md`. The manual fix is a one-time exception; the automated equivalent is the real fix.
 
 ### What is not required now vs. must be right
 
-Not every item needs to be built today. The scale directive governs **direction** — each incremental solution must make the system more scalable, not less. A fix that introduces a new manual step or a new per-org secret to manage is moving in the wrong direction, even if it solves the immediate symptom.
+Not every item needs to be built today. The 10K-org principle governs **direction** — each incremental solution must make the system more scalable, not less. A fix that introduces a new manual step or a new per-org secret to manage is moving in the wrong direction, even if it solves the immediate symptom.
+
+---
+
+> Single source of truth for all deploy operations, port topology, localhost ↔ staging breakage runbook, and the future production model.
+> **git.md has been merged into this file and deleted.**
+> Active execution tracker for deploy hypotheses / AI handoff: `DEPLOY_COORDINATION.md`.
 
 ---
 
@@ -537,41 +552,46 @@ PY
 
 ---
 
-#### C12 — The deploy gap: `git push` ≠ staging updated (STRUCTURAL — PRIMARY CAUSE)
-**Status:** `CONFIRMED STRUCTURAL (2026-06-02)`
+#### C12 — Push/deploy trigger gap: GitHub green ≠ staging updated
+**Status:** `HISTORICAL ROOT CAUSE / STILL CHECK FIRST (confirmed 2026-06-02; auto-deploy restored by 2026-06-12)`
 
-Pushing to the `staging` branch triggers the `build-and-push` CI job (new GHCR image built and tagged `sha-{SHA}` + `:staging`). It does **not** update `staging.klaroha.com`. The `deploy-staging` CI job is `workflow_dispatch` only — it runs only when manually triggered from the GitHub Actions UI or via `gh workflow run CI`. Staging only updates when that trigger is fired. Every session where code is pushed without a subsequent manual deploy trigger leaves staging running old code indefinitely.
+Original failure mode: pushing to `staging` built GHCR images but did **not** update `staging.klaroha.com`; deploy was `workflow_dispatch` only. That left staging running old code indefinitely after apparently successful pushes.
 
-This is the structural root cause of 90%+ of "staging doesn't reflect my changes" reports.
+Current workflow: pushes to `staging` now run `build-and-push` and then `deploy-staging-auto`. The updated failure mode is narrower but still common: **a green test/build or a completed `git push` is not proof that staging updated**. Only the deploy job plus the runtime health fingerprint prove it.
 
 **Confirm:**
 ```bash
-curl -s https://staging.klaroha.com/api/ | python3 -c "import json,sys; print(json.load(sys.stdin)['uptime_seconds'])"
-# If uptime > 600s after a push, deploy was not triggered
+# 1) Confirm the deploy job, not just tests/build, completed for the commit
+gh run list --branch staging --limit 5
+
+# 2) Confirm runtime freshness from outside the container
+curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'
+# git_sha must match the pushed/deployed SHA; uptime_seconds should be low after a deploy
 ```
 
-**Rule:** Treat push and deploy as completely separate operations. After any `git push origin staging`, `staging.klaroha.com` will not update until the deploy workflow is manually triggered. Never report staging as reflecting a change unless the deploy has been manually confirmed.
+**Rule:** Never report staging as reflecting a change unless `GET /api/` returns the expected `git_sha` and fresh `uptime_seconds`. If tests/build are green but `git_sha` is old, staging did not update. If `git_sha` is correct but behavior differs, move to config/state drift causes (C7/C8/C18/C19) instead of code drift.
 
-**To deploy:** GitHub Actions → CI → Run workflow → (optionally enter a SHA) → Run. Or: `gh workflow run CI --ref staging`
-
-**Scale alignment:** At 100s of org deployments/day, the equivalent gap is a new org pressing "Install" and getting an old version. The fix is restoring automated deployment with a proper staging gate (protected branch rules, required status checks, comprehensive behavioral test coverage) rather than manual-only CI.
+**Scale alignment:** At 100s of org deployments/day, the equivalent gap is a new org pressing "Install" and getting an old version. The fix is automated deploy reconciliation plus runtime version fingerprinting, not manual SSH confirmation.
 
 ---
 
-#### C13 — Static version string: code version is unverifiable from outside the container
-**Status:** `CONFIRMED — VERIFICATION GAP (2026-06-02)`
+#### C13 — Runtime version fingerprint missing or wrong
+**Status:** `FIXED IN REPO / STILL A DIAGNOSTIC SIGNAL (2026-06-12)`
 
-`config.py` hardcodes `app_version = "0.1.0"`. `GET /api/` returns this same string regardless of which git commit is actually running. Two containers on completely different commits return identical responses except for `uptime_seconds`. Agents and operators have no programmatic way to confirm which code is deployed.
+Historical failure: `GET /api/` only returned static `version = "0.1.0"`, so old and new containers looked identical from outside.
 
-`check-staging.sh` passes 13/13 on a staging stack running code from weeks ago. None of the 13 checks test code version.
+Current expected behavior: CI bakes `GIT_SHA` into the API image and `GET /api/` returns `git_sha`. If `git_sha` is missing, `dev`, or not the expected commit, the runtime is not the CI-built artifact you think it is.
 
 **Confirm:**
 ```bash
-curl -s https://staging.klaroha.com/api/ | jq '{version, uptime_seconds}'
-# version is always "0.1.0" — meaningless for freshness check
+curl -s https://staging.klaroha.com/api/ | jq '{version, git_sha, uptime_seconds}'
 ```
 
-**Fix pattern (required for scale):** Bake `GIT_SHA` into the Docker image at build time via build arg (`ARG GIT_SHA=dev` in Dockerfile, `--build-arg GIT_SHA=${{ github.sha }}` in `build-and-push` CI step). Expose as `git_sha` field in `GET /api/` response. At 10K orgs, support must be able to ask an org "what does `GET /api/` return?" and get a definitive answer about which version is running.
+**Interpretation:**
+- `git_sha == expected commit` → code artifact is current; investigate config/state/session drift next.
+- `git_sha == "dev"` → image was built locally on the server, bypassing CI.
+- `git_sha missing` → stale image or stale health code; deploy verification is not trustworthy.
+- `git_sha old` → deploy job did not update the running API image.
 
 ---
 
@@ -611,25 +631,153 @@ On staging: `deploy-staging.sh` uses `--no-build` and pulls pre-built GHCR image
 
 ---
 
-#### C16 — `check-staging.sh` confirms availability, not code version — false positive for agents
-**Status:** `CONFIRMED STRUCTURAL (2026-06-02)`
+#### C16 — `check-staging.sh` can still be a false positive if run from the wrong repo/path
+**Status:** `PARTIALLY FIXED / STILL CHECK PATH (2026-06-12)`
 
-13/13 from `check-staging.sh` means: ports listening, HTTP 200, API health ok, auth boundary correct, DB connected, capabilities ≥ 20, migrations at head. It does **not** mean new code is running. A staging stack running month-old code passes all 13 checks. Agents interpret green checks as deployment confirmation. It is only availability confirmation.
+Historical failure: `check-staging.sh` confirmed availability only, not code version. It could pass on month-old code.
 
-**Fix pattern (required for scale):** Add a 14th check: print `git_sha` from the health endpoint and compare against the expected commit. Until `git_sha` is in the health endpoint (C13 fix), add an explicit `uptime_seconds` check that warns if staging has been up > 5 minutes after a deploy (indicating containers did not restart).
+Current expected behavior: `check-staging.sh` prints API `uptime_seconds` and `git_sha`, and compares `git_sha` when `DEPLOY_SHA` is provided. That closes the old verification gap **only if the script is run against the same path and env file that CI deployed**.
 
-**Scale alignment:** At 10K orgs, Klaroha support cannot SSH into each org to verify version. The health endpoint must be the self-service diagnostic tool. It must carry enough information for an org admin to resolve their own version mismatch.
+**Remaining false-positive mode:** local scripts still assume `~/bos/.env.staging` in places. If CI deploys to `STAGING_PATH=/root/bos-staging` but a check reads `~/bos/.env.staging`, the check can validate the wrong environment file and mislead the operator.
+
+**Confirm:**
+```bash
+pwd
+realpath .env.staging
+DEPLOY_SHA=<expected_sha> bash check-staging.sh
+curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'
+```
+
+**Rule:** `check-staging.sh` output is authoritative only when it prints the expected `git_sha` and is reading the same `.env.staging` used by the deployed compose project.
 
 ---
 
-#### C17 — `uptime_seconds` is the only deploy freshness signal, and nothing surfaces it automatically
-**Status:** `CONFIRMED STRUCTURAL (2026-06-02)`
+#### C17 — Deploy freshness signal missing from the actual run output
+**Status:** `FIXED IN REPO / STILL A STALE-SCRIPT SIGNAL (2026-06-12)`
 
-After `deploy-staging.sh`, the API container restarts and `uptime_seconds` resets to near-zero. This is the only currently-available indicator that a fresh deploy happened. It is not in `check-staging.sh` output. It is not in any deploy success message. It is buried as a manual check command in `DEPLOY.md`. Agents and developers have no prompted workflow that checks it.
+Historical failure: `uptime_seconds` was the only freshness signal and nothing surfaced it automatically.
 
-**Fix pattern:** `check-staging.sh` should print `uptime_seconds` prominently after every run. `deploy-staging.sh` should print the post-deploy uptime from the health endpoint as a final confirmation line.
+Current expected behavior: `deploy-staging.sh` prints a final summary containing image tag, `git_sha`, and `uptime_seconds`; `check-staging.sh` also prints `uptime_seconds` and `git_sha`.
 
-**Scale alignment:** At org scale, post-deploy verification must be automated and visible. An operator who deploys and gets no confirmation signal will open a support ticket. The deploy script must be self-verifying.
+**Confirm:** after deploy, the log should end with something like:
+```text
+Staging deploy complete
+image:          ghcr.io/itsborj/bos-api:sha-<sha>
+git_sha:        <sha>
+uptime_seconds: <low_number>s
+```
+
+**Interpretation:** If the deploy log does not print these fields, CI may be running an old deploy script or the script is being launched from the wrong checkout/path (see C19).
+
+---
+
+#### C18 — `STAGING_ENV_FILE` blank/partial; CI rewrites staging into a degraded config every deploy
+**Status:** `CONFIRMED — OPEN (2026-06-12)`
+
+**Related context:** commit `8c5e9af` relaxed `deploy-staging.sh` so an explicitly provided container DB URL like `postgresql://bos:bos@db:5432/bos` no longer fails the second validation pass. This removes one false deploy blocker, but it also means env validation must rely on explicit required-key presence checks rather than treating `bos:bos` as automatically invalid.
+
+GitHub Actions writes the `STAGING_ENV_FILE` secret to `.env.staging` on every staging deploy. If that secret is blank or missing required keys, any manual VDS repair is erased on the next push. The stack may still boot because `deploy-staging.sh` enforces ports and auto-fills some `.env.example` defaults, but secret-backed behavior drifts immediately.
+
+**Typical symptoms:**
+- staging loads but providers/plugins are degraded or missing
+- `API_SECRET_KEY`, `ENCRYPTION_KEY`, `PLATFORM_*`, OAuth, Ads, Analytics, or provider vars disappear after push
+- deploy logs show `.env.staging` being rewritten before `deploy-staging.sh`
+- localhost works because local `.env` has keys; staging falls back to blanks/defaults
+
+**Confirm without leaking secrets:**
+```bash
+# CI side: confirm STAGING_ENV_FILE is not blank; do not print secret values
+# VDS side: count required keys, not values
+grep -E '^(ENV_FILE|API_SECRET_KEY|ENCRYPTION_KEY|DATABASE_URL|DB_PORT|API_PORT|WEB_PORT|NGINX_PORT|PUBLIC_PORT|PLATFORM_GEMINI_KEY|PLATFORM_OPENROUTER_KEY)=' .env.staging | cut -d= -f1
+
+# Runtime side: compare readiness, not secret contents
+curl -s -H "X-API-Key: $KEY" "$BASE/providers" | jq
+curl -s -H "X-API-Key: $KEY" "$BASE/plugins" | jq
+```
+
+**Rule:** The GitHub secret is the source of truth. Manual edits to `.env.staging` on the VDS are temporary and will be overwritten. A deploy must fail closed if `STAGING_ENV_FILE` is empty or missing critical keys; it must not silently bootstrap a degraded staging environment.
+
+**Fix pattern:** update GitHub Actions secret `STAGING_ENV_FILE` with the full known-good staging env; add a CI/deploy guard that checks required key names are present before writing or using the file. Never echo secret values in logs.
+
+---
+
+#### C19 — CI and deploy scripts may operate on different checkouts (`STAGING_PATH` vs hard-coded `~/bos`)
+**Status:** `HYPOTHESIS — OPEN (2026-06-12)`
+
+The workflow deploy step uses the `STAGING_PATH` secret, writes `$STAGING_PATH/.env.staging`, `cd`s into `$STAGING_PATH`, and then runs `bash deploy-staging.sh`. But `deploy-staging.sh` currently starts with `cd ~/bos`, and `check-staging.sh` also assumes `~/bos/.env.staging` in places.
+
+If `STAGING_PATH` is anything other than `~/bos` (for example `/root/bos-staging`), CI can reset and write env into one checkout, then the deploy script silently switches to another checkout/env file. That produces classic drift: the GitHub run looks correct, but the container was started from a different repo path or config file.
+
+**Confirm:**
+```bash
+# In CI logs or on VDS, compare these paths
+printf 'STAGING_PATH=%s\n' "$STAGING_PATH"
+realpath "$STAGING_PATH"
+realpath ~/bos
+head -5 "$STAGING_PATH/deploy-staging.sh"
+
+# Runtime proof remains the health fingerprint
+curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'
+```
+
+**Rule:** Deploy scripts must run from the current checkout passed by CI, not a hard-coded home path. If a script needs a path, CI must pass it explicitly and the script must print `pwd` before mutating anything.
+
+**Fix pattern:** remove `cd ~/bos` from deploy/check scripts or replace it with `cd "${BOS_DEPLOY_PATH:-$(pwd)}"`; make CI export `BOS_DEPLOY_PATH="$STAGING_PATH"`; print `pwd`, `git rev-parse HEAD`, and `realpath .env.staging` at deploy start.
+
+---
+
+#### C20 — Staging white screen from frontend asset/runtime failure
+**Status:** `HYPOTHESIS — OPEN (2026-06-12)`
+
+`staging.klaroha.com` can show a blank/white screen even when API health is green if the browser cannot load or execute the Vite bundle. Prior INC-008 confirmed one version of this class: Cloudflare returned 502 for the JS bundle when nginx served large assets without correct compression/MIME/cache headers. The same user-visible symptom can also come from a JS runtime exception, stale Cloudflare/browser cache serving an old bundle, a web/API contract mismatch, or deploying API and web images from different SHAs.
+
+**Typical symptoms:**
+- public page is white/blank but `/api/` returns JSON
+- browser console shows a React error, MIME error, `ERR_QUIC_PROTOCOL_ERROR`, or failed `/assets/index-*.js`
+- `curl https://staging.klaroha.com/assets/...` differs from origin `curl http://127.0.0.1:8091/assets/...`
+- API `git_sha` is current but the web bundle is stale or incompatible
+
+**Offline-first confirm:**
+```bash
+# Local/offline reproduction before touching staging
+cd web && npm ci --silent && npx tsc -b && npm run build
+
+# Read-only staging checks only; no server mutation
+curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'
+curl -I https://staging.klaroha.com/
+# Then inspect browser DevTools Console + Network for the first failing JS/CSS/API request.
+```
+
+**Rule:** Do not patch files directly on the VDS and do not bypass CI. If the fix is in `web/`, commit it, push to `staging`, let CI build the web image for that SHA, then verify `GET /api/` `git_sha` and the browser asset load. If the fix is config/CDN, document the exact non-code change and add an automation/backlog item.
+
+---
+
+#### C21 — Auth boundary degraded: staging accepts unintended BOS API keys/login attempts
+**Status:** `HYPOTHESIS — OPEN / SECURITY-SENSITIVE (2026-06-12)`
+
+**Related context:** commit `be0d1ba` fixed the frontend manual-key login path so `Auth.tsx` calls `validateKey()` before storing a typed key and navigating to `/cmo`. Before that commit, any non-empty typed key was accepted client-side. This explains the prior "any key logs in" symptom at the UI layer, but it does **not** prove the backend auth boundary is correct; backend protected endpoints still need negative fake-key tests.
+
+A staging deploy with blank/partial env can accidentally weaken the auth boundary. If `API_SECRET_KEY`, DB-backed auth keys, encryption state, or auth configuration is reset/defaulted by `STAGING_ENV_FILE`, staging may appear to allow unintended BOS API login/API-key access. This is related to C18 but tracked separately because it is security-sensitive and must be tested without leaking real keys.
+
+**Typical symptoms:**
+- requests with an arbitrary or stale `X-API-Key` succeed on staging
+- login/API-key checks behave differently between localhost and staging
+- `check-staging.sh` auth boundary check is skipped, points at the wrong `.env.staging`, or validates only unauthenticated rejection while unintended authenticated keys still pass
+- staging was recently redeployed after `STAGING_ENV_FILE` was blank/partial
+
+**Offline/read-only confirm:**
+```bash
+# Negative auth test: arbitrary key must fail
+curl -s -o /dev/null -w '%{http_code}\n' \
+  -H 'X-API-Key: definitely-not-a-real-key' \
+  https://staging.klaroha.com/api/brands
+# Expected: 401 or 403. Any 200 is a security incident.
+
+# Positive auth should use only a known staging test key, never printed in logs.
+# Do not echo API_SECRET_KEY or real auth keys into CI/GitHub logs.
+```
+
+**Rule:** Do not "fix" auth by manually editing `.env.staging` on the VDS as the final answer. The durable fix must be committed/pushed if code-related, or the GitHub secret / deployment-key system must be updated as source of truth. Any confirmed auth bypass must get an incident entry and a backlog automation item before being marked resolved.
 
 ---
 
@@ -637,16 +785,19 @@ After `deploy-staging.sh`, the API container restarts and `uptime_seconds` reset
 
 When a feature breaks after a staging deploy, work through in this order:
 
-1. **C12** — Was `deploy-staging.sh` actually run on the VDS after the last push? Check uptime: `curl -s https://staging.klaroha.com/api/ | python3 -c "import json,sys; print(json.load(sys.stdin)['uptime_seconds'])"`. If > 600s after a push, the deploy never ran. This is the primary cause — check it first.
-2. **C6** — If deploys are running but uptime stays high, CI is failing to reach the containers. See C6 for the three compounding bugs.
-3. **C1** — `git diff origin/staging -- api/` — uncommitted local edits were not deployed.
-4. **C15** — Did the change touch `web/`? Frontend requires manual `docker compose build web && docker compose up -d web`; it does not hot-reload.
-5. **C14** — API returning old responses despite a restart? Check `docker compose logs api` for reload failures.
-6. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
-7. **C4** — diff local `.env` against `.env.example` for keys the capability uses.
-8. **C2** — only if the render itself fails (not just serving). Compare ffmpeg versions between containers.
-9. **C5** — only if you see import errors or missing file errors in API logs.
-10. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
+1. **C13/C12** — Prove the running code first: `curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'`. If `git_sha` is old/missing/`dev`, this is deploy/code drift. Check the deploy job for that SHA.
+2. **C21** — If auth/login/API-key behavior is permissive, run only negative read-only auth tests with fake keys first. Any fake key returning 200 is a security incident.
+3. **C20** — If the symptom is a white screen, inspect browser console/network and asset headers; reproduce the web build locally before touching staging.
+4. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
+5. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
+6. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
+7. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
+8. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
+9. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
+10. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
+11. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
+12. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
+13. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
 
 ### Behavior Parity Checklist — deploy is green, output still differs
 
@@ -808,6 +959,28 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
   - `deploy-staging.sh`: removed `check-staging.sh` post-deploy call — smoke tests are overhead; verify by hitting the actual endpoint or checking `docker ps`
 - **Remaining gap:** `STAGING_ENV_FILE` GitHub secret still does not include the five port vars. The `deploy-staging.sh` enforcement block now closes this gap in-script, but the secret should still be updated so the env file is self-consistent without relying on script-level correction.
 
+#### INC-010 — 2026-06-12 — `STAGING_ENV_FILE` secret is completely blank; every auto-deploy writes empty `.env.staging`
+
+- **Status:** OPEN — root cause confirmed, fix in progress.
+- **Symptom:** Staging UI is out of sync with localhost after push. CI run `27390862911` (`feat: token billing...`) shows `STAGING_ENV_FILE: ` (empty) in the deploy job env dump. Every auto-deploy overwrites `/root/bos-staging/.env.staging` with an empty file.
+- **Why containers survive:** `deploy-staging.sh` has a port enforcement block (added INC-007 fix) that hard-writes `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001` regardless of secret content. So containers start and bind the right ports. But `ENCRYPTION_KEY`, `API_SECRET_KEY`, `PLATFORM_*` keys, `ENV_FILE=.env.staging`, and all provider/plugin credentials are absent — the stack boots blank/degraded on every deploy.
+- **Relation to prior incidents:** INC-006 and INC-007 documented the secret as *missing some keys*. This is worse — the secret is now fully empty, meaning no keys survive a CI deploy at all. Prior manual VDS repairs to `.env.staging` are wiped on every push.
+- **Confirmed by:** `gh run view 27390862911 --log-failed` → `STAGING_ENV_FILE: ` (blank value visible in action env dump).
+- **Fix:** Go to GitHub → repo Settings → Secrets and variables → Actions → `STAGING_ENV_FILE` → Update. Paste the full contents of the current VDS `.env.staging`. Every future push-triggered deploy will then write a correct env file.
+- **To get the current VDS file contents (run once on the VDS):**
+  ```bash
+  cat ~/bos-staging/.env.staging
+  ```
+  Paste that output into the GitHub secret. If the file has been wiped by a recent CI deploy, restore from the known-good values (all five port overrides + `ENV_FILE=.env.staging` + `ENCRYPTION_KEY` + `API_SECRET_KEY` + `PLATFORM_*` + provider keys).
+
+#### INC-011 — 2026-06-12 — Staging white screen plus prior permissive API login/key behavior
+
+- **Status:** OPEN — hypotheses created only; no direct staging fix attempted.
+- **Symptoms reported:** `staging.klaroha.com` currently renders a white screen. Earlier staging behavior appeared to allow unintended BOS API login/API-key access.
+- **Active hypotheses:** C20 (frontend asset/runtime failure) and C21 (auth boundary degraded), with C18 (blank/partial `STAGING_ENV_FILE`) and C19 (deploy path mismatch) as likely contributing causes.
+- **Debug rule for this incident:** start offline/local and read-only. Do not mutate VDS files, containers, Cloudflare config, database rows, or secrets as a first response. Any code fix must be committed locally, pushed to `origin/staging`, built by CI, deployed by the staging workflow, and verified by `GET /api/` returning the expected `git_sha` plus a browser retest.
+- **Security note:** if a fake/random API key returns HTTP 200 on a protected staging endpoint, treat it as a security incident and document the exact endpoint/status without printing real keys.
+
 ---
 
 ## Open Items
@@ -818,13 +991,17 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 - [x] Write a `deploy.sh` script wrapping the full staging deploy sequence — `deploy-staging.sh` (env-fill → git reset → image pull → up → migrations → `check-staging.sh` smoke tests)
 - [x] `deploy-staging.sh` now enforces staging port overrides directly (2026-06-02) — containers can no longer be created with production default ports even if the secret is missing these vars
 - [x] `web/nginx-spa.conf` now has gzip, MIME types, and correct cache headers (2026-06-02) — bare config was causing Cloudflare to 502 on the large JS bundle (INC-008)
-- [ ] Update GitHub secret `STAGING_ENV_FILE` so it includes `DB_PORT=5433`, `API_PORT=8001`, `WEB_PORT=5174`, `NGINX_PORT=8091`, `PUBLIC_PORT=3001`, and `ENV_FILE=.env.staging` — the script enforcement is a safety net, not a replacement for fixing the secret
-- [ ] After the secret is updated, prove the real success criteria with one tiny localhost change → commit → push → CI builds image → trigger `workflow_dispatch` → `staging.klaroha.com` healthy **without** manual server repair
+- [ ] **C18:** Update GitHub secret `STAGING_ENV_FILE` with the full known-good staging env, not just ports: `ENV_FILE=.env.staging`, `DATABASE_URL`, `API_SECRET_KEY`, `ENCRYPTION_KEY`, all five staging ports, `PLATFORM_*`, OAuth/provider/plugin keys, and any other staging-critical vars. The script enforcement is a safety net, not a replacement for fixing the secret.
+- [ ] **C18 guard:** Add a CI/deploy fail-closed check that refuses to write/use an empty `STAGING_ENV_FILE` or one missing critical key names. Print key names/counts only — never values.
+- [ ] **C19:** Remove hard-coded `cd ~/bos` / `~/bos/.env.staging` assumptions from `deploy-staging.sh` and `check-staging.sh`; run from `STAGING_PATH`/current checkout and print `pwd`, `git rev-parse HEAD`, and `realpath .env.staging` at start.
+- [ ] **C20:** Debug staging white screen offline first: local `web` typecheck/build, browser console/network evidence, asset headers, and API/web SHA parity. Commit/push any fix through `origin/staging`; do not patch the VDS directly.
+- [ ] **C21:** Add/verify a negative auth-boundary test using a fake API key against protected endpoints; any HTTP 200 must fail CI/deploy and be logged as a security incident.
+- [ ] After the secret, path, white-screen, and auth-boundary fixes, prove the real success criteria with one tiny localhost change → commit → push → CI builds images → auto-deploys → `staging.klaroha.com` returns expected `git_sha` and healthy behavior **without** manual server repair.
 - [ ] Set `git config pull.rebase false` (or `--ff-only`) on the server so `git pull` doesn't fail on divergence
-- [x] GitHub secrets: `VDS_HOST`, `VDS_USER`, `VDS_DEPLOY_KEY`, `STAGING_PATH`, `PROD_PATH`, `GHCR_TOKEN`, `STAGING_ENV_FILE` — all wired in `ci.yml`
-- [ ] **C13 fix (scale-required):** Bake git SHA into Docker image at CI build time (`ARG GIT_SHA`, `--build-arg GIT_SHA=${{ github.sha }}`); expose as `git_sha` in `GET /api/` response; add as 14th `check-staging.sh` verification. Required before reaching 10 active customer orgs.
-- [ ] **C17 fix:** `deploy-staging.sh` must print `uptime_seconds` from the health endpoint as a final confirmation line after every deploy. `check-staging.sh` must print `uptime_seconds` prominently.
-- [ ] **Agent protocol (CLAUDE.md):** Add explicit section documenting that `git push origin staging` does NOT update staging.klaroha.com and that agents must never report staging as reflecting a change without verifying `git_sha` + `uptime_seconds`.
+- [x] GitHub secrets: `VDS_HOST`, `VDS_USER`, `VDS_DEPLOY_KEY`, `STAGING_PATH`, `PROD_PATH`, `GHCR_TOKEN`, `STAGING_ENV_FILE` — all wired in `ci.yml` (but `STAGING_ENV_FILE` content is currently the C18 risk)
+- [x] **C13 fix (scale-required):** API image accepts `ARG GIT_SHA`, CI passes `--build-arg GIT_SHA=${{ github.sha }}`, `GET /api/` exposes `git_sha`, and `check-staging.sh` verifies it when `DEPLOY_SHA` is set.
+- [x] **C17 fix:** `deploy-staging.sh` prints final image/`git_sha`/`uptime_seconds`; `check-staging.sh` prints `uptime_seconds` and `git_sha`.
+- [ ] **Agent protocol (CLAUDE.md):** Add explicit section documenting that agents must never report staging as reflecting a change without verifying `git_sha` + `uptime_seconds`, and must check C18/C19 when code SHA is correct but behavior still drifts.
 
 ---
 
@@ -841,7 +1018,7 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 | 5 | **Ephemeral preview environments** | `[ ]` | Every PR gets its own isolated environment spun up automatically. Test against the actual deployed artifact before merging. Eliminates localhost-as-staging entirely. |
 | 6 | **Infrastructure as Code (IaC)** | `[ ]` | All environment definitions live in code (Terraform, Pulumi, Helm). Staging and production are the same template with different parameter values. Accidental per-env config drift is structurally impossible. |
 | 7 | **Secrets management** | `[x]` | All deploy credentials (`VDS_HOST`, `VDS_DEPLOY_KEY`, `GHCR_TOKEN`) and the full staging env (`STAGING_ENV_FILE`) live in GitHub Actions secrets. CI is the only writer of `.env.staging` on the VDS — overwritten on every deploy, never manually editable in a durable way. No Vault/Doppler, but GitHub Secrets is the authoritative store and drift is structurally impossible. |
-| 8 | **Automated post-deploy verification** | `[x]` | `check-staging.sh` runs 8 checks on every CI deploy: FRONTEND_URL validity, API_SECRET_KEY presence, ports listening (8091, 8001, 5174, 3001), web + public HTTP 200, API health (`status: ok`), auth boundary (401/403), authenticated DB query, capability manifest count ≥ 20, migrations at head. Pipeline fails and alerts if any check fails. |
+| 8 | **Automated post-deploy verification** | `[x]` | `check-staging.sh` verifies config, ports, web/public HTTP, API health, `git_sha`/`uptime_seconds`, auth boundary, authenticated DB query, capability manifest count ≥ 20, and migrations at head. Pipeline fails and alerts if any check fails. Remaining gap: make the script path-agnostic (C19). |
 | 9 | **Dependency lockfiles pinned and committed** | `[x]` | `requirements.txt` with pinned versions, `package-lock.json` committed. Same dep versions in dev, CI, staging, and production. |
 | 10 | **Local dev mirrors production runtime** | `[x]` | devcontainers or Tilt/Skaffold. The developer's local environment IS the production container, not a volume-mounted lookalike. Eliminates the "uncommitted file visible via volume mount" class entirely. |
 
@@ -849,7 +1026,7 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 >
 > **Scale directive note:** #3 (GitOps) and #5 (ephemeral previews) become required when daily deployment volume exceeds human-reviewable capacity. At 100+ org deploys/day, manual SSH recovery (as seen in INC-003 through INC-006) is not operationally viable. Target: #3 implemented before reaching 50 active customer orgs. #11 below is newly required at scale.
 
-| 11 | **Deployed version fingerprinting** | `[ ]` | Every running container must expose the exact git commit SHA it was built from (via build arg baked into image at CI build time, surfaced in `GET /api/`). Operators, support, and automated checks can then confirm exactly which version is running without SSH access. Required for operator self-service diagnostics at 10K org scale. Closes C13, C16, C17. |
+| 11 | **Deployed version fingerprinting** | `[x]` | API containers expose the exact git commit SHA baked into the image (`GIT_SHA`, surfaced in `GET /api/`). Operators, support, and automated checks can confirm which version is running without SSH access. Remaining work is not fingerprinting itself; it is making every script use the correct checkout/env path (C19). |
 
 ---
 
