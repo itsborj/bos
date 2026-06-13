@@ -1,11 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import os
 import secrets
 import uuid
-from base64 import urlsafe_b64encode
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
@@ -25,6 +26,8 @@ GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", "")
 RELAY_KEY            = os.environ.get("RELAY_KEY", "")
 RELAY_BASE_URL       = os.environ.get("RELAY_BASE_URL", "http://localhost:8090").rstrip("/")
 REDIS_URL            = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+RELAY_SESSION_TTL_SECONDS = int(os.environ.get("RELAY_SESSION_TTL_SECONDS", "1800"))
+RELAY_HANDOFF_TTL_SECONDS = int(os.environ.get("RELAY_HANDOFF_TTL_SECONDS", "300"))
 
 _GOOGLE_AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _GOOGLE_TOKEN_URL     = "https://oauth2.googleapis.com/token"
@@ -77,6 +80,50 @@ def _check_key(key: str) -> None:
         raise HTTPException(status_code=403, detail="Invalid relay_key")
 
 
+def _b64_json(data: dict) -> str:
+    raw = json.dumps(data, separators=(",", ":")).encode()
+    return urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+
+def _unb64_json(value: str) -> dict | None:
+    try:
+        padded = value + "=" * (-len(value) % 4)
+        return json.loads(urlsafe_b64decode(padded.encode()).decode())
+    except Exception:
+        return None
+
+
+def _state_sig(payload: str) -> str:
+    return hmac.new(RELAY_KEY.encode(), payload.encode(), hashlib.sha256).hexdigest()
+
+
+def _encode_state(data: dict) -> str:
+    payload = _b64_json(data)
+    return f"v1.{payload}.{_state_sig(payload)}"
+
+
+def _decode_state(state: str) -> dict | None:
+    parts = (state or "").split(".")
+    if len(parts) != 3 or parts[0] != "v1":
+        return None
+    payload, sig = parts[1], parts[2]
+    if not secrets.compare_digest(sig, _state_sig(payload)):
+        return None
+    return _unb64_json(payload)
+
+
+def _admin_connect_error_redirect(instance_url: str, platform: str, reason: str, brand_id: str = "") -> RedirectResponse:
+    if platform == "gemini":
+        path = "/admin/providers"
+        params = {"gemini": "error", "reason": reason}
+    else:
+        path = "/admin/brands"
+        params = {platform: "error", "reason": reason}
+        if brand_id:
+            params["brand_id"] = brand_id
+    return RedirectResponse(f"{instance_url.rstrip('/')}{path}?{urlencode(params)}", status_code=302)
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 @app.get("/relay/health")
@@ -96,7 +143,9 @@ async def relay_start(
         raise HTTPException(status_code=400, detail=f"Unknown platform: {platform}")
 
     verifier, challenge = _pkce()
-    state        = secrets.token_hex(16)
+    session_id   = secrets.token_hex(16)
+    instance     = instance_url.rstrip("/")
+    state        = _encode_state({"sid": session_id, "p": platform, "i": instance, "b": brand_id})
     redirect_uri = f"{RELAY_BASE_URL}/relay/google/callback"
 
     params = {
@@ -113,18 +162,18 @@ async def relay_start(
 
     r = await _r()
     await r.setex(
-        f"relay:session:{state}",
-        600,
+        f"relay:session:{session_id}",
+        RELAY_SESSION_TTL_SECONDS,
         json.dumps({
             "platform":     platform,
-            "instance_url": instance_url.rstrip("/"),
+            "instance_url": instance,
             "brand_id":     brand_id,
             "verifier":     verifier,
             "redirect_uri": redirect_uri,
         }),
     )
 
-    return {"authorize_url": f"{_GOOGLE_AUTHORIZE_URL}?{urlencode(params)}", "session_id": state}
+    return {"authorize_url": f"{_GOOGLE_AUTHORIZE_URL}?{urlencode(params)}", "session_id": session_id}
 
 
 @app.get("/relay/google/callback")
@@ -134,13 +183,22 @@ async def google_callback(
     error: str = "",
 ):
     r   = await _r()
-    raw = await r.get(f"relay:session:{state}")
+    state_data = _decode_state(state)
+    session_id = (state_data or {}).get("sid") or state
+    raw = await r.get(f"relay:session:{session_id}")
 
     if not raw:
+        if state_data and state_data.get("i") and state_data.get("p"):
+            return _admin_connect_error_redirect(
+                str(state_data["i"]),
+                str(state_data["p"]),
+                "session_not_found",
+                str(state_data.get("b") or ""),
+            )
         return RedirectResponse("/relay/error?reason=session_not_found", status_code=302)
 
     session = json.loads(raw)
-    await r.delete(f"relay:session:{state}")
+    await r.delete(f"relay:session:{session_id}")
 
     platform     = session["platform"]
     instance_url = session["instance_url"]
@@ -242,7 +300,7 @@ async def google_callback(
     handoff = str(uuid.uuid4())
     await r.setex(
         f"relay:handoff:{handoff}",
-        60,
+        RELAY_HANDOFF_TTL_SECONDS,
         json.dumps({
             "platform":      platform,
             "brand_id":      brand_id,

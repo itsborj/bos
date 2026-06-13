@@ -734,13 +734,13 @@ class FacebookOAuthHandler:
     def _app_id(self, settings, overrides: dict) -> str:
         v = overrides.get("meta_app_id") or overrides.get("META_APP_ID") or settings.meta_app_id
         if not v:
-            raise ValueError("META_APP_ID not configured — add it via Admin → Plugins → Meta Channel")
+            raise ValueError("META_APP_ID not configured — add it via Admin → Capabilities → Meta Channel")
         return v
 
     def _app_secret(self, settings, overrides: dict) -> str:
         v = overrides.get("meta_app_secret") or overrides.get("META_APP_SECRET") or settings.meta_app_secret
         if not v:
-            raise ValueError("META_APP_SECRET not configured — add it via Admin → Plugins → Meta Channel")
+            raise ValueError("META_APP_SECRET not configured — add it via Admin → Capabilities → Meta Channel")
         return v
 
     def _redirect_uri(self, settings, overrides: dict) -> str:

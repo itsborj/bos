@@ -147,6 +147,16 @@ def _admin_providers_redirect(frontend: str, **params: str | None) -> RedirectRe
     return RedirectResponse(url=f"{frontend}/admin/providers{suffix}", status_code=302)
 
 
+def _oauth_callback_status(error: str) -> str:
+    """Return UI status for OAuth provider errors.
+
+    Google returns `access_denied` for user cancellation. Relay/config/session
+    failures also arrive in the `error` slot but should be shown as failures,
+    not as a cancelled consent flow.
+    """
+    return "denied" if error in {"access_denied", "user_denied", "user_cancelled"} else "error"
+
+
 # ── Start OAuth ───────────────────────────────────────────────────────────────
 
 @router.post("/connect/start", response_model=ConnectStartResponse, dependencies=[Depends(require_api_key)])
@@ -279,7 +289,7 @@ async def gmail_callback(
         return _admin_brands_redirect(frontend, gmail="connected", brand_id=brand_id, account=email)
 
     if error or not code:
-        return _admin_brands_redirect(frontend, gmail="denied", reason=error or "no_code")
+        return _admin_brands_redirect(frontend, gmail=_oauth_callback_status(error) if error else "denied", reason=error or "no_code")
 
     session = (await db.execute(
         select(ProviderLoginSession).where(
@@ -380,7 +390,7 @@ async def google_calendar_callback(
         return _admin_brands_redirect(frontend, google_calendar="connected", brand_id=brand_id, account=email)
 
     if error or not code:
-        return _admin_brands_redirect(frontend, google_calendar="denied", reason=error or "no_code")
+        return _admin_brands_redirect(frontend, google_calendar=_oauth_callback_status(error) if error else "denied", reason=error or "no_code")
 
     session = (await db.execute(
         select(ProviderLoginSession).where(
@@ -478,7 +488,7 @@ async def youtube_callback(
         return _admin_brands_redirect(frontend, youtube="connected", brand_id=brand_id, account=meta.get("name") or email)
 
     if error or not code:
-        return _admin_brands_redirect(frontend, youtube="denied", reason=error or "no_code")
+        return _admin_brands_redirect(frontend, youtube=_oauth_callback_status(error) if error else "denied", reason=error or "no_code")
 
     session = (await db.execute(
         select(ProviderLoginSession).where(
@@ -653,7 +663,7 @@ async def google_drive_callback(
         return _admin_brands_redirect(frontend, google_drive="connected", brand_id=brand_id, account=meta.get("name") or email)
 
     if error or not code:
-        return _admin_brands_redirect(frontend, google_drive="denied", reason=error or "no_code")
+        return _admin_brands_redirect(frontend, google_drive=_oauth_callback_status(error) if error else "denied", reason=error or "no_code")
 
     session = (await db.execute(
         select(ProviderLoginSession).where(
@@ -1105,7 +1115,7 @@ async def google_business_callback(
         return _admin_brands_redirect(frontend, google_business="connected", brand_id=brand_id, account=business_name)
 
     if error or not code:
-        return _admin_brands_redirect(frontend, google_business="denied", reason=error or "no_code")
+        return _admin_brands_redirect(frontend, google_business=_oauth_callback_status(error) if error else "denied", reason=error or "no_code")
 
     session = (await db.execute(
         select(ProviderLoginSession).where(
@@ -1219,7 +1229,7 @@ async def gemini_callback(
         return _admin_providers_redirect(frontend, gemini="connected", account=email)
 
     if error or not code:
-        return _admin_providers_redirect(frontend, gemini="denied", reason=error or "no_code")
+        return _admin_providers_redirect(frontend, gemini=_oauth_callback_status(error) if error else "denied", reason=error or "no_code")
 
     session = (await db.execute(
         select(ProviderLoginSession).where(
