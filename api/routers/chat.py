@@ -1015,7 +1015,14 @@ async def _complete_cmo_messages(
         provider = configured_chat_model.provider
         model_id = configured_chat_model.model_id
         if ws:
-            key, auth_mode = await resolve_stored_provider_credential(db, ws.id, provider, settings, brand_id=brand_id)
+            key, auth_mode = await resolve_stored_provider_credential(
+                db,
+                ws.id,
+                provider,
+                settings,
+                brand_id=brand_id,
+                tolerate_decryption_failure=True,
+            )
             if key:
                 add_candidate(provider, model_id, key, auth_mode)
         platform_key = get_platform_key(provider, settings)
@@ -1024,7 +1031,14 @@ async def _complete_cmo_messages(
 
     if ws:
         for provider in list_dominant_text_provider_ids():
-            key, auth_mode = await resolve_stored_provider_credential(db, ws.id, provider, settings, brand_id=brand_id)
+            key, auth_mode = await resolve_stored_provider_credential(
+                db,
+                ws.id,
+                provider,
+                settings,
+                brand_id=brand_id,
+                tolerate_decryption_failure=True,
+            )
             if not key:
                 continue
             if auth_mode == "api_key":
@@ -1037,7 +1051,14 @@ async def _complete_cmo_messages(
                 add_candidate("openai", configured_chat_model.model_id, key, auth_mode)
 
         for provider, model_id in _CHAT_MODELS.items():
-            key, auth_mode = await resolve_stored_provider_credential(db, ws.id, provider, settings, brand_id=brand_id)
+            key, auth_mode = await resolve_stored_provider_credential(
+                db,
+                ws.id,
+                provider,
+                settings,
+                brand_id=brand_id,
+                tolerate_decryption_failure=True,
+            )
             if key:
                 add_candidate(provider, model_id, key, auth_mode)
 

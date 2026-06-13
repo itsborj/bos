@@ -429,7 +429,11 @@ async def _call_llm(prompt: str, db: AsyncSession, workspace_id: uuid.UUID) -> s
     for candidate in candidates:
         provider = candidate["provider"]
         api_key, auth_mode = await resolve_stored_provider_credential(
-            db, workspace_id, provider, settings
+            db,
+            workspace_id,
+            provider,
+            settings,
+            tolerate_decryption_failure=True,
         )
         if not api_key:
             api_key = get_platform_key(provider, settings)

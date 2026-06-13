@@ -648,7 +648,14 @@ async def _resolve_slot(
             from routers.workspace import get_singleton as _get_ws
             ws = await _get_ws(db)
             if ws:
-                pk, auth_mode = await resolve_stored_provider_credential(db, ws.id, provider_val, settings, brand_id=brand_id)
+                pk, auth_mode = await resolve_stored_provider_credential(
+                    db,
+                    ws.id,
+                    provider_val,
+                    settings,
+                    brand_id=brand_id,
+                    tolerate_decryption_failure=True,
+                )
                 if not pk:
                     pk = get_platform_key(provider_val, settings)
                     auth_mode = "platform" if pk else None

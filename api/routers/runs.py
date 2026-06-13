@@ -1380,7 +1380,14 @@ async def _execute_module(
         missing_credential_candidates: list[dict] = []
         for candidate in candidates:
             provider = candidate["provider"]
-            api_key, auth_mode = await resolve_stored_provider_credential(db, ws.id, provider, settings, brand_id=brand_id)
+            api_key, auth_mode = await resolve_stored_provider_credential(
+                db,
+                ws.id,
+                provider,
+                settings,
+                brand_id=brand_id,
+                tolerate_decryption_failure=True,
+            )
             if api_key:
                 run_mode = "oauth" if auth_mode == "oauth" else "byok"
             else:

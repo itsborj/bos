@@ -1,6 +1,7 @@
 import base64
 import hashlib
 import json
+import logging
 import os
 import secrets
 import uuid
@@ -24,6 +25,7 @@ _OPENAI_TOKEN_URL = "https://auth.openai.com/oauth/token"
 _OPENAI_REDIRECT_URI = "http://localhost:1455/auth/callback"
 _OPENAI_SCOPE = "openid profile email offline_access"
 _OPENAI_JWT_CLAIM_PATH = "https://api.openai.com/auth"
+logger = logging.getLogger("bos.provider_auth")
 
 
 @dataclass
@@ -1430,14 +1432,26 @@ def decrypt_secret(value: str, settings) -> str:
         ) from exc
 
 
+def _http_detail_code(exc: HTTPException) -> str | None:
+    detail = exc.detail
+    if isinstance(detail, dict):
+        error = detail.get("error")
+        if isinstance(error, dict):
+            code = error.get("code")
+            return str(code) if code else None
+    return None
+
+
 async def resolve_stored_provider_credential(
     db: AsyncSession,
     workspace_id,
     provider: str,
     settings,
     brand_id=None,
+    *,
+    tolerate_decryption_failure: bool = False,
 ) -> tuple[str | None, str | None]:
-    row = None
+    rows: list[ProviderKey] = []
     if isinstance(brand_id, str):
         try:
             brand_id = uuid.UUID(brand_id)
@@ -1447,22 +1461,27 @@ async def resolve_stored_provider_credential(
         # Prefer a brand-owned credential, then fall back to the workspace/org
         # credential saved in Admin. Operators commonly configure one OpenAI or
         # BytePlus key at workspace scope and expect brand-scoped CMO/media runs
-        # to use it unless a brand-specific override exists.
-        row = (await db.execute(
+        # to use it unless a brand-specific override exists. If a stored row was
+        # encrypted with an old ENCRYPTION_KEY, execution paths can tolerate that
+        # decryption failure and continue to the workspace/platform fallback.
+        brand_row = (await db.execute(
             select(ProviderKey).where(
                 ProviderKey.workspace_id == workspace_id,
                 ProviderKey.brand_id == brand_id,
                 ProviderKey.provider == provider,
             )
         )).scalar_one_or_none()
-        if row is None:
-            row = (await db.execute(
-                select(ProviderKey).where(
-                    ProviderKey.workspace_id == workspace_id,
-                    ProviderKey.brand_id == None,  # noqa: E711
-                    ProviderKey.provider == provider,
-                )
-            )).scalar_one_or_none()
+        if brand_row is not None:
+            rows.append(brand_row)
+        workspace_row = (await db.execute(
+            select(ProviderKey).where(
+                ProviderKey.workspace_id == workspace_id,
+                ProviderKey.brand_id == None,  # noqa: E711
+                ProviderKey.provider == provider,
+            )
+        )).scalar_one_or_none()
+        if workspace_row is not None:
+            rows.append(workspace_row)
     else:
         row = (await db.execute(
             select(ProviderKey).where(
@@ -1471,31 +1490,58 @@ async def resolve_stored_provider_credential(
                 ProviderKey.provider == provider,
             )
         )).scalar_one_or_none()
-    if not row:
+        if row is not None:
+            rows.append(row)
+    if not rows:
         return None, None
 
-    if row.auth_mode == "oauth":
-        token = decrypt_secret(row.key_encrypted, settings)
-        if row.expires_at and row.expires_at <= datetime.now(timezone.utc):
-            if not row.refresh_token_encrypted:
-                return None, None
-            handler = get_oauth_handler(provider)
-            if not handler:
-                return None, None
-            refreshed = await handler.refresh_auth(
-                decrypt_secret(row.refresh_token_encrypted, settings), settings
-            )
-            row.key_encrypted = encrypt_secret(refreshed.access_token, settings)
-            row.refresh_token_encrypted = (
-                encrypt_secret(refreshed.refresh_token, settings) if refreshed.refresh_token else None
-            )
-            row.expires_at = refreshed.expires_at
-            row.metadata_json = refreshed.metadata
-            await db.commit()
-            token = refreshed.access_token
-        return token, "oauth"
+    def _decrypt_or_none(row: ProviderKey, value: str | None, field: str) -> str | None:
+        if not value:
+            return None
+        try:
+            return decrypt_secret(value, settings)
+        except HTTPException as exc:
+            if tolerate_decryption_failure and _http_detail_code(exc) == "DECRYPTION_FAILED":
+                logger.warning(
+                    "Stored %s credential for provider=%s workspace_id=%s brand_id=%s could not be decrypted; treating it as unavailable",
+                    field,
+                    row.provider,
+                    row.workspace_id,
+                    row.brand_id,
+                )
+                return None
+            raise
 
-    return decrypt_secret(row.key_encrypted, settings), "api_key"
+    for row in rows:
+        if row.auth_mode == "oauth":
+            token = _decrypt_or_none(row, row.key_encrypted, "oauth_access_token")
+            if not token:
+                continue
+            if row.expires_at and row.expires_at <= datetime.now(timezone.utc):
+                if not row.refresh_token_encrypted:
+                    continue
+                handler = get_oauth_handler(provider)
+                if not handler:
+                    continue
+                refresh_token = _decrypt_or_none(row, row.refresh_token_encrypted, "oauth_refresh_token")
+                if not refresh_token:
+                    continue
+                refreshed = await handler.refresh_auth(refresh_token, settings)
+                row.key_encrypted = encrypt_secret(refreshed.access_token, settings)
+                row.refresh_token_encrypted = (
+                    encrypt_secret(refreshed.refresh_token, settings) if refreshed.refresh_token else None
+                )
+                row.expires_at = refreshed.expires_at
+                row.metadata_json = refreshed.metadata
+                await db.commit()
+                token = refreshed.access_token
+            return token, "oauth"
+
+        token = _decrypt_or_none(row, row.key_encrypted, "api_key")
+        if token:
+            return token, "api_key"
+
+    return None, None
 
 
 # ── Auth relay helpers ────────────────────────────────────────────────────────
