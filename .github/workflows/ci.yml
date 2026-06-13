@@ -181,8 +181,7 @@ jobs:
               exit 1
             fi
             for key in ENV_FILE API_SECRET_KEY ENCRYPTION_KEY DATABASE_URL FRONTEND_URL; do
-              if ! printf '%s
-' "$STAGING_ENV_FILE" | grep -q "^${key}="; then
+              if ! printf '%s\\n' "$STAGING_ENV_FILE" | grep -q "^${key}="; then
                 echo "ERROR: STAGING_ENV_FILE missing required key name: ${key}"
                 exit 1
               fi
@@ -230,8 +229,7 @@ jobs:
               exit 1
             fi
             for key in ENV_FILE API_SECRET_KEY ENCRYPTION_KEY DATABASE_URL FRONTEND_URL; do
-              if ! printf '%s
-' "$STAGING_ENV_FILE" | grep -q "^${key}="; then
+              if ! printf '%s\\n' "$STAGING_ENV_FILE" | grep -q "^${key}="; then
                 echo "ERROR: STAGING_ENV_FILE missing required key name: ${key}"
                 exit 1
               fi
