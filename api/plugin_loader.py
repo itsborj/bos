@@ -498,7 +498,11 @@ async def _load_db_plugin_vars(db, plugin_id: str, settings) -> dict:
     from provider_auth import decrypt_secret as _decrypt
 
     try:
-        ws = (await db.execute(_select(_Workspace).limit(1))).scalar_one_or_none()
+        # Match routers.workspace.get_singleton(): plugin credentials are saved
+        # against the singleton workspace used by Admin. A plain LIMIT 1 can
+        # pick a different row after staging restores/imports, making Admin show
+        # Meta credentials configured while OAuth start cannot see them.
+        ws = (await db.execute(_select(_Workspace).order_by(_Workspace.created_at.asc()).limit(1))).scalar_one_or_none()
         if not ws:
             return {}
         row = (await db.execute(
