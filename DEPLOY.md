@@ -890,27 +890,92 @@ curl -s -H "X-API-Key: $KEY" https://staging.klaroha.com/api/agent/capabilities 
 
 ---
 
+#### C26 — No single localhost → GitHub → staging → browser sync ledger
+**Status:** `CONFIRMED GAP — SOLUTION DEFINED (2026-06-13)`
+
+BOS currently has several good individual deploy signals, but no single command that proves all sync layers match. This creates repeated frustration: `git push` may succeed, GitHub Actions may be green, and `/api/` may report the expected `git_sha`, while the frontend bundle, browser/CDN cache, env config, plugin readiness, or DB state is still divergent.
+
+**Typical symptoms:**
+- “localhost and staging are never in sync” despite a recent commit/push
+- API health is green but the page is white, stale, or behavior differs
+- deploy logs show the correct API SHA but the browser is loading an old or failing JS asset
+- GitHub Actions is green but no one can answer which local commit, web bundle hash, runtime API SHA, plugin count, and browser-loaded asset are actually active
+- agents report “deployed” based on one layer instead of proving all layers
+
+**Required solution: `check-sync.sh`**
+
+Add one operator command that compares all required layers without leaking secrets:
+
+```bash
+./check-sync.sh
+```
+
+Minimum output:
+
+```text
+LOCAL
+  branch: staging
+  head: <sha>
+  dirty: no
+  web build: ok
+  web entry bundle: /assets/index-<hash>.js
+
+GITHUB
+  latest staging run: success
+  run sha: <sha>
+  images published: api/web/relay
+
+STAGING
+  api git_sha: <sha>
+  api uptime: <seconds>
+  web index asset: /assets/index-<hash>.js
+  js asset status: 200
+  js asset browser load: ok
+  plugins: <count>
+  fake API key rejected: yes
+```
+
+**Fail conditions:**
+- local branch is not `staging` when checking staging
+- local tree is dirty unless explicitly allowed
+- local `HEAD`, latest successful GitHub staging run SHA, and staging API `git_sha` differ
+- local Vite build fails
+- staging `index.html` references an asset that does not return HTTP 200
+- headless browser cannot load the staging page or `#root` stays empty
+- any `/assets/*.js` request fails in browser automation
+- fake API key returns anything other than 401/403 on a protected endpoint
+- plugin count is below the expected minimum once that minimum is defined
+
+**Rule:** Do not say “staging is synced” or “the deploy worked” unless this sync check passes. API `git_sha` is necessary but not sufficient; it proves only the API image, not the frontend, CDN/browser asset load, config readiness, or state parity.
+
+**Scale alignment:** At 10K org scale, support cannot SSH into individual deployments to infer drift. Each deployment needs a machine-readable sync report that an operator can run and share without exposing secrets.
+
+**Fix pattern:** implement `check-sync.sh` as a local/read-only script first, then wire the same checks into CI post-deploy. Keep secret checks to key-name presence/counts and readiness endpoints; never echo secret values.
+
+---
+
 ### Process of Elimination
 
 When a feature breaks after a staging deploy, work through in this order:
 
-1. **C13/C12** — Prove the running code first: `curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'`. If `git_sha` is old/missing/`dev`, this is deploy/code drift. Check the deploy job for that SHA.
-2. **C22** — If `git push` succeeded but staging did not change, check GitHub Actions for image build/push failures such as GHCR `unknown blob` before investigating the VDS.
-3. **C23** — If GitHub deploy is green but `/api/` is 502 or deploy summary says `git_sha: missing`, treat the deploy as failed and inspect post-deploy API/container logs read-only.
-4. **C24** — If API logs show Alembic `value too long for type character varying(32)`, fix migration version storage before investigating UI/plugins.
-5. **C21** — If auth/login/API-key behavior is permissive, run only negative read-only auth tests with fake keys first. Any fake key returning 200 is a security incident.
-6. **C20** — If the symptom is a white screen, inspect browser console/network and asset headers; reproduce the web build locally before touching staging.
-7. **C25** — If API is healthy but Specialists/Admin shows zero, debug plugin discovery/activation only; do not mix with provider-key or brand-state drift yet.
-8. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
-9. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
-10. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
-11. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
-12. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
-13. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
-14. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
-15. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
-16. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
-17. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
+1. **C26** — If there is any doubt about localhost → staging sync, run the sync ledger first (`./check-sync.sh` once implemented). Do not rely on a single signal.
+2. **C13/C12** — Prove the running code first: `curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'`. If `git_sha` is old/missing/`dev`, this is deploy/code drift. Check the deploy job for that SHA.
+3. **C22** — If `git push` succeeded but staging did not change, check GitHub Actions for image build/push failures such as GHCR `unknown blob` before investigating the VDS.
+4. **C23** — If GitHub deploy is green but `/api/` is 502 or deploy summary says `git_sha: missing`, treat the deploy as failed and inspect post-deploy API/container logs read-only.
+5. **C24** — If API logs show Alembic `value too long for type character varying(32)`, fix migration version storage before investigating UI/plugins.
+6. **C21** — If auth/login/API-key behavior is permissive, run only negative read-only auth tests with fake keys first. Any fake key returning 200 is a security incident.
+7. **C20** — If the symptom is a white screen, inspect browser console/network and asset headers; reproduce the web build locally before touching staging.
+8. **C25** — If API is healthy but Specialists/Admin shows zero, debug plugin discovery/activation only; do not mix with provider-key or brand-state drift yet.
+9. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
+10. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
+11. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
+12. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
+13. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
+14. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
+15. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
+16. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
+17. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
+18. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
 
 ### Behavior Parity Checklist — deploy is green, output still differs
 
@@ -1155,7 +1220,8 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 - [x] **C23:** Make `deploy-staging.sh` fail closed when post-deploy health is invalid (`git_sha: missing`, `uptime_seconds: ?s`, non-JSON, wrong SHA) and add a readiness retry loop before failing. Commit `ac9a80d` implemented this and exposed C24.
 - [x] **C24:** Widen Alembic `alembic_version.version_num` before recording long revision id `039_cleanup_fuzzer_data_stream_dedupe`; keep this separate from specialist/plugin debugging. Commit `39c9124` restored API health.
 - [ ] **C25:** Debug zero specialists one layer at a time: plugin files present ✓, plugin loader discovers packages ✓ (`plugins: 8` in run `27395023837`) → next: authenticated API `/plugins` count → frontend rendering/brand activation → provider readiness.
-- [ ] After the secret, path, white-screen, auth-boundary, image-publish, post-deploy-health, migration, and specialist-discovery fixes, prove the real success criteria with one tiny localhost change → commit → push → CI builds images → auto-deploys → `staging.klaroha.com` returns expected `git_sha` and healthy behavior **without** manual server repair.
+- [ ] **C26:** Implement `check-sync.sh` as the one-command localhost → GitHub → staging → browser sync ledger. It must verify local branch/HEAD/dirty state, latest GitHub staging run, staging API `git_sha`, web index asset hash, JS asset HTTP 200, headless browser asset load/non-empty `#root`, fake-key rejection, and plugin count without printing secrets.
+- [ ] After the secret, path, white-screen, auth-boundary, image-publish, post-deploy-health, migration, specialist-discovery, and sync-ledger fixes, prove the real success criteria with one tiny localhost change → commit → push → CI builds images → auto-deploys → `staging.klaroha.com` returns expected `git_sha` and healthy behavior **without** manual server repair.
 - [ ] Set `git config pull.rebase false` (or `--ff-only`) on the server so `git pull` doesn't fail on divergence
 - [x] GitHub secrets: `VDS_HOST`, `VDS_USER`, `VDS_DEPLOY_KEY`, `STAGING_PATH`, `PROD_PATH`, `GHCR_TOKEN`, `STAGING_ENV_FILE` — all wired in `ci.yml` (but `STAGING_ENV_FILE` content is currently the C18 risk)
 - [x] **C13 fix (scale-required):** API image accepts `ARG GIT_SHA`, CI passes `--build-arg GIT_SHA=${{ github.sha }}`, `GET /api/` exposes `git_sha`, and `check-staging.sh` verifies it when `DEPLOY_SHA` is set.
@@ -1186,6 +1252,7 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 > **Scale directive note:** #3 (GitOps) and #5 (ephemeral previews) become required when daily deployment volume exceeds human-reviewable capacity. At 100+ org deploys/day, manual SSH recovery (as seen in INC-003 through INC-006) is not operationally viable. Target: #3 implemented before reaching 50 active customer orgs. #11 below is newly required at scale.
 
 | 11 | **Deployed version fingerprinting** | `[x]` | API containers expose the exact git commit SHA baked into the image (`GIT_SHA`, surfaced in `GET /api/`). Operators, support, and automated checks can confirm which version is running without SSH access. Remaining work is not fingerprinting itself; it is making every script use the correct checkout/env path (C19). |
+| 12 | **End-to-end sync ledger** | `[ ]` | One command (`check-sync.sh`) proves local branch/HEAD, GitHub run, deployed API SHA, web bundle hash, browser JS load, auth boundary, and plugin readiness together. This closes the gap where individual green checks still leave localhost and staging observably divergent (C26). |
 
 ---
 
