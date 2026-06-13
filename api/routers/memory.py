@@ -120,4 +120,7 @@ async def _validate_brand_scope(db: AsyncSession, workspace_id: uuid.UUID, brand
 
     brand_count = (await db.execute(select(func.count()).select_from(Brand).where(Brand.workspace_id == workspace_id))).scalar_one()
     if brand_count:
-        raise HTTPException(status_code=400, detail="brand_id is required when brands exist in this workspace")
+        raise HTTPException(
+            status_code=422,
+            detail=[{"loc": ["body", "brand_id"], "msg": "brand_id is required when brands exist in this workspace", "type": "value_error"}],
+        )

@@ -163,21 +163,29 @@ async def get_agent_context(
 
 @router.get("/capabilities", response_model=list[AgentCapability], summary="Installed capabilities available for dispatch")
 async def get_capabilities(
+    brand_id: Optional[UUID] = None,
+    db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
+    from plugin_loader import get_active_plugin_ids, get_plugin_for_module
+
+    active_ids = await get_active_plugin_ids(db, brand_id)
     skills = sorted(
         [s for s in list_skill_manifests() if s.allowed_from_chat and s.module_id],
         key=lambda s: s.module_id,
     )
-    return [
-        AgentCapability(
+    result = []
+    for s in skills:
+        owner = get_plugin_for_module(s.module_id)
+        if owner is not None and owner.manifest.plugin_id not in active_ids:
+            continue
+        result.append(AgentCapability(
             module_id=s.module_id,
             label=(s.name or s.module_id.rsplit(".", 1)[-1]).replace("_", " ").title(),
             description=(s.description or "").strip(),
             triggers=list(s.triggers)[:8],
-        )
-        for s in skills
-    ]
+        ))
+    return result
 
 
 @router.post("/execute", response_model=RunResponse, status_code=201, summary="Execute a capability directly", responses={404: {"description": "Module not found"}, 412: {"description": "Workspace not initialized"}})

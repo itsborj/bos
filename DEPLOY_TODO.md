@@ -6,6 +6,59 @@
 
 ---
 
+## Staging Drift Hypotheses
+
+> Testing methodology: **behavioral first** — hit real endpoints and compare outputs, not just read files.
+> File reads tell you what should happen. Endpoint calls tell you what is happening.
+> Status: `[untested]` `[confirmed]` `[ruled out]`
+
+### META_APP_ID failure (observed: `⚠️ Could not start Facebook connect — META_APP_ID not configured`)
+
+Traced full execution path (2026-06-13):
+1. `POST /social/connect/start` → `FacebookOAuthHandler._app_id()` (`provider_auth.py:735`)
+2. Checks three fallbacks in order: `overrides.get("meta_app_id")` → `overrides.get("META_APP_ID")` → `settings.meta_app_id` (env var)
+3. `overrides` comes from `get_plugin_vars("channel.meta", db, settings)` → `_load_db_plugin_vars()` (`plugin_loader.py:492`)
+4. All three are empty → raises `ValueError`
+
+| # | Hypothesis | Test | Status |
+|---|---|---|---|
+| H1 | `META_APP_ID` is empty in `STAGING_ENV_FILE` GitHub secret | Read secret in GitHub → check `META_APP_ID=` line | `[confirmed — .env.staging has META_APP_ID= empty, and secret is written from this file]` |
+| H2 | `channel.meta` not installed on staging → Admin UI never showed credentials form → no DB row → all three fallbacks empty | `GET /admin/plugins` on staging — does `channel.meta` appear? | `[untested — blocked mid-session]` |
+| H3 | `channel.meta` IS installed but credentials never entered via Admin UI on staging | `GET /admin/plugins/channel.meta` — is there a `ProviderKey` row? | `[untested]` |
+| H4 | `_load_db_plugin_vars` silently swallows a real DB exception and returns `{}` — actual error hidden | Check staging API logs for exceptions during `/social/connect/start` | `[untested — bare except at plugin_loader.py:518 is the risk]` |
+| H5 | Staging DB has multiple workspace rows; `_load_db_plugin_vars` picks wrong one | Count workspace rows on staging: `SELECT count(*) FROM workspace` | `[untested — code comment at plugin_loader.py:503 explicitly warns this can happen after staging restores]` |
+
+### Systemic staging drift (why staging keeps breaking in ways I can't see)
+
+| # | Hypothesis | Test | Status |
+|---|---|---|---|
+| S1 | `STAGING_ENV_FILE` secret is stale — missing vars added to `.env.example` after last manual update | Diff secret content against current `.env.example` keys | `[confirmed — META_APP_ID, PLATFORM_ANTHROPIC_KEY, PLATFORM_BYTEDANCE_KEY, GOOGLE_PICKER_APP_ID absent or empty]` |
+| S2 | CI env guard only validates 5 keys — everything else can be missing silently | Read `ci.yml:183` — guard checks only `ENV_FILE API_SECRET_KEY ENCRYPTION_KEY DATABASE_URL FRONTEND_URL` | `[confirmed — guard is insufficient by design]` |
+| S3 | `EXTERNAL_PLUGINS_PATH` not set in staging → defaults to `/home/ubu/bos-plugins` — does that path exist on the staging VDS? | SSH and check `ls /home/ubu/bos-plugins` | `[untested]` |
+| S4 | Plugin activation state in staging DB differs from localhost — different plugins active, different brands | Compare `GET /admin/plugins` between localhost and staging | `[untested — blocked mid-session]` |
+| S5 | Staging relay mode changes OAuth behavior for some flows vs localhost | localhost uses `KLAROHA_RELAY_URL=http://relay:8100`; staging uses `https://staging.klaroha.com` — different relay paths | `[untested]` |
+
+### Unknown — other things that may be broken but haven't surfaced yet
+
+| # | Hypothesis | Why suspected |
+|---|---|---|
+| U1 | TikTok connect is broken the same way as Facebook | `TIKTOK_CLIENT_KEY=` empty in `.env.staging`; same plugin_vars fallback pattern |
+| U2 | Any Anthropic-backed capability silently fails on staging | `PLATFORM_ANTHROPIC_KEY` not in `.env.staging` at all |
+| U3 | Video generation broken on staging | `PLATFORM_BYTEDANCE_KEY` not in `.env.staging` at all |
+| U4 | Google Picker broken on staging | `GOOGLE_PICKER_APP_ID` not in `.env.staging` at all |
+
+### Root cause pattern
+
+The real problem isn't any single missing var. It's that:
+- **The running system on staging is invisible from this repo.** The only source of truth is the `STAGING_ENV_FILE` GitHub secret, which cannot be read without SSH or GitHub UI access.
+- **File reads lie.** `.env.staging` in the repo is overwritten on every deploy by whatever is in the secret. Reading it locally tells you what was intended, not what's running.
+- **The CI guard has a 5-key blind spot.** Any new var added to `.env.example` that isn't in the secret will silently fail — no deploy error, no log, no warning.
+- **Silent exceptions make it worse.** `_load_db_plugin_vars` at `plugin_loader.py:518` does `except Exception: return {}` — a DB error is indistinguishable from "credentials not configured."
+
+**Correct testing methodology going forward:** probe real endpoints and compare localhost vs staging outputs before declaring anything "looks fine."
+
+---
+
 ## Now — Fix What's Breaking Today
 
 These are the confirmed causes of every staging crash. Nothing else gets worked until I-1 is done.

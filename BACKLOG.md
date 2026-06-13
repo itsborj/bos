@@ -163,7 +163,7 @@ Use `POST /api/plugins/{plugin_id}/activate` with `brand_id: null` (org-level) o
 | V4 | [!] Deferred to staging | Localhost image generation + Drive upload passed. Live Facebook publish must be retried on `staging.klaroha.com` because Meta app/OAuth validation is staging-domain based, not localhost. |
 
 - [!] SOCIAL-001 · 2026-06-09 · V4 TEST: After SOCIAL-014–018, ask CMO "make a Facebook post for Klaroha about [topic]" → approve in Stream → confirm post appears on Klarohahq Facebook Page. Local image generation + Drive upload passed (`creative.post.image` run `7c9dbea8-27e6-4997-b3b4-7c40156f538d`, Drive file `1up6n28CWzOHuJsvhyxHafUDlJMRqedcS`). Localhost publish failed (`cb836581-b2fb-4550-808d-36d9477f5e2c`) with Meta OAuth 190: page token lacks required page impersonation permissions. Operator note: previous Facebook auth was validated on `staging.klaroha.com`; Meta does not reliably support this localhost callback for live Page publish. Defer live Facebook proof until staging; retry from the same source artifact after staging Facebook auth is fresh.
-- [ ] SOCIAL-002 · 2026-06-09 · BUG CHECK: If `pages/read` returns a pending run instead of a setup_blocker when credentials are missing (CHAN-039), fix the missing-credentials path in `api/plugins/meta/capabilities/marketing/channel/meta/pages/read/module.py` before retesting.
+- [x] SOCIAL-002 · 2026-06-09 · BUG CHECK: No fix needed. `_failure()` sets `block.status="failed"` + `attempt.status="failed"`; `runs.py` detects `_block_failed` and sets `approval_status="failed"` (not pending); `artifacts.py:39` maps `block.status=="failed"` → `"setup_blocker"`. Path is correct as-is.
 
 ---
 
@@ -878,7 +878,7 @@ Each of these returns `500 INTERNAL_ERROR` with real-looking inputs. Agents: pic
 
 ### P1 (Wave 2) — Brand scope enforcement (non-YT/FB path, cleanup)
 
-- [ ] SCHM-028 · 2026-06-10 · P1: `POST /decision-briefs`, `POST /decision-briefs/generate`, `POST /memory/events`, `POST /outcomes/evaluate` return 400 "brand_id required" when brands exist. Should be 422 with Pydantic-style detail. Same pattern as SCHM-013/015.
+- [x] SCHM-028 · 2026-06-10 · P1: `POST /decision-briefs`, `POST /decision-briefs/generate`, `POST /memory/events`, `POST /outcomes/evaluate` return 400 "brand_id required" when brands exist. Should be 422 with Pydantic-style detail. Same pattern as SCHM-013/015.
 
 ### General Backend Bug Audit (Wave 3) — 2026-06-12
 
@@ -891,12 +891,12 @@ Each of these returns `500 INTERNAL_ERROR` with real-looking inputs. Agents: pic
 - [x] GENB-007 · 2026-06-12 · P4: `_brief_from_action_artifact()` fell back to raw `result.content` when block lacked a message field — removed fallback; publish actions now receive no message rather than unreviewed LLM output.
 - [x] GENB-008 · 2026-06-12 · P5: `PUT /workspace/products` and `PUT /workspace/audiences` only upserted; omitted rows were never deleted. Added delete-omitted-rows logic (replace semantics) for workspace-level rows.
 - [x] GENB-009 · 2026-06-12 · P5: `PUT /brands/{brand_id}` relied on DB error for duplicate name detection — added pre-check that returns clean 409.
-- [ ] GENB-010 · 2026-06-12 · P2: Agent `/agent/capabilities` ignores plugin activation state — lists all chat-allowed skills regardless of whether their plugin is activated for the brand.
+- [x] GENB-010 · 2026-06-12 · P2: Agent `/agent/capabilities` ignores plugin activation state — lists all chat-allowed skills regardless of whether their plugin is activated for the brand.
 - [ ] GENB-011 · 2026-06-12 · P3: Provider health can be stale — `model_options` catalog health not degraded by recent live provider failures. Needs expiry/degrade logic.
 - [ ] GENB-012 · 2026-06-12 · P4: Failed provider attempts can be persisted inconsistently as partial/success — audit of run/attempt status logic needed.
 - [ ] GENB-013 · 2026-06-12 · P8: Stale plugin activation rows for uninstalled plugins remain in DB — need safe cleanup path.
 - [ ] GENB-014 · 2026-06-12 · P8: Fuzzer cleanup migration 039 did not cover `execution_backend_overrides` — existing garbage rows need targeted follow-up migration.
-- [ ] GENB-015 · 2026-06-12 · P6: Public calendar booking endpoints still need DB-level unique slug constraint as a safety boundary (read-time filtering is not sufficient).
+- [x] GENB-015 · 2026-06-12 · P6: Public calendar booking endpoints still need DB-level unique slug constraint as a safety boundary (read-time filtering is not sufficient).
 
 ### P2 — OpenAPI Spec Gaps (Spec-Only, No Behavior Change)
 
