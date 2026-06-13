@@ -891,7 +891,7 @@ curl -s -H "X-API-Key: $KEY" https://staging.klaroha.com/api/agent/capabilities 
 ---
 
 #### C26 — No single localhost → GitHub → staging → browser sync ledger
-**Status:** `CONFIRMED GAP — SOLUTION DEFINED (2026-06-13)`
+**Status:** `PARTIALLY IMPLEMENTED — LOCAL SCRIPT ADDED (2026-06-13)`
 
 BOS currently has several good individual deploy signals, but no single command that proves all sync layers match. This creates repeated frustration: `git push` may succeed, GitHub Actions may be green, and `/api/` may report the expected `git_sha`, while the frontend bundle, browser/CDN cache, env config, plugin readiness, or DB state is still divergent.
 
@@ -909,6 +909,8 @@ Add one operator command that compares all required layers without leaking secre
 ```bash
 ./check-sync.sh
 ```
+
+**Local implementation (2026-06-13):** `check-sync.sh` now performs the local build, GitHub Actions run/SHA check, staging API SHA check, web entry asset comparison, JS asset HTTP check, fake-key auth rejection, optional authenticated plugin count (`STAGING_API_KEY=...`), and a Playwright browser load check. GHCR manifest verification warns instead of failing when the local Docker client is not authenticated; use `STRICT_GHCR=1` to make private-manifest auth failures fail closed. Remaining work: wire the same checks into CI post-deploy.
 
 Minimum output:
 
