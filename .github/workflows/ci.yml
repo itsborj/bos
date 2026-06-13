@@ -176,8 +176,20 @@ jobs:
               rm -rf "$STAGING_PATH"
               git clone https://github.com/itsborj/bos.git "$STAGING_PATH"
             fi
+            if [ -z "${STAGING_ENV_FILE:-}" ]; then
+              echo "ERROR: STAGING_ENV_FILE secret is empty"
+              exit 1
+            fi
+            for key in ENV_FILE API_SECRET_KEY ENCRYPTION_KEY DATABASE_URL FRONTEND_URL; do
+              if ! printf '%s
+' "$STAGING_ENV_FILE" | grep -q "^${key}="; then
+                echo "ERROR: STAGING_ENV_FILE missing required key name: ${key}"
+                exit 1
+              fi
+            done
             printf '%s' "$STAGING_ENV_FILE" > "$STAGING_PATH/.env.staging"
             cd "$STAGING_PATH"
+            export BOS_DEPLOY_PATH="$STAGING_PATH"
             git fetch origin
             git reset --hard origin/staging
             DEPLOY_SHA="$DEPLOY_SHA" GHCR_TOKEN="$GHCR_TOKEN" bash deploy-staging.sh
@@ -213,8 +225,20 @@ jobs:
               rm -rf "$STAGING_PATH"
               git clone https://github.com/itsborj/bos.git "$STAGING_PATH"
             fi
+            if [ -z "${STAGING_ENV_FILE:-}" ]; then
+              echo "ERROR: STAGING_ENV_FILE secret is empty"
+              exit 1
+            fi
+            for key in ENV_FILE API_SECRET_KEY ENCRYPTION_KEY DATABASE_URL FRONTEND_URL; do
+              if ! printf '%s
+' "$STAGING_ENV_FILE" | grep -q "^${key}="; then
+                echo "ERROR: STAGING_ENV_FILE missing required key name: ${key}"
+                exit 1
+              fi
+            done
             printf '%s' "$STAGING_ENV_FILE" > "$STAGING_PATH/.env.staging"
             cd "$STAGING_PATH"
+            export BOS_DEPLOY_PATH="$STAGING_PATH"
             git fetch origin
             git reset --hard origin/staging
             DEPLOY_SHA="$DEPLOY_SHA" GHCR_TOKEN="$GHCR_TOKEN" bash deploy-staging.sh

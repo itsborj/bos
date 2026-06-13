@@ -8,7 +8,11 @@ ok()   { echo "  [PASS] $1"; PASS=$((PASS + 1)); }
 fail() { echo "  [FAIL] $1"; FAIL=$((FAIL + 1)); }
 
 # ── Read staging config ───────────────────────────────────────────────────────
-ENV_FILE=~/bos/.env.staging
+cd "${BOS_DEPLOY_PATH:-$(pwd)}"
+ENV_FILE="${ENV_FILE:-.env.staging}"
+if [[ "$ENV_FILE" != /* ]]; then
+  ENV_FILE="$(pwd)/$ENV_FILE"
+fi
 API_KEY=$(grep -E '^API_SECRET_KEY=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
 FRONTEND_URL=$(grep -E '^FRONTEND_URL=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '"' || true)
 BASE=http://127.0.0.1:8091

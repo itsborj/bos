@@ -956,6 +956,80 @@ STAGING
 
 ---
 
+#### C27 — OAuth start reads the wrong credential plane or workspace
+**Status:** `CONFIRMED CLASS / FIX IN PROGRESS (2026-06-13)`
+
+A connector can show configured in Admin but still fail at OAuth start when the start path reads a different credential plane than the Admin readiness path. Meta/Facebook is the current example: Admin stores `META_APP_ID` / `META_APP_SECRET` as DB-backed plugin vars for `channel.meta`, but `/social/connect/start` must load those exact vars before constructing the Facebook authorize URL.
+
+**Typical symptoms:**
+- Admin → Capabilities shows Meta credentials configured, but Facebook connect returns `META_APP_ID not configured`.
+- Localhost works because `.env` has fallback values, while staging fails because the durable credential should come from DB plugin vars.
+- A restored staging DB has more than one `workspaces` row; Admin saves plugin vars against the singleton workspace, but lower-level helper code uses an unordered `LIMIT 1` and reads another row.
+
+**Confirm without leaking secrets:**
+```bash
+# Authenticated; never print values, only booleans/counts.
+curl -s -H "X-API-Key: $KEY" https://staging.klaroha.com/api/plugins \
+  | jq '.plugins[] | select(.plugin_id=="channel.meta") | {credentials_configured, missing_vars, credential_source}'
+
+# Start connect and inspect only whether it returns an authorize_url, not secret contents.
+curl -s -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+  -d '{"brand_id":"<brand_id>","platform":"facebook"}' \
+  https://staging.klaroha.com/api/social/connect/start | jq '{platform, has_authorize_url:(.authorize_url!=null), detail}'
+```
+
+**Fix pattern:** all plugin-var readers must use the same singleton workspace selection as Admin. Readiness endpoints and OAuth start must agree on where plugin vars live. Add a no-secret diagnostic if this regresses.
+
+---
+
+#### C28 — OAuth redirect host mismatch sends staging users to localhost
+**Status:** `HYPOTHESIS — OPEN / GUARD ADDED (2026-06-13)`
+
+Even when credentials exist, an OAuth flow can appear to “be on localhost” if runtime `FRONTEND_URL`, `META_REDIRECT_URI`, or stored plugin redirect vars still contain local URLs after a deploy or secret rewrite. Staging must derive callbacks from `https://staging.klaroha.com`, never from local defaults.
+
+**Typical symptoms:**
+- Browser leaves staging and lands on `localhost` during Facebook/Google callback.
+- Facebook authorize URL contains `redirect_uri=http://localhost...`.
+- `/api/` reports the correct git SHA, but OAuth behavior reflects local `.env` or stale plugin vars.
+
+**Confirm without leaking secrets:**
+```bash
+# Start the flow with a staging API key and inspect only hosts.
+curl -s -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+  -d '{"brand_id":"<brand_id>","platform":"facebook"}' \
+  https://staging.klaroha.com/api/social/connect/start \
+  | jq -r '.authorize_url' \
+  | python3 - <<'PY'
+import sys, urllib.parse
+u = sys.stdin.read().strip()
+q = urllib.parse.parse_qs(urllib.parse.urlparse(u).query)
+print('redirect_uri=', q.get('redirect_uri', [''])[0])
+PY
+```
+
+**Fix pattern:** deploy must fail or correct local `FRONTEND_URL` / `META_REDIRECT_URI` in `.env.staging`. Runtime Facebook OAuth must ignore any stored redirect whose host differs from `FRONTEND_URL` and derive from `FRONTEND_URL` instead.
+
+---
+
+#### C29 — Sync checks are incomplete without authenticated readiness probes
+**Status:** `HYPOTHESIS — OPEN (2026-06-13)`
+
+`check-sync.sh` can prove code/web/browser parity without a staging API key, but it cannot prove plugin/provider/social readiness. That leaves a gap where deploy sync passes while Meta/Google credentials are missing or degraded.
+
+**Typical symptoms:**
+- `check-sync.sh` passes with `plugins: protected endpoint` warning.
+- Staging is on the correct SHA, but connector actions fail with missing credentials.
+- Agents declare “synced” while skipping the exact readiness layer that is broken.
+
+**Confirm:** run sync with a staging key provided out-of-band; never print the key.
+```bash
+STAGING_API_KEY=... ./check-sync.sh
+```
+
+**Fix pattern:** make readiness checks use booleans/counts only and treat skipped authenticated readiness as a yellow state, not proof that feature behavior is ready. Add a small authenticated diagnostic for connector start readiness if `/api/plugins` is insufficient.
+
+---
+
 ### Process of Elimination
 
 When a feature breaks after a staging deploy, work through in this order:
@@ -968,16 +1042,18 @@ When a feature breaks after a staging deploy, work through in this order:
 6. **C21** — If auth/login/API-key behavior is permissive, run only negative read-only auth tests with fake keys first. Any fake key returning 200 is a security incident.
 7. **C20** — If the symptom is a white screen, inspect browser console/network and asset headers; reproduce the web build locally before touching staging.
 8. **C25** — If API is healthy but Specialists/Admin shows zero, debug plugin discovery/activation only; do not mix with provider-key or brand-state drift yet.
-9. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
-10. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
-11. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
-12. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
-13. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
-14. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
-15. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
-16. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
-17. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
-18. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
+9. **C29** — If `check-sync.sh` skipped authenticated plugin/provider/social readiness, do not claim feature parity; rerun with `STAGING_API_KEY` or use authenticated readiness probes.
+10. **C27/C28** — If OAuth connect fails or redirects to localhost, validate plugin credential source, singleton workspace lookup, and authorize URL callback host.
+11. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
+12. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
+13. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
+14. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
+15. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
+16. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
+17. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
+18. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
+19. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
+20. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
 
 ### Behavior Parity Checklist — deploy is green, output still differs
 
@@ -1214,15 +1290,15 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 - [x] `deploy-staging.sh` now enforces staging port overrides directly (2026-06-02) — containers can no longer be created with production default ports even if the secret is missing these vars
 - [x] `web/nginx-spa.conf` now has gzip, MIME types, and correct cache headers (2026-06-02) — bare config was causing Cloudflare to 502 on the large JS bundle (INC-008)
 - [ ] **C18:** Update GitHub secret `STAGING_ENV_FILE` with the full known-good staging env, not just ports: `ENV_FILE=.env.staging`, `DATABASE_URL`, `API_SECRET_KEY`, `ENCRYPTION_KEY`, all five staging ports, `PLATFORM_*`, OAuth/provider/plugin keys, and any other staging-critical vars. The script enforcement is a safety net, not a replacement for fixing the secret.
-- [ ] **C18 guard:** Add a CI/deploy fail-closed check that refuses to write/use an empty `STAGING_ENV_FILE` or one missing critical key names. Print key names/counts only — never values.
-- [ ] **C19:** Remove hard-coded `cd ~/bos` / `~/bos/.env.staging` assumptions from `deploy-staging.sh` and `check-staging.sh`; run from `STAGING_PATH`/current checkout and print `pwd`, `git rev-parse HEAD`, and `realpath .env.staging` at start.
+- [x] **C18 guard:** Add a CI/deploy fail-closed check that refuses to write/use an empty `STAGING_ENV_FILE` or one missing critical key names. Print key names/counts only — never values. Implemented in workflow deploy scripts on 2026-06-13.
+- [x] **C19:** Remove hard-coded `cd ~/bos` / `~/bos/.env.staging` assumptions from `deploy-staging.sh` and `check-staging.sh`; run from `STAGING_PATH`/current checkout and print `pwd`, `git rev-parse HEAD`, and `realpath .env.staging` at start. Implemented on 2026-06-13; CI exports `BOS_DEPLOY_PATH`.
 - [ ] **C20:** Deploy and verify route-level frontend code splitting fix for the staging white screen. Local build passes and reduces the entry bundle from 733.84 kB to 348.27 kB; remaining success criteria are CI deploy to `origin/staging`, expected `git_sha`, and browser asset-load retest.
 - [ ] **C21:** Add/verify a negative auth-boundary test using a fake API key against protected endpoints; any HTTP 200 must fail CI/deploy and be logged as a security incident.
 - [ ] **C22:** Investigate GHCR `unknown blob` image-push failure from run `27393507882`; first retry if transient, then inspect buildx/GHCR cache/provenance settings if it recurs. Retry run `27393813054` built/pushed successfully, so treat C22 as transient unless it recurs.
 - [x] **C23:** Make `deploy-staging.sh` fail closed when post-deploy health is invalid (`git_sha: missing`, `uptime_seconds: ?s`, non-JSON, wrong SHA) and add a readiness retry loop before failing. Commit `ac9a80d` implemented this and exposed C24.
 - [x] **C24:** Widen Alembic `alembic_version.version_num` before recording long revision id `039_cleanup_fuzzer_data_stream_dedupe`; keep this separate from specialist/plugin debugging. Commit `39c9124` restored API health.
 - [ ] **C25:** Debug zero specialists one layer at a time: plugin files present ✓, plugin loader discovers packages ✓ (`plugins: 8` in run `27395023837`) → next: authenticated API `/plugins` count → frontend rendering/brand activation → provider readiness.
-- [ ] **C26:** Implement `check-sync.sh` as the one-command localhost → GitHub → staging → browser sync ledger. It must verify local branch/HEAD/dirty state, latest GitHub staging run, staging API `git_sha`, web index asset hash, JS asset HTTP 200, headless browser asset load/non-empty `#root`, fake-key rejection, and plugin count without printing secrets.
+- [x] **C26:** Implement `check-sync.sh` as the one-command localhost → GitHub → staging → browser sync ledger. It verifies local branch/HEAD/dirty state, latest GitHub staging run, staging API `git_sha`, web index asset hash, JS asset HTTP 200, headless browser asset load/non-empty `#root`, fake-key rejection, and optional plugin count without printing secrets. Remaining gap moved to C29: authenticated readiness is skipped unless `STAGING_API_KEY` is supplied.
 - [ ] After the secret, path, white-screen, auth-boundary, image-publish, post-deploy-health, migration, specialist-discovery, and sync-ledger fixes, prove the real success criteria with one tiny localhost change → commit → push → CI builds images → auto-deploys → `staging.klaroha.com` returns expected `git_sha` and healthy behavior **without** manual server repair.
 - [ ] Set `git config pull.rebase false` (or `--ff-only`) on the server so `git pull` doesn't fail on divergence
 - [x] GitHub secrets: `VDS_HOST`, `VDS_USER`, `VDS_DEPLOY_KEY`, `STAGING_PATH`, `PROD_PATH`, `GHCR_TOKEN`, `STAGING_ENV_FILE` — all wired in `ci.yml` (but `STAGING_ENV_FILE` content is currently the C18 risk)

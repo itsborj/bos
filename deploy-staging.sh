@@ -61,10 +61,20 @@ done < .env.example
 
 # Fail closed if staging already contains public/default BOS-owned secrets.
 _get_env_value() { grep -E "^$1=" .env.staging 2>/dev/null | tail -1 | cut -d= -f2-; }
+_set_env_value() {
+  local key="$1" val="$2"
+  if grep -qE "^${key}=" .env.staging 2>/dev/null; then
+    sed -i "s|^${key}=.*|${key}=${val}|" .env.staging
+  else
+    echo "${key}=${val}" >> .env.staging
+  fi
+}
 _api_secret="$(_get_env_value API_SECRET_KEY)"
 _relay_secret="$(_get_env_value KLAROHA_RELAY_KEY)"
 _legacy_relay_secret="$(_get_env_value RELAY_KEY)"
 _db_url="$(_get_env_value DATABASE_URL)"
+_frontend_url="$(_get_env_value FRONTEND_URL)"
+_meta_redirect="$(_get_env_value META_REDIRECT_URI)"
 for pair in \
   "API_SECRET_KEY:${_api_secret}" \
   "KLAROHA_RELAY_KEY:${_relay_secret}" \
@@ -78,6 +88,22 @@ done
 if [[ -z "$_db_url" ]]; then
   CRITICAL_MISSING+=("DATABASE_URL")
 fi
+if [[ -z "$_frontend_url" ]]; then
+  CRITICAL_MISSING+=("FRONTEND_URL")
+elif [[ "$_frontend_url" == *"localhost"* || "$_frontend_url" == *"127.0.0.1"* ]]; then
+  echo "  corrected FRONTEND_URL: local → https://staging.klaroha.com"
+  _set_env_value FRONTEND_URL "https://staging.klaroha.com"
+  _frontend_url="https://staging.klaroha.com"
+fi
+if [[ -n "$_meta_redirect" && "$_meta_redirect" != "${_frontend_url%/}/social/facebook/callback" ]]; then
+  if [[ "$_meta_redirect" == *"localhost"* || "$_meta_redirect" == *"127.0.0.1"* ]]; then
+    echo "  corrected META_REDIRECT_URI: local → ${_frontend_url%/}/social/facebook/callback"
+    _set_env_value META_REDIRECT_URI "${_frontend_url%/}/social/facebook/callback"
+  else
+    echo "  warning: META_REDIRECT_URI host differs from FRONTEND_URL; Facebook OAuth will derive from FRONTEND_URL at runtime"
+  fi
+fi
+_set_env_value ENV_FILE ".env.staging"
 
 if [[ ${#CRITICAL_MISSING[@]} -gt 0 ]]; then
   echo ""
