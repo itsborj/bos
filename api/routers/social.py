@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import json
+import re
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
@@ -10,7 +13,7 @@ from urllib.parse import urlencode
 import logging
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import RedirectResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -721,6 +724,17 @@ class SetDriveRootRequest(BaseModel):
     folder_path: Optional[str] = None
 
 
+class UploadDriveReferenceRequest(BaseModel):
+    brand_id: str
+    file_name: str
+    mime_type: str
+    data_b64: str
+
+
+_ALLOWED_REFERENCE_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+_MAX_REFERENCE_UPLOAD_BYTES = 10 * 1024 * 1024
+
+
 async def _drive_connection_row(db: AsyncSession, brand_id: str) -> SocialConnection | None:
     brand_uuid = _parse_brand_uuid(brand_id)
     if brand_uuid is None:
@@ -858,9 +872,21 @@ async def list_drive_images(
     if not target_folder:
         target_folder, _ = await _resolve_drive_root_folder(db, brand_id)
 
+    _IMAGE_MIMES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
+    _DOC_MIMES = [
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        "application/pdf",
+        "application/msword",
+        "application/vnd.ms-powerpoint",
+        "application/vnd.google-apps.document",
+        "application/vnd.google-apps.presentation",
+    ]
     _MIME_TYPES: dict[str, list[str]] = {
-        "image": ["image/jpeg", "image/png", "image/gif", "image/webp"],
+        "image": _IMAGE_MIMES,
         "video": ["video/mp4", "video/quicktime", "video/x-msvideo", "video/webm"],
+        "document": _DOC_MIMES,
+        "all": _IMAGE_MIMES + _DOC_MIMES,
     }
     mimes = _MIME_TYPES.get(media_type or "image", _MIME_TYPES["image"])
 
@@ -875,6 +901,133 @@ async def list_drive_images(
 
     all_files.sort(key=lambda f: f.get("name", ""))
     return {"folder_id": target_folder, "files": all_files}
+
+
+@router.post("/drive/reference-upload", dependencies=[Depends(require_api_key)])
+async def upload_drive_reference(
+    body: UploadDriveReferenceRequest,
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    """Upload an operator-supplied image to the brand Drive root for CMO references.
+
+    This stores bytes in Google Drive only and returns metadata that CMO chat can
+    attach as context. It intentionally does not create a Run or capability
+    dispatch, so inactive plugin/module boundaries remain unchanged.
+    """
+    brand_uuid = _parse_brand_uuid(body.brand_id)
+    if brand_uuid is None:
+        raise HTTPException(status_code=422, detail=[{"loc": ["body", "brand_id"], "msg": "value is not a valid UUID", "type": "uuid_parsing"}])
+
+    mime = (body.mime_type or "").strip().lower()
+    if mime not in _ALLOWED_REFERENCE_IMAGE_MIMES:
+        raise HTTPException(status_code=415, detail={"error": {"code": "UNSUPPORTED_REFERENCE_MIME", "message": "Only JPG, PNG, WebP, or GIF image references are supported.", "details": None}})
+
+    raw_b64 = re.sub(r"^data:[^;]+;base64,", "", (body.data_b64 or "").strip())
+    try:
+        data = base64.b64decode(raw_b64, validate=True)
+    except (binascii.Error, ValueError) as exc:
+        raise HTTPException(status_code=400, detail={"error": {"code": "INVALID_BASE64", "message": "Image upload payload is not valid base64.", "details": None}}) from exc
+    if not data:
+        raise HTTPException(status_code=400, detail={"error": {"code": "EMPTY_UPLOAD", "message": "Image upload is empty.", "details": None}})
+    if len(data) > _MAX_REFERENCE_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail={"error": {"code": "REFERENCE_TOO_LARGE", "message": "Image references are limited to 10 MB.", "details": None}})
+
+    safe_name = re.sub(r"[^A-Za-z0-9._ -]+", "_", (body.file_name or "reference-image")).strip(" ._") or "reference-image"
+    token, _ = await get_page_token(db, body.brand_id, "google_drive", settings)
+    if not token:
+        raise _drive_reauth_exception()
+    root_id, _ = await _resolve_drive_root_folder(db, body.brand_id)
+    DriveClient = _load_google_drive_client()
+    try:
+        with DriveClient(token) as drive:
+            folder_id = drive.ensure_path(["CMO References"], root_id)
+            uploaded = drive.upload_file(safe_name, data, mime, folder_id)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (401, 403):
+            await _mark_drive_reauth_required(db, body.brand_id)
+            raise _drive_reauth_exception() from exc
+        raise
+
+    return {
+        "kind": "image",
+        "source": "google_drive",
+        "title": uploaded.get("name") or safe_name,
+        "drive_file_id": uploaded.get("id"),
+        "drive_file_name": uploaded.get("name") or safe_name,
+        "drive_web_view_link": uploaded.get("webViewLink"),
+        "mime_type": uploaded.get("mimeType") or mime,
+        "drive_folder_id": folder_id,
+    }
+
+
+_ATTACHMENT_MIME_TO_KIND: dict[str, str] = {
+    "image/jpeg": "image",
+    "image/png": "image",
+    "image/webp": "image",
+    "image/gif": "image",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "document",
+    "application/msword": "document",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "document",
+    "application/vnd.ms-powerpoint": "document",
+    "application/pdf": "document",
+}
+_MAX_ATTACHMENT_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB
+
+
+@router.post("/drive/attachment-upload", dependencies=[Depends(require_api_key)])
+async def upload_drive_attachment(
+    brand_id: str = Form(...),
+    file: UploadFile = File(...),
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    """Upload any supported file (image or document) to the brand's Drive CMO References folder.
+
+    Returns a ChatReference-compatible dict. kind='image' for images, kind='document' for docs.
+    Image vision content and document text are both resolved lazily at chat-request time.
+    """
+    brand_uuid = _parse_brand_uuid(brand_id)
+    if brand_uuid is None:
+        raise HTTPException(status_code=422, detail=[{"loc": ["body", "brand_id"], "msg": "value is not a valid UUID", "type": "uuid_parsing"}])
+
+    mime = (file.content_type or "").strip().lower().split(";")[0]
+    kind = _ATTACHMENT_MIME_TO_KIND.get(mime)
+    if not kind:
+        raise HTTPException(status_code=415, detail={"error": {"code": "UNSUPPORTED_ATTACHMENT_MIME", "message": "Supported formats: JPG, PNG, WebP, GIF, DOCX, DOC, PPTX, PPT, PDF.", "details": None}})
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(status_code=400, detail={"error": {"code": "EMPTY_UPLOAD", "message": "Attachment upload is empty.", "details": None}})
+    if len(data) > _MAX_ATTACHMENT_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail={"error": {"code": "ATTACHMENT_TOO_LARGE", "message": "Attachments are limited to 25 MB.", "details": None}})
+
+    safe_name = re.sub(r"[^A-Za-z0-9._ -]+", "_", (file.filename or "attachment")).strip(" ._") or "attachment"
+    token, _ = await get_page_token(db, brand_id, "google_drive", settings)
+    if not token:
+        raise _drive_reauth_exception()
+    root_id, _ = await _resolve_drive_root_folder(db, brand_id)
+    DriveClient = _load_google_drive_client()
+    try:
+        with DriveClient(token) as drive:
+            folder_id = drive.ensure_path(["CMO References"], root_id)
+            uploaded = drive.upload_file(safe_name, data, mime, folder_id)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (401, 403):
+            await _mark_drive_reauth_required(db, brand_id)
+            raise _drive_reauth_exception() from exc
+        raise
+
+    return {
+        "kind": kind,
+        "source": "google_drive",
+        "title": uploaded.get("name") or safe_name,
+        "drive_file_id": uploaded.get("id"),
+        "drive_file_name": uploaded.get("name") or safe_name,
+        "drive_web_view_link": uploaded.get("webViewLink"),
+        "mime_type": uploaded.get("mimeType") or mime,
+        "drive_folder_id": folder_id,
+    }
 
 
 @router.post("/drive/root", dependencies=[Depends(require_api_key)])

@@ -8,7 +8,16 @@ def test_registry_contains_major_byok_providers_without_model_ids():
     assert get_ai_provider("openai").auth_supported == ("api_key", "oauth")
     assert get_ai_provider("anthropic").auth_supported == ("api_key",)
     assert get_ai_provider("gemini").auth_supported == ("api_key", "oauth")
+    assert get_ai_provider("google") is None
     assert not hasattr(get_ai_provider("openai"), "models")
+
+
+def test_openai_codex_oauth_aliases_use_chatgpt_model_slug():
+    from providers.openai_codex import _codex_model
+
+    assert _codex_model("gpt-5.3-codex") == "gpt-5.5"
+    assert _codex_model("openai/gpt-5.3") == "gpt-5.5"
+    assert _codex_model("gpt-5.5") == "gpt-5.5"
 
 
 def test_openai_live_parser_returns_top_three_released_text_models():

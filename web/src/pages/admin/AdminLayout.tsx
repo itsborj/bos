@@ -8,42 +8,39 @@ type AdminNavSection = { label: string; parked?: boolean; items: AdminNavItem[] 
 
 const NAV_SECTIONS: AdminNavSection[] = [
   {
-    label: '',
+    label: 'Command',
     items: [
-      { to: '/admin/overview', label: 'Dashboard', icon: '⊟' },
+      { to: '/admin/overview',       label: 'Command Centre', icon: '⊟' },
+      { to: '/admin/agent-activity', label: 'Approvals',      icon: '✓' },
+      { to: '/admin/campaigns',      label: 'Campaign Board', icon: '◷' },
+      { to: '/admin/reports',        label: 'Client Reports', icon: '◆' },
     ],
   },
   {
-    label: 'Operate',
+    label: 'Clients',
     items: [
-      { to: '/admin/campaigns', label: 'Campaign Board', icon: '◷' },
-      { to: '/admin/calendar',  label: 'Scheduling',     icon: '▷' },
-      { to: '/admin/reports',   label: 'Outcomes',       icon: '◆' },
-      { to: '/admin/billing',   label: 'Billing',        icon: '$' },
+      { to: '/admin/brands',           label: 'Brands / Clients', icon: '⊞' },
+      { to: '/admin/client-readiness', label: 'Client Readiness', icon: '▦' },
+      { to: '/admin/calendar',         label: 'Booking Pages',    icon: '▷' },
     ],
   },
   {
-    label: 'Manage',
+    label: 'Setup',
     items: [
-      { to: '/admin/brands',   label: 'Brands / Clients', icon: '⊞' },
-      { to: '/admin/modules',  label: 'Specialists',      icon: '⊡' },
+      { to: '/admin/getting-started', label: 'Setup Checklist', icon: '◌' },
+      { to: '/admin/modules',         label: 'Capabilities',    icon: '⊡' },
+      { to: '/admin/providers',       label: 'AI Providers',    icon: '⚡' },
+      { to: '/admin/billing',         label: 'Billing',         icon: '$' },
     ],
   },
   {
-    label: 'Settings',
+    label: 'Advanced',
     items: [
-      { to: '/admin/getting-started', label: 'Setup',          icon: '◌' },
-      { to: '/admin/providers',       label: 'AI Providers',   icon: '⚡' },
-      { to: '/admin/objective-loop',  label: 'Loop Setup',     icon: '◎' },
-      { to: '/admin/watchpoints',     label: 'Watchpoints',    icon: '◈' },
-      { to: '/admin/memory-audit',    label: 'Memory & Audit', icon: '◉' },
-    ],
-  },
-  {
-    label: 'System',
-    items: [
-      { to: '/admin/runs',      label: 'Run Logs',  icon: '≡' },
-      { to: '/admin/loop-flow', label: 'Loop Flow', icon: '→' },
+      { to: '/admin/runs',           label: 'Run Logs',       icon: '≡' },
+      { to: '/admin/watchpoints',    label: 'Watchpoints',    icon: '◈' },
+      { to: '/admin/memory-audit',   label: 'Memory & Audit', icon: '◉' },
+      { to: '/admin/objective-loop', label: 'Loop Setup',     icon: '◎' },
+      { to: '/admin/loop-flow',      label: 'Loop Flow',      icon: '→' },
     ],
   },
 ];

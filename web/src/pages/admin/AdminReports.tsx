@@ -38,8 +38,8 @@ export function AdminReports() {
     <div className="admin-page">
       <div className="admin-page-header">
         <div>
-          <div className="admin-page-title">Outcomes</div>
-          <div className="admin-page-subtitle">Monthly reviews, campaign reports, approved learnings, and optimization history will live here.</div>
+          <div className="admin-page-title">Client Reports</div>
+          <div className="admin-page-subtitle">Weekly updates, monthly reviews, approved learnings, and optimization history by client.</div>
         </div>
       </div>
 
@@ -51,7 +51,7 @@ export function AdminReports() {
       </div>
 
       <div className="admin-card">
-        <div className="admin-card-title">Recent Outcome Inputs</div>
+        <div className="admin-card-title">Recent report inputs</div>
         {runs.length === 0 ? (
           <div className="empty-state" style={{ padding: '48px 0' }}>
             <div className="empty-state-icon">📊</div>

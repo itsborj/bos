@@ -190,3 +190,9 @@ class DriveClient:
         r = self._client.get(f"{_FILES}/{file_id}", params={"alt": "media"})
         r.raise_for_status()
         return r.content
+
+    def export_file(self, file_id: str, export_mime: str = "text/plain") -> bytes:
+        """Export a Google Workspace native file (Doc, Slides) as the given MIME type."""
+        r = self._client.get(f"{_FILES}/{file_id}/export", params={"mimeType": export_mime})
+        r.raise_for_status()
+        return r.content

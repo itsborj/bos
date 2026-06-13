@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useState } from 'react';
-import { Link, useLocation, useSearchParams } from 'react-router-dom';
+import { useLocation, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { BackendOverride, BrandResponse, KeyListItem, ProviderInfo, ProviderModelLive } from '../../api/types';
 
@@ -11,7 +11,6 @@ const PROVIDER_LABELS: Record<string, string> = {
   anthropic:   'Anthropic',
   openrouter:  'OpenRouter',
   gemini:      'Google Gemini',
-  google:      'Google (Login)',
   nvidia:      'NVIDIA AI Cloud',
   bytedance:   'BytePlus',
 };
@@ -110,6 +109,7 @@ export function AdminProviders() {
   void location.state;
 
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [providerCatalog, setProviderCatalog] = useState<ProviderInfo[]>([]);
   const [keys, setKeys] = useState<KeyListItem[]>([]);
   const [brands, setBrands] = useState<BrandResponse[]>([]);
   const [credentialBrandId, setCredentialBrandId] = useState('');
@@ -159,14 +159,16 @@ export function AdminProviders() {
   async function load(scopeBrandId = credentialBrandId) {
     setLoading(true);
     try {
-      const [provResult, keyResult, modelResult, overrideResult, brandResult] = await Promise.all([
+      const [provResult, catalogResult, keyResult, modelResult, overrideResult, brandResult] = await Promise.all([
         api.getProviders(scopeBrandId || undefined).catch(() => ({ providers: [] as ProviderInfo[] })),
+        api.getProviders(scopeBrandId || undefined, true).catch(() => ({ providers: [] as ProviderInfo[] })),
         api.getProviderKeys(scopeBrandId || undefined).catch(() => [] as KeyListItem[]),
         api.getAvailableModels().catch(() => ({ models: [] as ProviderModelLive[] })),
         api.getBackendOverrides().catch(() => ({ overrides: [] as BackendOverride[] })),
         api.getBrands().catch(() => ({ brands: [] as BrandResponse[], total: 0 })),
       ]);
       setProviders(provResult.providers ?? []);
+      setProviderCatalog(catalogResult.providers ?? provResult.providers ?? []);
       setKeys(keyResult ?? []);
       setBrands(brandResult.brands ?? []);
       setAvailableModels(modelResult.models ?? []);
@@ -228,8 +230,18 @@ export function AdminProviders() {
   }, [cmoOverride, primaryProvider, providerReady]);
 
   const apiKeyProviders = useMemo(
-    () => providers.filter(p => p.auth_supported.includes('api_key')),
-    [providers],
+    () => providerCatalog.filter(p => p.auth_supported.includes('api_key')),
+    [providerCatalog],
+  );
+
+  const oauthProviders = useMemo(
+    () => providerCatalog.filter(p => p.auth_supported.includes('oauth')),
+    [providerCatalog],
+  );
+
+  const aiProviderKeys = useMemo(
+    () => keys.filter(k => k.auth_mode !== 'plugin_vars' && !k.provider.startsWith('plugin.')),
+    [keys],
   );
 
   const sortedProviders = useMemo(() => {
@@ -444,7 +456,7 @@ export function AdminProviders() {
       <div className="admin-page-header">
         <div>
           <div className="admin-page-title">AI Providers</div>
-          <div className="admin-page-subtitle">Configure the AI providers that power your CMO and all specialists.</div>
+          <div className="admin-page-subtitle">Configure the AI providers that power your CMO and enabled capabilities.</div>
         </div>
       </div>
 
@@ -540,13 +552,13 @@ export function AdminProviders() {
         </div>
       </div>
 
-      {/* ── Your API Keys ────────────────────────────────────────────────────── */}
+      {/* ── AI Provider API Keys ─────────────────────────────────────────────── */}
       <div className="admin-card" style={{ marginBottom: 16 }}>
-        <div className="admin-card-title">Your API Keys</div>
+        <div className="admin-card-title">AI Provider API Keys</div>
         <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 14 }}>
           Optional. Set a workspace/agency default key, or select a brand/client to store BYOK for only that brand.
           Brand keys take priority; otherwise Klaroha falls back to the workspace key or platform AI.
-          Keys are encrypted and never shown after saving.
+          Keys are encrypted and never shown after saving. Channel credentials like ClickUp, Gmail, and Meta are managed from Capabilities/Integrations, not here.
         </div>
 
         <div className="form-group" style={{ maxWidth: 320 }}>
@@ -561,9 +573,9 @@ export function AdminProviders() {
         </div>
 
         {/* Existing keys */}
-        {keys.length > 0 && (
+        {aiProviderKeys.length > 0 && (
           <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 16 }}>
-            {keys.map(key => (
+            {aiProviderKeys.map(key => (
               <div
                 key={key.provider}
                 style={{ display: 'flex', alignItems: 'center', gap: 8, border: '.5px solid var(--border)', padding: '6px 10px', fontSize: 13 }}
@@ -642,36 +654,6 @@ export function AdminProviders() {
 
         {error && <div className="alert alert-error" style={{ marginTop: 10 }}>{error}</div>}
       </div>
-
-      {/* ── Workspace Channel Credentials ───────────────────────────────────── */}
-      {keys.filter(k => k.auth_mode === 'plugin_vars').length > 0 && (
-        <div className="admin-card" style={{ marginBottom: 16 }}>
-          <div className="admin-card-title">Workspace Channel Credentials</div>
-          <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 14 }}>
-            These credentials are set at workspace level and shared across all brands as fallback.
-            A brand-specific connection always takes priority. Managed from{' '}
-            <Link to="/admin/modules" style={{ color: 'var(--accent)' }}>Specialists</Link>.
-          </div>
-          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-            {keys.filter(k => k.auth_mode === 'plugin_vars').map(key => (
-              <div
-                key={key.provider}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: 8,
-                  border: '.5px solid var(--border)', padding: '6px 10px', fontSize: 13,
-                }}
-              >
-                <span style={{ color: 'var(--success)' }}>●</span>
-                <span>{key.provider.replace('plugin.', '').replace('channel.', '').replace('media.', '')}</span>
-                <span className="badge badge-muted" style={{ fontSize: 10 }}>agency-level</span>
-                <span style={{ color: 'var(--text2)', fontSize: 11 }}>
-                  · {new Date(key.created_at).toLocaleDateString()}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       {/* ── Media Generation ────────────────────────────────────────────────── */}
       <div className="admin-card" style={{ marginBottom: 16 }}>
@@ -752,14 +734,14 @@ export function AdminProviders() {
       </div>
 
       {/* ── Provider Login Accounts (OAuth) ──────────────────────────────────── */}
-      {providers.some(p => p.auth_supported.includes('oauth')) && (
+      {oauthProviders.length > 0 && (
         <div className="admin-card" style={{ marginBottom: 16 }}>
           <div className="admin-card-title">Sign in with an Account</div>
           <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>
             Connect via browser login instead of an API key. Useful for ChatGPT accounts and other OAuth-based providers.
           </div>
 
-          {providers.filter(p => p.auth_supported.includes('oauth')).map(prov => {
+          {oauthProviders.map(prov => {
             const pid = prov.provider;
             const connected = prov.connected && prov.auth_mode === 'oauth';
             const pending = loginState[pid];

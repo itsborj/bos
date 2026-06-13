@@ -190,7 +190,7 @@ function pluginConnectorFromPlugin(plugin: PluginInfo, label?: string): Connecto
       : configured
         ? `${sourceText}${requiredCount ? ` · ${requiredCount} credential${requiredCount !== 1 ? 's' : ''}` : ''}`
         : plugin.missing_vars.length ? `Missing ${plugin.missing_vars.join(', ')}` : 'Needs credential setup',
-    description: plugin.implements.length ? `${plugin.implements.join(', ')} specialist.` : '',
+    description: plugin.implements.length ? `${plugin.implements.join(', ')} capability.` : '',
     implements: plugin.implements,
     missingVars: plugin.missing_vars,
     status: plugin.status === 'error' ? 'needs_setup' : configured ? (requiredCount ? 'connected' : 'available') : 'needs_setup',
@@ -269,7 +269,7 @@ function summarizeInstalledPlugin(plugin: PluginInfo, connections: SocialConnect
     name: plugin.name,
     description: plugin.status === 'error'
       ? (plugin.reason || 'Plugin failed to load.')
-      : plugin.implements.length ? `${plugin.implements.join(', ')} specialist.` : '',
+      : plugin.implements.length ? `${plugin.implements.join(', ')} capability.` : '',
     jobs: plugin.implements.length ? plugin.implements : plugin.capability_ids,
     specialties: plugin.capability_ids,
     readiness,
@@ -277,7 +277,7 @@ function summarizeInstalledPlugin(plugin: PluginInfo, connections: SocialConnect
       ? (plugin.reason || 'Plugin error')
       : active
         ? (hasCredentialDebt ? 'Active — configure credentials or run connection check' : 'Active for selected Brand')
-        : 'Installed — activate for selected Brand',
+        : 'Available — activate for selected Brand',
     risk: 'Plugin-owned policy; external actions require approval when declared',
     moduleCount: plugin.capability_ids.length,
     moduleIds: plugin.capability_ids,
@@ -287,7 +287,7 @@ function summarizeInstalledPlugin(plugin: PluginInfo, connections: SocialConnect
     mediaModality: plugin.plugin_id === 'media.image' ? 'image' : plugin.plugin_id === 'media.video' ? 'video' : undefined,
     mediaProviderOptions: plugin.media_provider_options || [],
     connectors,
-    nextStep: active ? 'Use the CMO to run this specialist when its skill contract applies.' : 'Activate this plugin for the selected Brand.',
+    nextStep: active ? 'Use the CMO to run this capability when its skill contract applies.' : 'Activate this capability for the selected Brand.',
     pluginId: plugin.plugin_id,
   };
 }
@@ -344,7 +344,7 @@ export function AdminModules() {
 
   async function handleToggleActivation(pluginId: string, currentlyActive: boolean) {
     if (!selectedBrandId) {
-      showToast(`Select a brand before ${currentlyActive ? 'deactivating' : 'activating'} a plugin.`);
+      showToast(`Select a brand before ${currentlyActive ? 'deactivating' : 'activating'} a capability.`);
       return;
     }
     setActivatingPlugin(pluginId);
@@ -662,9 +662,9 @@ export function AdminModules() {
 
       <div className="admin-page-header">
         <div>
-          <div className="admin-page-title">Specialists</div>
+          <div className="admin-page-title">Capabilities</div>
           <div className="admin-page-subtitle">
-            Installed plugin packages only. Core tools are hidden here; activation is scoped to the selected Brand.
+            Client-ready tools installed in BOS. Activate only what the selected brand needs; technical plugin details stay secondary.
           </div>
         </div>
         {brands.length > 0 && (
@@ -842,7 +842,7 @@ export function AdminModules() {
               <div style={{ color: 'var(--text2)', fontSize: 13, marginBottom: 18 }}>
                 {isMedia
                   ? `Choose which provider generates ${configuringAI.mediaModality}s. API keys are managed in AI Providers.`
-                  : 'Choose the exact LLM/model this specialist should use. Leave on auto-route to let BOS choose the best available model.'}
+                  : 'Choose the exact LLM/model this capability should use. Leave on auto-route to let BOS choose the best available model.'}
               </div>
 
               {isMedia ? (
@@ -923,7 +923,7 @@ export function AdminModules() {
                     <div style={{ background: 'var(--ivory)', border: '.5px solid var(--border-warm)', padding: '12px 14px', marginBottom: 14 }}>
                       <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>Mixed model settings detected</div>
                       <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 10 }}>
-                        The {configuringAI.llmModuleIds.length} tools in this specialist have different model overrides. Select a model below to apply one setting to all, or reset everything to auto-route.
+                        The {configuringAI.llmModuleIds.length} tools in this capability have different model overrides. Select a model below to apply one setting to all, or reset everything to auto-route.
                       </div>
                       <button className="btn btn-ghost btn-sm" onClick={() => setSelectedModel('')}>Reset all to auto-route</button>
                     </div>
@@ -956,7 +956,7 @@ export function AdminModules() {
                     </div>
                   )}
                   <div style={{ color: 'var(--text2)', fontSize: 12, marginTop: 10 }}>
-                    Applies to {configuringAI.llmModuleIds.length} LLM tool{configuringAI.llmModuleIds.length !== 1 ? 's' : ''} in this specialist.
+                    Applies to {configuringAI.llmModuleIds.length} LLM tool{configuringAI.llmModuleIds.length !== 1 ? 's' : ''} in this capability.
                   </div>
                 </>
               )}
@@ -978,7 +978,7 @@ export function AdminModules() {
       })()}
 
       {specialists.length === 0 ? (
-        <div className="admin-card"><div className="empty-state"><div className="empty-state-icon">◎</div><div className="empty-state-title">No specialists installed</div><div className="empty-state-text">Install capability or plugin packages to see specialists here.</div></div></div>
+        <div className="admin-card"><div className="empty-state"><div className="empty-state-icon">◎</div><div className="empty-state-title">No capabilities installed</div><div className="empty-state-text">Install capability packages to see client tools here.</div></div></div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 14 }}>
           {specialists.map(s => {

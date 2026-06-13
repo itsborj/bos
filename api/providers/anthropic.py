@@ -41,7 +41,7 @@ class AnthropicAdapter:
                 continue
             if role not in {"user", "assistant"}:
                 role = "user"
-            anthropic_messages.append({"role": role, "content": _content_to_text(content)})
+            anthropic_messages.append({"role": role, "content": _content_to_anthropic(content)})
 
         if not anthropic_messages:
             anthropic_messages.append({"role": "user", "content": ""})
@@ -95,6 +95,32 @@ def _content_to_text(content: object) -> str:
                 parts.append(str(item))
         return "".join(parts)
     return str(content)
+
+
+def _content_to_anthropic(content: object) -> "str | list":
+    """Convert OpenAI-style multipart content to Anthropic format, or return plain text."""
+    if isinstance(content, str):
+        return content
+    if not isinstance(content, list):
+        return str(content)
+    # Check if any part is an image — if so, convert to Anthropic vision blocks
+    has_image = any(isinstance(p, dict) and p.get("type") == "image_url" for p in content)
+    if not has_image:
+        return _content_to_text(content)
+    import re as _re
+    blocks: list[dict] = []
+    for part in content:
+        if not isinstance(part, dict):
+            blocks.append({"type": "text", "text": str(part)})
+            continue
+        if part.get("type") == "text":
+            blocks.append({"type": "text", "text": str(part.get("text") or "")})
+        elif part.get("type") == "image_url":
+            url = (part.get("image_url") or {}).get("url", "")
+            m = _re.match(r"data:([^;]+);base64,(.+)", url, _re.DOTALL)
+            if m:
+                blocks.append({"type": "image", "source": {"type": "base64", "media_type": m.group(1), "data": m.group(2)}})
+    return blocks or _content_to_text(content)
 
 
 def _anthropic_content_to_text(content: object) -> str:

@@ -505,7 +505,7 @@ textarea { font-family: inherit; }
 .td-mono    { font-family: 'SF Mono', Consolas, monospace; font-size: 11px; }
 .td-good    { color: var(--active-green) !important; font-weight: 700; }
 .td-bad     { color: var(--oxblood) !important; font-weight: 700; }
-.td-dim     { color: var(--border-light) !important; }
+.td-dim     { color: var(--ink-subtle) !important; }
 
 .table-wrap {
   background: var(--surface);
@@ -615,10 +615,10 @@ textarea { font-family: inherit; }
   width: 100%;
   margin-bottom: 10px;
 }
-.ws-field.empty  { color: var(--border-light); font-style: italic; }
+.ws-field.empty  { color: var(--ink-subtle); font-style: italic; }
 .ws-cmo-check    { font-size: 12px; color: var(--stone-deep); display: flex; gap: 7px; margin-bottom: 6px; line-height: 1.4; }
 .ws-cmo-check .ok  { color: var(--active-green); }
-.ws-cmo-check .dim { color: var(--border-light); }
+.ws-cmo-check .dim { color: var(--ink-subtle); }
 
 .product-chip {
   display: flex; align-items: center; gap: 10px;
@@ -640,7 +640,7 @@ textarea { font-family: inherit; }
 }
 .product-chip-name  { font-size: 13px; font-weight: 600; color: var(--racing-green); }
 .product-chip-meta  { font-size: 11px; color: var(--muted-stone); }
-.product-chip-arrow { margin-left: auto; color: var(--border-light); font-size: 16px; }
+.product-chip-arrow { margin-left: auto; color: var(--muted-stone); font-size: 16px; }
 
 /* ═══════════════════════════════════════
    HISTORY PAGE
@@ -686,7 +686,7 @@ textarea { font-family: inherit; }
 }
 .key-provider { font-size: 12px; font-weight: 600; color: var(--racing-green); }
 .key-masked   { font-family: monospace; font-size: 11px; color: var(--muted-stone); flex: 1; }
-.key-date     { font-size: 11px; color: var(--border-light); }
+.key-date     { font-size: 11px; color: var(--muted-stone); }
 .key-remove   { font-size: 11px; color: var(--oxblood); font-weight: 600; cursor: pointer; margin-left: 8px; }
 .key-remove:hover { text-decoration: underline; }
 .key-add-row {
@@ -1066,7 +1066,7 @@ details.artifact-preview{border:1px dashed var(--border-light);border-radius:8px
   align-items: flex-start;
   margin-bottom: 12px;
 }
-.stream-attention-card .stream-kicker { color: #aaa; }
+.stream-attention-card .stream-kicker { color: var(--on-brand-muted); }
 .stream-attention-card .stream-signal-pill { background: #1f1f1f; border-color: #333; color: #ddd; }
 .stream-attention-title { font-size: 16px; font-weight: 850; letter-spacing: -0.2px; }
 .stream-attention-list { display: flex; flex-direction: column; gap: 8px; }
@@ -2273,7 +2273,7 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 }
 .bos-brand-name { flex: 1; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bos-brand-clear {
-  font-size: 10px; color: var(--muted-stone); background: none; border: none;
+  font-size: 10px; color: var(--on-brand-muted); background: none; border: none;
   cursor: pointer; padding: 0; line-height: 1;
 }
 .bos-brand-clear:hover { color: var(--ivory); }
@@ -2388,7 +2388,7 @@ textarea.input { resize: vertical; min-height: 72px; line-height: 1.5; }
 .bos-convo-delete {
   border: none;
   background: transparent;
-  color: var(--border-light);
+  color: var(--muted-stone);
   cursor: pointer;
   font-size: 16px;
   line-height: 1;
@@ -5120,6 +5120,14 @@ a.admin-nav-item.active::before,
 .admin-nav-item.active::before,
 a.snav-item.active::before,
 .snav-item.active::before { display: none !important; }
+
+/* Filter chips: active = brand text + brand border on white, no filled green block. */
+.filter-chip.active {
+  background: transparent !important;
+  border-color: var(--brand) !important;
+  color: var(--brand) !important;
+  font-weight: 600;
+}
 
 /* Hover state: very subtle warm tint — no fill, just a hint */
 .admin-nav-item:not(.active):hover,

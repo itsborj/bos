@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -569,6 +570,163 @@ def _profile_to_brief(profile: dict | None) -> dict:
     return brief
 
 
+_HEX_PATTERN = r"#[0-9a-fA-F]{6}"
+
+
+def _brief_document_text(brief: dict) -> str:
+    return _as_text(brief.get("document_text")).strip()
+
+
+def _find_labeled_hex(document_text: str, labels: list[str], fallback: str | None = None) -> str | None:
+    """Find a hex value near any approved color label in a pasted brand document."""
+    if not document_text:
+        return fallback
+    for label in labels:
+        label_pattern = r"\b" + r"\s+".join(re.escape(part) for part in label.split()) + r"\b"
+        patterns = (
+            rf"{label_pattern}[\s\S]{{0,120}}?({_HEX_PATTERN})",
+            rf"({_HEX_PATTERN})[\s\S]{{0,120}}?{label_pattern}",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, document_text, flags=re.IGNORECASE)
+            if match:
+                return match.group(1).lower()
+    return fallback
+
+
+def _campaign_color_palette_rows(brief: dict) -> str:
+    """Return Markdown rows for the Campaign Brand Kit palette.
+
+    If the original brand document includes explicit visual guidelines, preserve
+    those values instead of falling back to the generic starter palette.
+    """
+    document_text = _brief_document_text(brief)
+    doc_lower = document_text.lower()
+    doc_hexes = [h.lower() for h in re.findall(_HEX_PATTERN, document_text)]
+    has_klaroha_palette = bool(document_text and (
+        "racing green" in doc_lower or "primary brand anchor" in doc_lower
+    ))
+    has_generic_palette = bool(document_text and doc_hexes and any(
+        label in doc_lower
+        for label in ("brand colors", "color palette", "primary color", "secondary color", "accent color")
+    ))
+
+    if not has_klaroha_palette:
+        if has_generic_palette:
+            primary = _find_labeled_hex(document_text, ["Primary", "Primary color", "color-primary"], doc_hexes[0])
+            secondary = _find_labeled_hex(document_text, ["Secondary", "Secondary color", "color-secondary"], doc_hexes[1] if len(doc_hexes) > 1 else primary)
+            accent = _find_labeled_hex(document_text, ["Accent", "Accent color", "color-accent"], doc_hexes[2] if len(doc_hexes) > 2 else secondary)
+            background = _find_labeled_hex(document_text, ["Background", "White", "Base"], "#ffffff")
+            rows = [
+                ("color-primary", primary, "Primary brand actions, hero accents, and key UI states from the imported brief."),
+                ("color-secondary", secondary, "Secondary brand support color from the imported brief."),
+                ("color-accent", accent, "Campaign accent for emphasis, badges, and selective conversion highlights."),
+                ("color-neutral-900", "#111827", "Main text and strong headings unless the imported brief specifies a darker text token."),
+                ("color-neutral-700", "#374151", "Secondary copy and supporting labels."),
+                ("color-neutral-400", "#9CA3AF", "Borders, disabled states, low-priority metadata."),
+                ("color-neutral-100", "#F3F4F6", "Low-emphasis surfaces and separators."),
+                ("color-white", "#FFFFFF", "Cards, email body background, and reversed text."),
+                ("color-success", "#15803D", "Positive status and completion cues."),
+                ("color-warning", "#B45309", "Cautions and review-required messages."),
+                ("color-error", "#B91C1C", "Errors and destructive actions."),
+                ("bg-base", background, "Default campaign background unless channel requirements dictate white."),
+                ("bg-subtle", "#F8FAFC", "Alternating page sections and email modules."),
+                ("bg-surface", "#EEF6F8", "Highlight cards and campaign proof blocks."),
+            ]
+        else:
+            rows = [
+                ("color-primary", "#1F4E5F", "Primary brand actions, hero accents, key UI states."),
+                ("color-primary-dark", "#12313C", "High-contrast headers, footers, and dark CTA states."),
+                ("color-primary-light", "#D8E8ED", "Soft panels, callout backgrounds, subtle separators."),
+                ("color-accent", "#F59E0B", "Conversion highlights, badges, progress cues."),
+                ("color-neutral-900", "#111827", "Main text and strong headings."),
+                ("color-neutral-700", "#374151", "Secondary copy and supporting labels."),
+                ("color-neutral-400", "#9CA3AF", "Borders, disabled states, low-priority metadata."),
+                ("color-neutral-100", "#F3F4F6", "Page sections and low-emphasis surfaces."),
+                ("color-white", "#FFFFFF", "Cards, email body background, reversed text."),
+                ("color-success", "#15803D", "Positive status and completion cues."),
+                ("color-warning", "#B45309", "Cautions and review-required messages."),
+                ("color-error", "#B91C1C", "Errors and destructive actions."),
+                ("bg-base", "#FFFFFF", "Default campaign background."),
+                ("bg-subtle", "#F8FAFC", "Alternating page sections and email modules."),
+                ("bg-surface", "#EEF6F8", "Highlight cards and campaign proof blocks."),
+            ]
+    else:
+        racing_green = _find_labeled_hex(document_text, ["Racing Green", "Primary color", "Primary brand anchor"], "#0b3d2e")
+        forest = _find_labeled_hex(document_text, ["Forest", "Green hover tint"], "#4b7c54")
+        sage = _find_labeled_hex(document_text, ["Sage", "Green light tint"], "#9cbd77")
+        amber = _find_labeled_hex(document_text, ["Amber", "Primary accent"], "#fcc167")
+        coral = _find_labeled_hex(document_text, ["Coral", "Primary CTA"], "#ef8250")
+        crimson = _find_labeled_hex(document_text, ["Crimson", "Alert", "Error"], "#de425b")
+        highlight = _find_labeled_hex(document_text, ["Highlight", "Highlight fill"], "#fffe9c")
+        white = _find_labeled_hex(document_text, ["Pure White", "White", "Default background"], "#ffffff")
+        ivory = _find_labeled_hex(document_text, ["Ivory", "Card surface"], "#f5f1e8")
+        obsidian = _find_labeled_hex(document_text, ["Obsidian", "Dark accent"], "#080b0d")
+        rows = [
+            ("color-primary", racing_green, "Primary brand anchor: headlines, wordmark, structural chrome, and active navigation on light surfaces."),
+            ("color-primary-hover", forest, "Hover/active tint for Racing Green elements; not a standalone campaign color."),
+            ("color-muted-green", sage, "Muted green state and sublabels on dark surfaces only; do not use as body text on light backgrounds."),
+            ("color-accent", amber, "Premium accent, tagline, clarity marker, pull-quotes, and eyebrow labels; not body copy on light surfaces."),
+            ("color-cta-primary", coral, "Primary task CTA fill for submit, confirm, create, get started, and new campaign actions."),
+            ("color-error", crimson, "Error and alert states only; never decorative."),
+            ("color-highlight-fill", highlight, "Annotation and callout fill only; never text."),
+            ("bg-base", white, "Default page, document, email, and product/campaign background."),
+            ("bg-card", ivory, "Warm card or secondary panel fill only; never a full-page background."),
+            ("bg-dark-accent", obsidian, "Cockpit sections, dashboard moments, and footers only; never default background."),
+            ("text-heading", racing_green, "Headlines on white or ivory surfaces."),
+            ("text-body", "#333333", "Body copy on white or ivory surfaces."),
+            ("text-muted", "#666666", "Captions, metadata, and secondary labels on light surfaces."),
+            ("text-on-dark", ivory, "Headline and body text on Obsidian or Racing Green surfaces."),
+        ]
+
+    return "\n".join(f"| `{token}` | `{hex_value}` | {usage} |" for token, hex_value, usage in rows)
+
+
+def _campaign_typography_rows(brief: dict) -> str:
+    document_text = _brief_document_text(brief).lower()
+    if "manrope" in document_text:
+        rows = [
+            ("font-heading", "`Manrope, system-ui, sans-serif`", "Display text, H1–H4, section labels, metric numbers, and wordmark-adjacent campaign headings."),
+            ("font-body", "`Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif`", "Body copy, email text, landing page paragraphs, UI labels, and campaign descriptions."),
+            ("font-label", "`Inter, system-ui, sans-serif`", "Buttons, badges, metadata, form labels, and data labels."),
+        ]
+    elif "inter" in document_text:
+        rows = [
+            ("font-heading", "`Inter, system-ui, sans-serif`", "Headlines, section titles, landing hero copy."),
+            ("font-body", "`Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif`", "Body copy, email text, landing page paragraphs, UI labels, and campaign descriptions."),
+            ("font-label", "`Inter, system-ui, sans-serif`", "Buttons, badges, metadata, form labels, and data labels."),
+        ]
+    else:
+        rows = [
+            ("font-heading", "`Inter, Manrope, system-ui, sans-serif`", "Headlines, section titles, landing hero copy."),
+            ("font-body", "`Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif`", "Body copy, email text, landing page paragraphs."),
+            ("font-label", "`Inter, system-ui, sans-serif`", "Buttons, badges, metadata, form labels."),
+        ]
+    return "\n".join(f"| `{token}` | {recommendation} | {usage} |" for token, recommendation, usage in rows)
+
+
+def _campaign_visual_rules(brief: dict) -> str:
+    document_text = _brief_document_text(brief)
+    doc_lower = document_text.lower()
+    rules: list[str] = []
+    if "dark on light" in doc_lower or "light on dark" in doc_lower or "contrast" in doc_lower:
+        rules.append("Maintain the hard contrast rule: dark foreground on white/ivory surfaces; light foreground on Obsidian/Racing Green surfaces.")
+    if "corner radius" in doc_lower or "2px" in doc_lower:
+        rules.append("Use square geometry by default: cards, panels, tables, and containers are 0px radius; buttons, inputs, badges, and tooltips may use 2px maximum.")
+    if "white" in doc_lower and "ivory" in doc_lower:
+        rules.append("Keep Pure White as the default canvas; use Ivory only for card fills or warm secondary panels.")
+    if "coral" in doc_lower and "cta" in doc_lower:
+        coral = _find_labeled_hex(document_text, ["Coral", "Primary CTA"], "#ef8250")
+        ivory = _find_labeled_hex(document_text, ["Ivory"], "#f5f1e8")
+        racing_green = _find_labeled_hex(document_text, ["Racing Green"], "#0b3d2e")
+        rules.append(f"Primary execution CTAs use Coral {coral} with Ivory {ivory} text; secondary CTAs use transparent fill with Racing Green {racing_green} border/text on light surfaces.")
+    if "amber" in doc_lower and "body" in doc_lower:
+        rules.append("Reserve Amber for premium accents, taglines, clarity markers, pull-quotes, and eyebrows — not paragraph-length body copy.")
+    if not rules:
+        return "Maintain WCAG AA contrast, consistent token usage, visible focus states, and one primary CTA per flow."
+    return " ".join(rules)
+
+
 def _campaign_brand_kit_markdown(brief: dict, title_fallback: str) -> str:
     """Generate a deterministic Campaign Brand Kit without waiting on external LLMs.
 
@@ -664,6 +822,10 @@ def _campaign_brand_kit_markdown(brief: dict, title_fallback: str) -> str:
     platform_product  = product_slug.lower()
     platform_audience = audience.lower()
 
+    color_palette_rows = _campaign_color_palette_rows(brief)
+    typography_rows = _campaign_typography_rows(brief)
+    visual_rules = _campaign_visual_rules(brief)
+
     return f"""# {brand_name} — Campaign Brand Kit
 > This required onboarding artifact defines the minimum visual, voice, typography, CTA, component, and platform rules needed to produce cohesive multi-platform marketing campaigns for {brand_name}.
 
@@ -685,21 +847,7 @@ def _campaign_brand_kit_markdown(brief: dict, title_fallback: str) -> str:
 
 | Token | Hex | Usage |
 |---|---:|---|
-| `color-primary` | `#1F4E5F` | Primary brand actions, hero accents, key UI states. |
-| `color-primary-dark` | `#12313C` | High-contrast headers, footers, and dark CTA states. |
-| `color-primary-light` | `#D8E8ED` | Soft panels, callout backgrounds, subtle separators. |
-| `color-accent` | `#F59E0B` | Conversion highlights, badges, progress cues. |
-| `color-neutral-900` | `#111827` | Main text and strong headings. |
-| `color-neutral-700` | `#374151` | Secondary copy and supporting labels. |
-| `color-neutral-400` | `#9CA3AF` | Borders, disabled states, low-priority metadata. |
-| `color-neutral-100` | `#F3F4F6` | Page sections and low-emphasis surfaces. |
-| `color-white` | `#FFFFFF` | Cards, email body background, reversed text. |
-| `color-success` | `#15803D` | Positive status and completion cues. |
-| `color-warning` | `#B45309` | Cautions and review-required messages. |
-| `color-error` | `#B91C1C` | Errors and destructive actions. |
-| `bg-base` | `#FFFFFF` | Default campaign background. |
-| `bg-subtle` | `#F8FAFC` | Alternating page sections and email modules. |
-| `bg-surface` | `#EEF6F8` | Highlight cards and campaign proof blocks. |
+{color_palette_rows}
 
 ## 3. Tone of Voice 🔲
 
@@ -726,9 +874,7 @@ def _campaign_brand_kit_markdown(brief: dict, title_fallback: str) -> str:
 
 | Token | Recommendation | Usage |
 |---|---|---|
-| `font-heading` | `Inter, Manrope, system-ui, sans-serif` | Headlines, section titles, landing hero copy. |
-| `font-body` | `Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif` | Body copy, email text, landing page paragraphs. |
-| `font-label` | `Inter, system-ui, sans-serif` | Buttons, badges, metadata, form labels. |
+{typography_rows}
 
 **Heading style:** concise, benefit-led, sentence case. Use strong contrast and avoid decorative type.  
 **Body copy style:** short paragraphs, concrete nouns, active verbs.  
@@ -758,6 +904,8 @@ def _campaign_brand_kit_markdown(brief: dict, title_fallback: str) -> str:
 ## 7. Accessibility & Consistency 🔲
 
 This kit requires WCAG 2.1 AA as the minimum standard. Maintain sufficient contrast for text and controls, use readable type sizes, preserve visible keyboard/focus states, never use color as the only meaning, and respect reduced-motion preferences. Keep CTA labels, color tokens, and component names stable across campaigns.
+
+**Visual system rules:** {visual_rules}
 
 ## 8. Governance 🔲
 

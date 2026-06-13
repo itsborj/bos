@@ -31,6 +31,7 @@ import { AdminOnboarding } from './pages/admin/AdminOnboarding';
 import { AdminReports } from './pages/admin/AdminReports';
 import { AdminBrands } from './pages/admin/AdminBrands';
 import { AdminBrandDetail } from './pages/admin/AdminBrandDetail';
+import { AdminClientReadiness } from './pages/admin/AdminClientReadiness';
 import { AdminCalendar } from './pages/admin/AdminCalendar';
 import { AdminObjectiveLoop } from './pages/admin/AdminObjectiveLoop';
 import { AdminLoopFlow } from './pages/admin/AdminLoopFlow';
@@ -74,8 +75,9 @@ export default function App() {
             <Route path="strategy-workflows/:workflowId" element={<StrategyWorkflowPage />} />
           </Route>
           <Route path="admin" element={<AdminLayout />}>
-            <Route index element={<Navigate to="/admin/brands" replace />} />
+            <Route index element={<Navigate to="/admin/overview" replace />} />
             <Route path="brands"          element={<AdminBrands />} />
+            <Route path="client-readiness" element={<AdminClientReadiness />} />
             <Route path="brands/:brandId" element={<AdminBrandDetail />} />
             <Route path="getting-started" element={<AdminGettingStarted />} />
             <Route path="onboarding"      element={<AdminOnboarding />} />

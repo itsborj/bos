@@ -17,6 +17,10 @@ class APIRouter:
         def decorator(func):
             return func
         return decorator
+    def patch(self, path: str, *args, **kwargs):
+        def decorator(func):
+            return func
+        return decorator
     def delete(self, path: str, *args, **kwargs):
         def decorator(func):
             return func
@@ -42,6 +46,11 @@ def Security(dep=None):
     # In real FastAPI this returns a Depends with a security scheme.
     return Depends(dep)
     # NOTE: the line below was unreachable dead code — removed.
+
+class Request:
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
 
 class HTTPException(Exception):
     def __init__(self, status_code: int = 500, detail: str = ""):

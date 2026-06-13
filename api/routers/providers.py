@@ -96,9 +96,10 @@ async def _provider_rows_for_scope(db: AsyncSession, workspace_id, brand_id):
 
 # ── GET /providers ─────────────────────────────────────────────────────────────
 
-@router.get("", response_model=dict[str, list[ProviderInfo]], summary="List all known providers with auth status", responses={404: {"description": "Brand not found"}})
+@router.get("", response_model=dict[str, list[ProviderInfo]], summary="List active providers with auth status", responses={404: {"description": "Brand not found"}})
 async def list_providers(
     brand_id: NullableUUID = Query(None),
+    include_available: bool = Query(False, description="Include supported but not yet configured providers for add/connect UI"),
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
@@ -179,7 +180,28 @@ async def list_providers(
             status=option.status,
         ))
 
-    known = set(model_info) | set(list_ai_provider_ids()) | {"google"}
+    # Default view is intentionally activation-based. The static provider
+    # registry is a capability catalog, not a health list: unsupported-looking
+    # inactive rows (for example Anthropic with no key) should not appear until
+    # they are configured, have a platform key, or have runtime history. Admin
+    # add/connect UI can request include_available=true to show the catalog.
+    known = {
+        provider
+        for provider in stored
+        if is_ai_provider(provider)
+    }
+    known.update(
+        provider
+        for provider in list_ai_provider_ids()
+        if get_platform_key(provider, settings)
+    )
+    known.update(
+        provider
+        for provider in last_used
+        if is_ai_provider(provider)
+    )
+    if include_available:
+        known.update(list_ai_provider_ids())
 
     providers: list[ProviderInfo] = []
     for provider in sorted(known):
@@ -218,7 +240,7 @@ async def list_providers(
             first = display_models[0]
             display_models = [
                 ProviderModelInfo(
-                    model_id="gpt-5.3-codex",
+                    model_id="gpt-5.5",
                     capability=first.capability,
                     quality_tier=first.quality_tier,
                     latency_ms=first.latency_ms,
@@ -403,6 +425,11 @@ async def login_provider(
 ):
     settings = get_settings()
     ws = await _require_workspace(db)
+    if not is_ai_provider(body.provider) or "oauth" not in get_auth_supported(body.provider):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "LOGIN_NOT_SUPPORTED", "message": f"Provider '{body.provider}' is not an AI provider login", "details": None}},
+        )
     handler = get_oauth_handler(body.provider)
     if not handler:
         raise HTTPException(
@@ -456,6 +483,11 @@ async def complete_login(
 ):
     settings = get_settings()
     ws = await _require_workspace(db)
+    if not is_ai_provider(body.provider) or "oauth" not in get_auth_supported(body.provider):
+        raise HTTPException(
+            status_code=400,
+            detail={"error": {"code": "LOGIN_NOT_SUPPORTED", "message": f"Provider '{body.provider}' is not an AI provider login", "details": None}},
+        )
     handler = get_oauth_handler(body.provider)
     if not handler:
         raise HTTPException(
@@ -823,16 +855,44 @@ def _gemini_text_models_from_payload(data: dict, *, limit: int = 3) -> list[Prov
     ]
 
 
-async def _fetch_openai_models(api_key: str, *, limit: int = 3) -> list[ProviderModelLive]:
-    cache_key = _cache_key("openai_live", api_key)
+async def _fetch_openai_models(api_key: str, *, limit: int = 3, auth_mode: str | None = None) -> list[ProviderModelLive]:
+    cache_key = _cache_key(f"openai_live:{auth_mode or 'api_key'}", api_key)
     cached = _model_cache.get(cache_key)
     if cached and time.time() - cached[1] < _CACHE_TTL:
         return cached[0]
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get("https://api.openai.com/v1/models", headers={"Authorization": f"Bearer {api_key}"})
-            r.raise_for_status()
-            models = _openai_text_models_from_payload(r.json(), limit=limit)
+            if auth_mode == "oauth":
+                from providers.openai_codex import _extract_account_id
+
+                r = await client.get(
+                    "https://chatgpt.com/backend-api/codex/models",
+                    params={"client_version": "1.0.0"},
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "chatgpt-account-id": _extract_account_id(api_key),
+                        "originator": "pi",
+                        "User-Agent": "pi (browser)",
+                        "accept": "application/json",
+                    },
+                )
+                r.raise_for_status()
+                models = [
+                    _provider_model(
+                        "openai",
+                        str(m.get("slug")),
+                        m.get("display_name") or m.get("title") or str(m.get("slug")),
+                        context_length=int(m.get("context_window") or m.get("max_context_window") or 0),
+                        quality_tier="high",
+                        modality="text",
+                    )
+                    for m in (r.json().get("models") or [])[:limit]
+                    if m.get("slug")
+                ]
+            else:
+                r = await client.get("https://api.openai.com/v1/models", headers={"Authorization": f"Bearer {api_key}"})
+                r.raise_for_status()
+                models = _openai_text_models_from_payload(r.json(), limit=limit)
     except Exception as exc:
         logger.warning("OpenAI model list fetch failed: %s", exc)
         return _model_cache.get(cache_key, ([], 0))[0]
@@ -927,7 +987,7 @@ async def _fetch_bytedance_models(api_key: str) -> list[ProviderModelLive]:
 
 async def _fetch_live_text_models(provider: str, api_key: str, *, limit: int = 3, auth_mode: str | None = None) -> list[ProviderModelLive]:
     if provider == "openai":
-        return await _fetch_openai_models(api_key, limit=limit)
+        return await _fetch_openai_models(api_key, limit=limit, auth_mode=auth_mode)
     if provider == "anthropic":
         return await _fetch_anthropic_models(api_key, limit=limit)
     if provider == "gemini":

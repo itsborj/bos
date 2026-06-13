@@ -313,10 +313,21 @@ export function CmoChat() {
   const { activeBrand } = useUI();
   const {
     msgs, busy, streamCardCtx, activeObjective, activeCouncilSession,
+    pendingReferences, addReference, removeReference, clearReferences,
     send, councilPass, councilFinalize, handleOutcomeConfirm, handleOutcomeCancel,
   } = useCmoChat();
 
   const [input, setInput] = useState('');
+  const [refError, setRefError] = useState<string | null>(null);
+  // Drive picker modal state
+  const [driveModalOpen, setDriveModalOpen] = useState(false);
+  const [driveFilter, setDriveFilter] = useState<'all' | 'image' | 'document'>('all');
+  const [driveCurrentFolder, setDriveCurrentFolder] = useState<{ id: string; name: string } | null>(null);
+  const [driveFolderStack, setDriveFolderStack] = useState<{ id: string; name: string }[]>([]);
+  const [driveFolders, setDriveFolders] = useState<{ id: string; name: string }[]>([]);
+  const [driveModalFiles, setDriveModalFiles] = useState<{ id: string; name: string; mimeType: string; size?: number; webViewLink?: string; thumbnailLink?: string }[]>([]);
+  const [driveModalLoading, setDriveModalLoading] = useState(false);
+  const [driveModalSelected, setDriveModalSelected] = useState<Set<string>>(new Set());
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -372,7 +383,78 @@ export function CmoChat() {
     }
   }
 
+  const DRIVE_ROOT = { id: 'root', name: 'My Drive' };
+
+  async function openDrivePicker() {
+    setDriveModalOpen(true);
+    setDriveModalSelected(new Set());
+    setDriveFilter('all');
+    await loadDrivePickerFolder(DRIVE_ROOT, []);
+  }
+
+  async function loadDrivePickerFolder(folder: { id: string; name: string } | null, stack: { id: string; name: string }[]) {
+    setDriveModalLoading(true);
+    setDriveModalFiles([]);
+    setDriveFolders([]);
+    setRefError(null);
+    try {
+      const brandId = activeBrand?.id || '';
+      if (!brandId) {
+        setRefError('Select a brand with Google Drive connected first.');
+        setDriveModalLoading(false);
+        return;
+      }
+      const foldersRes = await api.listDriveFolders(brandId, folder?.id);
+      const current = folder || { id: (foldersRes as any).folder_id || 'root', name: (foldersRes as any).folder_name || 'Drive' };
+      const filesRes = await api.listDriveImages(brandId, current.id, 'all');
+      setDriveCurrentFolder(current);
+      setDriveFolderStack(stack);
+      setDriveFolders(foldersRes.folders || []);
+      setDriveModalFiles(filesRes.files || []);
+    } catch (e) {
+      setRefError(e instanceof Error ? e.message : 'Could not load Drive.');
+    } finally {
+      setDriveModalLoading(false);
+    }
+  }
+
+  function toggleDriveModalFile(fileId: string) {
+    setDriveModalSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(fileId)) next.delete(fileId); else next.add(fileId);
+      return next;
+    });
+  }
+
+  const DOC_MIMES_SET = new Set([
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/msword',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.ms-powerpoint',
+    'application/pdf',
+    'application/vnd.google-apps.document',
+    'application/vnd.google-apps.presentation',
+  ]);
+
+  function attachDriveSelected() {
+    driveModalFiles
+      .filter(f => driveModalSelected.has(f.id))
+      .forEach(f => addReference({
+        kind: DOC_MIMES_SET.has(f.mimeType) ? 'document' : 'image',
+        source: 'google_drive',
+        title: f.name,
+        drive_file_id: f.id,
+        drive_file_name: f.name,
+        drive_web_view_link: f.webViewLink,
+        mime_type: f.mimeType,
+        thumbnail_link: f.thumbnailLink,
+      }));
+    setDriveModalOpen(false);
+    setDriveModalSelected(new Set());
+  }
+
   function doSend() {
+    if (!input.trim() || busy) return;
     const text = input;
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
@@ -513,7 +595,18 @@ export function CmoChat() {
 
             if (msg.role === 'user') {
               return (
-                <div key={msg.id} className="msg-user">{msg.text}</div>
+                <div key={msg.id} className="msg-user">
+                  <div>{msg.text}</div>
+                  {msg.references && msg.references.length > 0 && (
+                    <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
+                      {msg.references.map((ref, i) => (
+                        <span key={i} className="g2src" style={{ fontSize: 10, background: 'rgba(255,255,255,0.16)' }}>
+                          {ref.kind === 'image' ? '🖼️' : '📄'} {ref.title || ref.drive_file_name || 'Reference'}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
               );
             }
 
@@ -534,12 +627,12 @@ export function CmoChat() {
 
       <div className="cmo-input-wrap">
         {activeCouncilSession?.status === 'awaiting_c6' && (
-          <div style={{ display: 'flex', gap: 8, marginBottom: 10, padding: '10px 14px', background: 'var(--amber-bg, #fffbeb)', borderRadius: 8, border: '1px solid var(--amber-border, #fde68a)', alignItems: 'center' }}>
-            <span style={{ fontSize: 13, color: '#92400e', flex: 1 }}>
+          <div style={{ display: 'flex', gap: 8, marginBottom: 10, padding: '10px 14px', background: 'var(--status-warning-fill)', borderRadius: 0, border: '.5px solid var(--status-warning-border)', borderLeft: '2px solid var(--warning-amber)', alignItems: 'center' }}>
+            <span style={{ fontSize: 13, color: 'var(--status-warning-text)', flex: 1 }}>
               {activeCouncilSession.pending_c6_prompt || 'The council is waiting for your input.'}
             </span>
             <button className="btn btn-ghost" style={{ fontSize: 12 }} onClick={councilPass} disabled={busy}>Continue</button>
-            <button className="btn btn-ghost" style={{ fontSize: 12, color: '#b45309' }} onClick={councilFinalize} disabled={busy}>Finalize</button>
+            <button className="btn btn-ghost" style={{ fontSize: 12, color: 'var(--status-warning-text)' }} onClick={councilFinalize} disabled={busy}>Finalize</button>
           </div>
         )}
 
@@ -553,6 +646,105 @@ export function CmoChat() {
               <button type="button" className="btn btn-ghost" style={{ fontSize: 12 }} onClick={() => send('What happens after approval?')} disabled={busy}>
                 What happens after approval?
               </button>
+            </div>
+          </div>
+        )}
+
+        {pendingReferences.length > 0 && (
+          <div style={{ marginBottom: 10, padding: 10, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)' }}>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {pendingReferences.map((ref, i) => (
+                <button key={i} type="button" className="btn btn-ghost" style={{ fontSize: 11 }} onClick={() => removeReference(i)} title="Remove reference">
+                  {ref.kind === 'image' ? '🖼️' : ref.kind === 'document' ? '📄' : '📝'} {ref.title || ref.drive_file_name || 'Reference'} ×
+                </button>
+              ))}
+              <button type="button" className="btn btn-ghost" style={{ fontSize: 11 }} onClick={clearReferences}>Clear all</button>
+            </div>
+          </div>
+        )}
+
+        {driveModalOpen && (
+          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+            onClick={e => { if (e.target === e.currentTarget) setDriveModalOpen(false); }}>
+            <div style={{ background: 'var(--white)', borderRadius: 0, padding: 24, width: 480, maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 12, border: '.5px solid var(--border)' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--brand)', fontFamily: 'var(--font-display)' }}>Pick from Drive</div>
+                <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--ink-muted)' }} onClick={() => setDriveModalOpen(false)}>✕</button>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                {(['all', 'image', 'document'] as const).map(f => (
+                  <button key={f} type="button"
+                    style={{ padding: '3px 12px', fontSize: 12, borderRadius: 2, border: '.5px solid', cursor: 'pointer', fontWeight: driveFilter === f ? 700 : 400, background: driveFilter === f ? 'var(--fill-active)' : 'transparent', color: driveFilter === f ? 'var(--brand)' : 'var(--ink-muted)', borderColor: driveFilter === f ? 'var(--brand)' : 'var(--border)' }}
+                    onClick={() => { setDriveFilter(f); setDriveModalSelected(new Set()); }}>
+                    {f === 'all' ? 'All' : f === 'image' ? 'Images' : 'Docs'}
+                  </button>
+                ))}
+              </div>
+              {driveCurrentFolder && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink-muted)', background: 'var(--bg-subtle)', border: '.5px solid var(--border)', borderRadius: 2, padding: '7px 9px' }}>
+                  {driveFolderStack.length > 0 && (
+                    <button className="artifact-btn ghost" style={{ padding: '2px 8px', fontSize: 11 }} disabled={driveModalLoading}
+                      onClick={() => {
+                        const nextStack = driveFolderStack.slice(0, -1);
+                        loadDrivePickerFolder(nextStack[nextStack.length - 1] || DRIVE_ROOT, nextStack);
+                      }}>
+                      Back
+                    </button>
+                  )}
+                  <span>Folder: <strong style={{ color: 'var(--ink-body)' }}>{driveCurrentFolder.name}</strong></span>
+                </div>
+              )}
+              {driveModalLoading && <div style={{ color: 'var(--ink-muted)', fontSize: 13 }}>Loading Drive…</div>}
+              {refError && <div style={{ color: 'var(--error)', fontSize: 13 }}>{refError}</div>}
+              {!driveModalLoading && !refError && driveFolders.length === 0 && driveModalFiles.length === 0 && (
+                <div style={{ color: 'var(--ink-muted)', fontSize: 13 }}>No folders or files found here.</div>
+              )}
+              {!driveModalLoading && (driveFolders.length > 0 || driveModalFiles.length > 0) && (
+                <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                  {driveFolders.map(folder => (
+                    <button key={folder.id}
+                      style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--linen)', border: '.5px solid var(--border-warm)', borderRadius: 2, cursor: 'pointer', textAlign: 'left', fontSize: 13 }}
+                      onClick={() => { setDriveFilter('all'); setDriveModalSelected(new Set()); loadDrivePickerFolder(folder, [...driveFolderStack, folder]); }}>
+                      <span style={{ fontSize: 20, flexShrink: 0 }}>📁</span>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--ink-body)' }}>{folder.name}</div>
+                        <div style={{ color: 'var(--ink-muted)', fontSize: 11 }}>Open folder</div>
+                      </div>
+                    </button>
+                  ))}
+                  {driveModalFiles
+                    .filter(f => driveFilter === 'all' || (driveFilter === 'image' ? f.mimeType.startsWith('image/') : DOC_MIMES_SET.has(f.mimeType)))
+                    .map(f => {
+                    const sel = driveModalSelected.has(f.id);
+                    const isDoc = DOC_MIMES_SET.has(f.mimeType);
+                    return (
+                      <button key={f.id}
+                        style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: sel ? 'var(--fill-active)' : 'transparent', border: `.5px solid ${sel ? 'var(--status-active-border)' : 'var(--border)'}`, borderRadius: 2, cursor: 'pointer', textAlign: 'left', fontSize: 13 }}
+                        onClick={() => toggleDriveModalFile(f.id)}>
+                        {isDoc
+                          ? <span style={{ fontSize: 24, flexShrink: 0 }}>📄</span>
+                          : f.thumbnailLink
+                            ? <img src={f.thumbnailLink} alt={f.name} style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 2, flexShrink: 0, border: '.5px solid var(--border)' }} />
+                            : <span style={{ fontSize: 20, flexShrink: 0 }}>🖼</span>
+                        }
+                        <div style={{ minWidth: 0 }}>
+                          <div style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--ink-body)' }}>{f.name}</div>
+                          <div style={{ color: 'var(--ink-muted)', fontSize: 11 }}>{f.mimeType}{f.size ? ` · ${(f.size / 1024).toFixed(0)} KB` : ''}</div>
+                        </div>
+                        {sel && <span style={{ marginLeft: 'auto', color: 'var(--brand)', fontWeight: 700, flexShrink: 0 }}>✓</span>}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button className="artifact-btn ghost" onClick={() => setDriveModalOpen(false)}>Cancel</button>
+                {driveModalSelected.size > 0 && (
+                  <button className="artifact-btn primary" onClick={attachDriveSelected}>
+                    Attach {driveModalSelected.size} selected
+                  </button>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -573,9 +765,22 @@ export function CmoChat() {
           <button
             className="btn-send"
             onClick={doSend}
-            disabled={busy || !input.trim()}
+            disabled={busy}
+            title="Send"
           >
-            ↑
+            ⏎
+          </button>
+          <button
+            type="button"
+            className="btn-send"
+            onClick={openDrivePicker}
+            disabled={busy}
+            title="Attach from Drive"
+          >
+            {pendingReferences.length > 0
+              ? <span style={{ fontSize: 11, fontWeight: 700 }}>{pendingReferences.length}</span>
+              : <span style={{ fontSize: 15, lineHeight: 1 }}>+</span>
+            }
           </button>
         </div>
       </div>

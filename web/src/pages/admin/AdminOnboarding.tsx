@@ -66,12 +66,8 @@ export function AdminOnboarding() {
       // Update mode — locked to this brand, no scope negotiation
       setScope('update_brand');
       setScopeStep('form');
-      // Check for existing brand kit so we can warn before overwrite
       api.getDocuments({ doc_type: 'campaign_brand_kit', brand_id: navBrandId })
-        .then(docs => { if (docs.length > 0) setKitWarning(true); })
-        .catch(() => {});
-      api.getDocuments({ doc_type: 'campaign_brand_kit', brand_id: navBrandId })
-        .then(docs => applyBrandKit(docs[0] ?? null))
+        .then(docs => { if (docs.length > 0) setKitWarning(true); applyBrandKit(docs[0] ?? null); })
         .catch(() => {});
     } else {
       api.getBrands()
@@ -92,12 +88,8 @@ export function AdminOnboarding() {
   function handleChooseOrg() {
     setScope('org');
     setScopeStep('form');
-    // Check if workspace-level slot already has a kit
     api.getDocuments({ doc_type: 'campaign_brand_kit' })
-      .then(docs => { if (docs.length > 0) setKitWarning(true); })
-      .catch(() => {});
-    api.getDocuments({ doc_type: 'campaign_brand_kit' })
-      .then(docs => applyBrandKit(docs[0] ?? null))
+      .then(docs => { if (docs.length > 0) setKitWarning(true); applyBrandKit(docs[0] ?? null); })
       .catch(() => {});
   }
 
@@ -120,10 +112,7 @@ export function AdminOnboarding() {
     setScope('update_brand');
     setScopeStep('form');
     api.getDocuments({ doc_type: 'campaign_brand_kit', brand_id: brand.id })
-      .then(docs => { if (docs.length > 0) setKitWarning(true); })
-      .catch(() => {});
-    api.getDocuments({ doc_type: 'campaign_brand_kit', brand_id: brand.id })
-      .then(docs => applyBrandKit(docs[0] ?? null))
+      .then(docs => { if (docs.length > 0) setKitWarning(true); applyBrandKit(docs[0] ?? null); })
       .catch(() => {});
   }
 
@@ -178,7 +167,7 @@ export function AdminOnboarding() {
       try {
         setKitBusy(true);
         const kitRes: BrandKitResponse = await api.generateBrandKit(
-          undefined,
+          docText.trim(),
           effectiveBrandId,
           res.profile as Record<string, unknown>,
         );
@@ -715,7 +704,7 @@ export function AdminOnboarding() {
                 {kitEditing ? 'Cancel Edit' : 'Edit'}
               </button>
               {!kitEditing && (
-                <button className="btn btn-ghost btn-sm" onClick={() => handleGenerateBrandKit()} disabled={kitBusy}>
+                <button className="btn btn-ghost btn-sm" onClick={() => handleGenerateBrandKit(docText.trim() || undefined)} disabled={kitBusy}>
                   {kitBusy ? 'Generating…' : 'Regenerate Draft'}
                 </button>
               )}
@@ -749,7 +738,7 @@ export function AdminOnboarding() {
             )}
           </div>
         ) : (
-          <button className="btn btn-dark btn-sm" onClick={() => handleGenerateBrandKit()} disabled={kitBusy}>
+          <button className="btn btn-dark btn-sm" onClick={() => handleGenerateBrandKit(docText.trim() || undefined)} disabled={kitBusy}>
             {kitBusy ? 'Generating…' : 'Generate Campaign Brand Kit'}
           </button>
         )}

@@ -6,8 +6,10 @@ import type {
   BrandResponse,
   CapabilityInfo,
   ChatHistoryItem,
+  ChatReference,
   ChatResponse,
   ChatStreamEvent,
+  DriveReferenceUploadResponse,
   BrandKitResponse,
   CouncilSeat,
   CouncilSeatUpdate,
@@ -84,8 +86,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   const run = async (): Promise<T> => {
+    const isFormData = options.body instanceof FormData;
     const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
+      ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
       ...(options.headers as Record<string, string> ?? {}),
     };
     if (key) headers['X-API-Key'] = key;
@@ -294,8 +297,8 @@ export const api = {
   dismissStreamUpdates: (filters?: { priority?: string; type?: string }) =>
     request<import('./types').StreamBulkDismissOut>('/stream/dismiss' + buildQuery(filters), { method: 'POST' }),
 
-  getProviders: (brand_id?: string) =>
-    request<{ providers: ProviderInfo[] }>('/providers' + buildQuery({ brand_id })),
+  getProviders: (brand_id?: string, include_available = false) =>
+    request<{ providers: ProviderInfo[] }>('/providers' + buildQuery({ brand_id, include_available: include_available ? 'true' : undefined })),
 
   getProviderKeys: (brand_id?: string) =>
     request<KeyListItem[]>('/providers/keys' + buildQuery({ brand_id })),
@@ -333,10 +336,10 @@ export const api = {
   getBillingSummary: (brandId?: string | null) =>
     request<BillingSummary>(brandId ? `/billing/summary?brand_id=${brandId}` : '/billing/summary'),
 
-  chat: (message: string, history: ChatHistoryItem[], brandId?: string | null, campaignId?: string | null) =>
+  chat: (message: string, history: ChatHistoryItem[], brandId?: string | null, campaignId?: string | null, references: ChatReference[] = []) =>
     request<ChatResponse>('/chat', {
       method: 'POST',
-      body: JSON.stringify({ message, history, brand_id: brandId ?? null, campaign_id: campaignId ?? null }),
+      body: JSON.stringify({ message, history, brand_id: brandId ?? null, campaign_id: campaignId ?? null, references }),
     }),
 
   async *chatStream(
@@ -344,6 +347,7 @@ export const api = {
     history: ChatHistoryItem[],
     brandId?: string | null,
     campaignId?: string | null,
+    references: ChatReference[] = [],
   ): AsyncGenerator<ChatStreamEvent> {
     const key = getApiKey();
     const resp = await fetch(`${BASE}/chat/stream`, {
@@ -352,7 +356,7 @@ export const api = {
         'Content-Type': 'application/json',
         ...(key ? { 'X-API-Key': key } : {}),
       },
-      body: JSON.stringify({ message, history, brand_id: brandId ?? null, campaign_id: campaignId ?? null }),
+      body: JSON.stringify({ message, history, brand_id: brandId ?? null, campaign_id: campaignId ?? null, references }),
     });
     if (!resp.ok) throw new Error(`Chat stream failed: ${resp.status}`);
     const reader = resp.body!.getReader();
@@ -526,6 +530,22 @@ export const api = {
       method: 'PATCH',
       body: JSON.stringify({ drive_file_id, drive_file_name, drive_file_mime }),
     }),
+
+  uploadDriveReference: (brand_id: string, file_name: string, mime_type: string, data_b64: string) =>
+    request<DriveReferenceUploadResponse>('/social/drive/reference-upload', {
+      method: 'POST',
+      body: JSON.stringify({ brand_id, file_name, mime_type, data_b64 }),
+    }),
+
+  uploadDriveAttachment: (brand_id: string, file: File) => {
+    const form = new FormData();
+    form.append('brand_id', brand_id);
+    form.append('file', file);
+    return request<{ kind: string; source: string; title: string; drive_file_id: string; drive_file_name: string; drive_web_view_link?: string; mime_type: string; drive_folder_id: string }>(
+      '/social/drive/attachment-upload',
+      { method: 'POST', body: form },
+    );
+  },
 
   setDriveRoot: (brand_id: string, folder_id: string, folder_name?: string, folder_path?: string) =>
     request<{ status: string; drive_root_folder_id: string; drive_root_name: string | null; drive_root_path: string | null }>('/social/drive/root', {

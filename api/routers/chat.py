@@ -469,11 +469,176 @@ class ChatHistoryItem(BaseModel):
     text: str
 
 
+class ChatReference(BaseModel):
+    kind: str = "text"  # "text" | "image"
+    source: str = "inline"  # "inline" | "google_drive"
+    title: Optional[str] = None
+    notes: Optional[str] = None
+    text: Optional[str] = None
+    drive_file_id: Optional[str] = None
+    drive_file_name: Optional[str] = None
+    drive_web_view_link: Optional[str] = None
+    mime_type: Optional[str] = None
+    thumbnail_link: Optional[str] = None
+
+
 class ChatRequest(BaseModel):
     message: str
     history: list[ChatHistoryItem] = []
     brand_id: Optional[UUID] = None
     campaign_id: Optional[str] = None
+    references: list[ChatReference] = []
+
+
+def _format_reference_context(references: list[ChatReference] | None) -> str:
+    """Format non-image operator references as bounded prompt context.
+
+    Inline images are handled as vision content by _build_user_message_content
+    and are excluded here to avoid embedding raw base64 blobs in the text prompt.
+    """
+    refs = [r for r in (references or []) if not (r.kind == "image" and r.text)][:8]
+    if not refs:
+        return ""
+    lines = ["CMO discussion/planning references attached by the operator:"]
+    for idx, ref in enumerate(refs, start=1):
+        kind = (ref.kind or "reference").strip().lower()
+        source = (ref.source or "inline").strip().lower()
+        title = (ref.title or ref.drive_file_name or f"Reference {idx}").strip()[:160]
+        lines.append(f"{idx}. {title} ({kind}, source: {source})")
+        if ref.notes:
+            lines.append(f"   Notes: {ref.notes.strip()[:800]}")
+        if ref.text:
+            lines.append("   Text excerpt:")
+            lines.append("   " + ref.text.strip()[:3000].replace("\n", "\n   "))
+        if ref.drive_file_id:
+            lines.append(f"   Drive file id: {ref.drive_file_id}")
+        if ref.mime_type:
+            lines.append(f"   MIME: {ref.mime_type}")
+        if ref.drive_web_view_link:
+            lines.append(f"   Drive link: {ref.drive_web_view_link}")
+    lines.append("Use these references only as context for the current discussion/planning turn.")
+    return "\n".join(lines)
+
+
+_DOC_EXTRACT_CAP = 6_000  # chars injected into the prompt per document
+
+
+async def _enrich_drive_references(
+    references: list[ChatReference] | None,
+    brand_id: str | None,
+    db: AsyncSession,
+    settings,
+) -> None:
+    """Fetch content for Drive attachment references, mutating refs in-place.
+
+    - kind='document': downloads bytes, extracts text, sets ref.text (capped).
+    - kind='image': downloads bytes, base64-encodes as data URL, sets ref.text
+      so _build_user_message_content can embed it as a vision block.
+
+    Only processes refs with source='google_drive', a drive_file_id, and no
+    existing text. Silently skips if Drive is unavailable.
+    """
+    if not references or not brand_id:
+        return
+    drive_refs = [
+        r for r in references
+        if r.source == "google_drive" and r.drive_file_id and not r.text
+        and r.kind in ("image", "document")
+    ]
+    if not drive_refs:
+        return
+
+    try:
+        from routers.social import _load_google_drive_client  # type: ignore[attr-defined]
+        from provider_auth import get_page_token
+        DriveClient = _load_google_drive_client()
+    except Exception:
+        logger.warning("DriveClient unavailable; skipping Drive enrichment")
+        return
+
+    token, _ = await get_page_token(db, brand_id, "google_drive", settings)
+    if not token:
+        logger.warning("No Drive token for brand %s; skipping Drive enrichment", brand_id)
+        return
+
+    _GOOGLE_NATIVE_DOC_MIMES = {
+        "application/vnd.google-apps.document",
+        "application/vnd.google-apps.presentation",
+    }
+    import base64 as _b64
+    for ref in drive_refs:
+        try:
+            mime = (ref.mime_type or "").lower()
+            with DriveClient(token) as drive:
+                if mime in _GOOGLE_NATIVE_DOC_MIMES:
+                    data = drive.export_file(ref.drive_file_id, "text/plain")
+                    ref.text = data.decode("utf-8", errors="replace")[:_DOC_EXTRACT_CAP]
+                elif ref.kind == "image":
+                    data = drive.download_file(ref.drive_file_id)
+                    ref.text = f"data:{mime or 'image/jpeg'};base64,{_b64.b64encode(data).decode()}"
+                else:
+                    data = drive.download_file(ref.drive_file_id)
+                    text = _extract_doc_text(data, mime)
+                    ref.text = text[:_DOC_EXTRACT_CAP] if text else "(no extractable text)"
+        except Exception as exc:
+            logger.warning("Drive enrichment failed for %s: %s", ref.drive_file_id, exc)
+            if ref.kind == "document":
+                ref.text = f"(could not extract content: {type(exc).__name__})"
+
+
+def _extract_doc_text(data: bytes, mime: str) -> str:
+    """Extract plain text from document bytes. Supports DOCX and PDF."""
+    from io import BytesIO
+    if "wordprocessingml" in mime or mime == "application/msword":
+        try:
+            from docx import Document  # type: ignore[import-untyped]
+            doc = Document(BytesIO(data))
+            return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
+        except Exception as exc:
+            raise RuntimeError(f"DOCX extraction failed: {exc}") from exc
+    if mime == "application/pdf":
+        try:
+            from pypdf import PdfReader  # type: ignore[import-untyped]
+            reader = PdfReader(BytesIO(data))
+            return "\n".join(page.extract_text() or "" for page in reader.pages)
+        except Exception as exc:
+            raise RuntimeError(f"PDF extraction failed: {exc}") from exc
+    raise RuntimeError(f"Unsupported doc MIME for extraction: {mime}")
+
+
+def _build_user_message_content(text: str, references: list[ChatReference] | None) -> "str | list":
+    """Return a plain string or an OpenAI-style multipart content list.
+
+    Inline image references that carry base64 data are embedded as vision parts
+    so that vision-capable models (gpt-4o, claude-3+, gemini) can inspect them.
+    Non-image and Drive references are already injected as text via
+    _format_reference_context; they do not appear here.
+    """
+    import re as _re
+    image_refs = [
+        r for r in (references or [])
+        if r.kind == "image" and r.text
+    ][:4]  # cap at 4 images per turn
+    if not image_refs:
+        return text
+    parts: list[dict] = [{"type": "text", "text": text}]
+    for ref in image_refs:
+        raw = (ref.text or "").strip()
+        # accept both bare base64 and data: URL
+        if raw.startswith("data:"):
+            m = _re.match(r"data:([^;]+);base64,(.+)", raw, _re.DOTALL)
+            if m:
+                mime, b64 = m.group(1), m.group(2)
+            else:
+                continue
+        else:
+            mime = ref.mime_type or "image/png"
+            b64 = raw
+        parts.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime};base64,{b64}"},
+        })
+    return parts
 
 
 class KlarAction(BaseModel):
@@ -1162,12 +1327,13 @@ async def _continue_cmo_loop_after_results(
             break
 
         conversation_lines = [f"{h.role.upper()}: {h.text}" for h in body.history[-12:]] + [f"USER: {body.message}"]
+        _ref_ctx_1 = _format_reference_context(body.references)
         brief = await _brand_scoped_brief(
             db, ws, execution_brand or active_brand, {
                 "request": body.message,
                 "objective": body.message,
                 "message": body.message,
-                "conversation_context": "\n".join(conversation_lines),
+                "conversation_context": "\n".join(conversation_lines) + (f"\n\n{_ref_ctx_1}" if _ref_ctx_1 else ""),
             }
         )
         run_inline_params = _parse_run_inline_params(reply_without_scope)
@@ -1224,11 +1390,16 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
     ws = await get_singleton(db)
     _resolved_brand_switch: KlarAction | None = None
 
+    await _enrich_drive_references(body.references, str(body.brand_id) if body.brand_id else None, db, settings)
+
     # ── @council command ──────────────────────────────────────────────────────
     if _is_council_command(body.message):
         from council import start_session as _council_start
         from models.workspace import Brand as _Brand
         _council_brief = _parse_council_brief(body.message)
+        reference_context = _format_reference_context(body.references)
+        if _council_brief and reference_context:
+            _council_brief = f"{reference_context}\n\nCouncil question:\n{_council_brief}"
         if not _council_brief:
             yield _sse({"type": "reply", "text": "What question should the council deliberate on?\n\nUsage: @council <question>", "klar_action": None})
             yield _sse({"type": "done"})
@@ -1269,7 +1440,7 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
 
     active_brand, inferred_brand_action = await _resolve_active_brand_for_turn(db, ws, body)
     if active_brand and body.brand_id != str(active_brand.id):
-        body = ChatRequest(message=body.message, history=body.history, brand_id=str(active_brand.id), campaign_id=body.campaign_id)
+        body = ChatRequest(message=body.message, history=body.history, brand_id=str(active_brand.id), campaign_id=body.campaign_id, references=body.references)
         _resolved_brand_switch = _resolved_brand_switch or inferred_brand_action
 
     routed = route_chat_skills(body.message)
@@ -1297,7 +1468,10 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
     messages: list[dict] = [{"role": "system", "content": system}]
     for h in body.history[-8:]:
         messages.append({"role": "user" if h.role == "user" else "assistant", "content": h.text})
-    messages.append({"role": "user", "content": body.message})
+    reference_context = _format_reference_context(body.references)
+    if reference_context:
+        messages.append({"role": "user", "content": reference_context})
+    messages.append({"role": "user", "content": _build_user_message_content(body.message, body.references)})
 
     raw_reply = await _complete_cmo_messages(db, ws, settings, messages, plan_mode=False, brand_id=body.brand_id)
 
@@ -1351,11 +1525,12 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
             return
         try:
             conversation_lines = [f"{h.role.upper()}: {h.text}" for h in body.history[-12:]] + [f"USER: {body.message}"]
+            _ref_ctx_2 = _format_reference_context(body.references)
             brief = await _brand_scoped_brief(db, ws, execution_brand or active_brand, {
                 "request": body.message,
                 "objective": body.message,
                 "message": body.message,
-                "conversation_context": "\n".join(conversation_lines),
+                "conversation_context": "\n".join(conversation_lines) + (f"\n\n{_ref_ctx_2}" if _ref_ctx_2 else ""),
                 "cmo_directive_text": reply_without_scope,
             })
             active_brand_uuid: UUID | None = (execution_brand or active_brand).id if (execution_brand or active_brand) else None
@@ -1445,10 +1620,15 @@ async def chat(
     ws = await get_singleton(db)
     _resolved_brand_switch: KlarAction | None = None
 
+    await _enrich_drive_references(body.references, str(body.brand_id) if body.brand_id else None, db, settings)
+
     # ── @council command routing ──────────────────────────────────────────────
     if _is_council_command(body.message):
         from council import start_session as _council_start
         _council_brief = _parse_council_brief(body.message)
+        reference_context = _format_reference_context(body.references)
+        if _council_brief and reference_context:
+            _council_brief = f"{reference_context}\n\nCouncil question:\n{_council_brief}"
         if not _council_brief:
             return ChatResponse(reply="What question should the council deliberate on?\n\nUsage: @council <question>")
         _council_brand: Brand | None = None
@@ -1488,6 +1668,7 @@ async def chat(
             history=body.history,
             brand_id=str(active_brand.id),
             campaign_id=body.campaign_id,
+            references=body.references,
         )
         _resolved_brand_switch = _resolved_brand_switch or inferred_brand_action
 
@@ -1531,7 +1712,10 @@ async def chat(
     messages: list[dict] = [{"role": "system", "content": system}]
     for h in body.history[-8:]:
         messages.append({"role": "user" if h.role == "user" else "assistant", "content": h.text})
-    messages.append({"role": "user", "content": user_message})
+    reference_context = _format_reference_context(body.references)
+    if reference_context:
+        messages.append({"role": "user", "content": reference_context})
+    messages.append({"role": "user", "content": _build_user_message_content(user_message, body.references)})
 
     raw_reply = await _complete_cmo_messages(db, ws, settings, messages, plan_mode=False, brand_id=body.brand_id)
 
@@ -1590,11 +1774,12 @@ async def chat(
             conversation_lines = [
                 f"{h.role.upper()}: {h.text}" for h in body.history[-12:]
             ] + [f"USER: {body.message}"]
+            _ref_ctx_3 = _format_reference_context(body.references)
             chat_overrides = {
                 "request": body.message,
                 "objective": body.message,
                 "message": body.message,
-                "conversation_context": "\n".join(conversation_lines),
+                "conversation_context": "\n".join(conversation_lines) + (f"\n\n{_ref_ctx_3}" if _ref_ctx_3 else ""),
                 "cmo_directive_text": reply_without_scope,
             }
             brief = await _brand_scoped_brief(db, ws, execution_brand or active_brand, chat_overrides)

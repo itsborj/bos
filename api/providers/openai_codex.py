@@ -10,6 +10,7 @@ from providers.base import ProviderResponse
 
 _BASE_URL = "https://chatgpt.com/backend-api"
 _JWT_CLAIM_PATH = "https://api.openai.com/auth"
+_DEFAULT_CODEX_MODEL = "gpt-5.5"
 
 
 class OpenAICodexAdapter:
@@ -125,7 +126,7 @@ class OpenAICodexAdapter:
         try:
             response = await self.complete_messages([
                 {"role": "user", "content": "ping"}
-            ], "gpt-5.3-codex")
+            ], _DEFAULT_CODEX_MODEL)
             return bool(response.content.strip())
         except httpx.HTTPStatusError as exc:
             detail = exc.response.text[:300] if exc.response is not None else str(exc)
@@ -139,11 +140,15 @@ def _codex_model(model_id: str) -> str:
     if normalized.startswith("openai/"):
         normalized = normalized.split("/", 1)[1]
     if not normalized:
-        return "gpt-5.3-codex"
+        return _DEFAULT_CODEX_MODEL
+    # ChatGPT-account Codex currently exposes ChatGPT model slugs (for example
+    # gpt-5.5), not platform Codex API aliases. Older stored overrides such as
+    # gpt-5.3-codex fail with "model is not supported"; route them to the live
+    # ChatGPT Codex default instead.
     if "codex" in normalized:
-        return normalized
+        return _DEFAULT_CODEX_MODEL
     if normalized.startswith("gpt-5.1") or normalized.startswith("gpt-5.2") or normalized.startswith("gpt-5.3"):
-        return "gpt-5.3-codex"
+        return _DEFAULT_CODEX_MODEL
     return normalized
 
 

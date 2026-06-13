@@ -163,9 +163,9 @@ export function AdminCalendar() {
     <div className="admin-page">
       <div className="admin-page-header">
         <div>
-          <div className="admin-page-title">Scheduling</div>
+          <div className="admin-page-title">Booking Pages</div>
           <div className="admin-page-subtitle">
-            Create booking pages powered by Google Calendar. Share the embed URL or link to let clients book directly.
+            Client booking links powered by Google Calendar. Content and publish scheduling will move to the campaign calendar.
           </div>
         </div>
         <button className="btn btn-dark btn-sm" onClick={() => { setCreating(true); setSaveError(''); }}>
@@ -180,7 +180,7 @@ export function AdminCalendar() {
       {calConnections.length === 0 && !error && (
         <div className="admin-card" style={{ background: 'var(--bg2)', borderColor: 'var(--border)', marginBottom: 16 }}>
           <div style={{ fontSize: 13, color: 'var(--text2)' }}>
-            No Google Calendar accounts connected. Go to <strong>Brands</strong> and click <strong>Connect</strong> next to Google Calendar to enable live availability checking.
+            No Google Calendar accounts connected. Open a brand's <strong>Integrations</strong> tab and connect Google Calendar to enable live availability checking.
           </div>
         </div>
       )}

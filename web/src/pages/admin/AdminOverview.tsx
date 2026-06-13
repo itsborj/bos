@@ -55,17 +55,19 @@ export function AdminOverview() {
 
   const totalPending = agentState?.total_pending ?? 0;
   const activeCampaigns = campaigns.filter(c => c.status === 'active').length;
+  const failedRuns = recentRuns.filter(run => run.status === 'failed').length;
+  const brandsWithPending = brands.filter(brand => (agentState?.brands.find(b => b.brand_id === brand.id)?.pending_approvals ?? 0) > 0);
 
   return (
     <div className="admin-page">
       <div className="admin-page-header">
         <div>
           <div className="admin-page-title">Command Centre</div>
-          <div className="admin-page-subtitle">Brand activity, pending approvals, and recent output</div>
+          <div className="admin-page-subtitle">Morning scan for approvals, blocked clients, campaign activity, and recent output.</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Link to="/admin/billing" className="btn btn-secondary btn-sm">Billing →</Link>
-          <Link to="/admin/getting-started" className="btn btn-dark btn-sm">Setup guide</Link>
+          <Link to="/admin/client-readiness" className="btn btn-secondary btn-sm">Client readiness →</Link>
+          <Link to="/admin/agent-activity" className="btn btn-dark btn-sm">Approval queue</Link>
         </div>
       </div>
 
@@ -97,6 +99,50 @@ export function AdminOverview() {
           </div>
           <div className="admin-stat-sub">billing & BYOK usage →</div>
         </Link>
+      </div>
+
+      <div className="admin-card" style={{ marginBottom: 16 }}>
+        <div className="admin-card-title">Today’s attention queue</div>
+        <div style={{ display: 'grid', gap: 10 }}>
+          {totalPending > 0 ? (
+            <Link to="/admin/agent-activity" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <div className="settings-row" style={{ padding: '10px 0' }}>
+                <div className="settings-row-info">
+                  <div className="settings-row-name">{totalPending} artifact{totalPending !== 1 ? 's' : ''} need human review</div>
+                  <div className="settings-row-desc">Approve, reject, or revise before anything can publish.</div>
+                </div>
+                <span className="badge badge-warning">Review →</span>
+              </div>
+            </Link>
+          ) : (
+            <div className="settings-row" style={{ padding: '10px 0' }}>
+              <div className="settings-row-info">
+                <div className="settings-row-name">No pending approvals</div>
+                <div className="settings-row-desc">Generated work is clear for now.</div>
+              </div>
+              <span className="badge badge-success">Clear</span>
+            </div>
+          )}
+          {failedRuns > 0 && (
+            <Link to="/admin/runs" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <div className="settings-row" style={{ padding: '10px 0' }}>
+                <div className="settings-row-info">
+                  <div className="settings-row-name">{failedRuns} recent failed run{failedRuns !== 1 ? 's' : ''}</div>
+                  <div className="settings-row-desc">Check setup blockers, credentials, or provider routing.</div>
+                </div>
+                <span className="badge badge-warning">Debug →</span>
+              </div>
+            </Link>
+          )}
+          {brandsWithPending.length > 0 && (
+            <div className="settings-row" style={{ padding: '10px 0' }}>
+              <div className="settings-row-info">
+                <div className="settings-row-name">Brands waiting on review: {brandsWithPending.map(b => b.name).join(', ')}</div>
+                <div className="settings-row-desc">Prioritize client-facing work before starting new generation.</div>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="admin-two-col">

@@ -496,7 +496,7 @@ function ProjectManagementTab({ brand, onUpdate }: { brand: BrandResponse; onUpd
             ))}
           </select>
           <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 4 }}>
-            Each PM system requires its plugin to be configured in Admin → Specialists.
+            Each PM system requires its capability to be configured in Admin → Capabilities.
           </div>
         </div>
 
@@ -614,24 +614,6 @@ function tabFromSearchParams(params: URLSearchParams): Tab {
   return 'profile';
 }
 
-function loadGapiPicker(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const w = window as unknown as { gapi?: { load: (n: string, o: { callback: () => void }) => void }; google?: { picker?: unknown } };
-    if (w.google?.picker) return resolve();
-    const ready = () => w.gapi!.load('picker', { callback: () => resolve() });
-    const existing = document.getElementById('gapi-script') as HTMLScriptElement | null;
-    if (existing) {
-      if (w.gapi) ready(); else existing.addEventListener('load', ready);
-      return;
-    }
-    const s = document.createElement('script');
-    s.id = 'gapi-script';
-    s.src = 'https://apis.google.com/js/api.js';
-    s.onload = ready;
-    s.onerror = () => reject(new Error('Failed to load Google API script'));
-    document.body.appendChild(s);
-  });
-}
 
 function IntegrationsTab({ brandId }: { brandId: string }) {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -641,6 +623,12 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
   const [fbModal, setFbModal]       = useState<{ sessionId: string; pages: { id: string; name: string }[] } | null>(null);
   const [driveRoot, setDriveRoot]   = useState<{ id: string; name: string } | null>(null);
   const [toast, setToast]           = useState<string | null>(null);
+  const [folderModalOpen, setFolderModalOpen]       = useState(false);
+  const [folderModalCurrent, setFolderModalCurrent] = useState<{ id: string; name: string }>({ id: 'root', name: 'My Drive' });
+  const [folderModalStack, setFolderModalStack]     = useState<{ id: string; name: string }[]>([]);
+  const [folderModalFolders, setFolderModalFolders] = useState<{ id: string; name: string }[]>([]);
+  const [folderModalLoading, setFolderModalLoading] = useState(false);
+  const [folderModalError, setFolderModalError]     = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showToast(msg: string) {
@@ -750,39 +738,36 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
     }
   }
 
-  async function handleChooseDriveFolder() {
+  async function loadFolderModalDir(folder: { id: string; name: string }, stack: { id: string; name: string }[]) {
+    setFolderModalLoading(true);
+    setFolderModalFolders([]);
+    setFolderModalError(null);
     try {
-      const cfg = await api.getDrivePickerConfig(brandId);
-      await loadGapiPicker();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const g = (window as any).google;
-      const view = new g.picker.DocsView(g.picker.ViewId.FOLDERS)
-        .setSelectFolderEnabled(true)
-        .setMimeTypes('application/vnd.google-apps.folder');
-      const picker = new g.picker.PickerBuilder()
-        .setOAuthToken(cfg.access_token)
-        .setDeveloperKey(cfg.api_key)
-        .setAppId(cfg.app_id)
-        .addView(view)
-        .enableFeature(g.picker.Feature.SUPPORT_DRIVES)
-        .setTitle("Choose the root folder for this brand's assets")
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .setCallback(async (data: any) => {
-          if (data.action !== g.picker.Action.PICKED) return;
-          const doc = data.docs?.[0];
-          if (!doc) return;
-          try {
-            await api.setDriveRoot(brandId, doc.id, doc.name, doc.url || undefined);
-            setDriveRoot({ id: doc.id, name: doc.name });
-            showToast(`✅ Asset root set to "${doc.name}"`);
-          } catch {
-            showToast('⚠️ Could not save folder — try again');
-          }
-        })
-        .build();
-      picker.setVisible(true);
-    } catch (e: unknown) {
-      showToast(`⚠️ Could not open picker — ${e instanceof Error ? e.message : 'check GOOGLE_PICKER_API_KEY'}`);
+      const res = await api.listDriveFolders(brandId, folder.id);
+      setFolderModalCurrent(folder.id === 'root' ? { id: 'root', name: 'My Drive' } : folder);
+      setFolderModalStack(stack);
+      setFolderModalFolders(res.folders || []);
+    } catch (e) {
+      setFolderModalError(e instanceof Error ? e.message : 'Could not load Drive.');
+    } finally {
+      setFolderModalLoading(false);
+    }
+  }
+
+  async function handleChooseDriveFolder() {
+    setFolderModalOpen(true);
+    await loadFolderModalDir({ id: 'root', name: 'My Drive' }, []);
+  }
+
+  async function handleSelectDriveFolder() {
+    if (!folderModalCurrent || folderModalCurrent.id === 'root') return;
+    try {
+      await api.setDriveRoot(brandId, folderModalCurrent.id, folderModalCurrent.name);
+      setDriveRoot({ id: folderModalCurrent.id, name: folderModalCurrent.name });
+      setFolderModalOpen(false);
+      showToast(`✅ Asset root set to "${folderModalCurrent.name}"`);
+    } catch {
+      showToast('⚠️ Could not save folder — try again');
     }
   }
 
@@ -816,6 +801,68 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
               ))}
             </div>
             <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => setFbModal(null)}>Cancel</button>
+          </div>
+        </div>
+      )}
+
+      {folderModalOpen && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+          onClick={e => { if (e.target === e.currentTarget) setFolderModalOpen(false); }}>
+          <div style={{ background: '#fff', borderRadius: 14, padding: 24, width: 480, maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 12 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ fontWeight: 700, fontSize: 15 }}>Choose asset root folder</div>
+              <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#6b7280' }} onClick={() => setFolderModalOpen(false)}>✕</button>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', fontSize: 12, color: '#6b7280', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '7px 9px', minHeight: 34 }}>
+              {folderModalStack.length === 0 ? (
+                <span>📁 <strong style={{ color: '#111827' }}>My Drive</strong></span>
+              ) : (
+                <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: 11 }} disabled={folderModalLoading}
+                  onClick={() => loadFolderModalDir({ id: 'root', name: 'My Drive' }, [])}>
+                  📁 My Drive
+                </button>
+              )}
+              {folderModalStack.map((item, i) => (
+                <span key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                  <span style={{ color: '#9ca3af' }}>›</span>
+                  {i < folderModalStack.length - 1 ? (
+                    <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: 11 }} disabled={folderModalLoading}
+                      onClick={() => {
+                        const newStack = folderModalStack.slice(0, i + 1);
+                        loadFolderModalDir(item, newStack);
+                      }}>
+                      {item.name}
+                    </button>
+                  ) : (
+                    <span>📁 <strong style={{ color: '#111827' }}>{item.name}</strong></span>
+                  )}
+                </span>
+              ))}
+            </div>
+            {folderModalLoading && <div style={{ color: '#6b7280', fontSize: 13 }}>Loading…</div>}
+            {folderModalError && <div style={{ color: '#ef4444', fontSize: 13 }}>{folderModalError}</div>}
+            {!folderModalLoading && !folderModalError && folderModalFolders.length === 0 && (
+              <div style={{ color: '#6b7280', fontSize: 13 }}>No subfolders here.</div>
+            )}
+            {!folderModalLoading && folderModalFolders.length > 0 && (
+              <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                {folderModalFolders.map(f => (
+                  <button key={f.id}
+                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 7, cursor: 'pointer', textAlign: 'left', fontSize: 13 }}
+                    onClick={() => loadFolderModalDir(f, [...folderModalStack, f])}>
+                    <span style={{ fontSize: 18, flexShrink: 0 }}>📁</span>
+                    <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
+                    <span style={{ marginLeft: 'auto', color: '#9a3412', fontSize: 11, flexShrink: 0 }}>Open →</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 4, borderTop: '1px solid #e5e7eb' }}>
+              <button className="btn btn-ghost btn-sm" onClick={() => setFolderModalOpen(false)}>Cancel</button>
+              <button className="btn btn-primary btn-sm" disabled={folderModalCurrent.id === 'root' || folderModalLoading} onClick={handleSelectDriveFolder}>
+                Select "{folderModalCurrent.id === 'root' ? 'My Drive' : folderModalCurrent.name}"
+              </button>
+            </div>
           </div>
         </div>
       )}

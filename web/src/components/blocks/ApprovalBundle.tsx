@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, type ReactNode } from 'react';
 import { api } from '../../api/client';
 import { useUI } from '../../context/UIContext';
 import { GoogleSearchPreview } from './previews/GoogleSearchPreview';
@@ -13,6 +13,7 @@ import type { ChatHistoryItem, RunResponse } from '../../api/types';
 
 type DriveFile = { id: string; name: string; mimeType: string; size?: number; webViewLink?: string; thumbnailLink?: string };
 type DriveFolder = { id: string; name: string };
+type DriveMediaKind = 'image' | 'video';
 type SocialConnection = { id: string; brand_id: string | null; platform: string; page_id: string; page_name: string | null; page_handle: string | null; status: string };
 type PublishOption = { action: string; moduleId: string; label: string; platform: string; connected: boolean; accountLabel?: string };
 
@@ -125,6 +126,41 @@ function buildPublishOptions(actionModules: Record<string, string> | undefined, 
       accountLabel: connection?.page_name || connection?.page_handle || connection?.page_id,
     };
   });
+}
+
+function DriveSwapContainer({
+  kind,
+  selectedFile,
+  onSwap,
+  onClear,
+  children,
+}: {
+  kind: DriveMediaKind;
+  selectedFile?: DriveFile | null;
+  onSwap: () => void;
+  onClear?: () => void;
+  children: ReactNode;
+}) {
+  const label = kind === 'video' ? 'Video' : 'Image';
+  return (
+    <div style={{ width: '100%', maxWidth: 540, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', background: '#fff', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', borderBottom: '1px solid #eef2f7', background: '#fbfbfa' }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div style={{ fontSize: 10, fontWeight: 900, color: '#826D40', textTransform: 'uppercase', letterSpacing: '.08em' }}>{label} artifact</div>
+          <div style={{ fontSize: 11, color: selectedFile ? '#166534' : '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            {selectedFile ? `Using Drive ${kind}: ${selectedFile.name}` : `Generated ${kind} · can be swapped from Google Drive`}
+          </div>
+        </div>
+        {selectedFile && onClear && (
+          <button className="artifact-btn ghost" style={{ flexShrink: 0 }} onClick={onClear}>Use generated</button>
+        )}
+        <button className="artifact-btn ghost" style={{ flexShrink: 0 }} onClick={onSwap}>Swap · Drive</button>
+      </div>
+      <div style={{ padding: 12, display: 'flex', justifyContent: 'center', background: '#f9fafb' }}>
+        {children}
+      </div>
+    </div>
+  );
 }
 
 export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, onDismissed, revisionHistory = [] }: ApprovalBundleProps) {
@@ -382,10 +418,10 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
         setDriveError('No active brand — select a brand first.');
         return;
       }
-      const foldersRes = await api.listDriveFolders(brandId, folder?.id);
+      const foldersRes = await api.listDriveFolders(brandId, folder?.id ?? 'root');
       const currentFolder = folder || {
         id: (foldersRes as any).folder_id || 'root',
-        name: (foldersRes as any).folder_name || 'Drive assets',
+        name: (foldersRes as any).folder_name || 'My Drive',
       };
       const filesRes = await api.listDriveImages(brandId, currentFolder.id, mediaType);
       setDriveCurrentFolder(currentFolder);
@@ -657,9 +693,13 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     if (result.block?.type === 'creative_post_asset' && result.block?.status === 'succeeded') {
       const b = result.block;
       const src = swappedAttachment
-        ? (swappedAttachment.thumbnailLink || undefined)
+        ? swappedAttachment.thumbnailLink
         : b.image_data_b64 ? `data:${b.mime_type || 'image/png'};base64,${b.image_data_b64}` : undefined;
-      return <FacebookFeedPreview pageName={brandName} adCopy={editedCaption || b.caption || 'Caption pending'} imageUrl={src} ctaText={b.cta || 'Learn More'} />;
+      return (
+        <DriveSwapContainer kind="image" selectedFile={swappedAttachment} onSwap={() => openDrivePicker('image')} onClear={() => setSwappedAttachment(null)}>
+          <FacebookFeedPreview pageName={brandName} adCopy={editedCaption || b.caption || 'Caption pending'} imageUrl={src} ctaText={b.cta || 'Learn More'} />
+        </DriveSwapContainer>
+      );
     }
     if (channel.includes('facebook')) {
       return <FacebookFeedPreview pageName={brandName} adCopy={result.content || 'Copy missing'} ctaText={result.cta || 'Learn More'} />;
@@ -902,20 +942,26 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
 
     if (result.block?.type === 'image_asset' && result.block?.image_data_b64) {
       const { image_data_b64, mime_type, prompt, width, height } = result.block;
-      const src = `data:${mime_type || 'image/png'};base64,${image_data_b64}`;
+      const src = swappedAttachment ? swappedAttachment.thumbnailLink : `data:${mime_type || 'image/png'};base64,${image_data_b64}`;
       return (
-        <div style={{ textAlign: 'center', padding: '12px 0' }}>
-          <img
-            src={src}
-            alt={prompt || 'Generated image'}
-            style={{ maxWidth: '100%', borderRadius: 10, display: 'block', margin: '0 auto' }}
-          />
-          {prompt && (
-            <div style={{ color: '#888', fontSize: 11, marginTop: 8, fontStyle: 'italic' }}>
-              {width && height ? `${width}×${height} · ` : ''}{prompt}
-            </div>
-          )}
-        </div>
+        <DriveSwapContainer kind="image" selectedFile={swappedAttachment} onSwap={() => openDrivePicker('image')} onClear={() => setSwappedAttachment(null)}>
+          <div style={{ textAlign: 'center', padding: '12px 0', width: '100%' }}>
+            {src ? (
+              <img
+                src={src}
+                alt={swappedAttachment?.name || prompt || 'Generated image'}
+                style={{ maxWidth: '100%', borderRadius: 10, display: 'block', margin: '0 auto' }}
+              />
+            ) : (
+              <div style={{ minHeight: 220, border: '1px dashed #d1d5db', borderRadius: 10, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af' }}>Selected Drive image preview unavailable</div>
+            )}
+            {prompt && !swappedAttachment && (
+              <div style={{ color: '#888', fontSize: 11, marginTop: 8, fontStyle: 'italic' }}>
+                {width && height ? `${width}×${height} · ` : ''}{prompt}
+              </div>
+            )}
+          </div>
+        </DriveSwapContainer>
       );
     }
 
@@ -1019,15 +1065,17 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
       }
       const filename = (b.video_path || '').split('/').pop();
       const videoSrc = filename ? `/api/media/video/${filename}` : b.video_url;
-      const swappedSrc = swappedVideo
-        ? (swappedVideo.thumbnailLink || undefined)
-        : undefined;
-      return <FacebookFeedPreview
-        pageName={brandName}
-        adCopy={editedHookText || b.hook_text || ''}
-        videoSrc={swappedSrc || videoSrc}
-        ctaText={editedCtaText || b.cta_text || 'Learn More'}
-      />;
+      return (
+        <DriveSwapContainer kind="video" selectedFile={swappedVideo} onSwap={() => openDrivePicker('video')} onClear={() => setSwappedVideo(null)}>
+          <FacebookFeedPreview
+            pageName={brandName}
+            adCopy={editedHookText || b.hook_text || ''}
+            videoSrc={swappedVideo ? undefined : videoSrc}
+            imageUrl={swappedVideo?.thumbnailLink}
+            ctaText={editedCtaText || b.cta_text || 'Learn More'}
+          />
+        </DriveSwapContainer>
+      );
     }
 
     return (

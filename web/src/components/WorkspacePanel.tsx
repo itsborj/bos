@@ -100,17 +100,17 @@ function RunDetailView({ run, onBack }: { run: RunResponse; onBack: () => void }
     <div>
       <button
         onClick={onBack}
-        style={{ background: 'none', border: 'none', color: '#6b7280', fontSize: 12, cursor: 'pointer', padding: '0 0 12px', display: 'flex', alignItems: 'center', gap: 4 }}
+        style={{ background: 'none', border: 'none', color: 'var(--ink-muted)', fontSize: 12, cursor: 'pointer', padding: '0 0 12px', display: 'flex', alignItems: 'center', gap: 4 }}
       >
         ← Back
       </button>
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-        <span style={{ fontWeight: 700, fontSize: 13, textTransform: 'capitalize' }}>{artifactLabel(currentRun)}</span>
-        <span style={{ fontSize: 11, color: checkOk ? '#16a34a' : '#d97706' }}>
+        <span style={{ fontWeight: 700, fontSize: 13, textTransform: 'capitalize', color: 'var(--brand)' }}>{artifactLabel(currentRun)}</span>
+        <span style={{ fontSize: 11, color: checkOk ? 'var(--active-green)' : 'var(--warning-amber)' }}>
           {checkOk ? 'Ready for review' : 'Review recommended'}
         </span>
       </div>
-      <div style={{ fontSize: 11, color: '#9ca3af', marginBottom: 12 }}>
+      <div style={{ fontSize: 11, color: 'var(--ink-muted)', marginBottom: 12 }}>
         Artifact review · technical details are inside System details
       </div>
       {currentRun.result?.content && (
@@ -118,7 +118,8 @@ function RunDetailView({ run, onBack }: { run: RunResponse; onBack: () => void }
           <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: 6 }}>
             <button
               onClick={handleCopy}
-              style={{ fontSize: 11, padding: '3px 10px', border: '1px solid #e5e7eb', borderRadius: 4, background: '#fff', cursor: 'pointer', color: '#374151' }}
+              className="btn btn-secondary"
+              style={{ fontSize: 11, padding: '3px 10px' }}
             >
               {copied ? '✓ Copied' : isPlanArtifact ? 'Copy plan' : 'Copy'}
             </button>

@@ -8,3 +8,10 @@ class DeclarativeBase:
     Real SQLAlchemy adds metadata handling; here we only need an empty class.
     """
     pass
+
+class Mapped:
+    def __class_getitem__(cls, item):
+        return cls
+
+def mapped_column(*args, **kwargs):
+    return None

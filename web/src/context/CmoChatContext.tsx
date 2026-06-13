@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { buildArtifactRef } from '../utils/artifacts';
 import type { ArtifactRef } from '../utils/artifacts';
-import type { ChatHistoryItem, CouncilFinalizeResult, CouncilSessionState, HandoffBriefOut, KlarAction, ObjectiveOut, RunResponse } from '../api/types';
+import type { ChatHistoryItem, ChatReference, CouncilFinalizeResult, CouncilSessionState, HandoffBriefOut, KlarAction, ObjectiveOut, RunResponse } from '../api/types';
 import { useUI } from './UIContext';
 
 export type MsgRole = 'ai' | 'user';
@@ -33,6 +33,7 @@ export interface Msg {
   handoffBrief?: HandoffBriefOut;
   councilRound?: CouncilRoundMsg;
   councilBrief?: CouncilFinalizeResult;
+  references?: ChatReference[];
 }
 
 export interface StreamCardCtx {
@@ -87,6 +88,10 @@ export interface CmoChatContextValue {
   streamCardCtx: StreamCardCtx | null;
   activeObjective: ObjectiveOut | null;
   activeCouncilSession: ActiveCouncilSession | null;
+  pendingReferences: ChatReference[];
+  addReference: (ref: ChatReference) => void;
+  removeReference: (index: number) => void;
+  clearReferences: () => void;
   send: (text: string, opts?: { skipUserMessage?: boolean }) => Promise<void>;
   councilPass: () => Promise<void>;
   councilFinalize: () => Promise<void>;
@@ -110,6 +115,7 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
   const [streamCardCtx, setStreamCardCtx] = useState<StreamCardCtx | null>(null);
   const [activeObjective, setActiveObjective] = useState<ObjectiveOut | null>(null);
   const [activeCouncilSession, setActiveCouncilSession] = useState<ActiveCouncilSession | null>(null);
+  const [pendingReferences, setPendingReferences] = useState<ChatReference[]>([]);
   const skipNextSaveRef = useRef(false);
 
   useEffect(() => {
@@ -117,6 +123,7 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
     setMsgs(readStoredMessages(activeBrand?.id));
     setStreamCardCtx(null);
     setActiveCouncilSession(null);
+    setPendingReferences([]);
   }, [activeBrand?.id]);
 
   useEffect(() => {
@@ -125,11 +132,32 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     const key = chatStorageKey(activeBrand?.id);
-    const toSave = msgs.filter(m => m.text !== '__typing__' && !m.outcomeForm);
-    if (toSave.length > 0) {
-      localStorage.setItem(key, JSON.stringify(toSave));
-    } else {
-      localStorage.removeItem(key);
+    const toSave = msgs
+      .filter(m => m.text !== '__typing__' && !m.outcomeForm)
+      .map(m => ({
+        ...m,
+        references: m.references?.map(r => {
+          // strip base64 blobs from inline images
+          if (r.kind === 'image' && r.source === 'inline') return { ...r, text: undefined };
+          // cap text refs at 20K chars
+          if (r.kind === 'text' && r.text && r.text.length > 20_000) return { ...r, text: r.text.slice(0, 20_000) + '\n[truncated]' };
+          return r;
+        }),
+      }));
+    try {
+      if (toSave.length > 0) {
+        localStorage.setItem(key, JSON.stringify(toSave));
+      } else {
+        localStorage.removeItem(key);
+      }
+    } catch {
+      // quota exceeded — keep the last 10 messages only
+      try {
+        const trimmed = toSave.slice(-10);
+        localStorage.setItem(key, JSON.stringify(trimmed));
+      } catch {
+        localStorage.removeItem(key);
+      }
     }
     window.dispatchEvent(new CustomEvent('bos:chat-updated'));
   }, [activeBrand?.id, msgs]);
@@ -219,10 +247,23 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  function addReference(ref: ChatReference) {
+    setPendingReferences(prev => [...prev, ref].slice(0, 8));
+  }
+
+  function removeReference(index: number) {
+    setPendingReferences(prev => prev.filter((_, i) => i !== index));
+  }
+
+  function clearReferences() {
+    setPendingReferences([]);
+  }
+
   async function send(text: string, { skipUserMessage = false } = {}) {
     if (busy) return;
     const trimmed = text.trim();
     if (!trimmed) return;
+    const referencesForTurn = pendingReferences;
 
     // Route to council c6-respond when a session is active
     if (activeCouncilSession?.status === 'awaiting_c6') {
@@ -245,15 +286,16 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
     const history = buildHistory(msgs);
 
     if (!skipUserMessage) {
-      setMsgs(m => [...m, { id: uid(), role: 'user', text: trimmed, time: new Date() }]);
+      setMsgs(m => [...m, { id: uid(), role: 'user', text: trimmed, references: referencesForTurn, time: new Date() }]);
     }
+    setPendingReferences([]);
     setBusy(true);
 
     const typingId = uid();
     setMsgs(m => [...m, { id: typingId, role: 'ai', text: '__typing__', steps: [], time: new Date() }]);
 
     try {
-      for await (const event of api.chatStream(trimmed, history, activeBrand?.id ?? null, activeCampaign?.id ?? null)) {
+      for await (const event of api.chatStream(trimmed, history, activeBrand?.id ?? null, activeCampaign?.id ?? null, referencesForTurn)) {
         if (event.type === 'step') {
           setMsgs(m => m.map(msg =>
             msg.id === typingId ? { ...msg, steps: [...(msg.steps ?? []), event.label] } : msg
@@ -341,6 +383,7 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
   return (
     <CmoChatContext.Provider value={{
       msgs, busy, streamCardCtx, activeObjective, activeCouncilSession,
+      pendingReferences, addReference, removeReference, clearReferences,
       send, councilPass, councilFinalize, handleOutcomeConfirm, handleOutcomeCancel,
     }}>
       {children}

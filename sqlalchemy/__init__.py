@@ -3,6 +3,23 @@ Provides minimal symbols required for imports in the BOS codebase.
 This is NOT a functional ORM – just enough to satisfy type checking and imports.
 """
 
+class _Type:
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+
+class String(_Type): pass
+class Text(_Type): pass
+class DateTime(_Type): pass
+class Integer(_Type): pass
+class Float(_Type): pass
+class Boolean(_Type): pass
+class JSON(_Type): pass
+
+class ForeignKey(_Type): pass
+class UniqueConstraint(_Type): pass
+class Column(_Type): pass
+
 class _Func:
     def __getattr__(self, name):
         def _call(*args, **kwargs):
@@ -14,12 +31,33 @@ class _Func:
 
 func = _Func()
 
-# Export a simple ``select`` function used in the code.
+class _Statement:
+    def __init__(self, *args, **kwargs):
+        self.args = args
+        self.kwargs = kwargs
+    def where(self, *args, **kwargs):
+        return self
+    def order_by(self, *args, **kwargs):
+        return self
+    def limit(self, *args, **kwargs):
+        return self
+    def offset(self, *args, **kwargs):
+        return self
+    def values(self, *args, **kwargs):
+        return self
+    def returning(self, *args, **kwargs):
+        return self
+
+# Export simple statement builders used in the code.
 def select(*args, **kwargs):
     """Return a placeholder representing a SELECT statement.
     The actual query execution is not needed for unit tests.
     """
-    return (args, kwargs)
+    return _Statement(*args, **kwargs)
+
+def delete(*args, **kwargs):
+    """Return a placeholder representing a DELETE statement."""
+    return _Statement(*args, **kwargs)
 
 # Stub for ``create_async_engine`` used in ``api/db.py``.
 def create_async_engine(url, **kwargs):

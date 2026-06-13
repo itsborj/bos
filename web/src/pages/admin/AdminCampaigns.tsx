@@ -85,8 +85,8 @@ export function AdminCampaigns() {
     <div className="admin-page">
       <div className="admin-page-header">
         <div>
-          <div className="admin-page-title">Campaigns</div>
-          <div className="admin-page-subtitle">Track briefs from draft through to completion</div>
+          <div className="admin-page-title">Campaign Board</div>
+          <div className="admin-page-subtitle">Track client campaigns from brief to approval, delivery, and reporting.</div>
         </div>
         {!adding && (
           <button className="btn btn-dark" onClick={() => setAdding(true)}>

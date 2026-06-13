@@ -56,8 +56,8 @@ export function AdminAgentActivity() {
     <div className="admin-page">
       <div className="admin-page-header">
         <div>
-          <div className="admin-page-title">Agent Activity</div>
-          <div className="admin-page-subtitle">Live view of agent-initiated work and the human review queue</div>
+          <div className="admin-page-title">Approvals</div>
+          <div className="admin-page-subtitle">Human review queue for generated client work before external action.</div>
         </div>
         <button className="btn btn-secondary btn-sm" onClick={load}>Refresh</button>
       </div>
@@ -110,7 +110,7 @@ export function AdminAgentActivity() {
             </div>
 
             <div className="admin-card">
-              <div className="admin-card-title">Review Queue</div>
+              <div className="admin-card-title">Approval Queue</div>
               {runs.length === 0 ? (
                 <div className="empty-state" style={{ padding: '28px 0' }}>
                   <div className="empty-state-title">No pending agent work</div>

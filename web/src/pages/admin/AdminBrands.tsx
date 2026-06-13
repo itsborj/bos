@@ -238,9 +238,7 @@ export function AdminBrands() {
     setError(null);
     try {
       const brand = await api.createBrand({ name, voice: '', tone: '', values: [], domain: '', website_url: '', social_handles: {} });
-      setBrands(prev => [brand, ...prev]);
-      setNewName('');
-      setAdding(false);
+      navigate('/admin/onboarding', { state: { brand_id: brand.id, brand_name: brand.name } });
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not create brand');
     } finally {
@@ -624,7 +622,7 @@ export function AdminBrands() {
           </div>
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
           {brands.map(brand => {
             const complete = profileComplete(brand);
             return (
@@ -653,13 +651,13 @@ export function AdminBrands() {
                     {brand.voice && (
                       <div>
                         <div className="label" style={{ marginBottom: 2 }}>Voice</div>
-                        <div style={{ color: 'var(--text2)' }}>{brand.voice}</div>
+                        <div style={{ color: 'var(--text2)', overflowWrap: 'break-word' }}>{brand.voice}</div>
                       </div>
                     )}
                     {brand.tone && (
                       <div>
                         <div className="label" style={{ marginBottom: 2 }}>Tone</div>
-                        <div style={{ color: 'var(--text2)' }}>{brand.tone}</div>
+                        <div style={{ color: 'var(--text2)', overflowWrap: 'break-word' }}>{brand.tone}</div>
                       </div>
                     )}
                     {brand.values?.length > 0 && (
@@ -693,8 +691,8 @@ export function AdminBrands() {
                         <span style={{ fontSize: 13 }}>📘</span>
                         {fbConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{fbConn.page_name || fbConn.page_id}</span>
-                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fbConn.page_name || fbConn.page_id}</span>
+                            <span style={{ color: 'var(--success)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>✓</span>
                             <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectFacebook(brand.id)}>Disconnect</button>
                           </>
                         ) : (
@@ -715,8 +713,8 @@ export function AdminBrands() {
                         <span style={{ fontSize: 13 }}>▶️</span>
                         {ytConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{ytConn.page_name || ytConn.page_id}</span>
-                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ytConn.page_name || ytConn.page_id}</span>
+                            <span style={{ color: 'var(--success)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>✓</span>
                             <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectYouTube(brand.id)}>Disconnect</button>
                           </>
                         ) : (
@@ -737,8 +735,8 @@ export function AdminBrands() {
                         <span style={{ fontSize: 13 }}>🎵</span>
                         {ttConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{ttConn.page_name || ttConn.page_id}</span>
-                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ttConn.page_name || ttConn.page_id}</span>
+                            <span style={{ color: 'var(--success)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>✓</span>
                             <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectTikTok(brand.id)}>Disconnect</button>
                           </>
                         ) : (
@@ -759,11 +757,11 @@ export function AdminBrands() {
                         <span style={{ fontSize: 13 }}>🗂️</span>
                         {gdConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {driveRoots[brand.id]?.name ? `Root: ${driveRoots[brand.id].name}` : (gdConn.page_name || gdConn.page_id)}
                             </span>
-                            <span className={`status-badge ${gdConn.status === 'connected' ? 'approved' : 'pending'}`} style={{ fontSize: 10 }}>
-                              {gdConn.status === 'connected' ? 'Connected' : 'Reconnect required'}
+                            <span style={{ color: gdConn.status === 'connected' ? 'var(--success)' : 'var(--warning-amber)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>
+                              {gdConn.status === 'connected' ? '✓' : '⚠'}
                             </span>
                             {gdConn.status === 'connected' ? (
                               <button className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleChooseDriveFolder(brand.id)}>
@@ -794,9 +792,9 @@ export function AdminBrands() {
                         <span style={{ fontSize: 13 }}>📍</span>
                         {gbpConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>{gbpConn.page_name || gbpConn.page_id}</span>
-                            <span className={`status-badge ${gbpConn.status === 'connected' ? 'approved' : 'pending'}`} style={{ fontSize: 10 }}>
-                              {gbpConn.status === 'connected' ? 'Connected' : 'Setup blocked'}
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{gbpConn.page_name || gbpConn.page_id}</span>
+                            <span style={{ color: gbpConn.status === 'connected' ? 'var(--success)' : 'var(--warning-amber)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>
+                              {gbpConn.status === 'connected' ? '✓' : '⚠'}
                             </span>
                             {gbpConn.status !== 'connected' && (
                               <button className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleConnectGoogleBusiness(brand.id)} disabled={connectingId === brand.id + '_google_business'}>
@@ -823,10 +821,10 @@ export function AdminBrands() {
                         <span style={{ fontSize: 13 }}>✉️</span>
                         {gmConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {gmConn.page_name || gmConn.page_id}
                             </span>
-                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <span style={{ color: 'var(--success)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>✓</span>
                             <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectGmail(brand.id)}>
                               Disconnect
                             </button>
@@ -849,10 +847,10 @@ export function AdminBrands() {
                         <span style={{ fontSize: 13 }}>📅</span>
                         {gcConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1 }}>
+                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {gcConn.page_name || gcConn.page_id}
                             </span>
-                            <span className="status-badge approved" style={{ fontSize: 10 }}>Connected</span>
+                            <span style={{ color: 'var(--success)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>✓</span>
                             <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectCalendar(brand.id)}>
                               Disconnect
                             </button>

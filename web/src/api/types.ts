@@ -366,6 +366,23 @@ export interface ChatHistoryItem {
   text: string;
 }
 
+export interface ChatReference {
+  kind: 'text' | 'image' | 'document';
+  source: 'inline' | 'google_drive';
+  title?: string;
+  notes?: string;
+  text?: string;
+  drive_file_id?: string;
+  drive_file_name?: string;
+  drive_web_view_link?: string;
+  mime_type?: string;
+  thumbnail_link?: string;
+}
+
+export interface DriveReferenceUploadResponse extends ChatReference {
+  drive_folder_id?: string;
+}
+
 export interface KlarAction {
   action: 'brand_switch' | 'brand_clear' | 'plan_draft' | 'plan_confirmed' | 'pending_klar' | 'evaluate_stub' | 'pending_summary' | 'brand_list' | 'council_session';
   data: Record<string, unknown>;
