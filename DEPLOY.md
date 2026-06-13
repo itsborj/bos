@@ -1030,30 +1030,65 @@ STAGING_API_KEY=... ./check-sync.sh
 
 ---
 
+#### C30 — Git push success is not visible as GitHub activity
+**Status:** `HYPOTHESIS — OPEN (2026-06-14)`
+
+A local `git push` can report success while the operator sees no GitHub activity. Treat this as a separate sync layer, not as staging proof. The disconnect may be: looking at the wrong repo/branch/workflow filter, pushing to the wrong remote, branch SHA updated but Actions did not trigger, Actions disabled/queued, or local pre-push/tests succeeded but the remote event is delayed or absent.
+
+**Typical symptoms:**
+- Terminal says `staging -> staging`, but GitHub UI shows no new Actions run or commit activity.
+- Staging stays on an old `git_sha` even after a successful push.
+- Agents say “pushed/deployed” based only on terminal output, while the operator cannot see the corresponding GitHub event.
+
+**Confirm:**
+```bash
+LOCAL_SHA=$(git rev-parse HEAD)
+REMOTE_SHA=$(git ls-remote origin refs/heads/staging | awk '{print $1}')
+printf 'local=%s\nremote=%s\n' "$LOCAL_SHA" "$REMOTE_SHA"
+
+# If GitHub CLI is authenticated, verify Actions explicitly.
+gh run list --branch staging --limit 5 --json databaseId,headSha,status,conclusion,createdAt,displayTitle
+
+# Runtime proof is still required.
+curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'
+```
+
+**Interpretation:**
+- `REMOTE_SHA != LOCAL_SHA` → push did not reach the expected remote/branch; check `git remote -v`, upstream branch, auth, and push output.
+- `REMOTE_SHA == LOCAL_SHA` but no Actions run → GitHub trigger/workflow visibility problem; check workflow filters, Actions status, and whether the UI is on `itsborj/bos` + `staging`.
+- Actions run exists but runtime `git_sha` differs → deploy/build/VDS path problem; continue with C12/C22/C23/C19.
+
+**Rule:** never use local push output alone as proof of deploy activity. A valid staging handoff must name all three SHAs: local `HEAD`, remote `origin/staging`, and runtime `/api/ git_sha`, plus the GitHub Actions run id when available.
+
+**Fix pattern:** extend `check-sync.sh` and CI summaries to print local SHA, remote SHA, latest Actions run SHA/id, and runtime SHA together. If GitHub activity is absent, stop before debugging OAuth/plugins — the code may not have entered the pipeline.
+
+---
+
 ### Process of Elimination
 
 When a feature breaks after a staging deploy, work through in this order:
 
 1. **C26** — If there is any doubt about localhost → staging sync, run the sync ledger first (`./check-sync.sh` once implemented). Do not rely on a single signal.
-2. **C13/C12** — Prove the running code first: `curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'`. If `git_sha` is old/missing/`dev`, this is deploy/code drift. Check the deploy job for that SHA.
-3. **C22** — If `git push` succeeded but staging did not change, check GitHub Actions for image build/push failures such as GHCR `unknown blob` before investigating the VDS.
-4. **C23** — If GitHub deploy is green but `/api/` is 502 or deploy summary says `git_sha: missing`, treat the deploy as failed and inspect post-deploy API/container logs read-only.
-5. **C24** — If API logs show Alembic `value too long for type character varying(32)`, fix migration version storage before investigating UI/plugins.
-6. **C21** — If auth/login/API-key behavior is permissive, run only negative read-only auth tests with fake keys first. Any fake key returning 200 is a security incident.
-7. **C20** — If the symptom is a white screen, inspect browser console/network and asset headers; reproduce the web build locally before touching staging.
-8. **C25** — If API is healthy but Specialists/Admin shows zero, debug plugin discovery/activation only; do not mix with provider-key or brand-state drift yet.
-9. **C29** — If `check-sync.sh` skipped authenticated plugin/provider/social readiness, do not claim feature parity; rerun with `STAGING_API_KEY` or use authenticated readiness probes.
-10. **C27/C28** — If OAuth connect fails or redirects to localhost, validate plugin credential source, singleton workspace lookup, and authorize URL callback host.
-11. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
-12. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
-13. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
-14. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
-15. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
-16. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
-17. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
-18. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
-19. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
-20. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
+2. **C30** — If the operator does not see GitHub activity after a push, prove local SHA, `origin/staging` SHA, latest Actions run SHA/id, and runtime `/api/ git_sha` before debugging the app.
+3. **C13/C12** — Prove the running code first: `curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'`. If `git_sha` is old/missing/`dev`, this is deploy/code drift. Check the deploy job for that SHA.
+4. **C22** — If `git push` succeeded but staging did not change, check GitHub Actions for image build/push failures such as GHCR `unknown blob` before investigating the VDS.
+5. **C23** — If GitHub deploy is green but `/api/` is 502 or deploy summary says `git_sha: missing`, treat the deploy as failed and inspect post-deploy API/container logs read-only.
+6. **C24** — If API logs show Alembic `value too long for type character varying(32)`, fix migration version storage before investigating UI/plugins.
+7. **C21** — If auth/login/API-key behavior is permissive, run only negative read-only auth tests with fake keys first. Any fake key returning 200 is a security incident.
+8. **C20** — If the symptom is a white screen, inspect browser console/network and asset headers; reproduce the web build locally before touching staging.
+9. **C25** — If API is healthy but Specialists/Admin shows zero, debug plugin discovery/activation only; do not mix with provider-key or brand-state drift yet.
+10. **C29** — If `check-sync.sh` skipped authenticated plugin/provider/social readiness, do not claim feature parity; rerun with `STAGING_API_KEY` or use authenticated readiness probes.
+11. **C27/C28** — If OAuth connect fails or redirects to localhost, validate plugin credential source, singleton workspace lookup, and authorize URL callback host.
+12. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
+13. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
+14. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
+15. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
+16. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
+17. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
+18. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
+19. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
+20. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
+21. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
 
 ### Behavior Parity Checklist — deploy is green, output still differs
 
