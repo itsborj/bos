@@ -727,7 +727,7 @@ curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'
 ---
 
 #### C20 — Staging white screen from frontend asset/runtime failure
-**Status:** `HYPOTHESIS — OPEN (2026-06-12)`
+**Status:** `CONFIRMED — FIX IN PROGRESS (2026-06-13)`
 
 `staging.klaroha.com` can show a blank/white screen even when API health is green if the browser cannot load or execute the Vite bundle. Prior INC-008 confirmed one version of this class: Cloudflare returned 502 for the JS bundle when nginx served large assets without correct compression/MIME/cache headers. The same user-visible symptom can also come from a JS runtime exception, stale Cloudflare/browser cache serving an old bundle, a web/API contract mismatch, or deploying API and web images from different SHAs.
 
@@ -747,6 +747,8 @@ curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'
 curl -I https://staging.klaroha.com/
 # Then inspect browser DevTools Console + Network for the first failing JS/CSS/API request.
 ```
+
+**Findings (2026-06-13):** staging API and deploy fingerprint were healthy at commit `dcd821a`, but browser automation reproduced a blank `#root` when `/assets/index-Qw00dZ5e.js` failed with `net::ERR_HTTP2_PROTOCOL_ERROR` / `net::ERR_QUIC_PROTOCOL_ERROR` through Cloudflare. The Vite entry bundle was 733.84 kB minified (182.25 kB gzip). Route-level lazy loading reduced the entry bundle to 348.27 kB minified (99.54 kB gzip) and split pages into small route chunks.
 
 **Rule:** Do not patch files directly on the VDS and do not bypass CI. If the fix is in `web/`, commit it, push to `staging`, let CI build the web image for that SHA, then verify `GET /api/` `git_sha` and the browser asset load. If the fix is config/CDN, document the exact non-code change and add an automation/backlog item.
 
@@ -1125,6 +1127,15 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 - **Current interpretation:** backend discovery is healthy. If the Admin UI still shows zero specialists, the issue is one layer higher: authenticated `/api/plugins`, brand activation/filtering, frontend rendering, or stale browser state.
 - **Debug rule:** one layer at a time. Do not change provider keys, brand data, or activation state until authenticated plugin API output is checked.
 
+#### INC-016 — 2026-06-13 — Staging white screen from Cloudflare/browser JS bundle load failure
+
+- **Status:** FIX IN PROGRESS — local code fix built; needs commit/push/CI deploy verification.
+- **Symptom:** after commit `dcd821a`, `staging.klaroha.com` showed a white screen for the user even though `/api/` returned a healthy runtime fingerprint for the same SHA.
+- **Confirmed by:** Playwright reproduced a blank page with empty `#root` when the browser failed to load `/assets/index-Qw00dZ5e.js` via Cloudflare, reporting `net::ERR_HTTP2_PROTOCOL_ERROR` / `net::ERR_QUIC_PROTOCOL_ERROR`. Curl showed API health and asset headers were otherwise 200.
+- **Root cause class:** C20 — frontend asset delivery/runtime load failure. The entry Vite bundle had grown to 733.84 kB minified (182.25 kB gzip), making the app brittle to Cloudflare/browser transport failures; if that single entry script fails, React never mounts.
+- **Fix in progress:** route-level lazy loading in `web/src/App.tsx` split page/admin bundles and reduced the entry bundle to 348.27 kB minified (99.54 kB gzip). `cd web && npm run build` passes.
+- **Success criteria:** commit and push the fix to `origin/staging`; CI deploy must return expected `git_sha`; browser automation must load staging without JS asset errors and non-empty `#root`.
+
 ---
 
 ## Open Items
@@ -1138,7 +1149,7 @@ Localhost (dev machine) runs `main` branch code via volume mount → all fixes p
 - [ ] **C18:** Update GitHub secret `STAGING_ENV_FILE` with the full known-good staging env, not just ports: `ENV_FILE=.env.staging`, `DATABASE_URL`, `API_SECRET_KEY`, `ENCRYPTION_KEY`, all five staging ports, `PLATFORM_*`, OAuth/provider/plugin keys, and any other staging-critical vars. The script enforcement is a safety net, not a replacement for fixing the secret.
 - [ ] **C18 guard:** Add a CI/deploy fail-closed check that refuses to write/use an empty `STAGING_ENV_FILE` or one missing critical key names. Print key names/counts only — never values.
 - [ ] **C19:** Remove hard-coded `cd ~/bos` / `~/bos/.env.staging` assumptions from `deploy-staging.sh` and `check-staging.sh`; run from `STAGING_PATH`/current checkout and print `pwd`, `git rev-parse HEAD`, and `realpath .env.staging` at start.
-- [ ] **C20:** Debug staging white screen offline first: local `web` typecheck/build, browser console/network evidence, asset headers, and API/web SHA parity. Commit/push any fix through `origin/staging`; do not patch the VDS directly.
+- [ ] **C20:** Deploy and verify route-level frontend code splitting fix for the staging white screen. Local build passes and reduces the entry bundle from 733.84 kB to 348.27 kB; remaining success criteria are CI deploy to `origin/staging`, expected `git_sha`, and browser asset-load retest.
 - [ ] **C21:** Add/verify a negative auth-boundary test using a fake API key against protected endpoints; any HTTP 200 must fail CI/deploy and be logged as a security incident.
 - [ ] **C22:** Investigate GHCR `unknown blob` image-push failure from run `27393507882`; first retry if transient, then inspect buildx/GHCR cache/provenance settings if it recurs. Retry run `27393813054` built/pushed successfully, so treat C22 as transient unless it recurs.
 - [x] **C23:** Make `deploy-staging.sh` fail closed when post-deploy health is invalid (`git_sha: missing`, `uptime_seconds: ?s`, non-JSON, wrong SHA) and add a readiness retry loop before failing. Commit `ac9a80d` implemented this and exposed C24.
