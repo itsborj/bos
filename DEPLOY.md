@@ -891,9 +891,9 @@ curl -s -H "X-API-Key: $KEY" https://staging.klaroha.com/api/agent/capabilities 
 ---
 
 #### C26 — No single localhost → GitHub → staging → browser sync ledger
-**Status:** `PARTIALLY IMPLEMENTED — LOCAL SCRIPT ADDED (2026-06-13)`
+**Status:** `ADVISORY ONLY — NOT FEATURE VALIDATION (2026-06-14)`
 
-BOS currently has several good individual deploy signals, but no single command that proves all sync layers match. This creates repeated frustration: `git push` may succeed, GitHub Actions may be green, and `/api/` may report the expected `git_sha`, while the frontend bundle, browser/CDN cache, env config, plugin readiness, or DB state is still divergent.
+BOS currently has several individual deploy signals, but the localhost → git push → GitHub Actions → `/api git_sha` chain has repeatedly been mistaken for proof that a feature works. It is not. It only proves some transport/sync layers. `git push` may succeed, GitHub Actions may be green, and `/api/` may report the expected `git_sha`, while the browser, env config, plugin readiness, OAuth app scopes, token exchange, brand state, or DB state is still broken.
 
 **Typical symptoms:**
 - “localhost and staging are never in sync” despite a recent commit/push
@@ -902,9 +902,11 @@ BOS currently has several good individual deploy signals, but no single command 
 - GitHub Actions is green but no one can answer which local commit, web bundle hash, runtime API SHA, plugin count, and browser-loaded asset are actually active
 - agents report “deployed” based on one layer instead of proving all layers
 
-**Required solution: `check-sync.sh`**
+**Do not use as final validation:** `check-sync.sh` / local-to-staging SHA checks must never be the final answer to "does it work?" They are deployment transport checks only. For OAuth, publishing, media, billing, or any user-facing feature, require a feature-specific live proof after the sync check.
 
-Add one operator command that compares all required layers without leaking secrets:
+**Advisory tool: `check-sync.sh`**
+
+One operator command compares deploy transport layers without leaking secrets:
 
 ```bash
 ./check-sync.sh
@@ -948,7 +950,9 @@ STAGING
 - fake API key returns anything other than 401/403 on a protected endpoint
 - plugin count is below the expected minimum once that minimum is defined
 
-**Rule:** Do not say “staging is synced” or “the deploy worked” unless this sync check passes. API `git_sha` is necessary but not sufficient; it proves only the API image, not the frontend, CDN/browser asset load, config readiness, or state parity.
+**Rule:** Do not say “staging is synced” unless this sync check passes. Do not say “the feature works” from this check alone. API `git_sha` is necessary but not sufficient; it proves only the API image, not the frontend, CDN/browser asset load, config readiness, OAuth readiness, or state parity.
+
+**Feature proof required after sync:** every deploy claim must include the feature's own success signal. The required proof depends on the feature: a real browser/user flow, an authenticated API state check, persisted DB/API output, and any external-provider confirmation needed for that feature. Transport checks are never enough.
 
 **Scale alignment:** At 10K org scale, support cannot SSH into individual deployments to infer drift. Each deployment needs a machine-readable sync report that an operator can run and share without exposing secrets.
 
@@ -992,9 +996,12 @@ Even when credentials exist, an OAuth flow can appear to “be on localhost” i
 - Facebook authorize URL contains `redirect_uri=http://localhost...`.
 - `/api/` reports the correct git SHA, but OAuth behavior reflects local `.env` or stale plugin vars.
 
-**Confirm without leaking secrets:**
+**Do not use as validation:** Meta's dashboard **Redirect URI Validator** is not a reliable pass/fail signal for BOS. It can report an exact URI as invalid even when the real OAuth dialog accepts it, and it does not test BOS runtime config, state/session storage, app scopes, or token exchange. Do not block or approve deploys from that validator.
+
+**Confirm without leaking secrets:** use live OAuth behavior and BOS runtime outputs only.
+
+1. Start the flow from BOS and inspect the generated authorize URL:
 ```bash
-# Start the flow with a staging API key and inspect only hosts.
 curl -s -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
   -d '{"brand_id":"<brand_id>","platform":"facebook"}' \
   https://staging.klaroha.com/api/social/connect/start \
@@ -1003,11 +1010,40 @@ curl -s -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
 import sys, urllib.parse
 u = sys.stdin.read().strip()
 q = urllib.parse.parse_qs(urllib.parse.urlparse(u).query)
+print('client_id=', q.get('client_id', [''])[0])
 print('redirect_uri=', q.get('redirect_uri', [''])[0])
+print('scope=', q.get('scope', [''])[0])
 PY
 ```
+Expected staging redirect:
+```text
+https://staging.klaroha.com/social/facebook/callback
+```
 
-**Fix pattern:** deploy must fail or correct local `FRONTEND_URL` / `META_REDIRECT_URI` in `.env.staging`. Runtime Facebook OAuth must ignore any stored redirect whose host differs from `FRONTEND_URL` and derive from `FRONTEND_URL` instead.
+2. Probe the generated Facebook authorize URL unauthenticated. A valid initial redirect returns `302` to `facebook.com/login.php`; an immediate `URL Blocked` / invalid redirect response is a failure:
+```bash
+AUTH_URL="$(curl -s -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
+  -d '{"brand_id":"<brand_id>","platform":"facebook"}' \
+  https://staging.klaroha.com/api/social/connect/start | jq -r '.authorize_url')"
+curl -sS -I --max-time 20 "$AUTH_URL" | sed -n '1,12p'
+```
+
+3. Complete the flow in a real browser session. The success signals are:
+- no Facebook `Invalid Scopes` page
+- browser reaches `/social/facebook/callback?code=...&state=...`
+- API logs show `GET /social/facebook/callback`
+- if multiple pages are returned, BOS opens the Page picker
+- after selection, `GET /api/social/connections?brand_id=<brand_id>` includes `platform: facebook`, selected `page_id`, and `status: connected`
+
+4. For app/scope debugging, use Graph API Explorer or `/me/permissions` with a fresh token for the same app. Required granted scopes for publish are:
+```text
+pages_show_list
+pages_read_engagement
+pages_manage_posts
+```
+Page discovery must return the target page from `/me/accounts` with publish-capable tasks (`CREATE_CONTENT` / `MANAGE`).
+
+**Fix pattern:** deploy must fail or correct local `FRONTEND_URL` / `META_REDIRECT_URI` in `.env.staging`. Runtime Facebook OAuth must ignore any stored redirect whose host differs from `FRONTEND_URL` and derive from `FRONTEND_URL` instead. Meta dashboard URI validation is advisory only; real OAuth + BOS callback + stored `social_connections` is the proof.
 
 ---
 
@@ -1068,27 +1104,28 @@ curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'
 
 When a feature breaks after a staging deploy, work through in this order:
 
-1. **C26** — If there is any doubt about localhost → staging sync, run the sync ledger first (`./check-sync.sh` once implemented). Do not rely on a single signal.
+1. **C26** — Use sync checks only to prove transport/version alignment. Never treat localhost → push → GitHub → runtime SHA as feature validation.
 2. **C30** — If the operator does not see GitHub activity after a push, prove local SHA, `origin/staging` SHA, latest Actions run SHA/id, and runtime `/api/ git_sha` before debugging the app.
-3. **C13/C12** — Prove the running code first: `curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'`. If `git_sha` is old/missing/`dev`, this is deploy/code drift. Check the deploy job for that SHA.
-4. **C22** — If `git push` succeeded but staging did not change, check GitHub Actions for image build/push failures such as GHCR `unknown blob` before investigating the VDS.
-5. **C23** — If GitHub deploy is green but `/api/` is 502 or deploy summary says `git_sha: missing`, treat the deploy as failed and inspect post-deploy API/container logs read-only.
-6. **C24** — If API logs show Alembic `value too long for type character varying(32)`, fix migration version storage before investigating UI/plugins.
-7. **C21** — If auth/login/API-key behavior is permissive, run only negative read-only auth tests with fake keys first. Any fake key returning 200 is a security incident.
-8. **C20** — If the symptom is a white screen, inspect browser console/network and asset headers; reproduce the web build locally before touching staging.
-9. **C25** — If API is healthy but Specialists/Admin shows zero, debug plugin discovery/activation only; do not mix with provider-key or brand-state drift yet.
-10. **C29** — If `check-sync.sh` skipped authenticated plugin/provider/social readiness, do not claim feature parity; rerun with `STAGING_API_KEY` or use authenticated readiness probes.
-11. **C27/C28** — If OAuth connect fails or redirects to localhost, validate plugin credential source, singleton workspace lookup, and authorize URL callback host.
-12. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
-13. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
-14. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
-15. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
-16. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
-17. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
-18. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
-19. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
-20. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
-21. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
+3. **Feature-specific live proof** — Before declaring success, run the feature's actual acceptance path and verify persisted output/state. Do this even when C26/C30 are green.
+4. **C13/C12** — Prove the running code first: `curl -s https://staging.klaroha.com/api/ | jq '{git_sha, uptime_seconds}'`. If `git_sha` is old/missing/`dev`, this is deploy/code drift. Check the deploy job for that SHA.
+5. **C22** — If `git push` succeeded but staging did not change, check GitHub Actions for image build/push failures such as GHCR `unknown blob` before investigating the VDS.
+6. **C23** — If GitHub deploy is green but `/api/` is 502 or deploy summary says `git_sha: missing`, treat the deploy as failed and inspect post-deploy API/container logs read-only.
+7. **C24** — If API logs show Alembic `value too long for type character varying(32)`, fix migration version storage before investigating UI/plugins.
+8. **C21** — If auth/login/API-key behavior is permissive, run only negative read-only auth tests with fake keys first. Any fake key returning 200 is a security incident.
+9. **C20** — If the symptom is a white screen, inspect browser console/network and asset headers; reproduce the web build locally before touching staging.
+10. **C25** — If API is healthy but Specialists/Admin shows zero, debug plugin discovery/activation only; do not mix with provider-key or brand-state drift yet.
+11. **C29** — If `check-sync.sh` skipped authenticated plugin/provider/social readiness, do not claim feature parity; rerun with `STAGING_API_KEY` or use authenticated readiness probes.
+12. **C27/C28** — If OAuth connect fails or redirects to localhost, validate plugin credential source, singleton workspace lookup, and authorize URL callback host.
+13. **C19** — If CI says it deployed the SHA but runtime disagrees, verify CI and scripts are using the same checkout path (`STAGING_PATH` vs `~/bos`) and the same `.env.staging`.
+14. **C18** — If `git_sha` is correct but behavior is degraded, check whether `STAGING_ENV_FILE` rewrote `.env.staging` blank/partial and removed provider/plugin/API/encryption keys.
+15. **C6** — If deploy jobs run but containers do not restart or ports are stuck, inspect the CI deploy logs and Docker container state.
+16. **C1** — `git diff origin/staging -- api/ web/ plugins/` — uncommitted local edits were not deployed.
+17. **C15** — Did the change touch `web/`? Rebuild local web manually; on staging, confirm the web image for the same SHA was built before deploy.
+18. **C14** — API returning old responses on localhost despite edits? Check `docker compose logs api` for reload failures and restart API.
+19. **C3** — Pre-deploy video assets — check Drive connectivity + `drive_file_id` in DB.
+20. **C4/C8** — diff local `.env` against `.env.example` and compare `/providers`, `/plugins`, `/social/connections` readiness.
+21. **C2/C5** — only if render/import/file errors point there; compare ffmpeg versions and untracked runtime files.
+22. **If deploy + smoke are green but behavior still differs, stop treating it as a pure deploy problem and run the Behavior Parity Checklist below.**
 
 ### Behavior Parity Checklist — deploy is green, output still differs
 
