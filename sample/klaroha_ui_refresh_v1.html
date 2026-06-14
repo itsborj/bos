@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Klaroha BOS — UI Refresh Reference v1</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+
+/* ════════════════════════════════════════════════════════
+   TOKEN SYSTEM
+   Source: Campaign Brand Kit (DB), confirmed 2026-06-14
+   Principle: dark text on light, light text on dark — no exceptions
+════════════════════════════════════════════════════════ */
+:root {
+  /* Brand palette */
+  --racing-green: #0b3d2e;
+  --forest:       #4b7c54;
+  --sage:         #9cbd77;
+  --highlight:    #fffe9c;
+  --amber:        #fcc167;
+  --coral:        #ef8250;
+  --crimson:      #de425b;
+
+  /* Backgrounds */
+  --bg:           #ffffff;
+  --bg-card:      #f5f1e8;
+  --bg-dark:      #080b0d;
+  --bg-card-dark: #101417;
+
+  /* Text — dark/light only, no muted grays */
+  --text:         #0b3d2e;  /* all text on white/ivory */
+  --text-dark:    #f5f1e8;  /* all text on obsidian/green */
+
+  /* Borders */
+  --border:       rgba(11,61,46,.15);
+  --border-ivory: rgba(11,61,46,.10);
+  --border-dark:  rgba(245,241,232,.10);
+
+  /* Typography */
+  --font-h:    'Manrope', system-ui, sans-serif;
+  --font-ui:   'Inter', system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', monospace;
+
+  /* Geometry — square */
+  --r: 2px;
+}
+
+/* ════════════════════════════════════════════════════════
+   RESET
+════════════════════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; }
+body { font-family: var(--font-ui); background: #ddd; color: var(--text); -webkit-font-smoothing: antialiased; }
+button { font-family: inherit; cursor: pointer; border: none; background: none; }
+a { color: inherit; text-decoration: none; }
+code { font-family: var(--font-mono); }
+
+/* ════════════════════════════════════════════════════════
+   PAGE
+════════════════════════════════════════════════════════ */
+.page {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 40px 24px 100px;
+  display: flex;
+  flex-direction: column;
+  gap: 64px;
+}
+.section-label {
+  font-family: var(--font-h);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: #999;
+  margin-bottom: 16px;
+}
+
+/* ════════════════════════════════════════════════════════
+   BUTTONS
+════════════════════════════════════════════════════════ */
+.btn {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 8px 16px;
+  border-radius: var(--r);
+  font-family: var(--font-ui);
+  font-size: 12px; font-weight: 600; letter-spacing: .02em;
+  cursor: pointer;
+  border: .5px solid transparent;
+  white-space: nowrap;
+  transition: opacity .1s;
+}
+.btn:hover    { opacity: .82; }
+.btn:disabled { opacity: .38; cursor: default; }
+.btn-sm { padding: 5px 11px; font-size: 11px; }
+
+.btn-primary   { background: var(--coral);        color: var(--text-dark); border-color: var(--coral); }
+.btn-secondary { background: transparent;          color: var(--racing-green); border-color: var(--racing-green); }
+.btn-ghost     { background: transparent;          color: var(--racing-green); border-color: var(--border); }
+.btn-danger    { background: transparent;          color: var(--crimson); border-color: var(--crimson); }
+.btn-dark-primary { background: var(--coral);     color: var(--text-dark); border-color: var(--coral); }
+.btn-dark-outline { background: transparent;      color: var(--text-dark); border-color: rgba(245,241,232,.3); }
+
+/* ════════════════════════════════════════════════════════
+   BADGES
+════════════════════════════════════════════════════════ */
+.badge {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--r);
+  font-size: 10px; font-weight: 600; letter-spacing: .04em;
+  white-space: nowrap;
+  border: .5px solid transparent;
+}
+.badge-live    { background: rgba(75,124,84,.12);  color: var(--forest);        border-color: rgba(75,124,84,.28); }
+.badge-pending { background: rgba(11,61,46,.06);   color: var(--racing-green);  border-color: var(--border); }
+.badge-warn    { background: rgba(252,193,103,.14);color: #7a5000;              border-color: rgba(252,193,103,.35); }
+.badge-error   { background: rgba(222,66,91,.10);  color: var(--crimson);       border-color: rgba(222,66,91,.25); }
+.badge-sage    { background: rgba(156,189,119,.14);color: var(--sage);          border-color: rgba(156,189,119,.28); }
+
+/* ════════════════════════════════════════════════════════
+   CARD
+════════════════════════════════════════════════════════ */
+.card {
+  background: var(--bg);
+  border: .5px solid var(--border);
+  border-radius: var(--r);
+  padding: 16px 18px;
+}
+.card-ivory {
+  background: var(--bg-card);
+  border: .5px solid var(--border-ivory);
+  border-radius: var(--r);
+  padding: 16px 18px;
+}
+.card-dark {
+  background: var(--bg-card-dark);
+  border: .5px solid var(--border-dark);
+  border-radius: var(--r);
+  padding: 16px 18px;
+}
+.card-title {
+  font-family: var(--font-h);
+  font-size: 11px; font-weight: 700;
+  letter-spacing: .07em; text-transform: uppercase;
+  color: var(--racing-green);
+  margin-bottom: 10px;
+}
+
+/* ════════════════════════════════════════════════════════
+   INPUT / FORM
+════════════════════════════════════════════════════════ */
+.input {
+  width: 100%;
+  padding: 8px 12px;
+  border: .5px solid rgba(11,61,46,.28);
+  border-radius: var(--r);
+  font-size: 13px; font-family: var(--font-ui);
+  background: var(--bg); color: var(--text);
+  outline: none;
+}
+.input:focus { border-color: var(--racing-green); }
+.input::placeholder { color: var(--racing-green); opacity: .28; }
+.input-label {
+  display: block;
+  font-size: 10px; font-weight: 700;
+  letter-spacing: .06em; text-transform: uppercase;
+  color: var(--racing-green);
+  margin-bottom: 5px;
+}
+
+/* ════════════════════════════════════════════════════════
+   TABLE
+════════════════════════════════════════════════════════ */
+.data-table { width: 100%; border-collapse: collapse; }
+.data-table th {
+  text-align: left;
+  font-size: 9px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase;
+  color: var(--racing-green); opacity: .45;
+  padding: 8px 12px;
+  border-bottom: .5px solid var(--border);
+}
+.data-table td {
+  padding: 9px 12px;
+  font-size: 12px; color: var(--racing-green);
+  border-bottom: .5px solid var(--border);
+  vertical-align: middle;
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: rgba(11,61,46,.03); }
+.td-mono { font-family: var(--font-mono); font-size: 11px; }
+
+/* ════════════════════════════════════════════════════════
+   ARTIFACT / STREAM CARD
+════════════════════════════════════════════════════════ */
+.artifact-card {
+  background: var(--bg);
+  border: .5px solid var(--border);
+  border-radius: var(--r);
+  overflow: hidden;
+}
+.artifact-card.pending  { border-color: var(--racing-green); border-left: 2px solid var(--racing-green); }
+.artifact-card.error    { border-color: var(--crimson);      border-left: 2px solid var(--crimson); }
+.artifact-card.resolved { border-color: var(--forest);       border-left: 2px solid var(--forest); }
+
+.artifact-chrome {
+  padding: 11px 14px;
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  border-bottom: .5px solid var(--border);
+}
+.artifact-type-tag {
+  font-size: 9px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: .07em;
+  padding: 2px 7px; border-radius: var(--r);
+  background: rgba(11,61,46,.07);
+  color: var(--racing-green);
+  border: .5px solid var(--border);
+}
+.artifact-type-tag.error { background: rgba(222,66,91,.08); color: var(--crimson); border-color: rgba(222,66,91,.2); }
+.artifact-status-tag {
+  font-size: 9px; font-weight: 600;
+  padding: 2px 7px; border-radius: var(--r);
+  background: rgba(252,193,103,.14); color: #7a5000;
+  border: .5px solid rgba(252,193,103,.3);
+}
+.artifact-body { padding: 14px; }
+.artifact-title {
+  font-family: var(--font-h);
+  font-size: 14px; font-weight: 700;
+  color: var(--racing-green);
+  margin-bottom: 6px;
+}
+.artifact-meta { font-size: 11px; color: var(--racing-green); opacity: .55; margin-bottom: 8px; }
+.artifact-desc { font-size: 12px; color: var(--racing-green); line-height: 1.6; margin-bottom: 10px; }
+.artifact-highlight {
+  background: var(--highlight);
+  border-radius: var(--r);
+  padding: 8px 11px;
+  font-size: 12px; color: var(--racing-green); line-height: 1.55;
+}
+.artifact-actions {
+  padding: 10px 14px;
+  border-top: .5px solid var(--border);
+  display: flex; gap: 6px;
+}
+
+/* ════════════════════════════════════════════════════════
+   APP SHELL
+════════════════════════════════════════════════════════ */
+.app-shell {
+  background: var(--bg);
+  border: .5px solid rgba(0,0,0,.1);
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: 0 6px 40px rgba(0,0,0,.1);
+  display: flex;
+  height: 660px;
+}
+
+/* Sidebar */
+.sidebar {
+  width: 196px; flex-shrink: 0;
+  background: var(--bg);
+  border-right: .5px solid var(--border);
+  display: flex; flex-direction: column;
+}
+.sidebar-logo {
+  padding: 14px;
+  border-bottom: .5px solid var(--border);
+  display: flex; align-items: center; gap: 8px;
+}
+.logo-mark {
+  width: 24px; height: 24px;
+  background: var(--racing-green);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0;
+}
+.logo-mark-text { font-family: var(--font-h); font-size: 10px; font-weight: 800; color: var(--text-dark); }
+.logo-name { font-family: var(--font-h); font-size: 12px; font-weight: 700; color: var(--racing-green); letter-spacing: .22em; text-transform: uppercase; }
+.logo-tagline { font-size: 9px; font-style: italic; color: var(--amber); line-height: 1.3; margin-top: 1px; }
+
+.brand-selector {
+  margin: 8px;
+  padding: 7px 10px;
+  border: .5px solid var(--border);
+  border-radius: var(--r);
+  display: flex; align-items: center;
+  font-size: 12px; font-weight: 500;
+  color: var(--racing-green);
+  cursor: pointer;
+  gap: 7px;
+}
+.brand-selector:hover { background: rgba(11,61,46,.04); }
+.brand-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--forest); flex-shrink: 0; }
+
+.sidebar-nav { flex: 1; padding: 6px 8px; display: flex; flex-direction: column; gap: 1px; }
+.snav {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px;
+  border-radius: var(--r);
+  font-size: 12px; font-weight: 500;
+  color: var(--racing-green);
+  cursor: pointer;
+}
+.snav:hover  { background: rgba(11,61,46,.05); }
+.snav.active { background: var(--racing-green); color: var(--text-dark); font-weight: 600; }
+.snav-icon { width: 13px; height: 13px; flex-shrink: 0; opacity: .6; }
+.snav.active .snav-icon { opacity: 1; }
+
+.sidebar-footer {
+  padding: 10px 8px;
+  border-top: .5px solid var(--border);
+}
+.sf-user {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: var(--r); cursor: pointer;
+}
+.sf-user:hover { background: rgba(11,61,46,.05); }
+.sf-avatar {
+  width: 22px; height: 22px;
+  background: var(--racing-green);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 700; color: var(--text-dark);
+  flex-shrink: 0;
+}
+.sf-name { font-size: 11px; font-weight: 500; color: var(--racing-green); }
+
+/* Main column */
+.main { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+.topbar {
+  height: 50px; padding: 0 20px;
+  border-bottom: .5px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0;
+}
+.topbar-title { font-family: var(--font-h); font-size: 13px; font-weight: 700; color: var(--racing-green); letter-spacing: .12em; text-transform: uppercase; }
+.main-body { flex: 1; overflow: hidden; padding: 18px; display: flex; flex-direction: column; gap: 12px; }
+
+/* CMO Rail */
+.cmo-rail {
+  width: 244px; flex-shrink: 0;
+  background: var(--bg);
+  border-left: .5px solid var(--border);
+  display: flex; flex-direction: column;
+}
+.cmo-header {
+  padding: 12px 14px;
+  border-bottom: .5px solid var(--border);
+  display: flex; align-items: center; gap: 7px;
+  flex-shrink: 0;
+}
+.cmo-live-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--forest); flex-shrink: 0; }
+.cmo-title { font-family: var(--font-h); font-size: 11px; font-weight: 700; color: var(--racing-green); letter-spacing: .16em; text-transform: uppercase; }
+.cmo-context { margin-left: auto; font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--racing-green); opacity: .35; }
+.cmo-feed { flex: 1; overflow: hidden; padding: 9px; display: flex; flex-direction: column; gap: 5px; }
+.cfi {
+  background: rgba(11,61,46,.04);
+  border: .5px solid var(--border);
+  border-left: 2px solid var(--border);
+  padding: 8px 10px; border-radius: var(--r);
+}
+.cfi.good  { border-left-color: var(--forest); }
+.cfi.warn  { border-left-color: var(--amber); }
+.cfi.alert { border-left-color: var(--crimson); }
+.cfi-tag { font-size: 9px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--racing-green); opacity: .42; margin-bottom: 3px; }
+.cfi.good  .cfi-tag { color: var(--forest);  opacity: 1; }
+.cfi.warn  .cfi-tag { color: var(--amber);   opacity: 1; }
+.cfi.alert .cfi-tag { color: var(--crimson); opacity: 1; }
+.cfi-text { font-size: 11px; color: var(--racing-green); line-height: 1.5; }
+.cmo-input-wrap { padding: 9px; border-top: .5px solid var(--border); flex-shrink: 0; }
+.cmo-input {
+  width: 100%; background: rgba(11,61,46,.04); border: .5px solid var(--border);
+  border-radius: var(--r); padding: 8px 10px; font-size: 12px;
+  color: var(--racing-green); font-family: var(--font-ui); resize: none; outline: none;
+}
+.cmo-input:focus { border-color: var(--racing-green); }
+.cmo-input::placeholder { color: var(--racing-green); opacity: .28; }
+
+/* ════════════════════════════════════════════════════════
+   ADMIN SHELL
+════════════════════════════════════════════════════════ */
+.admin-shell {
+  background: var(--bg);
+  border: .5px solid rgba(0,0,0,.1);
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: 0 6px 40px rgba(0,0,0,.1);
+  display: flex;
+  height: 580px;
+}
+.admin-sidebar {
+  width: 212px; flex-shrink: 0;
+  background: var(--bg);
+  border-right: .5px solid var(--border);
+  padding: 18px 12px 16px;
+  display: flex; flex-direction: column; gap: 20px;
+}
+.admin-logo {
+  display: flex; align-items: center; gap: 6px;
+  padding: 4px 6px;
+}
+.admin-logo-text { font-family: var(--font-h); font-size: 12px; font-weight: 700; color: var(--racing-green); letter-spacing: .22em; text-transform: uppercase; }
+.admin-logo-dot  { width: 5px; height: 5px; border-radius: 50%; background: var(--amber); }
+.admin-logo-sub  { font-size: 9px; font-weight: 600; letter-spacing: .08em; text-transform: uppercase; color: var(--racing-green); opacity: .35; }
+
+.admin-nav-group { display: flex; flex-direction: column; gap: 1px; }
+.admin-nav-group-label {
+  font-size: 9px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+  color: var(--racing-green); opacity: .38;
+  padding: 0 8px; margin-bottom: 3px;
+}
+.ani {
+  display: flex; align-items: center; gap: 8px;
+  padding: 6px 8px; border-radius: var(--r);
+  font-size: 12px; font-weight: 500;
+  color: var(--racing-green); cursor: pointer;
+}
+.ani:hover  { background: rgba(11,61,46,.05); }
+.ani.active { background: var(--racing-green); color: var(--text-dark); font-weight: 600; }
+.ani-dot { width: 4px; height: 4px; border-radius: 50%; background: currentColor; opacity: .35; flex-shrink: 0; }
+.ani.active .ani-dot { opacity: .5; }
+
+.admin-main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+.admin-topbar {
+  height: 50px; padding: 0 24px;
+  border-bottom: .5px solid var(--border);
+  display: flex; align-items: center; justify-content: space-between;
+  flex-shrink: 0;
+}
+.admin-topbar-title { font-family: var(--font-h); font-size: 13px; font-weight: 700; color: var(--racing-green); letter-spacing: .06em; }
+.admin-body { flex: 1; overflow: hidden; padding: 20px 24px; display: flex; flex-direction: column; gap: 14px; }
+
+/* ════════════════════════════════════════════════════════
+   STAT STRIP — Obsidian cockpit
+════════════════════════════════════════════════════════ */
+.stat-strip {
+  background: var(--bg-dark);
+  padding: 20px 24px;
+  display: flex; gap: 0;
+  border-radius: var(--r);
+}
+.stat-item { flex: 1; padding: 0 20px; border-right: .5px solid rgba(245,241,232,.08); }
+.stat-item:first-child { padding-left: 0; }
+.stat-item:last-child  { border-right: none; }
+.stat-label { font-size: 9px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; color: var(--text-dark); opacity: .38; margin-bottom: 7px; }
+.stat-value { font-family: var(--font-h); font-size: 28px; font-weight: 700; color: var(--text-dark); line-height: 1; letter-spacing: -.025em; }
+.stat-delta { font-size: 10px; margin-top: 5px; color: var(--sage); }
+.stat-delta.bad { color: #ef8888; }
+
+/* ════════════════════════════════════════════════════════
+   CMO CHAT
+════════════════════════════════════════════════════════ */
+.chat-shell {
+  background: var(--bg);
+  border: .5px solid rgba(0,0,0,.1);
+  border-radius: 3px;
+  overflow: hidden;
+  box-shadow: 0 6px 40px rgba(0,0,0,.1);
+  height: 520px;
+  display: flex; flex-direction: column;
+}
+.chat-header {
+  padding: 12px 16px;
+  border-bottom: .5px solid var(--border);
+  display: flex; align-items: center; gap: 10px;
+  flex-shrink: 0;
+}
+.chat-avatar {
+  width: 30px; height: 30px;
+  background: var(--racing-green);
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-h); font-size: 11px; font-weight: 700; color: var(--text-dark);
+  flex-shrink: 0;
+}
+.chat-name   { font-family: var(--font-h); font-size: 12px; font-weight: 700; color: var(--racing-green); letter-spacing: .18em; text-transform: uppercase; }
+.chat-status { font-size: 10px; color: var(--racing-green); opacity: .4; }
+.chat-messages { flex: 1; overflow: hidden; padding: 16px; display: flex; flex-direction: column; gap: 8px; }
+.msg-ai {
+  background: var(--bg-card);
+  border: .5px solid var(--border-ivory);
+  border-radius: var(--r);
+  padding: 10px 13px;
+  font-size: 13px; line-height: 1.6;
+  color: var(--racing-green);
+  margin-right: 36px;
+}
+.msg-user {
+  background: var(--racing-green);
+  border-radius: var(--r);
+  padding: 10px 13px;
+  font-size: 13px; line-height: 1.6;
+  color: var(--text-dark);
+  margin-left: auto; text-align: right;
+  max-width: 340px;
+}
+.msg-time { font-size: 10px; text-align: center; color: var(--racing-green); opacity: .28; }
+.chat-input-bar {
+  padding: 10px 12px;
+  border-top: .5px solid var(--border);
+  display: flex; gap: 8px; flex-shrink: 0;
+}
+.chat-input {
+  flex: 1; padding: 9px 12px;
+  border: .5px solid rgba(11,61,46,.22);
+  border-radius: var(--r);
+  font-size: 13px; font-family: var(--font-ui);
+  background: rgba(11,61,46,.03); color: var(--racing-green);
+  outline: none; resize: none;
+}
+.chat-input:focus { border-color: var(--racing-green); }
+.chat-input::placeholder { color: var(--racing-green); opacity: .28; }
+.chat-send {
+  width: 36px; height: 36px;
+  background: var(--coral); color: var(--text-dark);
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; align-self: flex-end;
+  border-radius: var(--r); font-size: 14px;
+}
+
+/* ════════════════════════════════════════════════════════
+   LAYOUT HELPERS
+════════════════════════════════════════════════════════ */
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.g3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; }
+.g4 { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 12px; }
+.row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+
+</style>
+</head>
+<body>
+<div class="page">
+
+  <!-- ═══════════════════════════════════════
+       HEADER
+  ════════════════════════════════════════ -->
+  <div>
+    <div style="font-family:'Manrope',sans-serif;font-size:9px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#aaa;margin-bottom:10px">Klaroha BOS · Sample</div>
+    <div style="font-family:'Manrope',sans-serif;font-size:36px;font-weight:800;color:#0b3d2e;letter-spacing:-.025em;line-height:1">UI Refresh Reference v1</div>
+    <div style="font-size:13px;color:#0b3d2e;opacity:.45;margin-top:7px;font-style:italic">Source: Campaign Brand Kit (DB) · Confirmed 2026-06-14 · Dark/light contrast principle — no muted text</div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       01 — COLOR SYSTEM
+  ════════════════════════════════════════ -->
+  <div>
+    <div class="section-label">01 — Color System</div>
+
+    <!-- Brand palette -->
+    <div style="display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:10px">
+      <div>
+        <div style="height:68px;background:#0b3d2e;border-radius:2px 2px 0 0"></div>
+        <div style="background:#fff;border:.5px solid #ddd;border-top:none;padding:8px 10px 10px;border-radius:0 0 2px 2px">
+          <div style="font-family:'Manrope',sans-serif;font-size:11px;font-weight:700;color:#111;margin-bottom:2px">Racing Green</div>
+          <div style="font-family:monospace;font-size:10px;color:#555;margin-bottom:3px">#0b3d2e</div>
+          <div style="font-size:10px;color:#888;line-height:1.4">Primary anchor. All text on white/ivory. Wordmark. CTA outline. Nav active.</div>
+        </div>
+      </div>
+      <div>
+        <div style="height:68px;background:#4b7c54;border-radius:2px 2px 0 0"></div>
+        <div style="background:#fff;border:.5px solid #ddd;border-top:none;padding:8px 10px 10px;border-radius:0 0 2px 2px">
+          <div style="font-family:'Manrope',sans-serif;font-size:11px;font-weight:700;color:#111;margin-bottom:2px">Forest</div>
+          <div style="font-family:monospace;font-size:10px;color:#555;margin-bottom:3px">#4b7c54</div>
+          <div style="font-size:10px;color:#888;line-height:1.4">Hover/active tint. Positive delta. Not standalone brand color.</div>
+        </div>
+      </div>
+      <div>
+        <div style="height:68px;background:#9cbd77;border-radius:2px 2px 0 0"></div>
+        <div style="background:#fff;border:.5px solid #ddd;border-top:none;padding:8px 10px 10px;border-radius:0 0 2px 2px">
+          <div style="font-family:'Manrope',sans-serif;font-size:11px;font-weight:700;color:#111;margin-bottom:2px">Sage</div>
+          <div style="font-family:monospace;font-size:10px;color:#555;margin-bottom:3px">#9cbd77</div>
+          <div style="font-size:10px;color:#888;line-height:1.4">Sublabels on dark surfaces only. Fails contrast on light.</div>
+        </div>
+      </div>
+      <div>
+        <div style="height:68px;background:#fffe9c;border:.5px solid #ddd;border-radius:2px 2px 0 0"></div>
+        <div style="background:#fff;border:.5px solid #ddd;border-top:none;padding:8px 10px 10px;border-radius:0 0 2px 2px">
+          <div style="font-family:'Manrope',sans-serif;font-size:11px;font-weight:700;color:#111;margin-bottom:2px">Highlight</div>
+          <div style="font-family:monospace;font-size:10px;color:#555;margin-bottom:3px">#fffe9c</div>
+          <div style="font-size:10px;color:#888;line-height:1.4">Callout fill. Annotation bg. Never as text color on any surface.</div>
+        </div>
+      </div>
+      <div>
+        <div style="height:68px;background:#fcc167;border-radius:2px 2px 0 0"></div>
+        <div style="background:#fff;border:.5px solid #ddd;border-top:none;padding:8px 10px 10px;border-radius:0 0 2px 2px">
+          <div style="font-family:'Manrope',sans-serif;font-size:11px;font-weight:700;color:#111;margin-bottom:2px">Amber</div>
+          <div style="font-family:monospace;font-size:10px;color:#555;margin-bottom:3px">#fcc167</div>
+          <div style="font-size:10px;color:#888;line-height:1.4">Accent. Tagline italic. Pull-quote. Eyebrow. Display sizes only.</div>
+        </div>
+      </div>
+      <div>
+        <div style="height:68px;background:#ef8250;border-radius:2px 2px 0 0"></div>
+        <div style="background:#fff;border:.5px solid #ddd;border-top:none;padding:8px 10px 10px;border-radius:0 0 2px 2px">
+          <div style="font-family:'Manrope',sans-serif;font-size:11px;font-weight:700;color:#111;margin-bottom:2px">Coral</div>
+          <div style="font-family:monospace;font-size:10px;color:#555;margin-bottom:3px">#ef8250</div>
+          <div style="font-size:10px;color:#888;line-height:1.4">Primary CTA fill. Submit, Confirm, Create, Approve. One per flow.</div>
+        </div>
+      </div>
+      <div>
+        <div style="height:68px;background:#de425b;border-radius:2px 2px 0 0"></div>
+        <div style="background:#fff;border:.5px solid #ddd;border-top:none;padding:8px 10px 10px;border-radius:0 0 2px 2px">
+          <div style="font-family:'Manrope',sans-serif;font-size:11px;font-weight:700;color:#111;margin-bottom:2px">Crimson</div>
+          <div style="font-family:monospace;font-size:10px;color:#555;margin-bottom:3px">#de425b</div>
+          <div style="font-size:10px;color:#888;line-height:1.4">Error and alert only. Lightened tint on dark surfaces.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Surface tokens -->
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px">
+      <div>
+        <div style="height:48px;background:#ffffff;border:.5px solid #ddd;border-radius:2px 2px 0 0"></div>
+        <div style="background:#fff;border:.5px solid #ddd;border-top:none;padding:7px 10px 8px;border-radius:0 0 2px 2px">
+          <div style="font-family:'Manrope',sans-serif;font-size:11px;font-weight:700;color:#111;margin-bottom:1px">White</div>
+          <div style="font-family:monospace;font-size:10px;color:#555">#ffffff · default canvas</div>
+        </div>
+      </div>
+      <div>
+        <div style="height:48px;background:#f5f1e8;border:.5px solid #ddd;border-radius:2px 2px 0 0"></div>
+        <div style="background:#fff;border:.5px solid #ddd;border-top:none;padding:7px 10px 8px;border-radius:0 0 2px 2px">
+          <div style="font-family:'Manrope',sans-serif;font-size:11px;font-weight:700;color:#111;margin-bottom:1px">Ivory</div>
+          <div style="font-family:monospace;font-size:10px;color:#555">#f5f1e8 · card fill</div>
+        </div>
+      </div>
+      <div>
+        <div style="height:48px;background:#080b0d;border-radius:2px 2px 0 0"></div>
+        <div style="background:#1a1a1a;border:.5px solid #333;border-top:none;padding:7px 10px 8px;border-radius:0 0 2px 2px">
+          <div style="font-family:'Manrope',sans-serif;font-size:11px;font-weight:700;color:#f5f1e8;margin-bottom:1px">Obsidian</div>
+          <div style="font-family:monospace;font-size:10px;color:#888">#080b0d · cockpit / dark accent</div>
+        </div>
+      </div>
+      <div>
+        <div style="height:48px;background:#101417;border-radius:2px 2px 0 0"></div>
+        <div style="background:#1a1a1a;border:.5px solid #333;border-top:none;padding:7px 10px 8px;border-radius:0 0 2px 2px">
+          <div style="font-family:'Manrope',sans-serif;font-size:11px;font-weight:700;color:#f5f1e8;margin-bottom:1px">Carbon</div>
+          <div style="font-family:monospace;font-size:10px;color:#888">#101417 · cards inside obsidian</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       02 — CONTRAST PRINCIPLE
+  ════════════════════════════════════════ -->
+  <div>
+    <div class="section-label">02 — Dark / Light Contrast Principle</div>
+    <div class="g2" style="gap:8px">
+      <div style="background:#fff;border:.5px solid rgba(11,61,46,.15);padding:24px;border-radius:2px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#4b7c54;margin-bottom:14px">✓ Light surface → Racing Green text</div>
+        <div style="font-family:'Manrope',sans-serif;font-size:22px;font-weight:700;color:#0b3d2e;margin-bottom:6px">Headline on White</div>
+        <div style="font-size:13px;color:#0b3d2e;line-height:1.65;margin-bottom:14px">Body copy at paragraph size. Racing Green on white passes WCAG AAA at all sizes. No separate muted gray — weight and size create hierarchy.</div>
+        <div style="font-size:11px;color:#0b3d2e;opacity:.55;margin-bottom:14px;font-style:italic">Tagline or secondary note in italic at reduced opacity — still Racing Green, still passes contrast.</div>
+        <div class="row">
+          <button class="btn btn-primary btn-sm">Approve</button>
+          <button class="btn btn-secondary btn-sm">Revise</button>
+          <button class="btn btn-ghost btn-sm">Dismiss</button>
+        </div>
+      </div>
+      <div style="background:#080b0d;border:.5px solid rgba(245,241,232,.08);padding:24px;border-radius:2px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#9cbd77;margin-bottom:14px">✓ Dark surface → Ivory text</div>
+        <div style="font-family:'Manrope',sans-serif;font-size:22px;font-weight:700;color:#f5f1e8;margin-bottom:6px">Headline on Obsidian</div>
+        <div style="font-size:13px;color:#f5f1e8;line-height:1.65;margin-bottom:14px">All text on dark surfaces is Ivory. No Racing Green on Obsidian — fails contrast. Sage (#9cbd77) for sublabels only — never body copy on dark.</div>
+        <div style="font-size:11px;color:#9cbd77;margin-bottom:14px">Sublabel or secondary note in Sage — dark-only usage.</div>
+        <div class="row">
+          <button class="btn btn-dark-primary btn-sm">Approve</button>
+          <button class="btn btn-dark-outline btn-sm">Revise</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Ivory surface -->
+    <div style="margin-top:8px;background:#f5f1e8;border:.5px solid rgba(11,61,46,.1);padding:24px;border-radius:2px">
+      <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#4b7c54;margin-bottom:14px">✓ Ivory card → Racing Green text (same rule, warm surface)</div>
+      <div class="g3">
+        <div>
+          <div style="font-family:'Manrope',sans-serif;font-size:16px;font-weight:700;color:#0b3d2e;margin-bottom:4px">Card heading</div>
+          <div style="font-size:12px;color:#0b3d2e;line-height:1.6">Body on Ivory. Same Racing Green — passes contrast on both white and ivory. No special ivory-specific token needed.</div>
+        </div>
+        <div>
+          <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#0b3d2e;opacity:.45;margin-bottom:6px">Amber — display only</div>
+          <div style="font-family:'Manrope',sans-serif;font-size:20px;font-weight:700;color:#fcc167;font-style:italic">Marketing, Engineered for Clarity.</div>
+          <div style="font-size:11px;color:#0b3d2e;margin-top:5px">Amber tagline at display size. Never at 12px body — fails contrast on white/ivory.</div>
+        </div>
+        <div>
+          <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#0b3d2e;opacity:.45;margin-bottom:6px">Highlight fill</div>
+          <div style="background:#fffe9c;padding:8px 11px;border-radius:2px;font-size:12px;color:#0b3d2e;line-height:1.55"><strong>Recommendation:</strong> Cap daily budget at $40 until audience signal confirmed.</div>
+          <div style="font-size:11px;color:#0b3d2e;margin-top:6px">Racing Green on Highlight — reads cleanly.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       03 — APP SHELL
+  ════════════════════════════════════════ -->
+  <div>
+    <div class="section-label">03 — App Shell (CMO Workspace)</div>
+    <div class="app-shell">
+
+      <!-- Sidebar -->
+      <div class="sidebar">
+        <div class="sidebar-logo">
+          <div class="logo-mark"><span class="logo-mark-text">K</span></div>
+          <div>
+            <div class="logo-name">Klaroha</div>
+            <div class="logo-tagline">Marketing, Engineered for Clarity.</div>
+          </div>
+        </div>
+        <div class="brand-selector">
+          <div class="brand-dot"></div>
+          <span style="flex:1">Klaroha</span>
+          <span style="font-size:9px;opacity:.45">▾</span>
+        </div>
+        <div class="sidebar-nav">
+          <a class="snav active">
+            <svg class="snav-icon" viewBox="0 0 14 14" fill="currentColor"><rect x="1" y="1" width="5.5" height="5.5"/><rect x="7.5" y="1" width="5.5" height="5.5"/><rect x="1" y="7.5" width="5.5" height="5.5"/><rect x="7.5" y="7.5" width="5.5" height="5.5"/></svg>
+            Workspace
+          </a>
+          <a class="snav">
+            <svg class="snav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M1 3h12M1 7h8M1 11h10"/></svg>
+            Stream
+          </a>
+          <a class="snav">
+            <svg class="snav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="7" r="5"/><path d="M7 4v3l2 1.5"/></svg>
+            Intelligence
+          </a>
+          <a class="snav">
+            <svg class="snav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="2" width="10" height="10"/><path d="M5 2v10M2 5h3M2 9h3"/></svg>
+            Ops
+          </a>
+          <a class="snav">
+            <svg class="snav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="7" cy="4.5" r="2.5"/><path d="M2 13c0-2.8 10-2.8 10 0"/></svg>
+            Settings
+          </a>
+        </div>
+        <div class="sidebar-footer">
+          <div class="sf-user">
+            <div class="sf-avatar">BV</div>
+            <div class="sf-name">borj.villazorda</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Main -->
+      <div class="main">
+        <div class="topbar">
+          <div class="topbar-title">Workspace</div>
+          <div class="row">
+            <button class="btn btn-ghost btn-sm">@klar</button>
+            <button class="btn btn-primary btn-sm">+ New Campaign</button>
+          </div>
+        </div>
+        <div class="main-body" style="overflow:hidden">
+          <!-- Cockpit strip -->
+          <div class="stat-strip">
+            <div class="stat-item">
+              <div class="stat-label">Active campaigns</div>
+              <div class="stat-value">4</div>
+              <div class="stat-delta">↑ 2 this week</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Pending review</div>
+              <div class="stat-value">7</div>
+              <div class="stat-delta">3 require approval</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Runs today</div>
+              <div class="stat-value">23</div>
+              <div class="stat-delta">↑ 12% vs yesterday</div>
+            </div>
+            <div class="stat-item">
+              <div class="stat-label">Error rate</div>
+              <div class="stat-value">0.4%</div>
+              <div class="stat-delta bad">↑ from 0.1%</div>
+            </div>
+          </div>
+          <!-- Cards -->
+          <div class="g3">
+            <div class="card">
+              <div class="card-title">Brand context</div>
+              <div style="font-size:12px;color:#0b3d2e;line-height:1.6;margin-bottom:10px">Klaroha · Demand-capture infrastructure · Fragmented High-Value Sellers</div>
+              <div class="row">
+                <span class="badge badge-live">● Active</span>
+                <span class="badge badge-pending">3 products</span>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-title">Last run</div>
+              <div style="font-size:12px;color:#0b3d2e;line-height:1.6;margin-bottom:10px">Meta Awareness — Facebook + Instagram · Approved 2h ago</div>
+              <span class="badge badge-live">● Published</span>
+            </div>
+            <div class="card-ivory">
+              <div class="card-title">Pending action</div>
+              <div style="font-size:12px;color:#0b3d2e;line-height:1.6;margin-bottom:10px">Email campaign draft awaiting review. 2 artifacts pending approval.</div>
+              <button class="btn btn-primary btn-sm">Review now</button>
+            </div>
+          </div>
+          <!-- Artifact card -->
+          <div class="artifact-card pending">
+            <div class="artifact-chrome">
+              <div>
+                <span class="artifact-type-tag">Campaign Artifact</span>
+                <div style="font-size:10px;color:#0b3d2e;opacity:.45;margin-top:4px">Meta · Facebook + Instagram · Klaroha</div>
+              </div>
+              <span class="artifact-status-tag">Pending Review</span>
+            </div>
+            <div class="artifact-body">
+              <div class="artifact-title">Demand Capture — Social Awareness</div>
+              <div class="artifact-desc">3-ad set targeting Fragmented High-Value Sellers. Objective: capture buyer intent. Reach est. 12,000–18,000.</div>
+              <div class="artifact-highlight"><strong>Recommendation:</strong> Run Tuesday–Thursday when target audience engagement is highest. Cap daily budget at $40 before approval.</div>
+            </div>
+            <div class="artifact-actions">
+              <button class="btn btn-primary btn-sm">Approve</button>
+              <button class="btn btn-secondary btn-sm">Revise</button>
+              <button class="btn btn-ghost btn-sm">Dismiss</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CMO Rail -->
+      <div class="cmo-rail">
+        <div class="cmo-header">
+          <div class="cmo-live-dot"></div>
+          <div class="cmo-title">CMO</div>
+          <div class="cmo-context">Klaroha</div>
+        </div>
+        <div class="cmo-feed">
+          <div class="cfi good">
+            <div class="cfi-tag">Decision</div>
+            <div class="cfi-text">Meta campaign approved. Publishing to Facebook + Instagram.</div>
+          </div>
+          <div class="cfi warn">
+            <div class="cfi-tag">Attention</div>
+            <div class="cfi-text">Email draft missing subject line variant. Revise before send.</div>
+          </div>
+          <div class="cfi">
+            <div class="cfi-tag">Planning</div>
+            <div class="cfi-text">Strategy review scheduled. LinkedIn not yet connected.</div>
+          </div>
+          <div class="cfi alert">
+            <div class="cfi-tag">Error</div>
+            <div class="cfi-text">YouTube module failed — credential slot missing.</div>
+          </div>
+        </div>
+        <div class="cmo-input-wrap">
+          <textarea class="cmo-input" rows="2" placeholder="@klar ask anything…"></textarea>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       04 — ADMIN SHELL
+  ════════════════════════════════════════ -->
+  <div>
+    <div class="section-label">04 — Admin Shell</div>
+    <div class="admin-shell">
+
+      <div class="admin-sidebar">
+        <div class="admin-logo">
+          <div class="admin-logo-text">Klaroha</div>
+          <div class="admin-logo-dot"></div>
+          <div class="admin-logo-sub">Admin</div>
+        </div>
+        <div class="admin-nav-group">
+          <div class="admin-nav-group-label">Overview</div>
+          <div class="ani active"><div class="ani-dot"></div>Dashboard</div>
+          <div class="ani"><div class="ani-dot"></div>Getting started</div>
+        </div>
+        <div class="admin-nav-group">
+          <div class="admin-nav-group-label">Setup</div>
+          <div class="ani"><div class="ani-dot"></div>Brands</div>
+          <div class="ani"><div class="ani-dot"></div>Specialists</div>
+          <div class="ani"><div class="ani-dot"></div>Providers</div>
+        </div>
+        <div class="admin-nav-group">
+          <div class="admin-nav-group-label">Activity</div>
+          <div class="ani"><div class="ani-dot"></div>Runs</div>
+          <div class="ani"><div class="ani-dot"></div>Campaigns</div>
+          <div class="ani"><div class="ani-dot"></div>Reports</div>
+        </div>
+        <div class="admin-nav-group">
+          <div class="admin-nav-group-label">System</div>
+          <div class="ani"><div class="ani-dot"></div>Billing</div>
+          <div class="ani"><div class="ani-dot"></div>Workspace</div>
+        </div>
+      </div>
+
+      <div class="admin-main">
+        <div class="admin-topbar">
+          <div class="admin-topbar-title">Dashboard</div>
+          <div class="row">
+            <button class="btn btn-ghost btn-sm">Export</button>
+            <button class="btn btn-primary btn-sm">+ Add Brand</button>
+          </div>
+        </div>
+        <div class="admin-body" style="overflow:hidden">
+          <div class="g4">
+            <div class="card" style="padding:12px 14px">
+              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#0b3d2e;opacity:.4;margin-bottom:7px">Brands</div>
+              <div style="font-family:'Manrope',sans-serif;font-size:26px;font-weight:700;color:#0b3d2e;line-height:1">3</div>
+              <div style="font-size:10px;color:#0b3d2e;opacity:.5;margin-top:4px">1 pending setup</div>
+            </div>
+            <div class="card" style="padding:12px 14px">
+              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#0b3d2e;opacity:.4;margin-bottom:7px">Specialists</div>
+              <div style="font-family:'Manrope',sans-serif;font-size:26px;font-weight:700;color:#0b3d2e;line-height:1">12</div>
+              <div style="font-size:10px;color:#4b7c54;margin-top:4px">↑ 2 newly active</div>
+            </div>
+            <div class="card" style="padding:12px 14px">
+              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#0b3d2e;opacity:.4;margin-bottom:7px">Runs today</div>
+              <div style="font-family:'Manrope',sans-serif;font-size:26px;font-weight:700;color:#0b3d2e;line-height:1">23</div>
+              <div style="font-size:10px;color:#4b7c54;margin-top:4px">↑ 12% vs yesterday</div>
+            </div>
+            <div class="card" style="padding:12px 14px">
+              <div style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:#0b3d2e;opacity:.4;margin-bottom:7px">Errors</div>
+              <div style="font-family:'Manrope',sans-serif;font-size:26px;font-weight:700;color:#de425b;line-height:1">2</div>
+              <div style="font-size:10px;color:#de425b;margin-top:4px">Requires attention</div>
+            </div>
+          </div>
+          <div style="background:#fff;border:.5px solid rgba(11,61,46,.15);border-radius:2px;overflow:hidden">
+            <div style="padding:11px 14px;border-bottom:.5px solid rgba(11,61,46,.12);display:flex;align-items:center;justify-content:space-between">
+              <div style="font-family:'Manrope',sans-serif;font-size:11px;font-weight:700;color:#0b3d2e;letter-spacing:.06em;text-transform:uppercase">Recent Runs</div>
+              <button class="btn btn-ghost btn-sm">View all</button>
+            </div>
+            <table class="data-table">
+              <thead><tr><th>Module</th><th>Brand</th><th>Status</th><th>Duration</th></tr></thead>
+              <tbody>
+                <tr>
+                  <td class="td-mono">channel.meta</td>
+                  <td>Klaroha</td>
+                  <td><span class="badge badge-live">● Pass</span></td>
+                  <td class="td-mono">3.2s</td>
+                </tr>
+                <tr>
+                  <td class="td-mono">creative.factory</td>
+                  <td>Klaroha</td>
+                  <td><span class="badge badge-live">● Pass</span></td>
+                  <td class="td-mono">8.1s</td>
+                </tr>
+                <tr>
+                  <td class="td-mono">channel.youtube</td>
+                  <td>Golden Gate</td>
+                  <td><span class="badge badge-error">✕ Error</span></td>
+                  <td class="td-mono">0.4s</td>
+                </tr>
+                <tr>
+                  <td class="td-mono">analytics.google_ads</td>
+                  <td>Klaroha</td>
+                  <td><span class="badge badge-pending">○ Pending</span></td>
+                  <td class="td-mono">—</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       05 — COMPONENTS
+  ════════════════════════════════════════ -->
+  <div>
+    <div class="section-label">05 — Component Library</div>
+    <div class="g2" style="gap:20px">
+      <div style="display:flex;flex-direction:column;gap:20px">
+
+        <!-- Buttons -->
+        <div>
+          <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#0b3d2e;opacity:.4;margin-bottom:10px">Buttons — light surface</div>
+          <div class="row" style="margin-bottom:8px">
+            <button class="btn btn-primary">Submit</button>
+            <button class="btn btn-secondary">View details</button>
+            <button class="btn btn-ghost">Dismiss</button>
+            <button class="btn btn-danger">Delete</button>
+          </div>
+          <div class="row" style="margin-bottom:10px">
+            <button class="btn btn-primary btn-sm">Approve</button>
+            <button class="btn btn-secondary btn-sm">Revise</button>
+            <button class="btn btn-ghost btn-sm">Cancel</button>
+            <button class="btn btn-primary btn-sm" disabled>Disabled</button>
+          </div>
+          <div style="background:#080b0d;padding:14px 16px;border-radius:2px">
+            <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#9cbd77;margin-bottom:10px">Buttons — dark surface</div>
+            <div class="row">
+              <button class="btn btn-dark-primary">Submit</button>
+              <button class="btn btn-dark-outline">View details</button>
+              <button class="btn btn-dark-primary btn-sm">Approve</button>
+              <button class="btn btn-dark-outline btn-sm">Revise</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Badges -->
+        <div>
+          <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#0b3d2e;opacity:.4;margin-bottom:10px">Badges</div>
+          <div class="row" style="margin-bottom:6px">
+            <span class="badge badge-live">● Live</span>
+            <span class="badge badge-live">Qualified</span>
+            <span class="badge badge-live">Published</span>
+            <span class="badge badge-pending">Pending</span>
+            <span class="badge badge-pending">Draft</span>
+          </div>
+          <div class="row">
+            <span class="badge badge-warn">At risk</span>
+            <span class="badge badge-error">Error</span>
+            <span class="badge badge-error">Failed</span>
+            <div style="background:#080b0d;padding:4px 8px;border-radius:2px;display:inline-flex;gap:6px">
+              <span class="badge badge-sage">● Active</span>
+              <span class="badge badge-sage">Healthy</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Inputs -->
+      <div>
+        <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#0b3d2e;opacity:.4;margin-bottom:10px">Form inputs</div>
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div>
+            <label class="input-label">Campaign name</label>
+            <input class="input" type="text" placeholder="Demand Capture Q3 — Meta">
+          </div>
+          <div>
+            <label class="input-label">Brand</label>
+            <input class="input" type="text" value="Klaroha" readonly style="opacity:.7">
+          </div>
+          <div>
+            <label class="input-label">Objective</label>
+            <textarea class="input" rows="3" placeholder="Describe the campaign objective…" style="resize:none"></textarea>
+          </div>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-primary" style="flex:1">Save campaign</button>
+            <button class="btn btn-ghost">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       06 — CMO CHAT
+  ════════════════════════════════════════ -->
+  <div>
+    <div class="section-label">06 — CMO Chat + Stream Feed</div>
+    <div class="g2" style="gap:20px;align-items:start">
+      <div class="chat-shell">
+        <div class="chat-header">
+          <div class="chat-avatar">K</div>
+          <div>
+            <div class="chat-name">Klaroha CMO</div>
+            <div class="chat-status">Active · Klaroha brand</div>
+          </div>
+        </div>
+        <div class="chat-messages">
+          <div class="msg-time">Today 09:41</div>
+          <div class="msg-ai">Good morning. 2 artifacts pending review — a Meta campaign draft and an email sequence. Want to start there?</div>
+          <div class="msg-user">Show me the Meta campaign first.</div>
+          <div class="msg-ai">Here's the Meta Awareness draft. I've flagged a budget recommendation — cap daily spend at $40 until the audience signal is confirmed. Approve to publish or revise the targeting.</div>
+          <div class="artifact-card pending" style="margin-top:4px">
+            <div class="artifact-chrome">
+              <span class="artifact-type-tag">Campaign Artifact</span>
+              <span class="artifact-status-tag">Pending</span>
+            </div>
+            <div style="padding:10px 14px">
+              <div style="font-family:'Manrope',sans-serif;font-size:13px;font-weight:700;color:#0b3d2e;margin-bottom:3px">Demand Capture — Meta Awareness</div>
+              <div style="font-size:11px;color:#0b3d2e;opacity:.55">Facebook + Instagram · Est. 14,000 reach · $40/day</div>
+            </div>
+            <div class="artifact-actions">
+              <button class="btn btn-primary btn-sm">Approve</button>
+              <button class="btn btn-secondary btn-sm">Revise</button>
+              <button class="btn btn-ghost btn-sm">Dismiss</button>
+            </div>
+          </div>
+        </div>
+        <div class="chat-input-bar">
+          <textarea class="chat-input" rows="1" placeholder="Reply to @klar…"></textarea>
+          <button class="chat-send">→</button>
+        </div>
+      </div>
+
+      <!-- Stream feed -->
+      <div style="display:flex;flex-direction:column;gap:9px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#0b3d2e;opacity:.4;margin-bottom:4px">Stream — Artifact feed</div>
+
+        <div class="artifact-card pending">
+          <div class="artifact-chrome">
+            <div>
+              <span class="artifact-type-tag">Decision Brief</span>
+              <div style="font-size:10px;color:#0b3d2e;opacity:.42;margin-top:3px">strategy_workflow · Klaroha</div>
+            </div>
+            <span class="artifact-status-tag">Pending</span>
+          </div>
+          <div style="padding:12px 14px">
+            <div style="font-family:'Manrope',sans-serif;font-size:13px;font-weight:700;color:#0b3d2e;margin-bottom:4px">Q3 Campaign Strategy</div>
+            <div style="font-size:11px;color:#0b3d2e;line-height:1.55">Channel mix: Meta primary, email nurture, LinkedIn retargeting. Total budget: $4,200/mo.</div>
+          </div>
+          <div class="artifact-actions">
+            <button class="btn btn-primary btn-sm">Approve</button>
+            <button class="btn btn-ghost btn-sm">Revise</button>
+            <button class="btn btn-ghost btn-sm">Dismiss</button>
+          </div>
+        </div>
+
+        <div class="artifact-card resolved">
+          <div class="artifact-chrome">
+            <div>
+              <span class="artifact-type-tag">Outcome</span>
+              <div style="font-size:10px;color:#0b3d2e;opacity:.42;margin-top:3px">channel.meta · Klaroha</div>
+            </div>
+            <span class="badge badge-live" style="font-size:9px">Published</span>
+          </div>
+          <div style="padding:12px 14px">
+            <div style="font-family:'Manrope',sans-serif;font-size:13px;font-weight:700;color:#0b3d2e;margin-bottom:4px">Meta Awareness — Week 24</div>
+            <div style="font-size:11px;color:#0b3d2e;line-height:1.55">3 ads live. Tracking link confirmed. First impression data in 2–4h.</div>
+          </div>
+        </div>
+
+        <div class="artifact-card error">
+          <div class="artifact-chrome">
+            <span class="artifact-type-tag error">Setup Blocker</span>
+            <div style="font-size:10px;color:#0b3d2e;opacity:.42">channel.youtube · Golden Gate</div>
+          </div>
+          <div style="padding:12px 14px">
+            <div style="font-family:'Manrope',sans-serif;font-size:13px;font-weight:700;color:#de425b;margin-bottom:4px">Missing credential: YouTube OAuth</div>
+            <div style="font-size:11px;color:#0b3d2e;line-height:1.55">Connect a YouTube account for Golden Gate Memorial in Specialists to enable video publishing.</div>
+          </div>
+          <div class="artifact-actions">
+            <button class="btn btn-primary btn-sm">Go to Specialists</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       07 — OBSIDIAN COCKPIT
+  ════════════════════════════════════════ -->
+  <div>
+    <div class="section-label">07 — Obsidian Cockpit (Intelligence / Dashboard)</div>
+    <div style="background:#080b0d;border:.5px solid rgba(245,241,232,.07);border-radius:2px;overflow:hidden">
+      <div class="stat-strip" style="border-bottom:.5px solid rgba(245,241,232,.07);border-radius:0">
+        <div class="stat-item">
+          <div class="stat-label">Total inquiries</div>
+          <div class="stat-value">2,841</div>
+          <div class="stat-delta">↑ 18% this month</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Qualified</div>
+          <div class="stat-value">312</div>
+          <div class="stat-delta">↑ 24% vs last month</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Avg response time</div>
+          <div class="stat-value">4m</div>
+          <div class="stat-delta">↓ 62% vs baseline</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-label">Revenue attributed</div>
+          <div class="stat-value">₱2.1M</div>
+          <div class="stat-delta" style="color:#fcc167">High confidence</div>
+        </div>
+      </div>
+      <div style="padding:18px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div class="card-dark">
+          <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#f5f1e8;opacity:.35;margin-bottom:8px">Top channel</div>
+          <div style="font-family:'Manrope',sans-serif;font-size:16px;font-weight:700;color:#f5f1e8;margin-bottom:4px">Facebook DM</div>
+          <div style="font-size:11px;color:#f5f1e8;opacity:.55;margin-bottom:10px">1,240 inquiries · 38% of total</div>
+          <span class="badge badge-sage">● Active</span>
+        </div>
+        <div class="card-dark">
+          <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#f5f1e8;opacity:.35;margin-bottom:8px">Conversion rate</div>
+          <div style="font-family:'Manrope',sans-serif;font-size:16px;font-weight:700;color:#f5f1e8;margin-bottom:4px">11.0%</div>
+          <div style="font-size:11px;color:#f5f1e8;opacity:.55;margin-bottom:10px">↑ 2.4 pts vs prior period</div>
+          <span class="badge badge-sage">↑ Above target</span>
+        </div>
+        <div class="card-dark">
+          <div style="font-size:9px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:#f5f1e8;opacity:.35;margin-bottom:8px">System status</div>
+          <div style="font-family:'Manrope',sans-serif;font-size:16px;font-weight:700;color:#f5f1e8;margin-bottom:4px">Operational</div>
+          <div style="font-size:11px;color:#f5f1e8;opacity:.55;margin-bottom:10px">1 error · YouTube credential missing</div>
+          <span class="badge" style="background:rgba(222,66,91,.15);color:#ef9999;border:.5px solid rgba(222,66,91,.22)">1 alert</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       08 — TOKEN REFERENCE
+  ════════════════════════════════════════ -->
+  <div>
+    <div class="section-label">08 — Token Quick Reference</div>
+    <div style="background:#fff;border:.5px solid rgba(11,61,46,.15);border-radius:2px;overflow:hidden">
+      <table class="data-table">
+        <thead>
+          <tr><th>Token</th><th>Value</th><th>Use for</th><th>Never use for</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code style="font-size:11px">--racing-green</code></td>
+            <td><span style="display:flex;align-items:center;gap:6px;font-family:monospace;font-size:11px"><span style="width:10px;height:10px;background:#0b3d2e;flex-shrink:0;border-radius:1px"></span>#0b3d2e</span></td>
+            <td>All text on white/ivory. Headline, wordmark, CTA outline, nav active, structural chrome.</td>
+            <td>Text on dark surfaces. CTA fill.</td>
+          </tr>
+          <tr>
+            <td><code style="font-size:11px">--coral</code></td>
+            <td><span style="display:flex;align-items:center;gap:6px;font-family:monospace;font-size:11px"><span style="width:10px;height:10px;background:#ef8250;flex-shrink:0;border-radius:1px"></span>#ef8250</span></td>
+            <td>Primary task CTA fill — Submit, Confirm, Create, Approve, Get started. One per flow.</td>
+            <td>Status, decoration, text, secondary actions.</td>
+          </tr>
+          <tr>
+            <td><code style="font-size:11px">--amber</code></td>
+            <td><span style="display:flex;align-items:center;gap:6px;font-family:monospace;font-size:11px"><span style="width:10px;height:10px;background:#fcc167;flex-shrink:0;border-radius:1px"></span>#fcc167</span></td>
+            <td>Tagline italic. Pull-quote. Eyebrow label. Logo clarity dot. Display sizes only.</td>
+            <td>Body text (fails contrast). Status. Navigation.</td>
+          </tr>
+          <tr>
+            <td><code style="font-size:11px">--highlight</code></td>
+            <td><span style="display:flex;align-items:center;gap:6px;font-family:monospace;font-size:11px"><span style="width:10px;height:10px;background:#fffe9c;border:.5px solid #ccc;flex-shrink:0;border-radius:1px"></span>#fffe9c</span></td>
+            <td>Callout fill. Annotation background. Inline emphasis marker.</td>
+            <td>Text color on any surface.</td>
+          </tr>
+          <tr>
+            <td><code style="font-size:11px">--crimson</code></td>
+            <td><span style="display:flex;align-items:center;gap:6px;font-family:monospace;font-size:11px"><span style="width:10px;height:10px;background:#de425b;flex-shrink:0;border-radius:1px"></span>#de425b</span></td>
+            <td>Error, failed routing, system alert only. Lightened tint on dark surfaces.</td>
+            <td>Brand use of any kind. Decoration.</td>
+          </tr>
+          <tr>
+            <td><code style="font-size:11px">--forest</code></td>
+            <td><span style="display:flex;align-items:center;gap:6px;font-family:monospace;font-size:11px"><span style="width:10px;height:10px;background:#4b7c54;flex-shrink:0;border-radius:1px"></span>#4b7c54</span></td>
+            <td>Hover/active tint. Positive delta indicators on light surfaces.</td>
+            <td>Standalone brand color. CTA.</td>
+          </tr>
+          <tr>
+            <td><code style="font-size:11px">--sage</code></td>
+            <td><span style="display:flex;align-items:center;gap:6px;font-family:monospace;font-size:11px"><span style="width:10px;height:10px;background:#9cbd77;flex-shrink:0;border-radius:1px"></span>#9cbd77</span></td>
+            <td>Sublabels on Obsidian/dark surfaces only.</td>
+            <td>Any use on white or ivory — fails contrast.</td>
+          </tr>
+          <tr>
+            <td><code style="font-size:11px">--bg / --bg-card</code></td>
+            <td><span style="font-family:monospace;font-size:11px">#ffffff / #f5f1e8</span></td>
+            <td>Default canvas / warm card fill. Text on these = Racing Green.</td>
+            <td>Text or foreground color.</td>
+          </tr>
+          <tr>
+            <td><code style="font-size:11px">--bg-dark</code></td>
+            <td><span style="font-family:monospace;font-size:11px">#080b0d</span></td>
+            <td>Cockpit sections, dashboard, footer. Text on this = Ivory.</td>
+            <td>Default page background.</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

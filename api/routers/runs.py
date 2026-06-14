@@ -2099,6 +2099,7 @@ async def execute_declared_run_action(
         brand_id=source_run.brand_id,
     )
 
+    source_approval_status = "approved"
     try:
         action_uuid = UUID(action_run.run_id)
         action_row = (await db.execute(select(Run).where(Run.id == action_uuid))).scalar_one_or_none()
@@ -2106,14 +2107,21 @@ async def execute_declared_run_action(
         action_succeeded = action_block.get("status") == "succeeded" or (action_run.status == "success" and action_block.get("status") != "failed")
         if action_row and action_succeeded:
             action_row.approval_status = "approved"
-            await db.commit()
             action_run.approval_status = "approved"
+        elif action_row and not action_succeeded:
+            # Keep the source artifact reviewable when an external publish/send
+            # action fails. The approval event above is still recorded for audit,
+            # but the operator must be able to retry the declared action from the
+            # original image/video artifact instead of losing the buttons.
+            source_run.approval_status = "pending"
+            source_approval_status = "pending"
+        await db.commit()
     except Exception:
-        logger.exception("Could not mark action run approved for source run %s", source_run.id)
+        logger.exception("Could not reconcile action approval state for source run %s", source_run.id)
 
     return RunActionResponse(
         source_run_id=run_id,
-        source_approval_status="approved",
+        source_approval_status=source_approval_status,
         action=action,
         action_run=action_run,
     )

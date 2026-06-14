@@ -128,6 +128,16 @@ function buildPublishOptions(actionModules: Record<string, string> | undefined, 
   });
 }
 
+function actionRunFailed(actionRun: RunResponse): boolean {
+  const blockStatus = String((actionRun.result?.block as any)?.status || '').toLowerCase();
+  return actionRun.status === 'failed' || blockStatus === 'failed';
+}
+
+function actionRunError(actionRun: RunResponse): string {
+  const block = (actionRun.result?.block as any) || {};
+  return block.message || actionRun.result?.content || 'Publish action failed.';
+}
+
 function DriveSwapContainer({
   kind,
   selectedFile,
@@ -196,6 +206,10 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
 
   if (!result) return <div className="bos-ws-empty">No artifact content available.</div>;
 
+  // Artifact actions must stay scoped to the artifact's brand, not whatever
+  // brand happens to be selected in the global UI. This matters in All Brands
+  // views and when reviewing old/pending artifacts after switching brands.
+  const artifactBrandId = String(run.brand_id || (result.block as any)?.brand_id || activeBrand?.id || '');
   const brandName = result.block?.brand_name || result.brand_name || run.brand_name || 'Unknown brand';
   const socialHandle = result.block?.brand_handle || result.brand_handle || '@brand';
   const selfCheckPassed = result.self_check === 'pass';
@@ -228,16 +242,16 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
   const isOmniPublishAsset = (isShortformVideo || isImageAsset) && Boolean(actionModules);
 
   useEffect(() => {
-    if (!isOmniPublishAsset || !activeBrand?.id) {
+    if (!isOmniPublishAsset || !artifactBrandId) {
       setBrandConnections([]);
       return;
     }
     setPublishOptionsLoading(true);
-    api.listSocialConnections(activeBrand.id)
+    api.listSocialConnections(artifactBrandId)
       .then(rows => setBrandConnections(rows as SocialConnection[]))
       .catch(() => setBrandConnections([]))
       .finally(() => setPublishOptionsLoading(false));
-  }, [isOmniPublishAsset, activeBrand?.id, run.run_id]);
+  }, [isOmniPublishAsset, artifactBrandId, run.run_id]);
 
   useEffect(() => {
     setPublishSelections(prev => {
@@ -286,12 +300,17 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
         overrides.drive_file_mime = swappedAttachment.mimeType;
       }
       const resp = await api.executeRunAction(run.run_id, 'publish', { confirm: true, overrides });
+      addPendingRun(resp.action_run);
+      window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: resp.action_run }));
+      if (actionRunFailed(resp.action_run)) {
+        setReviewStatus('pending');
+        addPendingRun(run);
+        throw new Error(actionRunError(resp.action_run));
+      }
       setReviewStatus('approved');
       setModifying(false);
       removePendingRun(run.run_id);
-      addPendingRun(resp.action_run);
       onApproved?.(run);
-      window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: resp.action_run }));
     } catch (e) {
       setReviewStatus('pending');
       setRevisionError(e instanceof Error ? e.message : 'Could not publish to Facebook.');
@@ -360,13 +379,18 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
         publishedRuns.push(resp.action_run);
         addPendingRun(resp.action_run);
         window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: resp.action_run }));
+        if (actionRunFailed(resp.action_run)) {
+          throw new Error(`${opt.label}: ${actionRunError(resp.action_run)}`);
+        }
       }
       setReviewStatus('approved');
       removePendingRun(run.run_id);
       onApproved?.(run);
     } catch (e) {
       setReviewStatus('pending');
-      const suffix = publishedRuns.length > 0 ? ` (${publishedRuns.length} destination${publishedRuns.length === 1 ? '' : 's'} published before the error.)` : '';
+      addPendingRun(run);
+      const succeededCount = publishedRuns.filter(r => !actionRunFailed(r)).length;
+      const suffix = succeededCount > 0 ? ` (${succeededCount} destination${succeededCount === 1 ? '' : 's'} published before the error.)` : '';
       setRevisionError((e instanceof Error ? e.message : 'Could not publish selected destinations.') + suffix);
     } finally {
       setPublishing(false);
@@ -378,12 +402,17 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     setRevisionError(null);
     try {
       const resp = await api.executeRunAction(run.run_id, 'publish', { confirm: true });
+      addPendingRun(resp.action_run);
+      window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: resp.action_run }));
+      if (actionRunFailed(resp.action_run)) {
+        setReviewStatus('pending');
+        addPendingRun(run);
+        throw new Error(actionRunError(resp.action_run));
+      }
       setReviewStatus('approved');
       setModifying(false);
       removePendingRun(run.run_id);
-      addPendingRun(resp.action_run);
       onApproved?.(run);
-      window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: resp.action_run }));
     } catch (e) {
       setReviewStatus('pending');
       setRevisionError(e instanceof Error ? e.message : 'Could not publish this artifact.');
@@ -413,9 +442,9 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     setDriveFolders([]);
     setDriveLoading(true);
     try {
-      const brandId = activeBrand?.id || run.result?.block?.brand_id || '';
+      const brandId = artifactBrandId;
       if (!brandId) {
-        setDriveError('No active brand — select a brand first.');
+        setDriveError('No artifact brand — select a brand or open a brand-scoped artifact first.');
         return;
       }
       const foldersRes = await api.listDriveFolders(brandId, folder?.id ?? 'root');
@@ -433,7 +462,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
     } finally {
       setDriveLoading(false);
     }
-  }, [activeBrand?.id, run.result?.block?.brand_id]);
+  }, [artifactBrandId]);
 
   const openDrivePicker = useCallback(async (mediaType?: string) => {
     const mt = mediaType || 'image';
@@ -1120,7 +1149,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
           </div>
         )}
 
-        {isCreativePost && reviewStatus !== 'approved' && reviewStatus !== 'dismissed' && (
+        {isCreativePost && reviewStatus !== 'dismissed' && (
           <>
             <div className="artifact-copy-panel">
               <div className="artifact-section-label">Copy</div>
@@ -1162,7 +1191,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
           </>
         )}
 
-        {isShortformVideo && reviewStatus !== 'approved' && reviewStatus !== 'dismissed' && (
+        {isShortformVideo && reviewStatus !== 'dismissed' && (
           <>
             <div className="artifact-copy-panel">
               <div className="artifact-section-label">Hook</div>
@@ -1213,7 +1242,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
           </>
         )}
 
-        {isImageAsset && reviewStatus !== 'approved' && reviewStatus !== 'dismissed' && (result.block as any)?.action_modules && (
+        {isImageAsset && reviewStatus !== 'dismissed' && (
           <>
             <div className="artifact-copy-panel">
               <div className="artifact-section-label">Caption</div>
@@ -1312,13 +1341,22 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
                 {(() => {
                   if (isOmniPublishAsset) {
                     return (
-                      <button
-                        className="artifact-btn primary"
-                        onClick={handlePublishSelected}
-                        disabled={publishing || selectedPublishOptions.length === 0}
-                      >
-                        {publishing ? 'Publishing…' : 'Approve & Publish Selected'}
-                      </button>
+                      <>
+                        <button
+                          className={selectedPublishOptions.length > 0 ? 'artifact-btn ghost' : 'artifact-btn primary'}
+                          onClick={handleApprove}
+                          disabled={publishing}
+                        >
+                          {publishing ? 'Working…' : 'Approve'}
+                        </button>
+                        <button
+                          className="artifact-btn primary"
+                          onClick={handlePublishSelected}
+                          disabled={publishing || selectedPublishOptions.length === 0}
+                        >
+                          {publishing ? 'Publishing…' : 'Approve & Publish Selected'}
+                        </button>
+                      </>
                     );
                   }
                   return (

@@ -605,7 +605,12 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, focused = false, r
     enqueueArtifactHydration(async () => {
       const fullRun = await api.getRun(run.run_id, { includeAssets: true }).catch(() => null);
       if (fullRun) {
-        setHydratedRun({ ...fullRun, approval_status: run.approval_status, brand_id: fullRun.brand_id || run.brand_id, brand_name: fullRun.brand_name || run.brand_name } as RunResponse);
+        setHydratedRun({
+          ...fullRun,
+          approval_status: fullRun.approval_status || run.approval_status,
+          brand_id: fullRun.brand_id || run.brand_id,
+          brand_name: fullRun.brand_name || run.brand_name,
+        } as RunResponse);
       }
       setHydrating(false);
     });

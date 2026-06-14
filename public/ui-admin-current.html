@@ -1,0 +1,1506 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BOS Admin — Current UI Reference</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:ital,wght@0,400;0,450;0,500;0,600;0,700;1,400&display=swap" rel="stylesheet">
+<style>
+
+/* ══════════════════════════════════════════
+   EXACT TOKENS FROM index.css :root
+══════════════════════════════════════════ */
+:root {
+  /* brand */
+  --brand:          #0B3D2E;
+  --accent:         #826D40;
+  --warm-gold:      #826D40;
+  --error:          #7A2E2E;
+  --oxblood:        #7A2E2E;
+  --linen:          #F2E8D0;
+  --copper:         #B85C30;
+  --gold-light:     #C8A870;
+  --satin-bronze:   #B08A57;
+  --champagne:      #D8BE8A;
+  --white:          #FFFFFF;
+  --ivory:          #F5F1E8;
+  --ivory-mid:      #EDE5D8;
+  --soft-ivory:     #E6DED0;
+  --obsidian:       #080B0D;
+  --carbon:         #101417;
+  --gunmetal:       #171D20;
+  --smoked-panel:   #1F272B;
+  --ink:            #0B3D2E;
+  --ink-body:       #2C4A3E;
+  --ink-muted:      #4A6B5C;
+  --ink-subtle:     #6B8F7E;
+  --stone-deep:     #2C4A3E;
+  --muted-stone:    #4A6B5C;
+  --on-dark:        #F5F1E8;
+  --on-dark-muted:  #C8A870;
+  --on-brand:       #F5F1E8;
+  --on-brand-muted: #C8A870;
+  --border:         rgba(11,61,46,.15);
+  --border-light:   rgba(11,61,46,.15);
+  --border-warm:    rgba(130,109,64,.22);
+  --border-dark:    rgba(130,109,64,.18);
+  --border-graphite:#2E383D;
+  --green-deep:     #0A2820;
+  --active-green:   #1F7A4D;
+  --warning-amber:  #C58B3B;
+  --font-display:   'Manrope', system-ui, sans-serif;
+  --font-ui:        'Inter', system-ui, sans-serif;
+  --font-mono:      'SF Mono', ui-monospace, monospace;
+  --r:              2px;
+  --radius-control: 2px;
+  --bg:             #FFFFFF;
+  --bg-subtle:      rgba(11,61,46,.04);
+  --surface:        #FFFFFF;
+  --text:           #0B3D2E;
+  --text2:          #2C4A3E;
+  --success:        #1F7A4D;
+
+  /* admin tokens */
+  --admin-bg:       #ffffff;
+  --admin-surface:  #ffffff;
+  --admin-border:   rgba(11,61,46,.15);
+  --admin-text:     #0B3D2E;
+  --admin-text-2:   #2C4A3E;
+  --admin-sidebar:  #ffffff;
+  --admin-accent:   #826D40;
+}
+
+/* ══════════════════════════════════════════
+   DOC CHROME
+══════════════════════════════════════════ */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { font-size: 14px; }
+body { font-family: var(--font-ui); background: #c2c2be; -webkit-font-smoothing: antialiased; }
+button, select, input { font-family: inherit; }
+a { text-decoration: none; color: inherit; }
+
+.doc-wrap { max-width: 1400px; margin: 0 auto; padding: 40px 24px 100px; display: flex; flex-direction: column; gap: 60px; }
+.doc-label { font-family: var(--font-display); font-size: 9px; font-weight: 700; letter-spacing: .18em; text-transform: uppercase; color: #999; margin-bottom: 14px; }
+.doc-note  { font-size: 11px; color: var(--ink-muted); font-style: italic; padding: 6px 10px; background: var(--linen); border-left: 2px solid var(--accent); margin-bottom: 10px; }
+.preview-frame { background: #f0f0ec; border: 1px solid rgba(0,0,0,.12); border-radius: 3px; overflow: hidden; box-shadow: 0 4px 32px rgba(0,0,0,.1); }
+
+/* ══════════════════════════════════════════
+   EXACT: admin-app-frame / admin-shell
+══════════════════════════════════════════ */
+.admin-app-frame {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--admin-bg);
+}
+.admin-shell {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  overflow: hidden;
+  background: var(--admin-bg);
+}
+
+/* ══════════════════════════════════════════
+   EXACT: admin-sidebar
+══════════════════════════════════════════ */
+.admin-sidebar {
+  background: var(--admin-sidebar);
+  border-right: .5px solid var(--admin-border);
+  padding: 18px 12px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.admin-logo {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--brand);
+  padding: 4px 8px;
+  font-family: var(--font-display);
+  letter-spacing: .22em;
+  text-transform: uppercase;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.admin-logo::after {
+  content: '';
+  width: 5px; height: 5px;
+  background: var(--accent);
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.admin-logo-tagline {
+  font-size: 11px;
+  color: var(--ink-muted);
+  padding: 0 8px;
+  margin-top: -8px;
+}
+.admin-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.admin-nav-section {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--ink-muted);
+  margin: 0 8px 5px;
+  font-family: var(--font-display);
+}
+.admin-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: var(--r);
+  font-size: 13px;
+  font-weight: 450;
+  color: var(--ink-muted);
+  transition: background .14s, color .14s;
+  text-decoration: none;
+  cursor: pointer;
+  border: none;
+  background: none;
+  width: 100%;
+  text-align: left;
+}
+.admin-nav-item:hover {
+  background: rgba(11,61,46,.05);
+  color: var(--ink);
+}
+.admin-nav-item.active {
+  background: var(--brand);
+  color: var(--on-brand);
+  font-weight: 600;
+}
+.admin-nav-icon {
+  width: 16px;
+  text-align: center;
+  flex-shrink: 0;
+}
+.admin-sidebar-footer {
+  margin-top: auto;
+  padding: 8px;
+  border-top: .5px solid var(--admin-border);
+}
+.admin-signout-btn {
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: none;
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--ink-muted);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 12px;
+  border-radius: var(--r);
+  cursor: pointer;
+}
+.admin-signout-btn:hover {
+  background: rgba(122,46,46,.06);
+  color: var(--oxblood);
+}
+
+/* ══════════════════════════════════════════
+   EXACT: gs-banner
+══════════════════════════════════════════ */
+.gs-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 20px;
+  background: var(--linen);
+  border-bottom: .5px solid var(--border-warm);
+  font-size: 13px;
+  color: var(--ink-body);
+}
+.gs-banner-text { flex: 1; }
+.gs-banner-dismiss {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 15px;
+  color: var(--ink-muted);
+  padding: 2px 6px;
+  opacity: 0.6;
+}
+
+/* ══════════════════════════════════════════
+   EXACT: admin-content / admin-page
+══════════════════════════════════════════ */
+.admin-content {
+  min-width: 0;
+  overflow-y: auto;
+}
+.admin-page-wrap {
+  padding: 28px;
+}
+.admin-page {
+  max-width: 1180px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.admin-page-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+.admin-page-title {
+  font-size: 26px;
+  line-height: 1.1;
+  font-weight: 700;
+  color: var(--brand);
+  margin-bottom: 6px;
+  font-family: var(--font-display);
+  letter-spacing: -.02em;
+}
+.admin-page-subtitle {
+  font-size: 14px;
+  color: var(--admin-text-2);
+  max-width: 760px;
+}
+
+/* ══════════════════════════════════════════
+   EXACT: admin-card
+══════════════════════════════════════════ */
+.admin-card {
+  background: var(--admin-surface);
+  border: .5px solid var(--admin-border);
+  border-radius: var(--r);
+  padding: 20px;
+}
+.admin-card-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--admin-text);
+  margin-bottom: 14px;
+  font-family: var(--font-display);
+  letter-spacing: -.01em;
+}
+.admin-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+}
+
+/* ══════════════════════════════════════════
+   admin-stat-grid (Racing Green cockpit)
+══════════════════════════════════════════ */
+.admin-stat-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  background: #0b3d2e;
+  padding: 24px;
+  border-radius: 0;
+}
+.admin-stat-card {
+  background: rgba(255,255,255,.07);
+  border: .5px solid rgba(245,241,232,.1);
+  border-top: 2px solid var(--accent);
+  border-radius: 0;
+  padding: 24px;
+  cursor: default;
+}
+.admin-stat-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .14em;
+  color: var(--on-dark-muted);
+  margin-bottom: 10px;
+  font-family: var(--font-display);
+}
+.admin-stat-value {
+  font-size: 38px;
+  line-height: 1;
+  font-weight: 700;
+  letter-spacing: -.03em;
+  color: var(--on-dark);
+  font-family: var(--font-display);
+}
+.admin-stat-sub {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--gold-light);
+}
+
+/* ══════════════════════════════════════════
+   EXACT: .btn system
+══════════════════════════════════════════ */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  padding: 8px 18px;
+  border-radius: var(--r);
+  font-size: 13px; font-weight: 500; letter-spacing: .02em;
+  cursor: pointer;
+  border: .5px solid var(--border);
+  background: var(--surface); color: var(--ink-body);
+  transition: background .12s, border-color .12s, color .12s;
+  white-space: nowrap;
+}
+.btn:hover     { background: var(--bg-subtle); border-color: rgba(11,61,46,.3); }
+.btn:disabled  { opacity: 0.5; cursor: default; }
+.btn-dark      { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+.btn-dark:hover { background: var(--green-deep); border-color: var(--green-deep); }
+.btn-secondary  { background: transparent; border-color: var(--brand); color: var(--ink); }
+.btn-secondary:hover { background: rgba(11,61,46,.06); }
+.btn-danger    { background: rgba(122,46,46,.08); border-color: rgba(122,46,46,.3); color: var(--error); }
+.btn-ghost     { background: transparent; border-color: transparent; color: var(--stone-deep); }
+.btn-ghost:hover { background: var(--bg-subtle); }
+.btn-sm        { padding: 5px 10px; font-size: 12px; }
+.btn-primary   { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
+
+/* ══════════════════════════════════════════
+   EXACT: .badge system
+══════════════════════════════════════════ */
+.badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--r);
+  font-size: 11px; font-weight: 500; letter-spacing: .03em;
+  border: .5px solid transparent;
+  white-space: nowrap;
+}
+.badge-success { background: #C8E8D8; border-color: #8ABDA5; color: #0B3D2E; }
+.badge-error   { background: #E8C4C4; border-color: #C48080; color: #5A1C1C; }
+.badge-warning { background: #EDE0C8; border-color: #C8A870; color: #5A4520; }
+.badge-info    { background: var(--linen); border-color: var(--border-warm); color: var(--brand); }
+.badge-muted   { background: #E0E8E4; border-color: #8ABDA5; color: #2C4A3E; }
+
+/* ══════════════════════════════════════════
+   EXACT: .status-badge (brands page)
+══════════════════════════════════════════ */
+.status-badge {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 10px;
+  border-radius: var(--r);
+  font-size: 10px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase;
+  font-family: var(--font-display);
+  border: .5px solid transparent;
+}
+.status-badge.approved {
+  background: #C8E8D8; color: #0B3D2E; border-color: #8ABDA5;
+}
+.status-badge.pending {
+  background: #F2E8D0; color: #0B3D2E; border-color: rgba(130,109,64,.35);
+}
+
+/* ══════════════════════════════════════════
+   EXACT: .settings-row (attention queue)
+══════════════════════════════════════════ */
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.settings-row:last-child { border-bottom: none; }
+.settings-row-info { flex: 1; min-width: 0; }
+.settings-row-name { font-size: 13px; font-weight: 600; color: var(--ink); margin-bottom: 2px; }
+.settings-row-desc { font-size: 12px; color: var(--ink-body); line-height: 1.4; }
+
+/* ══════════════════════════════════════════
+   EXACT: .bos-module-chip (brand values chips)
+══════════════════════════════════════════ */
+.bos-module-chip {
+  font-size: 10px; font-weight: 600; letter-spacing: .04em;
+  border: .5px solid var(--border-warm);
+  padding: 2px 8px;
+  color: var(--ink-muted);
+  background: var(--linen);
+  text-transform: capitalize;
+  border-radius: var(--r);
+}
+
+/* ══════════════════════════════════════════
+   EXACT: .input / .label
+══════════════════════════════════════════ */
+.input {
+  width: 100%;
+  padding: 9px 12px;
+  border: .5px solid rgba(11,61,46,.3);
+  border-radius: var(--r);
+  font-size: 13px;
+  font-family: inherit;
+  background: var(--surface); color: var(--ink);
+  outline: none;
+}
+.input:focus { border-color: var(--accent); }
+.input::placeholder { color: var(--ink-subtle); }
+.label { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--stone-deep); margin-bottom: 5px; }
+select.input-like, .select-native {
+  width: 100%; padding: 9px 12px;
+  border: .5px solid rgba(11,61,46,.3);
+  border-radius: var(--r);
+  font-size: 13px; font-family: inherit;
+  background: var(--surface); color: var(--ink);
+  outline: none;
+}
+
+/* ══════════════════════════════════════════
+   EXACT: .admin-table
+══════════════════════════════════════════ */
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.admin-table th {
+  text-align: left;
+  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--ink-muted);
+  padding: 0 12px 8px 0;
+  border-bottom: 1px solid var(--border-light);
+}
+.admin-table td {
+  padding: 10px 12px 10px 0;
+  border-bottom: 1px solid var(--border-light);
+  vertical-align: top; line-height: 1.45;
+}
+.admin-table tr:last-child td { border-bottom: none; }
+
+/* ══════════════════════════════════════════
+   LOADING
+══════════════════════════════════════════ */
+.loading-full { display: flex; align-items: center; justify-content: center; gap: 10px; padding: 60px; color: var(--ink-muted); }
+.spinner { width: 18px; height: 18px; border: 2px solid var(--border-light); border-top-color: var(--brand); border-radius: 50%; animation: spin .7s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+.empty-state { display: flex; flex-direction: column; align-items: center; padding: 40px 20px; text-align: center; }
+.empty-state-icon  { font-size: 28px; color: #999; margin-bottom: 10px; }
+.empty-state-title { font-size: 16px; font-weight: 700; color: var(--brand); margin-bottom: 6px; font-family: var(--font-display); }
+.empty-state-text  { font-size: 13px; color: var(--ink-body); max-width: 400px; }
+
+/* ══════════════════════════════════════════
+   HELPERS
+══════════════════════════════════════════ */
+.g2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.flex-between { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.flex-start   { display: flex; align-items: flex-start; gap: 10px; }
+.flex-row     { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.gap-micro    { gap: 4px; }
+.mono         { font-family: var(--font-mono); }
+.text2        { color: var(--ink-body); }
+.text3        { color: var(--ink-muted); }
+
+</style>
+</head>
+<body>
+<div class="doc-wrap">
+
+  <!-- ════════════════ PAGE TITLE ════════════════ -->
+  <div>
+    <div style="font-family:'Manrope',sans-serif;font-size:9px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:#aaa;margin-bottom:10px">Klaroha BOS · Admin UI — Current Reference</div>
+    <div style="font-family:'Manrope',sans-serif;font-size:32px;font-weight:800;color:#0B3D2E;letter-spacing:-.025em">Admin Pages — As Built</div>
+    <div style="font-size:13px;color:#4A6B5C;margin-top:6px">Derived directly from <code style="font-size:11px">AdminLayout.tsx</code> + all admin page components + <code style="font-size:11px">index.css</code>. Classes and values are exact, not approximated.</div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       01 — ADMIN SHELL (sidebar + content)
+  ════════════════════════════════════════════ -->
+  <div>
+    <div class="doc-label">01 — Admin Shell Layout · AdminLayout.tsx</div>
+    <div class="preview-frame" style="height:680px;display:flex;flex-direction:column">
+
+      <!-- gs-banner (conditional — shown when setup incomplete) -->
+      <div class="gs-banner">
+        <span class="gs-banner-text">Setup incomplete — complete getting started before running campaigns.</span>
+        <button class="btn btn-dark" style="font-size:12px;padding:3px 10px">View checklist →</button>
+        <button class="gs-banner-dismiss">✕</button>
+      </div>
+
+      <div class="admin-shell" style="flex:1;min-height:0">
+
+        <!-- Sidebar: 220px, white bg, .5px border-right -->
+        <aside class="admin-sidebar">
+          <!-- Logo: Manrope 13px/700, .22em uppercase, brand color, ::after = 5px gold dot -->
+          <div>
+            <div class="admin-logo">Klaroha</div>
+            <!-- tagline is rendered as a sibling div in AdminLayout, not in CSS spec -->
+            <div class="admin-logo-tagline">Command Centre</div>
+          </div>
+
+          <nav class="admin-nav">
+            <!-- Section: Command -->
+            <div>
+              <div class="admin-nav-section">Command</div>
+              <a class="admin-nav-item active"><span class="admin-nav-icon">⊟</span>Command Centre</a>
+              <a class="admin-nav-item"><span class="admin-nav-icon">✓</span>Approvals</a>
+              <a class="admin-nav-item"><span class="admin-nav-icon">◷</span>Campaign Board</a>
+              <a class="admin-nav-item"><span class="admin-nav-icon">◆</span>Client Reports</a>
+            </div>
+            <!-- Section: Clients -->
+            <div>
+              <div class="admin-nav-section">Clients</div>
+              <a class="admin-nav-item"><span class="admin-nav-icon">⊞</span>Brands / Clients</a>
+              <a class="admin-nav-item"><span class="admin-nav-icon">▦</span>Client Readiness</a>
+              <a class="admin-nav-item"><span class="admin-nav-icon">▷</span>Booking Pages</a>
+            </div>
+            <!-- Section: Setup -->
+            <div>
+              <div class="admin-nav-section">Setup</div>
+              <a class="admin-nav-item"><span class="admin-nav-icon">◌</span>Setup Checklist</a>
+              <a class="admin-nav-item"><span class="admin-nav-icon">⊡</span>Capabilities</a>
+              <a class="admin-nav-item"><span class="admin-nav-icon">⚡</span>AI Providers</a>
+              <a class="admin-nav-item"><span class="admin-nav-icon">$</span>Billing</a>
+            </div>
+            <!-- Section: Advanced -->
+            <div>
+              <div class="admin-nav-section">Advanced</div>
+              <a class="admin-nav-item"><span class="admin-nav-icon">≡</span>Run Logs</a>
+              <a class="admin-nav-item"><span class="admin-nav-icon">◈</span>Watchpoints</a>
+              <a class="admin-nav-item"><span class="admin-nav-icon">◉</span>Memory &amp; Audit</a>
+              <a class="admin-nav-item"><span class="admin-nav-icon">◎</span>Loop Setup</a>
+              <a class="admin-nav-item"><span class="admin-nav-icon">→</span>Loop Flow</a>
+            </div>
+          </nav>
+
+          <div class="admin-sidebar-footer">
+            <!-- Back to CMO Chat -->
+            <a class="admin-nav-item" style="font-size:13px;font-weight:450;color:var(--ink-muted)">
+              <span class="admin-nav-icon">←</span>CMO Chat
+            </a>
+            <!-- Sign out — hover turns oxblood -->
+            <button class="admin-signout-btn">
+              <span class="admin-nav-icon">⊘</span>Sign out
+            </button>
+          </div>
+        </aside>
+
+        <!-- Main content area: overflow-y auto, padding 28px via admin-page-wrap -->
+        <main class="admin-content" style="overflow:hidden">
+          <div class="admin-page-wrap">
+            <!-- AdminOverview content rendered inside here -->
+            <div class="admin-page">
+
+              <!-- Page header -->
+              <div class="admin-page-header">
+                <div>
+                  <div class="admin-page-title">Command Centre</div>
+                  <div class="admin-page-subtitle">Morning scan for approvals, blocked clients, campaign activity, and recent output.</div>
+                </div>
+                <div class="flex-row">
+                  <a class="btn btn-secondary btn-sm">Client readiness →</a>
+                  <a class="btn btn-dark btn-sm">Approval queue</a>
+                </div>
+              </div>
+
+              <!-- Stat grid: Racing Green bg, 4-col, padding 24px -->
+              <div class="admin-stat-grid">
+                <div class="admin-stat-card" style="cursor:pointer">
+                  <div class="admin-stat-label">Needs Review</div>
+                  <div class="admin-stat-value" style="color:var(--accent)">3</div>
+                  <div class="admin-stat-sub">pending approvals</div>
+                </div>
+                <div class="admin-stat-card">
+                  <div class="admin-stat-label">Active Campaigns</div>
+                  <div class="admin-stat-value">2</div>
+                  <div class="admin-stat-sub">of 5 total</div>
+                </div>
+                <div class="admin-stat-card">
+                  <div class="admin-stat-label">Brands</div>
+                  <div class="admin-stat-value">3</div>
+                </div>
+                <div class="admin-stat-card">
+                  <div class="admin-stat-label">Platform Spend</div>
+                  <div class="admin-stat-value">$2.14</div>
+                  <div class="admin-stat-sub">billing &amp; BYOK usage →</div>
+                </div>
+              </div>
+
+              <!-- Attention queue card -->
+              <div class="admin-card">
+                <div class="admin-card-title">Today's attention queue</div>
+                <div style="display:grid;gap:10px">
+                  <!-- settings-row: flex, gap 20px, padding 14px 0, border-bottom 1px -->
+                  <div class="settings-row">
+                    <div class="settings-row-info">
+                      <div class="settings-row-name">3 artifacts need human review</div>
+                      <div class="settings-row-desc">Approve, reject, or revise before anything can publish.</div>
+                    </div>
+                    <span class="badge badge-warning">Review →</span>
+                  </div>
+                  <div class="settings-row">
+                    <div class="settings-row-info">
+                      <div class="settings-row-name">2 recent failed runs</div>
+                      <div class="settings-row-desc">Check setup blockers, credentials, or provider routing.</div>
+                    </div>
+                    <span class="badge badge-warning">Debug →</span>
+                  </div>
+                </div>
+              </div>
+
+            </div><!-- .admin-page -->
+          </div><!-- .admin-page-wrap -->
+        </main>
+      </div><!-- .admin-shell -->
+    </div><!-- .preview-frame -->
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       02 — COMMAND CENTRE (AdminOverview) — full content
+  ════════════════════════════════════════════ -->
+  <div>
+    <div class="doc-label">02 — Command Centre · AdminOverview.tsx</div>
+    <div class="preview-frame" style="background:var(--admin-bg);padding:28px">
+      <div class="admin-page">
+
+        <!-- Header -->
+        <div class="admin-page-header">
+          <div>
+            <div class="admin-page-title">Command Centre</div>
+            <div class="admin-page-subtitle">Morning scan for approvals, blocked clients, campaign activity, and recent output.</div>
+          </div>
+          <div class="flex-row">
+            <a class="btn btn-secondary btn-sm">Client readiness →</a>
+            <a class="btn btn-dark btn-sm">Approval queue</a>
+          </div>
+        </div>
+
+        <!-- Stat grid: Racing Green cockpit -->
+        <div class="admin-stat-grid">
+          <div class="admin-stat-card">
+            <div class="admin-stat-label">Needs Review</div>
+            <div class="admin-stat-value" style="color:var(--accent)">3</div>
+            <div class="admin-stat-sub">pending approvals</div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-label">Active Campaigns</div>
+            <div class="admin-stat-value">2</div>
+            <div class="admin-stat-sub">of 5 total</div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-label">Brands</div>
+            <div class="admin-stat-value">3</div>
+          </div>
+          <div class="admin-stat-card">
+            <div class="admin-stat-label">Platform Spend</div>
+            <div class="admin-stat-value">$2.14</div>
+            <div class="admin-stat-sub">billing &amp; BYOK usage →</div>
+          </div>
+        </div>
+
+        <!-- Attention queue -->
+        <div class="admin-card">
+          <div class="admin-card-title">Today's attention queue</div>
+          <div style="display:grid;gap:0">
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-name">3 artifacts need human review</div>
+                <div class="settings-row-desc">Approve, reject, or revise before anything can publish.</div>
+              </div>
+              <span class="badge badge-warning">Review →</span>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-name">2 recent failed runs</div>
+                <div class="settings-row-desc">Check setup blockers, credentials, or provider routing.</div>
+              </div>
+              <span class="badge badge-warning">Debug →</span>
+            </div>
+            <div class="settings-row">
+              <div class="settings-row-info">
+                <div class="settings-row-name">Brands waiting on review: Klaroha, Golden Gate</div>
+                <div class="settings-row-desc">Prioritize client-facing work before starting new generation.</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Two-col: Brands + Recent Activity -->
+        <!-- admin-two-col: grid 1fr 1fr, gap 16px, align-items start -->
+        <div class="admin-two-col">
+
+          <!-- Brands card -->
+          <div class="admin-card">
+            <!-- admin-card-title: flex, justify-between, 16px/700, brand color, Manrope -.01em, mb 14px -->
+            <div class="admin-card-title">
+              Brands
+              <a class="btn btn-ghost btn-sm">Manage →</a>
+            </div>
+
+            <!-- Each brand row: flex justify-between, padding 12px 0, border-bottom 1px (last = none) -->
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)">
+                <div>
+                  <a style="font-weight:600;color:var(--text);font-size:14px">Klaroha</a>
+                  <div style="font-size:12px;color:var(--text2);margin-top:2px">klaroha.com</div>
+                </div>
+                <a class="badge badge-warning">3 pending</a>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0;border-bottom:1px solid var(--border)">
+                <div>
+                  <a style="font-weight:600;color:var(--text);font-size:14px">Golden Gate Memorial</a>
+                  <div style="font-size:12px;color:var(--text2);margin-top:2px">goldengatememorial.com</div>
+                </div>
+                <span class="badge badge-success">Up to date</span>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:center;padding:12px 0">
+                <div>
+                  <a style="font-weight:600;color:var(--text);font-size:14px">Motormoto</a>
+                </div>
+                <span class="badge badge-success">Up to date</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Recent Activity card -->
+          <div class="admin-card">
+            <div class="admin-card-title">
+              Recent Activity
+              <a class="btn btn-ghost btn-sm">All runs →</a>
+            </div>
+
+            <!-- Run rows: flex justify-between, padding 10px 0, border-bottom 1px -->
+            <div>
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)">
+                <div>
+                  <div style="font-weight:500;font-size:13px">Strategy <span style="color:var(--text2);font-weight:400">· Klaroha</span></div>
+                  <div style="font-size:11px;color:var(--text2);margin-top:2px;font-family:var(--font-mono)">workspace.planning.strategy_workflow</div>
+                </div>
+                <div style="text-align:right;flex-shrink:0;margin-left:12px">
+                  <div style="font-size:12px;color:var(--text2)">12m ago</div>
+                  <span class="badge badge-warning" style="font-size:10px;margin-top:4px;display:inline-block">review</span>
+                </div>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--border)">
+                <div>
+                  <div style="font-weight:500;font-size:13px">Creative <span style="color:var(--text2);font-weight:400">· Klaroha</span></div>
+                  <div style="font-size:11px;color:var(--text2);margin-top:2px;font-family:var(--font-mono)">creative.factory</div>
+                </div>
+                <div style="text-align:right;flex-shrink:0;margin-left:12px">
+                  <div style="font-size:12px;color:var(--text2)">2h ago</div>
+                </div>
+              </div>
+              <div style="display:flex;justify-content:space-between;align-items:flex-start;padding:10px 0">
+                <div>
+                  <div style="font-weight:500;font-size:13px">Artifact <span style="color:var(--text2);font-weight:400">· Golden Gate</span></div>
+                  <div style="font-size:11px;color:var(--text2);margin-top:2px;font-family:var(--font-mono)">channel.gmail</div>
+                </div>
+                <div style="text-align:right;flex-shrink:0;margin-left:12px">
+                  <div style="font-size:12px;color:var(--text2)">4h ago</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- .admin-page -->
+    </div><!-- preview-frame -->
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       03 — BRANDS / CLIENTS · AdminBrands.tsx
+  ════════════════════════════════════════════ -->
+  <div>
+    <div class="doc-label">03 — Brands / Clients · AdminBrands.tsx</div>
+    <div class="preview-frame" style="background:var(--admin-bg);padding:28px">
+      <div class="admin-page">
+
+        <div class="admin-page-header">
+          <div>
+            <div class="admin-page-title">Brands</div>
+            <div class="admin-page-subtitle">Each brand is a distinct business or client with its own profile, products, audiences, and campaigns.</div>
+          </div>
+          <button class="btn btn-dark btn-sm">+ New Brand</button>
+        </div>
+
+        <!-- New brand form (conditional, adding=true) -->
+        <div class="admin-card" style="padding:18px 20px">
+          <div style="font-weight:800;font-size:14px;margin-bottom:12px">New Brand</div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <input class="input" placeholder="Brand name (e.g. Klaroha, Client A)" style="flex:1">
+            <button class="btn btn-dark btn-sm">Create</button>
+            <button class="btn btn-ghost btn-sm">Cancel</button>
+          </div>
+          <div style="font-size:12px;color:var(--text2);margin-top:8px">
+            Create the brand first, then import a Brand Brief to set voice, tone, products, and audiences.
+          </div>
+        </div>
+
+        <!-- Brand cards: grid 2-col, gap 14px -->
+        <div style="display:grid;grid-template-columns:repeat(2,1fr);gap:14px">
+
+          <!-- Brand card — profile complete -->
+          <div class="admin-card" style="display:flex;flex-direction:column;gap:0">
+            <!-- Header: flex, justify-between, gap 12px, mb 10px -->
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">
+              <div>
+                <!-- name: fw 800, 16px, cursor pointer -->
+                <div style="font-weight:800;font-size:16px;cursor:pointer">Klaroha</div>
+                <div style="font-size:11px;color:var(--text2);margin-top:2px">Added Today · klaroha.com</div>
+              </div>
+              <!-- status-badge: 10px/700, uppercase .12em, Manrope -->
+              <span class="status-badge approved">Profile set</span>
+            </div>
+
+            <!-- Profile grid: grid 1fr 1fr, gap 10px, mb 14px, font-size 13px -->
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px;font-size:13px">
+              <div>
+                <div class="label" style="margin-bottom:2px">Voice</div>
+                <div style="color:var(--text2)">Direct, expert-backed, grounded</div>
+              </div>
+              <div>
+                <div class="label" style="margin-bottom:2px">Tone</div>
+                <div style="color:var(--text2)">Confident without being aggressive</div>
+              </div>
+              <div style="grid-column:1/-1">
+                <div class="label" style="margin-bottom:4px">Values</div>
+                <div style="display:flex;flex-wrap:wrap;gap:4px">
+                  <!-- bos-module-chip: 10px/600, .04em, .5px warm border, ink-muted, linen bg -->
+                  <span class="bos-module-chip">Clarity</span>
+                  <span class="bos-module-chip">Speed</span>
+                  <span class="bos-module-chip">Precision</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Social connection rows: emoji + platform + status -->
+            <!-- Each row: flex, gap 8px, padding 8px 0, border-top 1px -->
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border);margin-top:8px">
+              <span style="font-size:13px">📘</span>
+              <span style="font-size:12px;font-weight:600;flex:1">Klaroha Official Page</span>
+              <span style="color:var(--success);font-size:15px">✓</span>
+              <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px">Disconnect</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:13px">▶️</span>
+              <span style="font-size:12px;color:var(--text2);flex:1">YouTube</span>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px">Connect</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:13px">🎵</span>
+              <span style="font-size:12px;color:var(--text2);flex:1">TikTok</span>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px">Connect</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:13px">🗂️</span>
+              <span style="font-size:12px;font-weight:600;flex:1">Root: Klaroha Assets</span>
+              <span style="color:var(--success);font-size:15px">✓</span>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:2px 8px">Change folder</button>
+              <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px">Disconnect</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:13px">📍</span>
+              <span style="font-size:12px;color:var(--text2);flex:1">Google Business Profile</span>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px">Connect</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:13px">✉️</span>
+              <span style="font-size:12px;font-weight:600;flex:1">hello@klaroha.com</span>
+              <span style="color:var(--success);font-size:15px">✓</span>
+              <button class="btn btn-ghost btn-sm" style="font-size:11px;padding:2px 8px">Disconnect</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:13px">📅</span>
+              <span style="font-size:12px;color:var(--text2);flex:1">Google Calendar</span>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px">Connect</button>
+            </div>
+
+            <!-- Footer: flex, gap 8px, padding-top 10px, border-top 1px -->
+            <div style="display:flex;gap:8px;padding-top:10px;border-top:1px solid var(--border)">
+              <button class="btn btn-ghost btn-sm">Manage</button>
+              <button class="btn btn-ghost btn-sm">Campaigns</button>
+              <button class="btn btn-danger btn-sm" style="margin-left:auto">Delete</button>
+            </div>
+          </div>
+
+          <!-- Brand card — no profile -->
+          <div class="admin-card" style="display:flex;flex-direction:column;gap:0">
+            <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:10px">
+              <div>
+                <div style="font-weight:800;font-size:16px;cursor:pointer">Motormoto</div>
+                <div style="font-size:11px;color:var(--text2);margin-top:2px">Added Yesterday</div>
+              </div>
+              <span class="status-badge pending">No profile</span>
+            </div>
+            <!-- No profile message: italic, text2 -->
+            <div style="font-size:13px;color:var(--text2);margin-bottom:14px;font-style:italic">
+              Import a Brand Brief to set voice, tone, products, and audiences.
+            </div>
+            <!-- Social rows — all disconnected -->
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border);margin-top:8px">
+              <span style="font-size:13px">📘</span>
+              <span style="font-size:12px;color:var(--text2);flex:1">Facebook Page</span>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px">Connect</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:13px">▶️</span>
+              <span style="font-size:12px;color:var(--text2);flex:1">YouTube</span>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px">Connect</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:13px">🎵</span>
+              <span style="font-size:12px;color:var(--text2);flex:1">TikTok</span>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px">Connect</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:13px">🗂️</span>
+              <span style="font-size:12px;color:var(--text2);flex:1">Google Drive</span>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px">Connect</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:13px">📍</span>
+              <span style="font-size:12px;color:var(--text2);flex:1">Google Business Profile</span>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px">Connect</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:13px">✉️</span>
+              <span style="font-size:12px;color:var(--text2);flex:1">Gmail</span>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px">Connect</button>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--border)">
+              <span style="font-size:13px">📅</span>
+              <span style="font-size:12px;color:var(--text2);flex:1">Google Calendar</span>
+              <button class="btn btn-secondary btn-sm" style="font-size:11px;padding:3px 10px">Connect</button>
+            </div>
+            <div style="display:flex;gap:8px;padding-top:10px;border-top:1px solid var(--border)">
+              <button class="btn btn-ghost btn-sm">Manage</button>
+              <button class="btn btn-ghost btn-sm">Campaigns</button>
+              <button class="btn btn-danger btn-sm" style="margin-left:auto">Delete</button>
+            </div>
+          </div>
+
+        </div><!-- 2-col grid -->
+
+        <!-- Empty state (brands.length === 0) -->
+        <div class="admin-card" style="text-align:center;padding:48px 24px">
+          <div style="font-size:32px;margin-bottom:12px">⊞</div>
+          <div style="font-weight:800;font-size:16px;margin-bottom:6px">No brands yet</div>
+          <div style="color:var(--text2);font-size:14px;margin-bottom:20px">
+            Add a brand to start managing campaigns, audiences, and content for a specific client or business unit.
+          </div>
+          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+            <button class="btn btn-dark">+ New Brand</button>
+            <button class="btn btn-secondary">Import "Klaroha" from workspace</button>
+          </div>
+          <div style="font-size:12px;color:var(--text2);margin-top:16px">
+            "Import from workspace" promotes your existing brand profile, products, audiences, and documents into a named brand.
+          </div>
+        </div>
+
+        <!-- Facebook page picker modal -->
+        <div style="background:rgba(0,0,0,.5);padding:20px;display:flex;align-items:center;justify-content:center">
+          <div class="admin-card" style="width:360px;margin:0;padding:24px">
+            <div style="font-weight:800;font-size:15px;margin-bottom:6px">Select a Facebook Page</div>
+            <div style="font-size:13px;color:var(--text2);margin-bottom:16px">
+              Your account manages multiple pages. Choose which one to connect to this brand.
+            </div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <button class="btn btn-secondary" style="justify-content:flex-start;text-align:left">Klaroha Official</button>
+              <button class="btn btn-secondary" style="justify-content:flex-start;text-align:left">Klaroha — Staging</button>
+            </div>
+            <button class="btn btn-ghost btn-sm" style="margin-top:12px">Cancel</button>
+          </div>
+        </div>
+
+      </div><!-- .admin-page -->
+    </div><!-- preview-frame -->
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       04 — CAPABILITIES (AdminModules.tsx)
+  ════════════════════════════════════════════ -->
+  <div>
+    <div class="doc-label">04 — Capabilities · AdminModules.tsx</div>
+    <div class="preview-frame" style="background:var(--admin-bg);padding:28px">
+      <div class="admin-page">
+
+        <!-- Header with brand selector -->
+        <div class="admin-page-header">
+          <div>
+            <div class="admin-page-title">Capabilities</div>
+            <div class="admin-page-subtitle">Client-ready tools installed in BOS. Activate only what the selected brand needs; technical plugin details stay secondary.</div>
+          </div>
+          <!-- Native select — styled via global select rule + border-radius: --radius-control -->
+          <select style="padding:9px 12px;border:.5px solid rgba(11,61,46,.3);border-radius:2px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink);max-width:260px;outline:none">
+            <option>Klaroha</option>
+            <option>Golden Gate Memorial</option>
+            <option>Motormoto</option>
+          </select>
+        </div>
+
+        <!-- Specialist card grid: auto-fill minmax(320px, 1fr), gap 14px -->
+        <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:14px">
+
+          <!-- Card 1: Meta Ads — Ready -->
+          <div class="admin-card" style="margin:0;display:flex;flex-direction:column;gap:12px">
+            <!-- Header: flex, justify-between, gap 12px -->
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+              <div>
+                <!-- name: fw 750, 15px -->
+                <div style="font-weight:750;font-size:15px">Meta Ads</div>
+                <!-- description: text2, 12px, mt 3px, lh 1.4 -->
+                <div style="color:var(--text2);font-size:12px;margin-top:3px;line-height:1.4">Facebook + Instagram publishing capability.</div>
+              </div>
+              <span class="badge badge-success" style="flex-shrink:0">Ready</span>
+            </div>
+
+            <!-- AI model row: .5px border, flex, justify-between, gap 10px, padding 10px 12px -->
+            <div style="padding:10px 12px;border:.5px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px">
+              <div style="min-width:0">
+                <!-- label: 11px/600, uppercase .05em, text2, mb 3px -->
+                <div style="font-size:11px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">AI model</div>
+                <div style="font-size:13px">openrouter · claude-3-5-sonnet</div>
+              </div>
+              <!-- btn-ghost btn-sm when set -->
+              <button class="btn btn-ghost btn-sm" style="font-size:12px;white-space:nowrap">Change</button>
+            </div>
+
+            <!-- Connectors: label "Accounts", then each row -->
+            <div style="display:grid;gap:6px">
+              <div style="font-size:11px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.05em">Accounts</div>
+
+              <!-- Connector row: .5px border, padding 8px 10px, flex, justify-between -->
+              <div style="border:.5px solid var(--border);padding:8px 10px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+                <div style="min-width:0;flex:1">
+                  <div style="font-size:13px;font-weight:600">Meta Ads</div>
+                  <div style="color:var(--text2);font-size:11px;margin-top:2px">Via .env · 3 credentials</div>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+                  <span class="badge badge-success">Connected</span>
+                  <div style="display:flex;gap:4px;flex-wrap:wrap;justify-content:flex-end">
+                    <button class="btn btn-ghost btn-sm" style="font-size:11px">Update</button>
+                    <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--accent)">Deactivate</button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- OAuth connector row (from Brands) -->
+              <div style="border:.5px solid var(--border);padding:8px 10px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+                <div style="min-width:0;flex:1">
+                  <div style="font-size:13px;font-weight:600">📘 Facebook</div>
+                  <div style="color:var(--text2);font-size:11px;margin-top:2px">1 account connected · Klaroha Official Page</div>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+                  <span class="badge badge-success">Connected</span>
+                  <button class="btn btn-ghost btn-sm" style="font-size:11px" onclick="">Manage</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Footer: mt auto, pt 8px, border-top 1px, flex, justify-between -->
+            <div style="margin-top:auto;padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:var(--text2)">Active for selected Brand</span>
+              <span class="badge badge-muted" style="font-size:11px">4 tools</span>
+            </div>
+          </div>
+
+          <!-- Card 2: Image Generation — Needs setup (btn-dark for AI row) -->
+          <div class="admin-card" style="margin:0;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+              <div>
+                <div style="font-weight:750;font-size:15px">Image Generation</div>
+                <div style="color:var(--text2);font-size:12px;margin-top:3px;line-height:1.4">Brand-locked image generation capability.</div>
+              </div>
+              <span class="badge badge-warning" style="flex-shrink:0">Needs setup</span>
+            </div>
+
+            <!-- AI model row — not set: btn-dark btn-sm -->
+            <div style="padding:10px 12px;border:.5px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:10px">
+              <div style="min-width:0">
+                <div style="font-size:11px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px">AI model</div>
+                <div style="font-size:13px;color:var(--text2)">Not assigned</div>
+              </div>
+              <button class="btn btn-dark btn-sm" style="font-size:12px;white-space:nowrap">Set up</button>
+            </div>
+
+            <div style="display:grid;gap:6px">
+              <div style="font-size:11px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.05em">Accounts</div>
+              <div style="border:.5px solid var(--border);padding:8px 10px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+                <div style="min-width:0;flex:1">
+                  <div style="font-size:13px;font-weight:600">Image Generation</div>
+                  <div style="color:var(--text2);font-size:11px;margin-top:2px">Missing IMAGE_GEN_PROVIDER</div>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+                  <span class="badge badge-warning">Needs setup</span>
+                  <button class="btn btn-ghost btn-sm" style="font-size:11px">Configure</button>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:auto;padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:var(--text2)">Active — configure credentials or run connection check</span>
+              <span class="badge badge-muted" style="font-size:11px">2 tools</span>
+            </div>
+          </div>
+
+          <!-- Card 3: ClickUp — Available (not activated) -->
+          <div class="admin-card" style="margin:0;display:flex;flex-direction:column;gap:12px">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start">
+              <div>
+                <div style="font-weight:750;font-size:15px">ClickUp</div>
+                <div style="color:var(--text2);font-size:12px;margin-top:3px;line-height:1.4">Project management reads capability.</div>
+              </div>
+              <span class="badge badge-muted" style="flex-shrink:0">Available</span>
+            </div>
+
+            <div style="display:grid;gap:6px">
+              <div style="font-size:11px;color:var(--text2);font-weight:600;text-transform:uppercase;letter-spacing:.05em">Accounts</div>
+              <div style="border:.5px solid var(--border);padding:8px 10px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+                <div style="min-width:0;flex:1">
+                  <div style="font-size:13px;font-weight:600">ClickUp</div>
+                  <div style="color:var(--text2);font-size:11px;margin-top:2px">Via database · 2 credentials</div>
+                </div>
+                <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+                  <span class="badge badge-success">Connected</span>
+                  <div style="display:flex;gap:4px">
+                    <button class="btn btn-ghost btn-sm" style="font-size:11px">Update</button>
+                    <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--text2)">Remove</button>
+                    <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--accent)">Activate</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top:auto;padding-top:8px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+              <span style="font-size:11px;color:var(--text2)">Available — activate for selected Brand</span>
+              <span class="badge badge-muted" style="font-size:11px">3 tools</span>
+            </div>
+          </div>
+
+        </div><!-- auto-fill grid -->
+
+        <!-- Configure credentials modal -->
+        <div style="background:rgba(0,0,0,.55);padding:20px;display:flex;align-items:center;justify-content:center">
+          <div class="admin-card" style="width:100%;max-width:500px;margin:0">
+            <div style="font-weight:850;font-size:17px;margin-bottom:4px">Configure Meta Ads</div>
+            <div style="color:var(--text2);font-size:13px;margin-bottom:20px">Credentials are encrypted and stored in BOS. They are never returned via API.</div>
+            <div style="display:grid;gap:14px">
+              <div>
+                <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">API Key</label>
+                <input type="password" class="input" placeholder="••••••••" style="font-family:monospace">
+              </div>
+              <div>
+                <label style="display:block;font-size:13px;font-weight:600;margin-bottom:4px">App ID</label>
+                <input type="text" class="input" placeholder="META_APP_ID">
+              </div>
+            </div>
+            <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+              <button class="btn btn-ghost">Cancel</button>
+              <button class="btn btn-primary">Save credentials</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Configure AI model modal -->
+        <div style="background:rgba(0,0,0,.55);padding:20px;display:flex;align-items:center;justify-content:center;margin-top:16px">
+          <div class="admin-card" style="width:100%;max-width:520px;margin:0">
+            <div style="font-weight:850;font-size:17px;margin-bottom:4px">Configure AI — Meta Ads</div>
+            <div style="color:var(--text2);font-size:13px;margin-bottom:18px">Choose the exact LLM/model this capability should use. Leave on auto-route to let BOS choose the best available model.</div>
+            <label style="display:block;font-size:13px;font-weight:600;margin-bottom:6px">Model</label>
+            <select style="padding:9px 12px;border:.5px solid rgba(11,61,46,.3);border-radius:2px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink);width:100%;outline:none">
+              <option value="">Auto-route best available</option>
+              <optgroup label="── Connected ──">
+                <option>openrouter · claude-sonnet-4-5 (Free)</option>
+                <option>openrouter · claude-opus-4</option>
+                <option>openai · gpt-4o</option>
+              </optgroup>
+              <optgroup label="── Add key in AI Providers ──">
+                <option>gemini · gemini-1.5-pro — no key</option>
+              </optgroup>
+            </select>
+            <!-- Strict pin option (shown when model selected) -->
+            <div style="margin-top:14px;padding:10px 12px;background:var(--ivory);border:.5px solid var(--border-warm)">
+              <label style="display:flex;gap:10px;align-items:flex-start;cursor:pointer">
+                <input type="checkbox" style="margin-top:2px">
+                <div>
+                  <div style="font-size:13px;font-weight:600">Strict pin</div>
+                  <div style="font-size:12px;color:var(--text2);margin-top:2px">When enabled, runs fail if this exact model is unavailable — no fallback.</div>
+                </div>
+              </label>
+            </div>
+            <div style="color:var(--text2);font-size:12px;margin-top:10px">Applies to 4 LLM tools in this capability.</div>
+            <div style="display:flex;gap:10px;margin-top:20px;justify-content:flex-end">
+              <button class="btn btn-ghost">Cancel</button>
+              <button class="btn btn-primary">Save AI model</button>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- .admin-page -->
+    </div><!-- preview-frame -->
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       05 — RUN LOGS · AdminRuns.tsx
+  ════════════════════════════════════════════ -->
+  <div>
+    <div class="doc-label">05 — Run Logs · AdminRuns.tsx</div>
+    <div class="preview-frame" style="background:var(--admin-bg);padding:28px">
+      <div class="admin-page">
+
+        <div class="admin-page-header">
+          <div>
+            <div class="admin-page-title">Run Logs</div>
+            <div class="admin-page-subtitle">System/debug history for specialist executions · 142 total</div>
+          </div>
+          <a class="btn btn-secondary btn-sm">Billing →</a>
+        </div>
+
+        <!-- Filter form inside admin-card -->
+        <div class="admin-card">
+          <!-- Filter grid: auto-fill minmax(180px, 1fr), gap 12px, mb 16px -->
+          <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;margin-bottom:16px">
+            <div>
+              <label class="label">System ID</label>
+              <input class="input" placeholder="Filter by specialist/system ID…">
+            </div>
+            <div>
+              <label class="label">Status</label>
+              <select style="width:100%;padding:9px 12px;border:.5px solid rgba(11,61,46,.3);border-radius:2px;font-size:13px;font-family:inherit;background:var(--surface);color:var(--ink);outline:none">
+                <option value="">All statuses</option>
+                <option>completed</option>
+                <option>failed</option>
+              </select>
+            </div>
+            <div>
+              <label class="label">After</label>
+              <input class="input" type="date">
+            </div>
+            <div>
+              <label class="label">Before</label>
+              <input class="input" type="date">
+            </div>
+          </div>
+          <!-- Filter strip: badge-warning "Clear filters" when hasFilters -->
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px">
+            <span style="font-size:12px;color:var(--text2)">Showing 25 of 142 runs</span>
+            <button class="btn btn-ghost btn-sm" style="font-size:11px">Clear filters</button>
+          </div>
+
+          <!-- admin-table -->
+          <table class="admin-table">
+            <thead>
+              <tr>
+                <th>Run ID</th>
+                <th>System / Specialist</th>
+                <th>Brand</th>
+                <th>Status</th>
+                <th>Created</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr style="cursor:pointer">
+                <td class="mono" style="font-size:11px;color:var(--stone-deep)">RUN-0047</td>
+                <td>
+                  <div style="font-weight:500;font-size:13px">Strategy</div>
+                  <div class="mono" style="font-size:11px;color:var(--text2)">workspace.planning.strategy_workflow</div>
+                </td>
+                <td style="font-size:13px">Klaroha</td>
+                <td>
+                  <!-- StatusBadge component: shows "pending" / "completed" / "failed" -->
+                  <span class="badge badge-warning" style="font-size:11px">pending</span>
+                </td>
+                <td style="font-size:12px;color:var(--text2)">12m ago</td>
+              </tr>
+              <tr style="cursor:pointer">
+                <td class="mono" style="font-size:11px;color:var(--stone-deep)">RUN-0046</td>
+                <td>
+                  <div style="font-weight:500;font-size:13px">Creative</div>
+                  <div class="mono" style="font-size:11px;color:var(--text2)">creative.factory</div>
+                </td>
+                <td style="font-size:13px">Klaroha</td>
+                <td><span class="badge badge-success" style="font-size:11px">completed</span></td>
+                <td style="font-size:12px;color:var(--text2)">2h ago</td>
+              </tr>
+              <tr style="cursor:pointer">
+                <td class="mono" style="font-size:11px;color:var(--stone-deep)">RUN-0045</td>
+                <td>
+                  <div style="font-weight:500;font-size:13px">Artifact</div>
+                  <div class="mono" style="font-size:11px;color:var(--text2)">channel.youtube</div>
+                </td>
+                <td style="font-size:13px">Golden Gate</td>
+                <td><span class="badge badge-error" style="font-size:11px">failed</span></td>
+                <td style="font-size:12px;color:var(--text2)">4h ago</td>
+              </tr>
+              <tr style="cursor:pointer">
+                <td class="mono" style="font-size:11px;color:var(--stone-deep)">RUN-0044</td>
+                <td>
+                  <div style="font-weight:500;font-size:13px">Analysis</div>
+                  <div class="mono" style="font-size:11px;color:var(--text2)">analytics.google_ads</div>
+                </td>
+                <td style="font-size:13px">Klaroha</td>
+                <td><span class="badge badge-success" style="font-size:11px">completed</span></td>
+                <td style="font-size:12px;color:var(--text2)">6h ago</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <!-- Pagination: page 1 of 6 -->
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-top:16px;padding-top:14px;border-top:1px solid var(--border)">
+            <span style="font-size:12px;color:var(--text2)">Page 1 of 6</span>
+            <div style="display:flex;gap:6px">
+              <button class="btn btn-sm" disabled>← Prev</button>
+              <button class="btn btn-sm">Next →</button>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- .admin-page -->
+    </div><!-- preview-frame -->
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       06 — COMPONENT REFERENCE: Admin-specific
+  ════════════════════════════════════════════ -->
+  <div>
+    <div class="doc-label">06 — Admin Component Reference</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px">
+
+      <!-- Status badges -->
+      <div style="background:#fff;border:.5px solid rgba(11,61,46,.12);padding:18px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#4A6B5C;margin-bottom:12px">.status-badge (Brands page only)</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+          <span class="status-badge approved">Profile set</span>
+          <span class="status-badge pending">No profile</span>
+        </div>
+        <div class="doc-note">10px/700, uppercase .12em, Manrope, var(--r) radius. Only used in brand cards for profile completeness.</div>
+        <div style="font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#4A6B5C;margin-bottom:8px;margin-top:14px">.badge (everywhere else)</div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <span class="badge badge-success">Clear</span>
+          <span class="badge badge-success">Up to date</span>
+          <span class="badge badge-warning">Review →</span>
+          <span class="badge badge-warning">Debug →</span>
+          <span class="badge badge-warning">Needs setup</span>
+          <span class="badge badge-muted">3 tools</span>
+          <span class="badge badge-error">failed</span>
+          <span class="badge badge-info">Available</span>
+        </div>
+      </div>
+
+      <!-- Buttons -->
+      <div style="background:#fff;border:.5px solid rgba(11,61,46,.12);padding:18px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#4A6B5C;margin-bottom:12px">Buttons in admin context</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <button class="btn btn-dark btn-sm">+ New Brand</button>
+          <button class="btn btn-dark btn-sm">Approval queue</button>
+          <button class="btn btn-dark btn-sm">Save credentials</button>
+          <button class="btn btn-primary">Save AI model</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+          <button class="btn btn-secondary btn-sm">Client readiness →</button>
+          <button class="btn btn-secondary btn-sm">Billing →</button>
+          <button class="btn btn-secondary">Import "Klaroha"</button>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-ghost btn-sm">Manage →</button>
+          <button class="btn btn-ghost btn-sm">All runs →</button>
+          <button class="btn btn-ghost btn-sm">Change</button>
+          <button class="btn btn-ghost btn-sm" style="font-size:11px">Update</button>
+          <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--accent)">Activate</button>
+          <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--text2)">Remove</button>
+          <button class="btn btn-danger btn-sm">Delete</button>
+        </div>
+        <div class="doc-note" style="margin-top:10px">btn-dark/btn-primary = primary CTA (Racing Green fill). btn-secondary = outline Racing Green border. btn-ghost = transparent, hover bg-subtle. btn-danger = oxblood-tinted.</div>
+      </div>
+
+      <!-- Settings row pattern -->
+      <div style="background:#fff;border:.5px solid rgba(11,61,46,.12);padding:18px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#4A6B5C;margin-bottom:12px">.settings-row — attention queue &amp; list items</div>
+        <div>
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-name">3 artifacts need human review</div>
+              <div class="settings-row-desc">Approve, reject, or revise before anything can publish.</div>
+            </div>
+            <span class="badge badge-warning">Review →</span>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-name">No pending approvals</div>
+              <div class="settings-row-desc">Generated work is clear for now.</div>
+            </div>
+            <span class="badge badge-success">Clear</span>
+          </div>
+          <div class="settings-row">
+            <div class="settings-row-info">
+              <div class="settings-row-name">Brands waiting on review: Klaroha</div>
+              <div class="settings-row-desc">Prioritize client-facing work before starting new generation.</div>
+            </div>
+          </div>
+        </div>
+        <div class="doc-note" style="margin-top:4px">flex, gap 20px, padding 14px 0, border-bottom 1px (last: none). settings-row-name = 13px/600 ink. settings-row-desc = 12px ink-body.</div>
+      </div>
+
+      <!-- bos-module-chip + connector row -->
+      <div style="background:#fff;border:.5px solid rgba(11,61,46,.12);padding:18px">
+        <div style="font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:#4A6B5C;margin-bottom:12px">.bos-module-chip &amp; connector row anatomy</div>
+        <div style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:14px">
+          <span class="bos-module-chip">Clarity</span>
+          <span class="bos-module-chip">Speed</span>
+          <span class="bos-module-chip">Precision</span>
+          <span class="bos-module-chip">Channel Marketing</span>
+        </div>
+        <div class="doc-note" style="margin-bottom:12px">10px/600, .04em, linen bg, .5px warm border, ink-muted text, capitalize, var(--r). Used for brand values and module tags.</div>
+
+        <!-- Connector row isolated -->
+        <div style="border:.5px solid var(--border);padding:8px 10px;display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <div style="min-width:0;flex:1">
+            <div style="font-size:13px;font-weight:600">Meta Ads</div>
+            <div style="color:var(--text2);font-size:11px;margin-top:2px">Via .env · 3 credentials · channel.meta, analytics.meta capability.</div>
+          </div>
+          <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;flex-shrink:0">
+            <span class="badge badge-success">Connected</span>
+            <div style="display:flex;gap:4px">
+              <button class="btn btn-ghost btn-sm" style="font-size:11px">Update</button>
+              <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--text2)">Remove</button>
+              <button class="btn btn-ghost btn-sm" style="font-size:11px;color:var(--accent)">Deactivate</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div><!-- 2-col -->
+  </div>
+
+  <!-- ═══════════════════════════════════════════
+       07 — TOKEN SUMMARY (admin-specific vars)
+  ════════════════════════════════════════════ -->
+  <div>
+    <div class="doc-label">07 — Admin-Specific Token Summary</div>
+    <div class="doc-note" style="margin-bottom:16px">These are the <code>--admin-*</code> vars defined in the admin :root block (index.css:1740). Currently all resolve to white surfaces and brand/ink-body text.</div>
+    <div style="background:#fff;border:.5px solid rgba(11,61,46,.12);padding:18px;font-family:var(--font-mono);font-size:12px;color:#2C4A3E;line-height:2">
+      <table style="border-collapse:collapse;width:100%">
+        <thead><tr style="font-size:9px;color:#4A6B5C;text-transform:uppercase;letter-spacing:.1em"><th style="text-align:left;padding:0 16px 6px 0;font-family:'Inter',sans-serif">Token</th><th style="text-align:left;padding:0 16px 6px 0;font-family:'Inter',sans-serif">Resolves to</th><th style="text-align:left;font-family:'Inter',sans-serif">Notes</th></tr></thead>
+        <tbody>
+          <tr><td style="padding:2px 16px 2px 0">--admin-bg</td><td>#ffffff</td><td style="font-family:'Inter',sans-serif;font-size:11px;color:#4A6B5C">App frame + shell background</td></tr>
+          <tr><td style="padding:2px 16px 2px 0">--admin-surface</td><td>#ffffff</td><td style="font-family:'Inter',sans-serif;font-size:11px;color:#4A6B5C">Card surfaces</td></tr>
+          <tr><td style="padding:2px 16px 2px 0">--admin-border</td><td>var(--border) = rgba(11,61,46,.15)</td><td style="font-family:'Inter',sans-serif;font-size:11px;color:#4A6B5C">All border uses</td></tr>
+          <tr><td style="padding:2px 16px 2px 0">--admin-text</td><td>var(--brand) = #0B3D2E</td><td style="font-family:'Inter',sans-serif;font-size:11px;color:#4A6B5C">Page title, card title, logo</td></tr>
+          <tr><td style="padding:2px 16px 2px 0">--admin-text-2</td><td>var(--ink-body) = #2C4A3E</td><td style="font-family:'Inter',sans-serif;font-size:11px;color:#4A6B5C">Subtitle, descriptions, secondary text</td></tr>
+          <tr><td style="padding:2px 16px 2px 0">--admin-sidebar</td><td>#ffffff</td><td style="font-family:'Inter',sans-serif;font-size:11px;color:#4A6B5C">Sidebar background</td></tr>
+          <tr><td style="padding:2px 16px 2px 0">--admin-accent</td><td>var(--accent) = #826D40</td><td style="font-family:'Inter',sans-serif;font-size:11px;color:#4A6B5C">Logo dot, stat top border</td></tr>
+        </tbody>
+      </table>
+      <div style="margin-top:14px;padding-top:12px;border-top:1px solid rgba(11,61,46,.1);font-family:'Inter',sans-serif;font-size:12px;color:#4A6B5C">
+        Stat grid exception: uses raw obsidian (#080B0D) bg + on-dark (#F5F1E8) text + gold-light (#C8A870) sublabels — not --admin-* tokens.
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>
