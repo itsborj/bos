@@ -125,6 +125,14 @@ class MediaImageGenerateModule(ChannelModule):
             parts.append("Visual tone: clean, composed, premium, and commercially grounded.")
         if visual_constraints:
             parts.append(f"Brand constraints to follow: {visual_constraints[:1800]}")
+        image_spec = brief.get("image_spec") or brief.get("image_spec_json")
+        if image_spec:
+            spec_text = image_spec if isinstance(image_spec, str) else json.dumps(image_spec, ensure_ascii=False)
+            parts.append("Canonical BOS ImageSpec (provider-neutral source of truth; compile it into this provider prompt, do not replace it): " + spec_text[:5000])
+        reference_context = brief.get("operator_reference_context") or brief.get("operator_reference_context_json")
+        if reference_context:
+            ref_text = reference_context if isinstance(reference_context, str) else json.dumps(reference_context, ensure_ascii=False)
+            parts.append("Structured operator reference context JSON. Use readable document excerpts, notes, and vision-ready image references as source context; ignore failed, pending, skipped, or empty items: " + ref_text[:6000])
         return " ".join(parts)
 
     def _http_post(self, url: str, payload: dict, headers: dict, timeout: int = 120) -> dict:

@@ -79,11 +79,11 @@ function statusLabel(status: ReviewStatus): string {
 }
 
 function statusColor(status: ReviewStatus): string {
-  if (status === 'approved') return '#16a34a';
-  if (status === 'dismissed') return '#6b7280';
-  if (status === 'draft') return '#6366f1';
-  if (status === 'failed') return '#dc2626';
-  return '#111827';
+  if (status === 'approved') return 'var(--success)';
+  if (status === 'dismissed') return 'var(--ink-muted)';
+  if (status === 'draft') return 'var(--forest)';
+  if (status === 'failed') return 'var(--crimson)';
+  return 'var(--border)';
 }
 
 function hasArtifactAction(run: RunResponse, action: string): boolean {
@@ -156,8 +156,8 @@ function DriveSwapContainer({
     <div style={{ width: '100%', maxWidth: 540, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', background: '#fff', boxShadow: '0 1px 2px rgba(15, 23, 42, 0.04)' }}>
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 11px', borderBottom: '1px solid #eef2f7', background: '#fbfbfa' }}>
         <div style={{ minWidth: 0, flex: 1 }}>
-          <div style={{ fontSize: 10, fontWeight: 900, color: '#826D40', textTransform: 'uppercase', letterSpacing: '.08em' }}>{label} artifact</div>
-          <div style={{ fontSize: 11, color: selectedFile ? '#166534' : '#6b7280', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--forest)', textTransform: 'uppercase', letterSpacing: '.14em' }}>{label} artifact</div>
+          <div style={{ fontSize: 11, color: selectedFile ? 'var(--success)' : 'var(--ink-muted)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
             {selectedFile ? `Using Drive ${kind}: ${selectedFile.name}` : `Generated ${kind} · can be swapped from Google Drive`}
           </div>
         </div>
@@ -1133,7 +1133,7 @@ export function ApprovalBundle({ run, surfaceContext, onRevision, onApproved, on
 
             </div>
           </div>
-          <span className="artifact-status" style={{ color: statusColor(reviewStatus), borderColor: statusColor(reviewStatus) }}>
+          <span className={`artifact-status ${reviewStatus}`} style={{ color: statusColor(reviewStatus), borderColor: statusColor(reviewStatus) }}>
             {statusLabel(reviewStatus)}
           </span>
         </div>

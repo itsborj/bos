@@ -61,9 +61,11 @@ export function FooterNav({ pendingCount }: FooterNavProps) {
               return `bos-proto-tab${active ? ' active' : ''}`;
             }}
           >
-            <span>{icon}</span>
+            <span className="bos-proto-tab-ic">
+              {icon}
+              {label === 'Stream' && streamPendingCount > 0 && <span className="bos-proto-tab-badge">{streamPendingCount}</span>}
+            </span>
             <span>{label}</span>
-            {label === 'Stream' && streamPendingCount > 0 && <span className="bos-proto-tab-badge">{streamPendingCount}</span>}
           </NavLink>
         ))}
       </nav>

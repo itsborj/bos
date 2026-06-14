@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { BrandResponse, WorkspaceResponse } from '../../api/types';
@@ -17,6 +17,38 @@ function profileComplete(brand: BrandResponse): boolean {
 }
 
 type SocialConn = { id: string; brand_id: string | null; platform: string; page_id: string; page_name: string | null; page_handle: string | null; status: string };
+
+const PLATFORM_ICON_CFG: Record<string, { bg?: string; color: string; glyph: string; glyphSize?: number }> = {
+  facebook:        { bg: '#1877F2', color: '#fff',    glyph: 'f' },
+  youtube:         { bg: '#FF0000', color: '#fff',    glyph: '▶', glyphSize: 9 },
+  tiktok:          { bg: '#010101', color: '#fff',    glyph: '♪' },
+  google_drive:    {               color: '#4285F4',  glyph: '▲' },
+  google_business: {               color: '#34A853',  glyph: 'G', glyphSize: 13 },
+  gmail:           {               color: '#D44638',  glyph: '✉' },
+  google_calendar: {               color: '#4285F4',  glyph: '▦' },
+};
+
+function PlatformIcon({ platform }: { platform: string }) {
+  const cfg = PLATFORM_ICON_CFG[platform] ?? { color: 'var(--text2)', glyph: '●' };
+  return (
+    <span style={{
+      width: 20, height: 20, borderRadius: 2,
+      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+      background: cfg.bg ?? 'transparent',
+      color: cfg.color,
+      fontSize: cfg.glyphSize ?? 10,
+      fontWeight: 700,
+      flexShrink: 0,
+    }}>
+      {cfg.glyph}
+    </span>
+  );
+}
+
+const connActionStyle: React.CSSProperties = {
+  fontSize: 11, color: '#ef8250', fontWeight: 600, cursor: 'pointer',
+  background: 'none', border: 'none', padding: 0, whiteSpace: 'nowrap',
+};
 
 const CONNECT_RETURN_KEY = 'bos_connect_return';
 const SOCIAL_CALLBACK_KEYS = ['facebook', 'youtube', 'tiktok', 'google_drive', 'google_business', 'gmail', 'google_calendar'];
@@ -646,36 +678,31 @@ export function AdminBrands() {
                   </span>
                 </div>
 
-                {complete ? (
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 14, fontSize: 13 }}>
-                    {brand.voice && (
-                      <div>
-                        <div className="label" style={{ marginBottom: 2 }}>Voice</div>
-                        <div style={{ color: 'var(--text2)', overflowWrap: 'break-word' }}>{brand.voice}</div>
-                      </div>
-                    )}
-                    {brand.tone && (
-                      <div>
-                        <div className="label" style={{ marginBottom: 2 }}>Tone</div>
-                        <div style={{ color: 'var(--text2)', overflowWrap: 'break-word' }}>{brand.tone}</div>
-                      </div>
-                    )}
-                    {brand.values?.length > 0 && (
-                      <div style={{ gridColumn: '1 / -1' }}>
-                        <div className="label" style={{ marginBottom: 4 }}>Values</div>
+                <div style={{ marginBottom: 10 }}>
+                  {[
+                    { key: 'Voice', val: brand.voice || '—' },
+                    { key: 'Tone',  val: brand.tone  || '—' },
+                  ].map(({ key, val }) => (
+                    <div key={key} style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '3px 12px', margin: '5px 0', fontSize: 12 }}>
+                      <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text2)', paddingTop: 1 }}>{key}</div>
+                      <div style={{ color: 'var(--text)' }}>{val}</div>
+                    </div>
+                  ))}
+                  <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '3px 12px', margin: '5px 0', fontSize: 12, alignItems: 'flex-start' }}>
+                    <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text2)', paddingTop: 3 }}>Values</div>
+                    <div>
+                      {brand.values?.length > 0 ? (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                           {brand.values.map(v => (
-                            <span key={v} className="bos-module-chip">{v}</span>
+                            <span key={v} style={{ padding: '2px 8px', border: '1px solid var(--brand)', color: 'var(--brand)', borderRadius: 12, fontSize: 11, fontWeight: 500 }}>{v}</span>
                           ))}
                         </div>
-                      </div>
-                    )}
+                      ) : (
+                        <span style={{ color: 'var(--text2)', fontStyle: 'italic' }}>Not set</span>
+                      )}
+                    </div>
                   </div>
-                ) : (
-                  <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 14, fontStyle: 'italic' }}>
-                    Import a Brand Brief to set voice, tone, products, and audiences.
-                  </div>
-                )}
+                </div>
 
                 {(() => {
                   const gmConn = connections.find(c => c.brand_id === brand.id && c.platform === 'gmail');
@@ -687,183 +714,151 @@ export function AdminBrands() {
                   const gbpConn = connections.find(c => c.brand_id === brand.id && c.platform === 'google_business');
                   return (
                     <>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-                        <span style={{ fontSize: 13 }}>📘</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <PlatformIcon platform="facebook" />
+                        <span style={{ fontSize: 12, flex: 1 }}>Facebook</span>
                         {fbConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fbConn.page_name || fbConn.page_id}</span>
-                            <span style={{ color: 'var(--success)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>✓</span>
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectFacebook(brand.id)}>Disconnect</button>
+                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fbConn.page_name || fbConn.page_id}</span>
+                            <span style={{ fontSize: 11, color: 'var(--success)', fontWeight: 600 }}>✓</span>
+                            <button style={connActionStyle} onClick={() => handleDisconnectFacebook(brand.id)}>Disconnect</button>
                           </>
                         ) : (
                           <>
-                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>Facebook Page</span>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              style={{ fontSize: 11, padding: '3px 10px' }}
-                              onClick={() => handleConnectFacebook(brand.id)}
-                              disabled={connectingId === brand.id + '_facebook'}
-                            >
+                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
+                            <button style={connActionStyle} onClick={() => handleConnectFacebook(brand.id)} disabled={connectingId === brand.id + '_facebook'}>
                               {connectingId === brand.id + '_facebook' ? 'Redirecting…' : 'Connect'}
                             </button>
                           </>
                         )}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-                        <span style={{ fontSize: 13 }}>▶️</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <PlatformIcon platform="youtube" />
+                        <span style={{ fontSize: 12, flex: 1 }}>YouTube</span>
                         {ytConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ytConn.page_name || ytConn.page_id}</span>
-                            <span style={{ color: 'var(--success)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>✓</span>
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectYouTube(brand.id)}>Disconnect</button>
+                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ytConn.page_name || ytConn.page_id}</span>
+                            <span style={{ fontSize: 11, color: 'var(--success)', fontWeight: 600 }}>✓</span>
+                            <button style={connActionStyle} onClick={() => handleDisconnectYouTube(brand.id)}>Disconnect</button>
                           </>
                         ) : (
                           <>
-                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>YouTube</span>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              style={{ fontSize: 11, padding: '3px 10px' }}
-                              onClick={() => handleConnectYouTube(brand.id)}
-                              disabled={connectingId === brand.id + '_youtube'}
-                            >
+                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
+                            <button style={connActionStyle} onClick={() => handleConnectYouTube(brand.id)} disabled={connectingId === brand.id + '_youtube'}>
                               {connectingId === brand.id + '_youtube' ? 'Redirecting…' : 'Connect'}
                             </button>
                           </>
                         )}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-                        <span style={{ fontSize: 13 }}>🎵</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <PlatformIcon platform="tiktok" />
+                        <span style={{ fontSize: 12, flex: 1 }}>TikTok</span>
                         {ttConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ttConn.page_name || ttConn.page_id}</span>
-                            <span style={{ color: 'var(--success)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>✓</span>
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectTikTok(brand.id)}>Disconnect</button>
+                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ttConn.page_name || ttConn.page_id}</span>
+                            <span style={{ fontSize: 11, color: 'var(--success)', fontWeight: 600 }}>✓</span>
+                            <button style={connActionStyle} onClick={() => handleDisconnectTikTok(brand.id)}>Disconnect</button>
                           </>
                         ) : (
                           <>
-                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>TikTok</span>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              style={{ fontSize: 11, padding: '3px 10px' }}
-                              onClick={() => handleConnectTikTok(brand.id)}
-                              disabled={connectingId === brand.id + '_tiktok'}
-                            >
+                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
+                            <button style={connActionStyle} onClick={() => handleConnectTikTok(brand.id)} disabled={connectingId === brand.id + '_tiktok'}>
                               {connectingId === brand.id + '_tiktok' ? 'Redirecting…' : 'Connect'}
                             </button>
                           </>
                         )}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-                        <span style={{ fontSize: 13 }}>🗂️</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <PlatformIcon platform="google_drive" />
+                        <span style={{ fontSize: 12, flex: 1 }}>Drive</span>
                         {gdConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {driveRoots[brand.id]?.name ? `Root: ${driveRoots[brand.id].name}` : (gdConn.page_name || gdConn.page_id)}
                             </span>
-                            <span style={{ color: gdConn.status === 'connected' ? 'var(--success)' : 'var(--warning-amber)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>
+                            <span style={{ fontSize: 11, color: gdConn.status === 'connected' ? 'var(--success)' : 'var(--warning-amber)', fontWeight: 600 }}>
                               {gdConn.status === 'connected' ? '✓' : '⚠'}
                             </span>
                             {gdConn.status === 'connected' ? (
-                              <button className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleChooseDriveFolder(brand.id)}>
+                              <button style={{ ...connActionStyle, marginRight: 4 }} onClick={() => handleChooseDriveFolder(brand.id)}>
                                 {driveRoots[brand.id] ? 'Change folder' : 'Choose folder'}
                               </button>
                             ) : (
-                              <button className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleConnectDrive(brand.id)} disabled={connectingId === brand.id + '_google_drive'}>
+                              <button style={{ ...connActionStyle, marginRight: 4 }} onClick={() => handleConnectDrive(brand.id)} disabled={connectingId === brand.id + '_google_drive'}>
                                 {connectingId === brand.id + '_google_drive' ? 'Redirecting…' : 'Reconnect'}
                               </button>
                             )}
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectDrive(brand.id)}>Disconnect</button>
+                            <button style={connActionStyle} onClick={() => handleDisconnectDrive(brand.id)}>Disconnect</button>
                           </>
                         ) : (
                           <>
-                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>Google Drive</span>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              style={{ fontSize: 11, padding: '3px 10px' }}
-                              onClick={() => handleConnectDrive(brand.id)}
-                              disabled={connectingId === brand.id + '_google_drive'}
-                            >
+                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
+                            <button style={connActionStyle} onClick={() => handleConnectDrive(brand.id)} disabled={connectingId === brand.id + '_google_drive'}>
                               {connectingId === brand.id + '_google_drive' ? 'Redirecting…' : 'Connect'}
                             </button>
                           </>
                         )}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-                        <span style={{ fontSize: 13 }}>📍</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <PlatformIcon platform="google_business" />
+                        <span style={{ fontSize: 12, flex: 1 }}>Google Business</span>
                         {gbpConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{gbpConn.page_name || gbpConn.page_id}</span>
-                            <span style={{ color: gbpConn.status === 'connected' ? 'var(--success)' : 'var(--warning-amber)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>
+                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{gbpConn.page_name || gbpConn.page_id}</span>
+                            <span style={{ fontSize: 11, color: gbpConn.status === 'connected' ? 'var(--success)' : 'var(--warning-amber)', fontWeight: 600 }}>
                               {gbpConn.status === 'connected' ? '✓' : '⚠'}
                             </span>
                             {gbpConn.status !== 'connected' && (
-                              <button className="btn btn-secondary btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleConnectGoogleBusiness(brand.id)} disabled={connectingId === brand.id + '_google_business'}>
+                              <button style={{ ...connActionStyle, marginRight: 4 }} onClick={() => handleConnectGoogleBusiness(brand.id)} disabled={connectingId === brand.id + '_google_business'}>
                                 {connectingId === brand.id + '_google_business' ? 'Redirecting…' : 'Reconnect'}
                               </button>
                             )}
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectGoogleBusiness(brand.id)}>Disconnect</button>
+                            <button style={connActionStyle} onClick={() => handleDisconnectGoogleBusiness(brand.id)}>Disconnect</button>
                           </>
                         ) : (
                           <>
-                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>Google Business Profile</span>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              style={{ fontSize: 11, padding: '3px 10px' }}
-                              onClick={() => handleConnectGoogleBusiness(brand.id)}
-                              disabled={connectingId === brand.id + '_google_business'}
-                            >
+                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
+                            <button style={connActionStyle} onClick={() => handleConnectGoogleBusiness(brand.id)} disabled={connectingId === brand.id + '_google_business'}>
                               {connectingId === brand.id + '_google_business' ? 'Redirecting…' : 'Connect'}
                             </button>
                           </>
                         )}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-                        <span style={{ fontSize: 13 }}>✉️</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
+                        <PlatformIcon platform="gmail" />
+                        <span style={{ fontSize: 12, flex: 1 }}>Gmail</span>
                         {gmConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {gmConn.page_name || gmConn.page_id}
                             </span>
-                            <span style={{ color: 'var(--success)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>✓</span>
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectGmail(brand.id)}>
-                              Disconnect
-                            </button>
+                            <span style={{ fontSize: 11, color: 'var(--success)', fontWeight: 600 }}>✓</span>
+                            <button style={connActionStyle} onClick={() => handleDisconnectGmail(brand.id)}>Disconnect</button>
                           </>
                         ) : (
                           <>
-                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>Gmail</span>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              style={{ fontSize: 11, padding: '3px 10px' }}
-                              onClick={() => handleConnectGmail(brand.id)}
-                              disabled={connectingId === brand.id + '_gmail'}
-                            >
+                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
+                            <button style={connActionStyle} onClick={() => handleConnectGmail(brand.id)} disabled={connectingId === brand.id + '_gmail'}>
                               {connectingId === brand.id + '_gmail' ? 'Redirecting…' : 'Connect'}
                             </button>
                           </>
                         )}
                       </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 0', borderTop: '1px solid var(--border)' }}>
-                        <span style={{ fontSize: 13 }}>📅</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)' }}>
+                        <PlatformIcon platform="google_calendar" />
+                        <span style={{ fontSize: 12, flex: 1 }}>Google Calendar</span>
                         {gcConn ? (
                           <>
-                            <span style={{ fontSize: 12, fontWeight: 600, flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {gcConn.page_name || gcConn.page_id}
                             </span>
-                            <span style={{ color: 'var(--success)', fontSize: 15, flexShrink: 0, lineHeight: 1 }}>✓</span>
-                            <button className="btn btn-ghost btn-sm" style={{ fontSize: 11, padding: '2px 8px' }} onClick={() => handleDisconnectCalendar(brand.id)}>
-                              Disconnect
-                            </button>
+                            <span style={{ fontSize: 11, color: 'var(--success)', fontWeight: 600 }}>✓</span>
+                            <button style={connActionStyle} onClick={() => handleDisconnectCalendar(brand.id)}>Disconnect</button>
                           </>
                         ) : (
                           <>
-                            <span style={{ fontSize: 12, color: 'var(--text2)', flex: 1 }}>Google Calendar</span>
-                            <button
-                              className="btn btn-secondary btn-sm"
-                              style={{ fontSize: 11, padding: '3px 10px' }}
-                              onClick={() => handleConnectCalendar(brand.id)}
-                              disabled={connectingId === brand.id + '_calendar'}
-                            >
+                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
+                            <button style={connActionStyle} onClick={() => handleConnectCalendar(brand.id)} disabled={connectingId === brand.id + '_calendar'}>
                               {connectingId === brand.id + '_calendar' ? 'Redirecting…' : 'Connect'}
                             </button>
                           </>

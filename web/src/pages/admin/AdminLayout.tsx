@@ -100,7 +100,6 @@ export function AdminLayout() {
       <aside className="admin-sidebar">
         <div className="admin-logo-block">
           <div className="admin-logo">Klaroha</div>
-          <div className="admin-logo-tagline">Command Centre</div>
         </div>
         <nav className="admin-nav">
           {NAV_SECTIONS.map(section => (

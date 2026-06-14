@@ -367,8 +367,9 @@ export interface ChatHistoryItem {
 }
 
 export interface ChatReference {
+  id?: string;
   kind: 'text' | 'image' | 'document';
-  source: 'inline' | 'google_drive';
+  source: 'inline' | 'upload' | 'google_drive';
   title?: string;
   notes?: string;
   text?: string;
@@ -377,10 +378,22 @@ export interface ChatReference {
   drive_web_view_link?: string;
   mime_type?: string;
   thumbnail_link?: string;
+  storage_url?: string;
+  sha256?: string;
+  metadata_json?: Record<string, unknown>;
   extraction_status?: string;
   extraction_error?: string;
   extracted_chars?: number;
   extraction_json?: Record<string, unknown>;
+  variables_json?: Record<string, unknown>;
+}
+
+export interface ReferencePatch {
+  reference_id: string;
+  op: 'add' | 'replace' | 'remove';
+  path: string;
+  value?: unknown;
+  reason?: string;
 }
 
 export interface DriveReferenceUploadResponse extends ChatReference {
@@ -557,6 +570,7 @@ export interface ArtifactRef {
 export type ChatStreamEvent =
   | { type: 'step'; label: string }
   | { type: 'module_result'; artifact_ref: ArtifactRef }
+  | { type: 'reference_patch'; patch: ReferencePatch }
   | { type: 'reply'; text: string; klar_action: KlarAction | null }
   | { type: 'done' }
   | { type: 'error'; message: string };
@@ -568,6 +582,7 @@ export interface ChatResponse {
   artifact_refs?: ArtifactRef[];
   module_id?: string;
   klar_action?: KlarAction | null;
+  reference_patches?: ReferencePatch[];
 }
 
 export interface BrandProfile {

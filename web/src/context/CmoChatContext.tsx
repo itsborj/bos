@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import { buildArtifactRef } from '../utils/artifacts';
 import type { ArtifactRef } from '../utils/artifacts';
-import type { ChatHistoryItem, ChatReference, CouncilFinalizeResult, CouncilSessionState, HandoffBriefOut, KlarAction, ObjectiveOut, RunResponse } from '../api/types';
+import type { ChatHistoryItem, ChatReference, CouncilFinalizeResult, CouncilSessionState, HandoffBriefOut, KlarAction, ObjectiveOut, ReferencePatch, RunResponse } from '../api/types';
 import { useUI } from './UIContext';
 
 export type MsgRole = 'ai' | 'user';
@@ -116,6 +116,8 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
   const [activeObjective, setActiveObjective] = useState<ObjectiveOut | null>(null);
   const [activeCouncilSession, setActiveCouncilSession] = useState<ActiveCouncilSession | null>(null);
   const [pendingReferences, setPendingReferences] = useState<ChatReference[]>([]);
+  const [workingReferences, setWorkingReferences] = useState<ChatReference[]>([]);
+  const conversationIdRef = useRef<string>((globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2)));
   const skipNextSaveRef = useRef(false);
 
   useEffect(() => {
@@ -124,6 +126,8 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
     setStreamCardCtx(null);
     setActiveCouncilSession(null);
     setPendingReferences([]);
+    setWorkingReferences([]);
+    conversationIdRef.current = (globalThis.crypto?.randomUUID?.() ?? Math.random().toString(36).slice(2));
   }, [activeBrand?.id]);
 
   useEffect(() => {
@@ -247,8 +251,79 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
     }
   }
 
+  function normalizeReference(ref: ChatReference): ChatReference {
+    return { ...ref, id: ref.id || globalThis.crypto?.randomUUID?.() || Math.random().toString(36).slice(2) };
+  }
+
+  function refKey(ref: ChatReference): string {
+    return ref.id || ref.drive_file_id || `${ref.kind}:${ref.title || ref.drive_file_name || ''}`;
+  }
+
+  function mergeReferences(...groups: ChatReference[][]): ChatReference[] {
+    const map = new Map<string, ChatReference>();
+    for (const group of groups) {
+      for (const ref of group) {
+        const normalized = normalizeReference(ref);
+        map.set(refKey(normalized), { ...(map.get(refKey(normalized)) || {}), ...normalized });
+      }
+    }
+    return Array.from(map.values()).slice(0, 8);
+  }
+
+  function parseJsonPath(path: string): Array<string | number> {
+    const tokens: Array<string | number> = [];
+    let i = path.startsWith('$') ? 1 : 0;
+    while (i < path.length) {
+      if (path[i] === '.') {
+        i += 1;
+        const start = i;
+        while (i < path.length && /[A-Za-z0-9_-]/.test(path[i])) i += 1;
+        if (i > start) tokens.push(path.slice(start, i));
+      } else if (path[i] === '[') {
+        const end = path.indexOf(']', i);
+        if (end < 0) break;
+        const raw = path.slice(i + 1, end).trim();
+        if (/^\d+$/.test(raw)) tokens.push(Number(raw));
+        else tokens.push(raw.replace(/^['"]|['"]$/g, ''));
+        i = end + 1;
+      } else {
+        i += 1;
+      }
+    }
+    return tokens;
+  }
+
+  function applyReferencePatch(ref: ChatReference, patch: ReferencePatch): ChatReference {
+    if (!ref.extraction_json) return ref;
+    const nextJson = JSON.parse(JSON.stringify(ref.extraction_json)) as Record<string, unknown>;
+    const tokens = parseJsonPath(patch.path);
+    if (tokens.length === 0) return ref;
+    let parent: any = nextJson;
+    for (const token of tokens.slice(0, -1)) {
+      if (parent == null) return ref;
+      parent = parent[token as any];
+    }
+    const last = tokens[tokens.length - 1] as any;
+    if (patch.op === 'remove') {
+      if (Array.isArray(parent) && typeof last === 'number') parent.splice(last, 1);
+      else if (parent && typeof parent === 'object') delete parent[last];
+    } else if (parent && typeof parent === 'object') {
+      parent[last] = patch.value;
+    }
+    return { ...ref, extraction_json: nextJson };
+  }
+
+  function handleReferencePatch(patch: ReferencePatch) {
+    setWorkingReferences(prev => prev.map(ref => ref.id === patch.reference_id ? applyReferencePatch(ref, patch) : ref));
+    setPendingReferences(prev => prev.map(ref => ref.id === patch.reference_id ? applyReferencePatch(ref, patch) : ref));
+    setMsgs(prev => prev.map(msg => msg.references ? {
+      ...msg,
+      references: msg.references.map(ref => ref.id === patch.reference_id ? applyReferencePatch(ref, patch) : ref),
+    } : msg));
+  }
+
   function addReference(ref: ChatReference) {
-    setPendingReferences(prev => [...prev, ref].slice(0, 8));
+    setPendingReferences(prev => mergeReferences(prev, [ref]));
   }
 
   function removeReference(index: number) {
@@ -263,7 +338,7 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
     if (busy) return;
     const trimmed = text.trim();
     if (!trimmed) return;
-    const referencesForTurn = pendingReferences;
+    const referencesForTurn = mergeReferences(workingReferences, pendingReferences);
 
     // Route to council c6-respond when a session is active
     if (activeCouncilSession?.status === 'awaiting_c6') {
@@ -288,6 +363,7 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
     if (!skipUserMessage) {
       setMsgs(m => [...m, { id: uid(), role: 'user', text: trimmed, references: referencesForTurn, time: new Date() }]);
     }
+    setWorkingReferences(referencesForTurn);
     setPendingReferences([]);
     setBusy(true);
 
@@ -295,7 +371,7 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
     setMsgs(m => [...m, { id: typingId, role: 'ai', text: '__typing__', steps: [], time: new Date() }]);
 
     try {
-      for await (const event of api.chatStream(trimmed, history, activeBrand?.id ?? null, activeCampaign?.id ?? null, referencesForTurn)) {
+      for await (const event of api.chatStream(trimmed, history, activeBrand?.id ?? null, activeCampaign?.id ?? null, referencesForTurn, conversationIdRef.current)) {
         if (event.type === 'step') {
           setMsgs(m => m.map(msg =>
             msg.id === typingId ? { ...msg, steps: [...(msg.steps ?? []), event.label] } : msg
@@ -305,6 +381,8 @@ export function CmoChatProvider({ children }: { children: React.ReactNode }) {
           if (event.artifact_ref.status !== 'failed') {
             api.getRun(event.artifact_ref.artifact_id).then(addPendingRun).catch(() => {});
           }
+        } else if (event.type === 'reference_patch') {
+          handleReferencePatch(event.patch);
         } else if (event.type === 'reply') {
           const councilData = handleKlarAction(event.klar_action);
           setMsgs(m => {

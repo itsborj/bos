@@ -7,7 +7,7 @@ import re
 import time
 
 from collections.abc import AsyncGenerator
-from typing import Optional
+from typing import Any, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -21,7 +21,9 @@ from artifacts import ArtifactRef, artifact_ref_from_run
 from attachment_context import (
     brief_fields as _reference_context_brief_fields,
     enrich_drive_references as _enrich_drive_references,
+    ensure_reference_identity as _ensure_reference_identity,
     format_for_prompt as _format_reference_context,
+    persist_chat_references as _persist_chat_references,
 )
 from auth import require_api_key
 from capability_manifest import build_dispatchable_manifest, format_manifest_for_prompt, format_manifest_for_brand
@@ -170,9 +172,85 @@ def _extract_scope_directive(text: str) -> tuple[dict[str, str], str]:
     return scope, "\n".join(kept)
 
 
+def _extract_reference_patch_directives(text: str) -> tuple[list[dict], str]:
+    """Parse and remove hidden PATCH_REFERENCE JSON directives.
+
+    Accepts single-line or pretty-printed JSON after `PATCH_REFERENCE:` and
+    returns only validated patch payloads for frontend streaming.
+    """
+    patches: list[dict] = []
+    src = text or ""
+    out: list[str] = []
+    pos = 0
+    marker_re = re.compile(r"PATCH_REFERENCE\s*:", re.IGNORECASE)
+    while True:
+        match = marker_re.search(src, pos)
+        if not match:
+            out.append(src[pos:])
+            break
+        out.append(src[pos:match.start()])
+        i = match.end()
+        while i < len(src) and src[i].isspace():
+            i += 1
+        if i >= len(src) or src[i] != "{":
+            line_end = src.find("\n", i)
+            pos = len(src) if line_end == -1 else line_end + 1
+            continue
+        depth = 0
+        in_str = False
+        esc = False
+        end = None
+        for j in range(i, len(src)):
+            ch = src[j]
+            if in_str:
+                if esc:
+                    esc = False
+                elif ch == "\\":
+                    esc = True
+                elif ch == '"':
+                    in_str = False
+                continue
+            if ch == '"':
+                in_str = True
+            elif ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+                if depth == 0:
+                    end = j + 1
+                    break
+        if end is None:
+            pos = i
+            continue
+        try:
+            patch = json.loads(src[i:end])
+        except Exception:
+            pos = end
+            continue
+        if isinstance(patch, dict):
+            op = str(patch.get("op") or "").strip()
+            path = str(patch.get("path") or "").strip()
+            reference_id = str(patch.get("reference_id") or patch.get("id") or "").strip()
+            if reference_id and op in {"add", "replace", "remove"} and path.startswith("$"):
+                normalized = {"reference_id": reference_id, "op": op, "path": path}
+                if op != "remove" or "value" in patch:
+                    normalized["value"] = patch.get("value")
+                if patch.get("reason"):
+                    normalized["reason"] = str(patch.get("reason"))
+                patches.append(normalized)
+        # Consume trailing whitespace/newline belonging to the directive.
+        pos = end
+        while pos < len(src) and src[pos] in " \t":
+            pos += 1
+        if pos < len(src) and src[pos] == "\n":
+            pos += 1
+    return patches, "".join(out)
+
+
 def _strip_control_directives(text: str) -> str:
-    """Remove hidden scope/module/action-control directives from user-visible CMO copy."""
-    _scope, without_scope = _extract_scope_directive(text)
+    """Remove hidden scope/module/action/patch-control directives from visible CMO copy."""
+    _patches, without_patches = _extract_reference_patch_directives(text)
+    _scope, without_scope = _extract_scope_directive(without_patches)
     # Strip the full RUN block — the RUN: line AND any indented key:value param lines
     # under it (e.g. caption:, image_prompt:) — so hidden params never leak into the
     # user-visible reply. _RUN_PARAMS_RE matches RUN lines with or without params.
@@ -475,8 +553,9 @@ class ChatHistoryItem(BaseModel):
 
 
 class ChatReference(BaseModel):
+    id: Optional[str] = None
     kind: str = "text"  # "text" | "image" | "document"
-    source: str = "inline"  # "inline" | "google_drive"
+    source: str = "inline"  # "inline" | "upload" | "google_drive"
     title: Optional[str] = None
     notes: Optional[str] = None
     text: Optional[str] = None
@@ -485,12 +564,16 @@ class ChatReference(BaseModel):
     drive_web_view_link: Optional[str] = None
     mime_type: Optional[str] = None
     thumbnail_link: Optional[str] = None
+    storage_url: Optional[str] = None
+    sha256: Optional[str] = None
+    metadata_json: Optional[dict] = None
     # Set server-side by attachment_context.py so downstream modules can audit
     # whether file contents were actually extracted or only metadata was present.
-    extraction_status: Optional[str] = None  # read | vision_ready | provided | failed | skipped | empty
+    extraction_status: Optional[str] = None  # pending | read | vision_ready | failed | skipped | empty | provided(legacy)
     extraction_error: Optional[str] = None
     extracted_chars: Optional[int] = None
-    extraction_json: Optional[dict] = None
+    extraction_json: Any = None
+    variables_json: Optional[dict] = None
 
 
 class ChatRequest(BaseModel):
@@ -498,6 +581,7 @@ class ChatRequest(BaseModel):
     history: list[ChatHistoryItem] = []
     brand_id: Optional[UUID] = None
     campaign_id: Optional[str] = None
+    conversation_id: Optional[str] = None
     references: list[ChatReference] = []
 
 
@@ -545,6 +629,14 @@ class KlarAction(BaseModel):
 
 
 
+class ReferencePatch(BaseModel):
+    reference_id: str
+    op: str
+    path: str
+    value: Any = None
+    reason: Optional[str] = None
+
+
 class ChatResponse(BaseModel):
     reply: str
     runs: list[RunResponse] = Field(default_factory=list)
@@ -553,6 +645,7 @@ class ChatResponse(BaseModel):
     artifact_refs: list[ArtifactRef] = Field(default_factory=list)
     module_id: str | None = None
     klar_action: KlarAction | None = None  # structured @klar command result
+    reference_patches: list[ReferencePatch] = Field(default_factory=list)
 
 
 class ChatReviseRequest(BaseModel):
@@ -794,6 +887,9 @@ HARD RULES — no exceptions:
    NEVER echo param field names (e.g. `video_prompt:`, `thumbnail_prompt:`, `caption:`) in your visible reply text. These labels belong only as hidden directives after a RUN: line. Your visible reply must say what you are doing, not list parameter names.
 10. ACTION lines must use ONLY run IDs and actions listed under "Actionable approved/reviewable artifacts". Never invent a run ID or action. ACTION is for approved artifact deployment; RUN is for specialist creation/read/action modules.
 11. Never mass-dispatch. When a user asks to "trigger all capabilities", "test everything", "showcase all tools", or any similar blanket command: do NOT emit multiple RUN lines. Respond with a short capability summary and ask which specific job or brand to start with. A single turn must never dispatch more than 3 RUN lines unless the user has explicitly named each capability they want.
+12. Creative references are durable context, not automatic generation triggers. If the user asks for feedback, critique, direction, scene mapping, or planning, discuss the references and append no RUN line.
+13. Only dispatch media/image or media/video generation when the user clearly asks to make/generate/proceed/render/export. If storyboard scene order or roles were inferred, present the StoryboardSpec assumptions and ask for confirmation before costly generation.
+14. If the user asks to edit an extracted variable, emit a hidden directive exactly as `PATCH_REFERENCE: {{...json...}}` with reference_id, op (`add`, `replace`, or `remove`), path (JSONPath relative to that reference extraction_json, e.g. `$.brand.colors.gold.hex`), value, and optional reason. Keep visible text conversational and never show the directive.
 {brand_ctx}{workspace_ctx}{operational_ctx}
 Be mobile-first by default: short lines, one idea per line, no dense paragraphs. When the user asks what the project/brand/system is about, answer using the known project and operational context above. Do not claim details are unspecified if products, audiences, a brand kit, or connector context are present.
 
@@ -1186,7 +1282,10 @@ async def _continue_cmo_loop_after_results(
             break
         raw_reply = raw_reply.content
 
-        scope_decision, reply_without_scope = _extract_scope_directive(raw_reply)
+        reference_patches, raw_reply_without_patches = _extract_reference_patch_directives(raw_reply)
+        for patch in reference_patches:
+            yield {"type": "reference_patch", "patch": patch}
+        scope_decision, reply_without_scope = _extract_scope_directive(raw_reply_without_patches)
         current_reply = _strip_control_directives(raw_reply)
         scope_conversation_brand = await _resolve_scope_brand(db, ws, scope_decision.get("conversation_brand"))
         scope_execution_brand = await _resolve_scope_brand(db, ws, scope_decision.get("execution_brand"))
@@ -1253,7 +1352,7 @@ async def _continue_cmo_loop_after_results(
                 "objective": body.message,
                 "message": body.message,
                 "conversation_context": "\n".join(conversation_lines) + (f"\n\n{_ref_ctx_1}" if _ref_ctx_1 else ""),
-                **_reference_context_brief_fields(body.references),
+                **_reference_context_brief_fields(body.references, brand_id=str(body.brand_id) if body.brand_id else None, conversation_id=body.conversation_id, objective=body.message),
             }
         )
         run_inline_params = _parse_run_inline_params(reply_without_scope)
@@ -1310,7 +1409,19 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
     ws = await get_singleton(db)
     _resolved_brand_switch: KlarAction | None = None
 
+    for ref in body.references:
+        _ensure_reference_identity(ref)
     await _enrich_drive_references(body.references, str(body.brand_id) if body.brand_id else None, db, settings)
+    await _persist_chat_references(
+        body.references,
+        workspace_id=ws.id if ws else None,
+        brand_id=body.brand_id,
+        conversation_id=body.conversation_id,
+        campaign_id=body.campaign_id,
+        db=db,
+    )
+    if body.references:
+        await db.commit()
 
     # ── @council command ──────────────────────────────────────────────────────
     if _is_council_command(body.message):
@@ -1328,7 +1439,7 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
         _council_brand: _Brand | None = None
         if body.brand_id:
             _council_brand = (await db.execute(
-                select(_Brand).where(_Brand.id == UUID(body.brand_id))
+                select(_Brand).where(_Brand.id == UUID(str(body.brand_id)))
             )).scalar_one_or_none()
         _council_result = await _council_start(
             brief=_council_brief,
@@ -1360,9 +1471,19 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
 
     active_brand, inferred_brand_action = await _resolve_active_brand_for_turn(db, ws, body)
     if active_brand and body.brand_id != str(active_brand.id):
-        body = ChatRequest(message=body.message, history=body.history, brand_id=str(active_brand.id), campaign_id=body.campaign_id, references=body.references)
+        body = ChatRequest(message=body.message, history=body.history, brand_id=str(active_brand.id), campaign_id=body.campaign_id, conversation_id=body.conversation_id, references=body.references)
         _resolved_brand_switch = _resolved_brand_switch or inferred_brand_action
     await _enrich_drive_references(body.references, str(body.brand_id) if body.brand_id else None, db, settings)
+    await _persist_chat_references(
+        body.references,
+        workspace_id=ws.id if ws else None,
+        brand_id=body.brand_id,
+        conversation_id=body.conversation_id,
+        campaign_id=body.campaign_id,
+        db=db,
+    )
+    if body.references:
+        await db.commit()
 
     routed = route_chat_skills(body.message)
     if not routed.module_ids and len(body.message.strip().split()) <= 5 and body.history:
@@ -1402,10 +1523,13 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
         return
     raw_reply = raw_reply.content
 
-    scope_decision, reply_without_scope = _extract_scope_directive(raw_reply)
+    reference_patches, raw_reply_without_patches = _extract_reference_patch_directives(raw_reply)
+    scope_decision, reply_without_scope = _extract_scope_directive(raw_reply_without_patches)
     triggered_actions = _extract_action_directives(reply_without_scope)
     triggered_modules = _RUN_RE.findall(reply_without_scope)
     reply_text = _strip_control_directives(raw_reply)
+    for patch in reference_patches:
+        yield _sse({"type": "reference_patch", "patch": patch})
 
     scope_conversation_brand = await _resolve_scope_brand(db, ws, scope_decision.get("conversation_brand"))
     scope_execution_brand = await _resolve_scope_brand(db, ws, scope_decision.get("execution_brand"))
@@ -1453,7 +1577,7 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
                 "message": body.message,
                 "conversation_context": "\n".join(conversation_lines) + (f"\n\n{_ref_ctx_2}" if _ref_ctx_2 else ""),
                 "cmo_directive_text": reply_without_scope,
-                **_reference_context_brief_fields(body.references),
+                **_reference_context_brief_fields(body.references, brand_id=str(body.brand_id) if body.brand_id else None, conversation_id=body.conversation_id, objective=body.message),
             })
             active_brand_uuid: UUID | None = (execution_brand or active_brand).id if (execution_brand or active_brand) else None
             run_inline_params = _parse_run_inline_params(reply_without_scope)
@@ -1482,6 +1606,8 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
                 yield _sse({"type": "step", "label": f"Running {loop_event['label']}..."})
             elif loop_event["type"] == "module_result":
                 yield _sse({"type": "module_result", "artifact_ref": artifact_ref_from_run(loop_event["run"]).model_dump()})
+            elif loop_event["type"] == "reference_patch":
+                yield _sse({"type": "reference_patch", "patch": loop_event["patch"]})
             elif loop_event["type"] == "loop_complete":
                 reply_text = loop_event["reply_text"]
                 run_results = loop_event["run_results"]
@@ -1510,6 +1636,7 @@ async def chat_stream(
     Event types:
       {"type": "step", "label": str}            — pipeline phase label (live)
       {"type": "module_result", "artifact_ref"} — a module completed; artifact ready
+      {"type": "reference_patch", "patch"}       — hidden PATCH_REFERENCE directive for frontend local working copy
       {"type": "reply", "text", "klar_action"}  — final CMO reply text
       {"type": "done"}                          — stream complete
     """
@@ -1542,7 +1669,19 @@ async def chat(
     ws = await get_singleton(db)
     _resolved_brand_switch: KlarAction | None = None
 
+    for ref in body.references:
+        _ensure_reference_identity(ref)
     await _enrich_drive_references(body.references, str(body.brand_id) if body.brand_id else None, db, settings)
+    await _persist_chat_references(
+        body.references,
+        workspace_id=ws.id if ws else None,
+        brand_id=body.brand_id,
+        conversation_id=body.conversation_id,
+        campaign_id=body.campaign_id,
+        db=db,
+    )
+    if body.references:
+        await db.commit()
 
     # ── @council command routing ──────────────────────────────────────────────
     if _is_council_command(body.message):
@@ -1556,7 +1695,7 @@ async def chat(
         _council_brand: Brand | None = None
         if body.brand_id:
             _council_brand = (await db.execute(
-                select(Brand).where(Brand.id == UUID(body.brand_id))
+                select(Brand).where(Brand.id == UUID(str(body.brand_id)))
             )).scalar_one_or_none()
         _council_result = await _council_start(
             brief=_council_brief,
@@ -1590,10 +1729,21 @@ async def chat(
             history=body.history,
             brand_id=str(active_brand.id),
             campaign_id=body.campaign_id,
+            conversation_id=body.conversation_id,
             references=body.references,
         )
         _resolved_brand_switch = _resolved_brand_switch or inferred_brand_action
     await _enrich_drive_references(body.references, str(body.brand_id) if body.brand_id else None, db, settings)
+    await _persist_chat_references(
+        body.references,
+        workspace_id=ws.id if ws else None,
+        brand_id=body.brand_id,
+        conversation_id=body.conversation_id,
+        campaign_id=body.campaign_id,
+        db=db,
+    )
+    if body.references:
+        await db.commit()
 
     list_all()  # ensure plugin skill roots are registered before chat skill routing
     routed = route_chat_skills(body.message)
@@ -1652,7 +1802,8 @@ async def chat(
         )
     raw_reply = raw_reply.content
 
-    scope_decision, reply_without_scope = _extract_scope_directive(raw_reply)
+    reference_patches, raw_reply_without_patches = _extract_reference_patch_directives(raw_reply)
+    scope_decision, reply_without_scope = _extract_scope_directive(raw_reply_without_patches)
     triggered_actions = _extract_action_directives(reply_without_scope)
     triggered_modules = _RUN_RE.findall(reply_without_scope)
     reply_text = _strip_control_directives(raw_reply)
@@ -1692,6 +1843,7 @@ async def chat(
             return ChatResponse(
                 reply=reply_text or "Which brand is this artifact for?",
                 klar_action=KlarAction(action="pending_brand", data={"reason": "artifact_generation_requires_execution_brand"}),
+                reference_patches=[ReferencePatch(**patch) for patch in reference_patches],
             )
         try:
             conversation_lines = [
@@ -1704,7 +1856,7 @@ async def chat(
                 "message": body.message,
                 "conversation_context": "\n".join(conversation_lines) + (f"\n\n{_ref_ctx_3}" if _ref_ctx_3 else ""),
                 "cmo_directive_text": reply_without_scope,
-                **_reference_context_brief_fields(body.references),
+                **_reference_context_brief_fields(body.references, brand_id=str(body.brand_id) if body.brand_id else None, conversation_id=body.conversation_id, objective=body.message),
             }
             brief = await _brand_scoped_brief(db, ws, execution_brand or active_brand, chat_overrides)
             active_brand_uuid: UUID | None = (execution_brand or active_brand).id if (execution_brand or active_brand) else None
@@ -1748,6 +1900,7 @@ async def chat(
         artifact_refs=[artifact_ref_from_run(run) for run in run_results],
         module_id=triggered_modules[0] if triggered_modules else None,
         klar_action=_final_klar,
+        reference_patches=[ReferencePatch(**patch) for patch in reference_patches],
     )
 
 

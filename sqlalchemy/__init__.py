@@ -59,6 +59,10 @@ def delete(*args, **kwargs):
     """Return a placeholder representing a DELETE statement."""
     return _Statement(*args, **kwargs)
 
+def update(*args, **kwargs):
+    """Return a placeholder representing an UPDATE statement."""
+    return _Statement(*args, **kwargs)
+
 # Stub for ``create_async_engine`` used in ``api/db.py``.
 def create_async_engine(url, **kwargs):
     return url  # just return the URL as a dummy engine identifier

@@ -1072,6 +1072,47 @@ Every renderable unit (e.g., `PerformanceReport`) is a self-contained component:
 
 ---
 
+### Living HTML Prototype — Source of Truth for All UI
+
+**File:** `public/frontend-prototype.html`
+**Served at:** `http://localhost:3000/frontend-prototype.html` (via `bos-public-1` container)
+
+This file is the **authoritative visual contract** for BOS. It is not a demo, not a deliverable, not a Figma export. It is the agreed sample (BITE Stage 2) for every UI-visible pattern in the system.
+
+**Before any new capability, artifact type, CMO flow, or UI pattern is built:**
+1. Update the prototype to show the pattern with real-looking sample data
+2. Get human approval on what the prototype shows
+3. Then build the implementation
+
+This is the Prototype Gate. It is enforced by BITE.md (`### Prototype Gate Policy`). Agents must not build UI-visible features without first updating the prototype and receiving approval.
+
+**What the prototype currently establishes (as of 2026-06-15):**
+
+| Pattern | Established rule |
+|---|---|
+| CMO chat split | Left 40% chat / right 60% stream — fixed layout |
+| You (user) message | White bubble, 3px coral left-edge accent (`#ef8250`) |
+| CMO reply | White bubble, 3px brand-green left-edge accent (`#0b3d2e`) |
+| Sender label | 6px colored dot + name + timestamp right-aligned |
+| Attachment chip | `bg-sub` light surface, standard border, no colored fill — border-only accent |
+| Drive-link chip (unread) | Same chip style; `· Drive link` status suffix in muted text |
+| Stream artifact inline | White card inside CMO bubble; forest-colored type label; "Review in Stream →" artifact chip |
+| Artifact chip | `bg-sub` fill, standard border, brand text |
+| Stream panel cards | `acard` component: type label + status badge + brand strip + body + actions |
+| "Needs review" badge | **Solid amber pill** (`background:var(--amber); color:var(--brand)`) — amber text on white is a light-on-light violation and is forbidden |
+| "Approved" badge | Forest green text |
+| Setup blocker | Coral border card, coral dot, "Set up →" secondary button |
+| Video artifact body | FB Reels preview + editable Hook/CTA fields + Attachment swap + Publishing destinations with per-channel checkboxes |
+| Publishing destinations | Unchecked = not connected (greyed); checked = connected (forest checkmark); help text below |
+| Approve & Publish | Separate forest-background button only when destinations are shown |
+| System details | Collapsed toggle → artifact ID, self-check, capability |
+| Input row | Text input → `↵` send button → `＋` attach button (right-to-left order) |
+| Light-on-light | **Never permitted.** Every text, badge, and chip must have legible contrast against its direct background. |
+
+**Admin prototype:** `public/admin-prototype.html` — linked from footer nav. Same rules apply.
+
+---
+
 ## 9. Technical Reference
 
 ### Deployment Operations

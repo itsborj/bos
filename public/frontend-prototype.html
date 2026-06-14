@@ -1,0 +1,1057 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Klaroha BOS — Frontend</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* ── Brand palette ── */
+  --racing-green:#0b3d2e;
+  --forest:      #4b7c54;
+  --sage:        #9cbd77;
+  --highlight:   #fffe9c;
+  --amber:       #fcc167;
+  --coral:       #ef8250;
+  --crimson:     #de425b;
+
+  /* ── Aliases ── */
+  --brand:  var(--racing-green);
+  --error:  var(--crimson);
+
+  /* ── Surfaces / text ── */
+  --ivory:    #F5F1E8;
+  --linen:    #F2E8D0;
+  --on-dark:  #F5F1E8;
+  --ink-body: #2C4A3E;
+  --ink-muted:#4A6B5C;
+  --success:  #1F7A4D;
+
+  /* ── Chrome ── */
+  --border:     rgba(11,61,46,.15);
+  --border-warm:rgba(11,61,46,.25);
+  --bg-sub:     rgba(11,61,46,.04);
+
+  /* ── Type ── */
+  --font-d:'Manrope',system-ui,sans-serif;
+  --font-u:'Inter',system-ui,sans-serif;
+  --font-m:'SF Mono',ui-monospace,monospace;
+  --r:2px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;font-family:var(--font-u);font-size:14px;-webkit-font-smoothing:antialiased}
+button{font-family:inherit;cursor:pointer;border:none;background:none}
+a{color:inherit;text-decoration:none;cursor:pointer}
+
+/* ── Pages ── */
+.view{display:none;height:100vh;flex-direction:column;background:#fff;color:var(--ink-body);max-width:1440px;margin:0 auto;width:100%}
+.view.act{display:flex}
+
+/* ── Topbar ── */
+.topbar{height:52px;padding:0 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;background:#fff;flex-shrink:0}
+.tb-logo{font-size:13px;font-weight:700;color:var(--brand);font-family:var(--font-d);letter-spacing:.2em;text-transform:uppercase}
+.tb-center{display:flex;align-items:center;gap:6px}
+.tb-brand-pill{display:flex;align-items:center;gap:5px;padding:5px 10px;border:1px solid var(--border);border-radius:var(--r);font-size:12px;color:var(--ink-body);cursor:pointer;background:#fff}
+.tb-brand-pill:hover{background:var(--bg-sub)}
+.tb-brand-label{font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-muted)}
+.tb-signout{font-size:12px;color:var(--ink-muted);cursor:pointer;padding:5px 8px}
+.tb-signout:hover{color:var(--brand)}
+
+/* ── Footer nav ── */
+.fnav{height:60px;flex-shrink:0;background:#fff;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:center;gap:4px;padding:0 16px}
+.ft{display:flex;flex-direction:row;align-items:center;justify-content:center;gap:5px;color:var(--ink-muted);cursor:pointer;font-size:11px;font-weight:500;text-decoration:none;padding:8px 18px;border-radius:var(--r);border:1px solid var(--border);background:#fff;white-space:nowrap}
+.ft-ic{font-size:13px;line-height:1;position:relative;display:inline-block}
+.ft-badge{position:absolute;top:-5px;right:-10px;background:var(--crimson);color:#fff;font-size:8px;font-weight:700;min-width:15px;height:15px;border-radius:8px;display:flex;align-items:center;justify-content:center;padding:0 3px;line-height:1;font-family:var(--font-u)}
+.ft.act{color:var(--brand);font-weight:700;background:var(--sage);border-color:rgba(75,124,84,.25)}
+
+/* ── Scrollable body ── */
+.body{flex:1;overflow-y:auto}
+.body::-webkit-scrollbar{display:none}
+
+/* ── Buttons ── */
+.btn{display:inline-flex;align-items:center;gap:5px;padding:7px 13px;border-radius:var(--r);font-size:12px;font-weight:600;cursor:pointer;border:1px solid transparent;font-family:var(--font-u);white-space:nowrap}
+.sm{padding:5px 10px;font-size:11px}
+.dark{background:var(--brand);color:var(--ivory);border-color:var(--brand)}
+.sec{background:#fff;color:var(--brand);border-color:var(--brand)}
+.cop{background:var(--coral);color:#fff;border-color:var(--coral)}
+.ghost{background:none;color:var(--ink-muted);border:none;font-size:12px;font-weight:600;padding:5px 8px;border-radius:var(--r);cursor:pointer}
+
+/* ── Badges ── */
+.badge{display:inline-flex;align-items:center;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600;white-space:nowrap}
+.bg-ok{background:rgba(31,122,77,.12);color:var(--success)}
+.bg-wn{background:var(--amber);color:var(--brand)}
+
+/* ── Hero (dark) ── */
+.hero{background:var(--brand);padding:28px;display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-shrink:0}
+.he{font-size:10px;font-weight:700;letter-spacing:.22em;text-transform:uppercase;color:var(--amber);margin-bottom:6px;font-family:var(--font-d)}
+.ht{font-size:32px;font-weight:800;color:var(--on-dark);font-family:var(--font-d);letter-spacing:-.03em;text-transform:uppercase;line-height:.95}
+.hstats{display:flex;gap:20px;flex-shrink:0}
+.hs{text-align:right}
+.hsn{font-size:20px;font-weight:800;color:var(--on-dark);font-family:var(--font-d);letter-spacing:-.03em}
+.hsl{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--sage)}
+
+/* ── Card ── */
+.card{background:#fff;border:1px solid var(--border);border-radius:var(--r);padding:16px;margin-bottom:14px}
+.ct{font-size:14px;font-weight:700;color:var(--brand);margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
+
+/* ── Row ── */
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;border-bottom:1px solid var(--border)}
+.row:last-child{border-bottom:none}
+.rn{font-size:13px;font-weight:600;color:var(--brand)}
+.rd{font-size:12px;color:var(--ink-muted);margin-top:2px}
+
+/* ── Table ── */
+.tbl{width:100%;border-collapse:collapse}
+.tbl thead tr{background:var(--brand)}
+.tbl thead th{padding:8px 12px;text-align:left;font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ivory);font-family:var(--font-d)}
+.tbl tbody tr{border-bottom:1px solid var(--border)}
+.tbl tbody tr:last-child{border-bottom:none}
+.tbl tbody td{padding:9px 12px;font-size:12px;color:var(--ink-body);vertical-align:middle}
+.mono{font-family:var(--font-m);font-size:11px;color:var(--coral);font-weight:500}
+
+/* Filter buttons */
+.filter-row{display:flex;gap:6px;margin-bottom:16px}
+.fbtn{padding:6px 14px;border:1px solid var(--border);border-radius:var(--r);font-size:12px;font-weight:500;color:var(--ink-muted);cursor:pointer;background:#fff}
+.fbtn.act{border-color:var(--brand);color:var(--brand);background:var(--bg-sub)}
+
+/* Inp */
+.inp{padding:7px 10px;border:1px solid var(--border);border-radius:var(--r);font-size:12px;color:var(--ink-body);background:#fff;font-family:var(--font-u);outline:none}
+.inp:focus{border-color:var(--brand)}
+.sel{padding:7px 28px 7px 10px;border:1px solid var(--border);border-radius:var(--r);font-size:12px;color:var(--ink-body);background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' fill='none'%3E%3Cpath d='M1 1l4 4 4-4' stroke='%234A6B5C' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat right 10px center;font-family:var(--font-u);outline:none;appearance:none;cursor:pointer}
+
+/* ═══════════════ AUTH ═══════════════ */
+#v-auth{background:var(--brand);align-items:center;justify-content:center}
+.auth-card{background:#fff;border-radius:4px;padding:32px 28px;width:340px;box-shadow:0 8px 40px rgba(0,0,0,.25)}
+.auth-logo{display:flex;align-items:center;gap:10px;margin-bottom:28px}
+.auth-logo-mark{width:32px;height:32px;background:var(--brand);border-radius:2px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.auth-logo-k{font-size:16px;font-weight:900;color:var(--ivory)}
+.auth-logo-name{font-size:16px;font-weight:800;color:var(--brand);font-family:var(--font-d);letter-spacing:.18em;text-transform:uppercase}
+.auth-btn{width:100%;padding:11px 16px;border-radius:var(--r);font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;margin-bottom:10px;font-family:var(--font-u);border:none}
+.auth-btn-google{background:var(--coral);color:#fff}
+.auth-btn-google:hover{background:#d66e3e}
+.auth-btn-outline{background:#fff;color:var(--brand);border:1px solid var(--border)}
+.auth-btn-outline:hover{background:var(--bg-sub)}
+.auth-divider{text-align:center;font-size:11px;color:var(--ink-muted);margin:8px 0}
+.auth-footer{text-align:center;font-size:11px;color:rgba(255,255,255,.45);margin-top:24px}
+
+/* ═══════════════ CMO SPLIT ═══════════════ */
+#v-cmo .shell{display:flex;flex:1;overflow:hidden}
+.cmo-left{width:40%;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden}
+.cmo-right{flex:1;overflow-y:auto;background:#fafaf8}
+.cmo-right::-webkit-scrollbar{display:none}
+
+.cmo-chips{padding:10px 12px;border-bottom:1px solid var(--border);flex-shrink:0}
+.cmo-chip{display:inline-block;padding:5px 10px;background:#fff;border:1px solid var(--border);border-radius:3px;font-size:11px;font-weight:400;color:var(--ink-body);cursor:pointer;font-family:var(--font-m)}
+.cmo-chip:hover{background:var(--bg-sub)}
+
+.cmo-msgs{flex:1;overflow-y:auto;padding:12px}
+.cmo-msgs::-webkit-scrollbar{display:none}
+
+/* Chat message rows */
+.msg-row{margin-bottom:14px}
+.msg-row.user{display:flex;flex-direction:column;align-items:flex-end}
+.msg-row.ai{display:flex;flex-direction:column;align-items:flex-start}
+.msg-bubble{max-width:88%;border-radius:0 6px 6px 0;padding:9px 12px;font-size:13px;line-height:1.5;background:#fff;border:1px solid var(--border);color:var(--ink-body);border-left-width:3px}
+.msg-row.user .msg-bubble{border-left-color:var(--coral);border-radius:6px 0 0 6px;border-left-width:3px}
+.msg-row.ai .msg-bubble{border-left-color:var(--brand);border-left-width:3px}
+.msg-sender{font-size:10px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-muted);margin-bottom:4px;display:flex;align-items:center;gap:5px}
+.msg-sender-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.msg-row.user .msg-sender-dot{background:var(--coral)}
+.msg-row.ai .msg-sender-dot{background:var(--brand)}
+.msg-time{font-size:10px;color:var(--ink-muted);font-weight:400;margin-left:auto}
+
+/* Attachment chip — light surface, muted border */
+.attach-chip{display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:4px 8px;background:var(--bg-sub);border:1px solid var(--border);border-radius:4px;font-size:11px;color:var(--ink-muted);font-family:var(--font-m)}
+.attach-chip-icon{font-size:11px}
+.attach-chip-label{font-weight:500;color:var(--ink-body)}
+.attach-chip-status{font-size:10px;color:var(--ink-muted)}
+
+/* Artifact reference chip */
+.artifact-chip{display:inline-flex;align-items:center;gap:6px;margin-top:8px;padding:6px 10px;background:var(--bg-sub);border:1px solid var(--border);border-radius:4px;cursor:pointer;font-size:11px;color:var(--brand);font-weight:600}
+.artifact-chip:hover{background:#fff}
+.artifact-chip-icon{font-size:13px}
+
+.cmo-input-wrap{padding:10px 12px 12px;flex-shrink:0}
+.cmo-input-row{display:flex;align-items:center;gap:6px;background:#fff;border:1px solid var(--border);border-radius:4px;padding:8px 10px}
+
+/* Attachment preview area above input */
+.attach-preview{padding:6px 8px;margin-bottom:6px;background:var(--bg-sub);border:1px solid var(--border);border-radius:4px;display:flex;align-items:center;gap:8px}
+.attach-preview-name{font-size:11px;color:var(--ink-body);font-weight:500;flex:1;font-family:var(--font-m)}
+.attach-preview-remove{font-size:11px;color:var(--ink-muted);cursor:pointer;padding:0 2px}
+
+.cmo-input{flex:1;background:none;border:none;outline:none;font-size:13px;color:var(--ink-body);font-family:var(--font-u)}
+.cmo-input::placeholder{color:var(--ink-muted)}
+.cmo-input-btn{width:30px;height:30px;border-radius:4px;display:flex;align-items:center;justify-content:center;background:var(--coral);color:#fff;cursor:pointer;font-size:14px;flex-shrink:0;font-weight:700}
+.cmo-attach-btn{width:30px;height:30px;border-radius:4px;display:flex;align-items:center;justify-content:center;background:#fff;border:1px solid var(--border);color:var(--ink-muted);cursor:pointer;font-size:16px;flex-shrink:0}
+
+/* ═══════════════ STREAM ═══════════════ */
+.stream-inner{max-width:800px;margin:0 auto;padding:24px 20px 80px}
+.stream-kicker{font-size:10px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;color:var(--forest);margin-bottom:8px}
+.stream-title{font-size:32px;font-weight:800;color:var(--brand);font-family:var(--font-d);letter-spacing:-.02em;line-height:1.1;margin-bottom:6px}
+.stream-sub{font-size:13px;color:var(--ink-muted);margin-bottom:24px}
+
+/* Artifact card */
+.acard{border:1px solid var(--border);border-radius:var(--r);margin-bottom:14px;overflow:hidden}
+.acard-header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border)}
+.acard-type{font-size:9px;font-weight:700;letter-spacing:.16em;text-transform:uppercase;color:var(--forest)}
+.acard-status{font-size:11px;font-weight:600;color:var(--forest)}
+.acard-brand{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-muted);padding:4px 14px;border-bottom:1px solid var(--border)}
+.acard-body{padding:14px}
+.acard-actions{padding:10px 14px;border-top:1px solid var(--border);display:flex;gap:8px;align-items:center}
+
+/* FB ad preview */
+.fb-preview{border:1px solid #ddd;border-radius:4px;overflow:hidden;background:#fff;font-family:Arial,sans-serif}
+.fb-header{padding:8px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid #f0f0f0}
+.fb-logo{width:32px;height:32px;background:var(--brand);border-radius:50%;display:flex;align-items:center;justify-content:center;color:#fff;font-size:12px;font-weight:700;flex-shrink:0}
+.fb-page-name{font-size:13px;font-weight:700;color:#1c1e21}
+.fb-sponsored{font-size:11px;color:#65676b}
+.fb-image{height:160px;background:#e4e6eb;display:flex;align-items:center;justify-content:center}
+.fb-img-placeholder{font-size:12px;color:#bcc0c4;font-style:italic}
+.fb-caption{padding:10px 12px;font-size:13px;color:#1c1e21;line-height:1.4;border-top:1px solid #f0f0f0}
+.fb-cta-row{padding:8px 12px;display:flex;align-items:center;justify-content:space-between;border-top:1px solid #f0f0f0;background:#f7f7f7}
+.fb-cta-btn{padding:6px 14px;background:#fff;border:1px solid #ccc;border-radius:4px;font-size:12px;font-weight:700;cursor:pointer}
+
+/* Objective card */
+.obj-card{border:1px solid var(--border);border-radius:var(--r);padding:14px;margin-bottom:14px;display:flex;align-items:center;gap:12px}
+.obj-dot{width:8px;height:8px;border-radius:50%;background:var(--success);flex-shrink:0}
+.obj-label{font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--success);margin-bottom:4px}
+.obj-text{font-size:13px;color:var(--ink-body);flex:1;line-height:1.4}
+.obj-status{font-size:11px;font-weight:600;color:var(--success);flex-shrink:0}
+
+/* ═══════════════ WORKSPACE ═══════════════ */
+.ws-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;max-width:1100px;margin:0 auto;padding:20px;padding-bottom:80px}
+.ws-not-set{font-size:12px;color:var(--ink-muted);font-style:italic}
+.aud-card{border:1px solid var(--border);border-radius:var(--r);padding:12px;margin-bottom:10px}
+.aud-name{font-size:13px;font-weight:700;color:var(--brand);margin-bottom:4px}
+.aud-demo{font-size:11px;color:var(--ink-muted)}
+.prod-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)}
+.prod-row:last-child{border-bottom:none}
+.prod-icon{width:28px;height:28px;border-radius:50%;background:var(--bg-sub);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:12px;flex-shrink:0}
+.prod-name{font-size:13px;font-weight:600;color:var(--brand);flex:1}
+.prod-tag{font-size:11px;color:var(--ink-muted)}
+
+/* ═══════════════ HISTORY ═══════════════ */
+.hist-inner{max-width:1100px;margin:0 auto;padding:0 20px 80px}
+
+/* ═══════════════ SETTINGS ═══════════════ */
+.set-inner{max-width:1100px;margin:0 auto;padding:0 20px 80px}
+.set-grid{display:grid;grid-template-columns:1fr 1fr;gap:20px;margin-top:18px}
+.prov-row{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)}
+.prov-row:last-child{border-bottom:none}
+.prov-dot{width:8px;height:8px;border-radius:50%;background:var(--error);flex-shrink:0}
+.prov-name{font-size:13px;font-weight:600;color:var(--ink-body);flex:1}
+.prov-sub{font-size:11px;color:var(--ink-muted)}
+.prov-status{padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;border:1px solid var(--error);color:var(--error);cursor:pointer}
+.key-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--border)}
+.key-row:last-child{border-bottom:none}
+.key-name{font-size:12px;font-family:var(--font-m);color:var(--ink-body)}
+.key-date{font-size:11px;color:var(--ink-muted)}
+.key-del{font-size:11px;color:var(--error);font-weight:600;cursor:pointer}
+.api-box{background:var(--bg-sub);border:1px solid var(--border);border-radius:var(--r);padding:10px 12px;margin-bottom:10px}
+.api-label{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);margin-bottom:6px}
+.api-key{display:flex;align-items:center;gap:8px}
+.api-masked{font-family:var(--font-m);font-size:12px;color:var(--ink-muted);flex:1;letter-spacing:.1em}
+.api-copy{padding:4px 10px;border:1px solid var(--border);border-radius:var(--r);font-size:11px;font-weight:600;color:var(--brand);cursor:pointer;background:#fff}
+.bill-row{display:flex;justify-content:space-between;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border)}
+.bill-row:last-child{border-bottom:none}
+.bill-label{font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);margin-bottom:3px}
+.bill-val{font-size:15px;font-weight:700;color:var(--brand)}
+.bill-sub{font-size:11px;color:var(--ink-muted)}
+</style>
+</head>
+<body>
+
+<!-- ═══ AUTH ═══ -->
+<div id="v-auth" class="view act">
+  <div class="auth-card">
+    <div class="auth-logo">
+      <div class="auth-logo-mark"><span class="auth-logo-k">K</span></div>
+      <span class="auth-logo-name">KLAROHA</span>
+    </div>
+    <button class="auth-btn auth-btn-google" onclick="goTo('stream')">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/><path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/><path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z" fill="#FBBC05"/><path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/></svg>
+      Sign in with Google
+    </button>
+    <button class="auth-btn auth-btn-outline" onclick="goTo('stream')">Bootstrap — create first key</button>
+    <div class="auth-divider">or</div>
+    <button class="auth-btn auth-btn-outline" onclick="goTo('stream')">I already have a key</button>
+  </div>
+  <div class="auth-footer">One workspace · One command · Full control</div>
+</div>
+
+<!-- ═══ STREAM ═══ -->
+<div id="v-stream" class="view" style="flex-direction:column">
+  <div class="topbar">
+    <div class="tb-logo">KLAROHA</div>
+    <div class="tb-center">
+      <span class="tb-brand-label">All Brands</span>
+      <div class="tb-brand-pill">All brands <span style="font-size:10px;color:var(--ink-muted)">▾</span></div>
+    </div>
+    <span class="tb-signout">Sign out</span>
+  </div>
+  <div class="body">
+    <div class="stream-inner">
+      <div class="stream-kicker">Sunday, June 14 · All Brands</div>
+      <div class="stream-title">5 items need your judgment</div>
+      <div class="stream-sub">Review, approve, or dismiss the CMO's generated work before it can publish.</div>
+
+      <!-- Active Objective -->
+      <div class="obj-card">
+        <div class="obj-dot"></div>
+        <div style="flex:1">
+          <div class="obj-label">Active Objective</div>
+          <div class="obj-text">Drive awareness through targeted social content and outreach for Klaroha's summer campaign…</div>
+        </div>
+        <div class="obj-status">Active</div>
+      </div>
+
+      <!-- Facebook artifact -->
+      <div class="acard">
+        <div class="acard-header">
+          <span class="acard-type">Facebook Pages</span>
+          <span class="acard-status">Approved</span>
+        </div>
+        <div class="acard-brand">KLAROHA</div>
+        <div class="acard-body">
+          <div class="fb-preview">
+            <div class="fb-header">
+              <div class="fb-logo">K</div>
+              <div>
+                <div class="fb-page-name">Klaroha</div>
+                <div class="fb-sponsored">Sponsored · <span style="font-size:10px">□</span></div>
+              </div>
+            </div>
+            <div class="fb-image"><span class="fb-img-placeholder">Creative Placeholder</span></div>
+            <div class="fb-caption">Ready to elevate your business operations? Klaroha brings AI-powered marketing to agencies and brands that mean business. Start your journey today.</div>
+            <div class="fb-cta-row">
+              <span style="font-size:12px;color:#1c1e21;font-weight:600">Klaroha</span>
+              <button class="fb-cta-btn">Learn More</button>
+            </div>
+          </div>
+        </div>
+        <div class="acard-actions">
+          <button class="btn sm cop">Approve</button>
+          <button class="btn sm sec">Revise</button>
+          <button class="ghost sm">Dismiss</button>
+        </div>
+      </div>
+
+      <!-- YouTube artifact -->
+      <div class="acard">
+        <div class="acard-header">
+          <span class="acard-type">YouTube Connection Draft</span>
+          <span class="acard-status">Pending</span>
+        </div>
+        <div class="acard-brand">KLAROHA</div>
+        <div class="acard-body">
+          <div style="padding:12px;background:var(--bg-sub);border-radius:var(--r)">
+            <div style="font-size:12px;font-weight:600;color:var(--brand);margin-bottom:4px">YouTube Channel Connection</div>
+            <div style="font-size:12px;color:var(--ink-muted)">klarohahq@gmail.com · Connected · Ready to publish</div>
+          </div>
+        </div>
+        <div class="acard-actions">
+          <button class="btn sm cop">Approve</button>
+          <button class="btn sm sec">Revise</button>
+          <button class="ghost sm">Dismiss</button>
+        </div>
+      </div>
+
+      <!-- Video artifact -->
+      <div class="acard">
+        <div class="acard-header">
+          <span class="acard-type">Video</span>
+          <span class="acard-status">Pending</span>
+        </div>
+        <div class="acard-brand">GOLDEN GATE MEMORIAL</div>
+        <div class="acard-body">
+          <div style="height:100px;background:var(--brand);border-radius:var(--r);display:flex;align-items:center;justify-content:center">
+            <div style="width:36px;height:36px;background:rgba(255,255,255,.15);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff">▶</div>
+          </div>
+          <div style="margin-top:10px;font-size:12px;color:var(--ink-muted);font-family:var(--font-m)">media.video.generate · 6/14/2026, 8:28 AM</div>
+        </div>
+        <div class="acard-actions">
+          <button class="btn sm cop">Approve</button>
+          <button class="btn sm sec">Revise</button>
+          <button class="ghost sm">Dismiss</button>
+        </div>
+      </div>
+    </div>
+  </div>
+  <nav class="fnav">
+    <a class="ft act" onclick="goTo('stream')"><span class="ft-ic">▶<span class="ft-badge">50</span></span>Stream</a>
+    <a class="ft" onclick="goTo('cmo')"><span class="ft-ic">◎</span>CMO</a>
+    <a class="ft" href="admin-prototype.html"><span class="ft-ic">⚙</span>Admin</a>
+  </nav>
+</div>
+
+<!-- ═══ CMO ═══ -->
+<div id="v-cmo" class="view" style="flex-direction:column">
+  <div class="topbar">
+    <div class="tb-logo">KLAROHA</div>
+    <div class="tb-center">
+      <span class="tb-brand-label">Golden Gate Memorial</span>
+      <div class="tb-brand-pill">Golden Gate Memorial <span style="font-size:10px;color:var(--ink-muted)">▾</span></div>
+    </div>
+    <span class="tb-signout">Sign out</span>
+  </div>
+  <div class="shell">
+    <!-- Left: CMO Chat -->
+    <div class="cmo-left">
+      <div class="cmo-chips">
+        <span class="cmo-chip">Pre-planning campaign from pricing sheet…</span>
+      </div>
+
+      <!-- Chat thread -->
+      <div class="cmo-msgs">
+
+        <!-- Turn 1: User — video from images -->
+        <div class="msg-row user">
+          <div class="msg-sender"><span class="msg-sender-dot"></span>You</div>
+          <div class="msg-bubble">
+            i need a video for the widower, can you make sense of the images
+            <div style="display:flex;flex-direction:column;gap:4px;margin-top:7px">
+              <span class="attach-chip"><span class="attach-chip-icon">🖼️</span><span class="attach-chip-label">0b6d1aeb-…-8bcc070e67e8.png</span></span>
+              <span class="attach-chip"><span class="attach-chip-icon">🖼️</span><span class="attach-chip-label">5c0c1c47-…-6a4875cec3a7.png</span></span>
+              <span class="attach-chip"><span class="attach-chip-icon">🖼️</span><span class="attach-chip-label">d91a4098-…-4bb076f641e9.png</span></span>
+              <span class="attach-chip"><span class="attach-chip-icon">🖼️</span><span class="attach-chip-label">eb013b24-…-8b43e02d38d5034d.png</span></span>
+              <span class="attach-chip"><span class="attach-chip-icon">🖼️</span><span class="attach-chip-label">last-end-card.png</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Turn 1: CMO — video artifact -->
+        <div class="msg-row ai">
+          <div class="msg-sender"><span class="msg-sender-dot"></span>CMO</div>
+          <div class="msg-bubble">
+            <div style="border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:8px">
+              <div style="padding:7px 10px;border-bottom:1px solid var(--border)">
+                <span style="font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Stream artifact</span>
+              </div>
+              <div style="padding:9px 10px">
+                <div style="font-size:12px;font-weight:700;color:var(--brand);margin-bottom:2px">Video Generation Artifact</div>
+                <div style="font-size:11px;color:var(--ink-muted)">Needs review · draft artifact · Preview in Stream</div>
+                <div style="margin-top:6px"><a class="artifact-chip" style="font-size:11px"><span class="artifact-chip-icon">▶</span>Review in Stream →</a></div>
+              </div>
+            </div>
+            The widower-focused video draft is ready for review. Recommended next step: review before publishing or regenerating.
+          </div>
+        </div>
+
+        <!-- Turn 2: User — read the docs (Drive link, no content) -->
+        <div class="msg-row user">
+          <div class="msg-sender"><span class="msg-sender-dot"></span>You</div>
+          <div class="msg-bubble">
+            read the docs
+            <div style="margin-top:7px">
+              <span class="attach-chip"><span class="attach-chip-icon">🖼️</span><span class="attach-chip-label">golden_gate_brand_brief_gtm_strategy</span><span class="attach-chip-status">· Drive link</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Turn 2: CMO — can't read Drive directly -->
+        <div class="msg-row ai">
+          <div class="msg-sender"><span class="msg-sender-dot"></span>CMO<span class="msg-time">01:21 PM</span></div>
+          <div class="msg-bubble">
+            I can use the attached GTM strategy as context for planning. I don't have a document-reading capability installed here, so I can't pull the Drive contents directly from that link.
+          </div>
+        </div>
+
+        <!-- Turn 3: User — re-attach as readable doc -->
+        <div class="msg-row user">
+          <div class="msg-sender"><span class="msg-sender-dot"></span>You</div>
+          <div class="msg-bubble">
+            read the brand brief gtm strategy
+            <div style="margin-top:7px">
+              <span class="attach-chip"><span class="attach-chip-icon">📄</span><span class="attach-chip-label">golden_gate_brand_brief_gtm_strategy</span><span class="attach-chip-status">· read</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Turn 3: CMO confirms read -->
+        <div class="msg-row ai">
+          <div class="msg-sender"><span class="msg-sender-dot"></span>CMO<span class="msg-time">04:59 PM</span></div>
+          <div class="msg-bubble">
+            I'll read the attached Golden Gate GTM strategy and use it as context for the next planning turn.
+          </div>
+        </div>
+
+        <!-- Turn 4: User — whats in it -->
+        <div class="msg-row user">
+          <div class="msg-sender"><span class="msg-sender-dot"></span>You</div>
+          <div class="msg-bubble">whats in it</div>
+        </div>
+
+        <!-- Turn 4: CMO — doc summary -->
+        <div class="msg-row ai">
+          <div class="msg-sender"><span class="msg-sender-dot"></span>CMO<span class="msg-time">05:00 PM</span></div>
+          <div class="msg-bubble">
+            Loaded context includes:
+            <ul style="margin:6px 0 0 14px;font-size:12px;line-height:1.8">
+              <li>Brand: Golden Gate Memorial</li>
+              <li>Offer: Memorial Garden and Columbarium</li>
+              <li>Promise: "Plan today"</li>
+              <li>Audience: Filipino Family Protector, OFW/Seafarer, Trusted Connector</li>
+              <li>Voice: warm, calm, respectful, empathetic</li>
+              <li>Core values: dignity, preparedness, family</li>
+              <li>Goal: turn qualified demand into clear next-step conversations</li>
+            </ul>
+          </div>
+        </div>
+
+        <!-- Turn 5: User — produce video with images + doc -->
+        <div class="msg-row user">
+          <div class="msg-sender"><span class="msg-sender-dot"></span>You</div>
+          <div class="msg-bubble">
+            produce a video for the widower
+            <div style="display:flex;flex-direction:column;gap:4px;margin-top:7px">
+              <span class="attach-chip"><span class="attach-chip-icon">🖼️</span><span class="attach-chip-label">0b6d1aeb-…-8bcc070e67e8.png</span></span>
+              <span class="attach-chip"><span class="attach-chip-icon">🖼️</span><span class="attach-chip-label">5c0c1c47-…-6a4875cec3a7.png</span></span>
+              <span class="attach-chip"><span class="attach-chip-icon">📄</span><span class="attach-chip-label">Golden_Gate_Unified_Brand_Brief.docx</span><span class="attach-chip-status">· read</span></span>
+              <span class="attach-chip"><span class="attach-chip-icon">🖼️</span><span class="attach-chip-label">d91a4098-…-4bb076f641e9.png</span></span>
+              <span class="attach-chip"><span class="attach-chip-icon">🖼️</span><span class="attach-chip-label">eb013b24-…-e02d38d5034d.png</span></span>
+              <span class="attach-chip"><span class="attach-chip-icon">🖼️</span><span class="attach-chip-label">last-end-card.png</span></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Turn 5: CMO — video artifact again -->
+        <div class="msg-row ai">
+          <div class="msg-sender"><span class="msg-sender-dot"></span>CMO</div>
+          <div class="msg-bubble">
+            <div style="border:1px solid var(--border);border-radius:4px;overflow:hidden;margin-bottom:8px">
+              <div style="padding:7px 10px;border-bottom:1px solid var(--border)">
+                <span style="font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Stream artifact</span>
+              </div>
+              <div style="padding:9px 10px">
+                <div style="font-size:12px;font-weight:700;color:var(--brand);margin-bottom:2px">Video Generation Artifact</div>
+                <div style="font-size:11px;color:var(--ink-muted)">Needs review · draft artifact · Preview in Stream</div>
+                <div style="margin-top:6px"><a class="artifact-chip" style="font-size:11px"><span class="artifact-chip-icon">▶</span>Review in Stream →</a></div>
+              </div>
+            </div>
+            The widower-focused video is ready for review.
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Input area -->
+      <div class="cmo-input-wrap">
+        <div class="cmo-input-row">
+          <input class="cmo-input" placeholder="Direct your CMO — brief a campaign, request a revision, or ask for a report...">
+          <div class="cmo-input-btn">↵</div>
+          <span class="cmo-attach-btn" title="Attach file">＋</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Right: Stream panel -->
+    <div class="cmo-right">
+      <div style="max-width:640px;margin:0 auto;padding:20px 20px 60px">
+
+        <div class="stream-kicker">Monday, June 15 · Golden Gate Memorial</div>
+        <div style="font-size:22px;font-weight:800;color:var(--brand);font-family:var(--font-d);letter-spacing:-.02em;margin-bottom:4px">11 items need your judgment</div>
+        <div style="font-size:12px;color:var(--ink-muted);margin-bottom:16px">Ranked by urgency. Act on what matters, dismiss what does not.</div>
+
+        <!-- Setup blocker -->
+        <div style="border:1px solid var(--coral);border-radius:var(--r);padding:12px 14px;margin-bottom:14px;display:flex;align-items:center;gap:12px">
+          <div style="width:8px;height:8px;border-radius:50%;background:var(--coral);flex-shrink:0"></div>
+          <div style="flex:1">
+            <div style="font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--coral);margin-bottom:3px">Setup blocker</div>
+            <div style="font-size:13px;color:var(--ink-body)">No active objective — BOS cannot run the loop without one.</div>
+          </div>
+          <button class="btn sm sec" style="font-size:11px;flex-shrink:0">Set up →</button>
+        </div>
+
+        <!-- Video Generation Draft artifact -->
+        <div class="acard">
+          <div class="acard-header">
+            <span class="acard-type">Video Generation Draft</span>
+            <span style="font-size:10px;font-weight:700;background:var(--amber);color:var(--brand);padding:2px 7px;border-radius:3px">Needs review</span>
+          </div>
+          <div style="padding:5px 14px 4px;font-size:12px;color:var(--ink-muted)">Active objective</div>
+          <div class="acard-brand">GOLDEN GATE MEMORIAL</div>
+          <div class="acard-body" style="padding:0">
+
+            <!-- Video artifact box -->
+            <div style="border-bottom:1px solid var(--border)">
+              <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border)">
+                <div>
+                  <div style="font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--forest)">Video artifact</div>
+                  <div style="font-size:11px;color:var(--ink-muted);margin-top:1px">Generated video · can be swapped from Google Drive</div>
+                </div>
+                <button class="btn sm sec" style="font-size:11px;flex-shrink:0">Swap · Drive</button>
+              </div>
+
+              <!-- Facebook Reels preview card -->
+              <div style="padding:12px 14px">
+                <div class="fb-preview">
+                  <div class="fb-header">
+                    <div class="fb-logo">G</div>
+                    <div>
+                      <div class="fb-page-name">Golden Gate Memorial</div>
+                      <div class="fb-sponsored">Sponsored · 🌐</div>
+                    </div>
+                  </div>
+                  <div style="padding:8px 12px;font-size:13px;color:#1c1e21">Plan today</div>
+                  <!-- Video player -->
+                  <div style="background:#111;height:180px;display:flex;flex-direction:column;align-items:center;justify-content:center;position:relative">
+                    <div style="position:absolute;inset:0;background:linear-gradient(to bottom,rgba(0,0,0,.15),rgba(0,0,0,.45))"></div>
+                    <div style="position:relative;z-index:1;text-align:center">
+                      <div style="width:42px;height:42px;border:2px solid rgba(255,255,255,.75);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 6px;cursor:pointer">
+                        <span style="color:#fff;font-size:15px;margin-left:3px">▶</span>
+                      </div>
+                      <div style="color:rgba(255,255,255,.6);font-size:10px">0:00</div>
+                    </div>
+                  </div>
+                  <div class="fb-cta-row">
+                    <span style="font-size:12px;color:#1c1e21;font-weight:600">Golden Gate Memorial</span>
+                    <button class="fb-cta-btn">Learn more</button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Editable fields -->
+            <div style="padding:12px 14px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:10px">
+              <div>
+                <div style="font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--forest);margin-bottom:5px">Hook</div>
+                <textarea style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:var(--r);font-size:13px;color:var(--ink-body);background:#fff;font-family:var(--font-u);resize:none;outline:none;height:52px">Plan today</textarea>
+              </div>
+              <div>
+                <div style="font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--forest);margin-bottom:5px">CTA</div>
+                <input type="text" value="Learn more" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:var(--r);font-size:13px;color:var(--ink-body);background:#fff;font-family:var(--font-u);outline:none">
+              </div>
+              <div>
+                <div style="font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--forest);margin-bottom:5px">Attachment</div>
+                <button class="btn sm sec" style="font-size:11px">Swap · Drive</button>
+              </div>
+            </div>
+
+            <!-- Publishing destinations -->
+            <div style="padding:12px 14px;border-bottom:1px solid var(--border)">
+              <div style="font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--forest);margin-bottom:10px">Publishing destinations</div>
+              <!-- YouTube Shorts — not connected -->
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border)">
+                <div style="width:16px;height:16px;border:1.5px solid var(--border);border-radius:3px;flex-shrink:0;background:#fff"></div>
+                <div style="flex:1">
+                  <div style="font-size:12px;font-weight:600;color:var(--ink-muted)">YouTube Shorts</div>
+                  <div style="font-size:11px;color:var(--ink-muted)">Not connected</div>
+                </div>
+              </div>
+              <!-- Facebook Reels — connected & selected -->
+              <div style="display:flex;align-items:center;gap:10px;padding:8px 0">
+                <div style="width:16px;height:16px;border:1.5px solid var(--forest);border-radius:3px;flex-shrink:0;background:var(--forest);display:flex;align-items:center;justify-content:center">
+                  <span style="color:#fff;font-size:10px;font-weight:700;line-height:1">✓</span>
+                </div>
+                <div style="flex:1">
+                  <div style="font-size:12px;font-weight:600;color:var(--ink-body)">Facebook Reels</div>
+                  <div style="font-size:11px;color:var(--ink-muted)">Connected · Golden Gate Memorial Garden Cebu</div>
+                </div>
+              </div>
+              <div style="margin-top:8px;font-size:11px;color:var(--ink-muted);line-height:1.5">Select every connected channel you want. BOS will publish to all selected destinations after approval.</div>
+            </div>
+
+            <!-- Self-check status -->
+            <div style="padding:10px 14px;display:flex;align-items:center;gap:8px">
+              <span style="font-size:12px;color:var(--success)">✓</span>
+              <span style="font-size:12px;color:var(--ink-muted)">Self-check passed. Waiting for your review.</span>
+            </div>
+
+          </div>
+
+          <!-- Actions -->
+          <div class="acard-actions" style="flex-wrap:wrap;gap:6px">
+            <button class="ghost sm">Dismiss</button>
+            <button class="btn sm sec">Revise</button>
+            <button class="btn sm cop">Approve</button>
+            <button class="btn sm cop" style="background:var(--forest)">Approve &amp; Publish Selected</button>
+          </div>
+
+          <!-- System details (collapsed) -->
+          <div style="padding:8px 14px;border-top:1px solid var(--border)">
+            <button onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none';this.textContent=this.textContent.includes('Hide')?'Show system details':'Hide system details'" style="font-size:11px;color:var(--ink-muted);background:none;border:none;cursor:pointer;padding:0;font-family:var(--font-u)">Show system details</button>
+            <div style="display:none;margin-top:8px;font-size:11px;color:var(--ink-muted);font-family:var(--font-m);line-height:1.8">
+              Self-check: pass<br>
+              Artifact ID: c68d1cc3-f41d-4570-a493-1557f342b209<br>
+              Capability: media.video.generate
+            </div>
+          </div>
+        </div>
+
+        <!-- Email Campaign Plan artifact -->
+        <div class="acard">
+          <div class="acard-header">
+            <span class="acard-type">Email Campaign Plan</span>
+            <span style="font-size:10px;font-weight:700;background:var(--amber);color:var(--brand);padding:2px 7px;border-radius:3px">Needs review</span>
+          </div>
+          <div style="padding:5px 14px 4px;font-size:12px;color:var(--ink-muted)">Active objective</div>
+          <div class="acard-brand">GOLDEN GATE MEMORIAL</div>
+          <div class="acard-body" style="padding:12px 14px">
+            <div style="font-size:13px;font-weight:700;color:var(--brand);margin-bottom:10px">Email Campaign Plan</div>
+
+            <div style="margin-bottom:12px">
+              <div style="font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--forest);margin-bottom:5px">Goal</div>
+              <div style="font-size:12px;color:var(--ink-body);line-height:1.5">Encourage Filipino Family Protectors to pre-plan for their loved ones' memorial services at Golden Gate Memorial's Memorial Garden and Columbarium, increasing the number of pre-planned bookings.</div>
+            </div>
+
+            <div style="margin-bottom:12px">
+              <div style="font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--forest);margin-bottom:5px">Audience</div>
+              <div style="font-size:12px;color:var(--ink-body);line-height:1.5">Filipino Family Protectors — individuals who take responsibility for planning and making decisions for their family's well-being, including end-of-life services.</div>
+            </div>
+
+            <!-- Email sequence table -->
+            <div style="margin-bottom:4px">
+              <div style="font-size:9px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--forest);margin-bottom:6px">Sequence</div>
+              <div style="border:1px solid var(--border);border-radius:var(--r);overflow:hidden">
+                <div style="display:grid;grid-template-columns:24px 60px 1fr 80px;font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-muted);padding:6px 10px;border-bottom:1px solid var(--border);background:var(--bg-sub)"><span>#</span><span>Timing</span><span>Angle</span><span>CTA</span></div>
+                <div style="display:grid;grid-template-columns:24px 60px 1fr 80px;font-size:11px;color:var(--ink-body);padding:7px 10px;border-bottom:1px solid var(--border);line-height:1.4"><span style="color:var(--ink-muted)">1</span><span>Day 0</span><span>Introduction — empathetic, informative</span><span style="color:var(--forest);font-weight:600">Learn More</span></div>
+                <div style="display:grid;grid-template-columns:24px 60px 1fr 80px;font-size:11px;color:var(--ink-body);padding:7px 10px;border-bottom:1px solid var(--border);line-height:1.4"><span style="color:var(--ink-muted)">2</span><span>Day +3</span><span>Benefits of pre-planning — educational, unique features</span><span style="color:var(--forest);font-weight:600">Book consult</span></div>
+                <div style="display:grid;grid-template-columns:24px 60px 1fr 80px;font-size:11px;color:var(--ink-body);padding:7px 10px;line-height:1.4"><span style="color:var(--ink-muted)">3</span><span>Day +10</span><span>Testimonials — social proof, alleviating concern</span><span style="color:var(--forest);font-weight:600">Book consult</span></div>
+              </div>
+            </div>
+
+            <!-- Provider trace -->
+            <div style="margin-top:12px;padding-top:10px;border-top:1px solid var(--border);font-size:10px;color:var(--ink-muted);font-family:var(--font-m)">
+              marketing.email.campaign_plan · nvidia/llama-3.3-70b · 55s · $0.17
+            </div>
+          </div>
+          <div class="acard-actions">
+            <button class="btn sm cop">Approve</button>
+            <button class="btn sm sec">Revise</button>
+            <button class="ghost sm">Dismiss</button>
+          </div>
+        </div>
+
+        <!-- Video artifact (most recent from chat) -->
+        <div class="acard">
+          <div class="acard-header">
+            <span class="acard-type">Video Generation Artifact</span>
+            <span style="font-size:10px;font-weight:700;background:var(--amber);color:var(--brand);padding:2px 7px;border-radius:3px">Needs review</span>
+          </div>
+          <div style="padding:5px 14px 4px;font-size:12px;color:var(--ink-muted)">Widower — produce a video for the widower</div>
+          <div class="acard-brand">GOLDEN GATE MEMORIAL</div>
+          <div class="acard-body">
+            <div style="height:120px;background:var(--brand);border-radius:var(--r);display:flex;align-items:center;justify-content:center;position:relative">
+              <div style="width:40px;height:40px;background:rgba(255,255,255,.15);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff">▶</div>
+            </div>
+            <div style="margin-top:8px;font-size:10px;color:var(--ink-muted);font-family:var(--font-m)">
+              media.video.generate · ref: 676e7b77-c82a-45e4-960c-eaeae6682ade
+            </div>
+            <div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:4px">
+              <span style="display:inline-flex;align-items:center;gap:3px;padding:3px 7px;background:var(--bg-sub);border:1px solid var(--border);border-radius:3px;font-size:10px;color:var(--ink-muted);font-family:var(--font-m)">🖼️ 4 images</span>
+              <span style="display:inline-flex;align-items:center;gap:3px;padding:3px 7px;background:var(--bg-sub);border:1px solid var(--border);border-radius:3px;font-size:10px;color:var(--ink-muted);font-family:var(--font-m)">📄 Golden_Gate_Unified_Brand_Brief.docx</span>
+            </div>
+          </div>
+          <div class="acard-actions">
+            <button class="btn sm cop">Approve</button>
+            <button class="btn sm sec">Revise</button>
+            <button class="ghost sm">Dismiss</button>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+  <nav class="fnav">
+    <a class="ft" onclick="goTo('stream')"><span class="ft-ic">▶<span class="ft-badge">11</span></span>Stream</a>
+    <a class="ft act" onclick="goTo('cmo')"><span class="ft-ic">◎</span>CMO</a>
+    <a class="ft" href="admin-prototype.html"><span class="ft-ic">⚙</span>Admin</a>
+  </nav>
+</div>
+
+<!-- ═══ WORKSPACE ═══ -->
+<div id="v-workspace" class="view" style="flex-direction:column">
+  <div class="topbar">
+    <div class="tb-logo">KLAROHA</div>
+    <div class="tb-center">
+      <div class="tb-brand-pill">All brands <span style="font-size:10px;color:var(--ink-muted)">▾</span></div>
+    </div>
+    <span class="tb-signout">Sign out</span>
+  </div>
+  <div class="body">
+    <div class="ws-grid">
+      <!-- Brand col -->
+      <div>
+        <div class="card">
+          <div class="ct">Brand</div>
+          <div style="margin-bottom:12px">
+            <div style="font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);margin-bottom:4px">BRAND VOICE</div>
+            <div class="ws-not-set">Not set</div>
+          </div>
+          <div style="margin-bottom:12px">
+            <div style="font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);margin-bottom:4px">TONE</div>
+            <div class="ws-not-set">Not set</div>
+          </div>
+          <div style="margin-bottom:16px">
+            <div style="font-size:9px;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-muted);margin-bottom:4px">CORE VALUES</div>
+            <div class="ws-not-set">Not set</div>
+          </div>
+          <button class="btn sm sec">Edit</button>
+        </div>
+        <div class="card">
+          <div class="ct">Audiences</div>
+          <div class="aud-card">
+            <div class="aud-name">Small Business Owners</div>
+            <div class="aud-demo">25–45 · Urban · Cost-conscious · <span style="color:var(--ink-muted)">Growth seeking · Time poor</span></div>
+            <div style="margin-top:8px"><button class="btn sm sec">Edit</button></div>
+          </div>
+          <div class="aud-card">
+            <div class="aud-name">Marketing Managers</div>
+            <div class="aud-demo">28–42 · Agency-side · Data-driven · <span style="color:var(--ink-muted)">Results-oriented</span></div>
+            <div style="margin-top:8px"><button class="btn sm sec">Edit</button></div>
+          </div>
+        </div>
+      </div>
+      <!-- Products col -->
+      <div>
+        <div class="card">
+          <div class="ct">Products <span style="font-size:11px;font-weight:500;color:var(--ink-muted)">93 active</span></div>
+          <div class="prod-row">
+            <div class="prod-icon">K</div>
+            <div style="flex:1"><div class="prod-name">Klaroha Core Platform</div><div class="prod-tag">No tagline</div></div>
+            <span style="color:var(--ink-muted)">›</span>
+          </div>
+          <div class="prod-row">
+            <div class="prod-icon">A</div>
+            <div style="flex:1"><div class="prod-name">Agency Suite</div><div class="prod-tag">No tagline</div></div>
+            <span style="color:var(--ink-muted)">›</span>
+          </div>
+          <div class="prod-row">
+            <div class="prod-icon">C</div>
+            <div style="flex:1"><div class="prod-name">CMO Autopilot</div><div class="prod-tag">No tagline</div></div>
+            <span style="color:var(--ink-muted)">›</span>
+          </div>
+          <div class="prod-row">
+            <div class="prod-icon">B</div>
+            <div style="flex:1"><div class="prod-name">Brand Intelligence</div><div class="prod-tag">No tagline</div></div>
+            <span style="color:var(--ink-muted)">›</span>
+          </div>
+          <div class="prod-row">
+            <div class="prod-icon">D</div>
+            <div style="flex:1"><div class="prod-name">Drive Asset Manager</div><div class="prod-tag">No tagline</div></div>
+            <span style="color:var(--ink-muted)">›</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <nav class="fnav">
+    <a class="ft" onclick="goTo('stream')"><span class="ft-ic">▶<span class="ft-badge">50</span></span>Stream</a>
+    <a class="ft act"><span class="ft-ic">◫</span>Workspace</a>
+    <a class="ft" href="admin-prototype.html"><span class="ft-ic">⚙</span>Admin</a>
+  </nav>
+</div>
+
+<!-- ═══ HISTORY ═══ -->
+<div id="v-history" class="view" style="flex-direction:column">
+  <div class="topbar">
+    <div class="tb-logo">KLAROHA</div>
+    <div class="tb-center"><div class="tb-brand-pill">All brands <span style="font-size:10px;color:var(--ink-muted)">▾</span></div></div>
+    <span class="tb-signout">Sign out</span>
+  </div>
+  <div class="body">
+    <div class="hero">
+      <div>
+        <div class="he">Execution Ledger</div>
+        <div class="ht">Run History</div>
+      </div>
+      <div class="hstats">
+        <div class="hs"><div class="hsn">926</div><div class="hsl">Total</div></div>
+        <div class="hs"><div class="hsn">18</div><div class="hsl">Passed Here</div></div>
+        <div class="hs"><div class="hsn">0</div><div class="hsl">Failed Here</div></div>
+        <div class="hs"><div class="hsn">$13.58</div><div class="hsl">Visible Cost</div></div>
+      </div>
+    </div>
+    <div class="hist-inner">
+      <div class="filter-row">
+        <button class="fbtn act">All runs</button>
+        <button class="fbtn">Passed</button>
+        <button class="fbtn">Failed</button>
+      </div>
+      <div class="card" style="padding:0;overflow:hidden">
+        <table class="tbl">
+          <thead>
+            <tr><th>Time</th><th>Module</th><th>Vertical</th><th>Status</th><th>Provider · Model</th><th>Tokens</th><th>Cost</th><th>Self-Check</th><th></th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td style="color:var(--ink-muted);font-size:11px;white-space:nowrap">8:43 AM</td>
+              <td class="mono">marketing.channel.meta.pages.read</td>
+              <td style="color:var(--ink-muted)">marketing</td>
+              <td><span class="badge bg-ok">Passed</span></td>
+              <td style="font-size:11px;color:var(--ink-muted)">openrouter · claude-3.5</td>
+              <td style="font-size:11px">1,204</td>
+              <td style="font-size:11px">$0.01</td>
+              <td style="font-size:11px;color:var(--success)">✓ pass</td>
+              <td><a style="font-size:11px;color:var(--coral)">trace ↗</a></td>
+            </tr>
+            <tr>
+              <td style="color:var(--ink-muted);font-size:11px;white-space:nowrap">8:28 AM</td>
+              <td class="mono">media.video.generate</td>
+              <td style="color:var(--ink-muted)">media</td>
+              <td><span class="badge bg-ok">Passed</span></td>
+              <td style="font-size:11px;color:var(--ink-muted)">openrouter · gemini-pro</td>
+              <td style="font-size:11px">3,847</td>
+              <td style="font-size:11px">$0.04</td>
+              <td style="font-size:11px;color:var(--success)">✓ pass</td>
+              <td><a style="font-size:11px;color:var(--coral)">trace ↗</a></td>
+            </tr>
+            <tr>
+              <td style="color:var(--ink-muted);font-size:11px;white-space:nowrap">8:27 AM</td>
+              <td class="mono">media.image.generate</td>
+              <td style="color:var(--ink-muted)">media</td>
+              <td><span class="badge bg-ok">Passed</span></td>
+              <td style="font-size:11px;color:var(--ink-muted)">openrouter · gemini-pro</td>
+              <td style="font-size:11px">2,103</td>
+              <td style="font-size:11px">$0.02</td>
+              <td style="font-size:11px;color:var(--success)">✓ pass</td>
+              <td><a style="font-size:11px;color:var(--coral)">trace ↗</a></td>
+            </tr>
+            <tr>
+              <td style="color:var(--ink-muted);font-size:11px;white-space:nowrap">Jun 13</td>
+              <td class="mono">onboarding.brand_guidelines</td>
+              <td style="color:var(--ink-muted)">onboarding</td>
+              <td><span class="badge" style="background:rgba(239,130,80,.12);color:var(--coral)">Mock</span></td>
+              <td style="font-size:11px;color:var(--ink-muted)">openrouter · claude-3.5</td>
+              <td style="font-size:11px">4,291</td>
+              <td style="font-size:11px">$0.05</td>
+              <td style="font-size:11px;color:var(--success)">✓ pass</td>
+              <td><a style="font-size:11px;color:var(--coral)">trace ↗</a></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+  <nav class="fnav">
+    <a class="ft" onclick="goTo('stream')"><span class="ft-ic">▶<span class="ft-badge">50</span></span>Stream</a>
+    <a class="ft act"><span class="ft-ic">◎</span>History</a>
+    <a class="ft" href="admin-prototype.html"><span class="ft-ic">⚙</span>Admin</a>
+  </nav>
+</div>
+
+<!-- ═══ SETTINGS ═══ -->
+<div id="v-settings" class="view" style="flex-direction:column">
+  <div class="topbar">
+    <div class="tb-logo">KLAROHA</div>
+    <div class="tb-center"><div class="tb-brand-pill">All brands <span style="font-size:10px;color:var(--ink-muted)">▾</span></div></div>
+    <span class="tb-signout">Sign out</span>
+  </div>
+  <div class="body">
+    <div class="hero">
+      <div>
+        <div class="he">Operations Settings</div>
+        <div class="ht">Access, Providers,<br>and Usage</div>
+      </div>
+      <div class="hstats">
+        <div class="hs"><div class="hsn">5</div><div class="hsl">Providers</div></div>
+        <div class="hs"><div class="hsn">6</div><div class="hsl">Keys</div></div>
+        <div class="hs"><div class="hsn">926</div><div class="hsl">Runs</div></div>
+      </div>
+    </div>
+    <div class="set-inner">
+      <div class="set-grid">
+        <!-- Left col -->
+        <div>
+          <div class="card">
+            <div class="ct">Provider Health</div>
+            <div class="prov-row">
+              <div class="prov-dot"></div>
+              <div style="flex:1">
+                <div class="prov-name">OpenRouter</div>
+                <div class="prov-sub">Platform key · 12 models</div>
+              </div>
+              <button class="prov-status">● Down</button>
+            </div>
+            <div class="prov-row">
+              <div class="prov-dot"></div>
+              <div style="flex:1">
+                <div class="prov-name">Anthropic</div>
+                <div class="prov-sub">Platform key · 4 models</div>
+              </div>
+              <button class="prov-status">● Down</button>
+            </div>
+            <div class="prov-row" style="border:none">
+              <div class="prov-dot" style="background:var(--success)"></div>
+              <div style="flex:1">
+                <div class="prov-name">Google / Gemini</div>
+                <div class="prov-sub">OAuth · 3 models</div>
+              </div>
+              <button class="prov-status" style="border-color:var(--success);color:var(--success)">● Up</button>
+            </div>
+          </div>
+          <div class="card">
+            <div class="ct">BYOK Keys</div>
+            <div class="key-row">
+              <div><div class="key-name">plugin.channel.meta</div><div class="key-date">Added Jun 1</div></div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="letter-spacing:.15em;color:var(--ink-muted);font-size:13px">••••••••</span>
+                <a class="key-del">Remove</a>
+              </div>
+            </div>
+            <div class="key-row">
+              <div><div class="key-name">plugin.channel.youtube</div><div class="key-date">Added Jun 3</div></div>
+              <div style="display:flex;align-items:center;gap:8px">
+                <span style="letter-spacing:.15em;color:var(--ink-muted);font-size:13px">••••••••</span>
+                <a class="key-del">Remove</a>
+              </div>
+            </div>
+          </div>
+        </div>
+        <!-- Right col -->
+        <div>
+          <div class="card">
+            <div class="ct">API Access</div>
+            <div class="api-box">
+              <div class="api-label">Workspace API Key</div>
+              <div class="api-key">
+                <span class="api-masked">bos_3143bd•••••••••••••••••••••</span>
+                <button class="api-copy">Copy</button>
+              </div>
+            </div>
+            <div style="font-size:11px;color:var(--ink-muted);margin-bottom:14px">Use this key to connect agents, scripts, or external tools to this workspace.</div>
+            <button class="btn sm" style="color:var(--error);border:1px solid var(--error);background:none">Sign out</button>
+          </div>
+          <div class="card">
+            <div class="ct">Billing Summary</div>
+            <div class="bill-row">
+              <div><div class="bill-label">Provider Cost</div><div class="bill-val">$75.99</div><div class="bill-sub">all time · 926 runs</div></div>
+            </div>
+            <div class="bill-row">
+              <div><div class="bill-label">Sell Price</div><div class="bill-val">$40.56</div><div class="bill-sub">−$35.42 margin</div></div>
+            </div>
+            <div style="font-size:13px;font-weight:600;color:var(--ink-muted);margin-top:10px">209,249 total tokens</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <nav class="fnav">
+    <a class="ft" onclick="goTo('stream')"><span class="ft-ic">▶<span class="ft-badge">50</span></span>Stream</a>
+    <a class="ft act"><span class="ft-ic">⚙</span>Settings</a>
+    <a class="ft" href="admin-prototype.html"><span class="ft-ic">⚙</span>Admin</a>
+  </nav>
+</div>
+
+<script>
+const views = {
+  auth:'v-auth', stream:'v-stream', cmo:'v-cmo',
+  workspace:'v-workspace', history:'v-history', settings:'v-settings'
+};
+
+function goTo(name) {
+  Object.values(views).forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.classList.remove('act');
+  });
+  const id = views[name];
+  if (id) document.getElementById(id).classList.add('act');
+}
+
+// Handle hash routing
+const hash = location.hash.replace('#','');
+if (hash && views[hash]) goTo(hash);
+</script>
+</body>
+</html>

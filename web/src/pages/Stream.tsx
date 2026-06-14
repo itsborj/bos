@@ -547,7 +547,7 @@ function StreamDataCard({ update, brandName, objectiveTitle, onDismiss, onAskCMO
           <button className="btn btn-accent" onClick={() => onInvestigate(update)}>Investigate</button>
         )}
         {update.type === 'setup_blocker' && (
-          <button className="btn btn-accent" onClick={() => onConfigure(update)}>Configure</button>
+          <button className="btn btn-secondary" onClick={() => onConfigure(update)}>Configure</button>
         )}
         {update.type !== 'outcome' && (
           <button className="btn btn-ghost" onClick={() => onAskCMO(update)}>Ask CMO</button>

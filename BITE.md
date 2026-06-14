@@ -505,6 +505,66 @@ A “yes” means stop and redesign around a package, manifest field, hook, or g
 
 The last three questions apply specifically to plugin host work. Any change to `plugin_loader.py`, `capability_manifest.py`, `routers/chat.py`, `executor.py`, or `routers/runs.py` must pass all eleven checks.
 
+### Prototype Gate Policy — Non-Negotiable
+
+**`public/frontend-prototype.html` is the living UX contract for BOS.**
+
+Before any new capability, UI pattern, artifact type, or CMO flow change is built or merged, the prototype must be updated to show how it appears in the actual interface. The prototype is not a deliverable or a demo — it is the agreed sample (BITE Stage 2) for every UI-visible feature.
+
+**The rule:**
+
+> **Update the prototype first. Build second. No exceptions.**
+
+This applies to:
+- New artifact cards in Stream or CMO (new type, new fields, new actions)
+- New chat message patterns (new bubble types, attachment chips, artifact reference chips)
+- New CMO input affordances (attach button, brand picker, quick commands)
+- New admin pages or specialist cards
+- Any change to approval flow, publishing destinations, or system detail panels
+
+**What counts as a prototype update:**
+- The prototype renders the new pattern with real-looking sample data
+- The new element is visually consistent with established design tokens (see guardrails below)
+- A human has seen and accepted the prototype before code implementation begins
+
+**What does not count:**
+- A description of what the UI will look like
+- A Figma frame or external mockup (the prototype IS the source of truth — not Figma)
+- A working implementation without a prior prototype update
+
+**If the prototype has not been updated: do not build.** Return to BITE Stage 2. The prototype update is the Stage 2 sample for UI work.
+
+---
+
+### UI Design Guardrails — Enforced by Prototype
+
+These rules are observed in `public/frontend-prototype.html` and must be maintained across all future UI work:
+
+| Element | Rule |
+|---|---|
+| CMO reply bubble | Brand green left-edge accent (`var(--brand)`, 3px), white background — not full color fill |
+| User (You) bubble | Coral left-edge accent (`var(--coral)`, 3px), white background — not full color fill |
+| Sender dot | 6px circle matching bubble accent color; sits left of sender label |
+| Attachment chips | Light surface (`bg-sub`), standard border, dark text — border-only accent, no colored fill |
+| "Needs review" badge | Solid amber pill: `background:var(--amber); color:var(--brand)` — never amber text on white (light-on-light violation) |
+| Artifact reference chip | `bg-sub` fill, standard border, brand-colored text — light on light is never acceptable |
+| Stream artifact box (inline in CMO reply) | White card with standard border inside the bubble; forest-colored type label; "Review in Stream →" link chip |
+| Approve & Publish | Separate button from plain Approve when publishing destinations are shown; `var(--forest)` background |
+| System details | Collapsed by default; toggle shows artifact ID, self-check, capability |
+| Light-on-light | **Never.** Any text/badge/chip must have legible contrast against its direct background |
+
+**Color token reference:**
+```
+--racing-green / --brand: #0b3d2e   ← CMO accent, primary brand
+--coral:                  #ef8250   ← User/You accent
+--amber:                  #fcc167   ← Warning/needs-review badge background
+--forest:                 #4b7c54   ← Secondary green, type labels, success states
+--on-dark:                #F5F1E8   ← Text on dark backgrounds
+--bg-sub:                 rgba(11,61,46,.04) ← Subtle surface tint
+```
+
+---
+
 ### Agent Self-Check Before CMO/Skill Edits
 
 Before changing CMO behavior, `SKILL.md`, plugin activation, artifact rendering, or capability manifests, an agent must answer:
@@ -516,9 +576,11 @@ Before changing CMO behavior, `SKILL.md`, plugin activation, artifact rendering,
 4. Is a tool action allowed, or should this be a capability/plan/draft/intelligence artifact only?
 5. Which SKILL.md contract owns activation?
 6. Is the router still only enforcing security, not intent?
+7. Has the prototype been updated to show this pattern? (UI changes only)
 ```
 
 If there is no approved sample, stop at BITE Stage 2 and produce the sample first.
+If the change affects any UI-visible pattern, stop until the prototype reflects it.
 
 ---
 
@@ -627,7 +689,7 @@ When updating a system component:
 
 ---
 
-**Last updated:** 2026-06-09  
-**Enforced from:** Phase 3 onwards  
-**Constitutional scope:** BITE governs both output methodology and BOS architecture boundaries.  
+**Last updated:** 2026-06-15
+**Enforced from:** Phase 3 onwards
+**Constitutional scope:** BITE governs both output methodology and BOS architecture boundaries.
 **Violations:** Any build without an approved sample, or any capability change that bypasses the BOS Architecture Constitution, should be rolled back and restarted from Stage 2.

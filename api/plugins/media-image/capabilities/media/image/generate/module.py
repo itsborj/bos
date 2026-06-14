@@ -137,10 +137,14 @@ class MediaImageGenerateModule(ChannelModule):
             parts.append("Visual tone: clean, composed, premium, and commercially grounded.")
         if visual_constraints:
             parts.append(f"Brand constraints to follow: {visual_constraints[:1800]}")
+        image_spec = brief.get("image_spec") or brief.get("image_spec_json")
+        if image_spec:
+            spec_text = image_spec if isinstance(image_spec, str) else json.dumps(image_spec, ensure_ascii=False)
+            parts.append("Canonical BOS ImageSpec (provider-neutral source of truth; compile it into this provider prompt, do not replace it): " + spec_text[:5000])
         reference_context = self._operator_reference_context_text(brief)
         if reference_context:
             parts.append(
-                "Structured operator reference context JSON. Use readable document excerpts, notes, and vision-ready image references as source context; ignore failed or metadata-only items: "
+                "Structured operator reference context JSON. Use readable document excerpts, notes, and vision-ready image references as source context; ignore failed, pending, skipped, or empty items: "
                 + reference_context
             )
         return " ".join(parts)
@@ -308,7 +312,7 @@ class MediaImageGenerateModule(ChannelModule):
         elif reference_context and "operator reference context" not in prompt.lower():
             prompt = (
                 f"{prompt}\n\nStructured operator reference context JSON for source grounding. "
-                f"Use readable excerpts and vision-ready references; ignore failed/metadata-only items:\n{reference_context}"
+                f"Use readable excerpts and vision-ready references; ignore failed, pending, skipped, or empty items:\n{reference_context}"
             )
         if not prompt:
             return self._failure(start, "missing_prompt", "image_prompt is required in brief", provider)

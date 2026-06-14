@@ -6,6 +6,7 @@ from .capability import Capability, ModelOption
 from .creative_asset import CreativeAsset
 from .creative_blueprint import CreativeBlueprint
 from .creative_job import CreativeJob
+from .chat_reference import ChatReference
 from .decision_brief import DecisionBrief
 from .document import WorkspaceDocument
 from .intent import CampaignIntent, IntentContract, ModuleCriterion
@@ -53,5 +54,6 @@ __all__ = [
     "CreativeAsset",
     "CreativeBlueprint",
     "CreativeJob",
+    "ChatReference",
     "PluginActivation",
 ]

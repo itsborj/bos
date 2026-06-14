@@ -56,6 +56,8 @@ html, body { height: 100%; }
   --r:               2px; /* brand rule: max 2px */
   --cta-gold:        #826D40;
   --cta-gold-hover:  #6A5832;
+  --cta-primary:     #B85C30; /* copper — primary CTA (send, approve) */
+  --cta-primary-hover: #964926;
   --admin-bg:        #F5F1E8;
   --admin-surface:   #FFFFFF;
   --admin-border:    rgba(11,61,46,.15);
@@ -201,6 +203,21 @@ body {
   cursor: pointer;
   font-family: inherit;
 }
+/* Brand selector in topbar — native select inside chip */
+.bos-proto-brand-select {
+  cursor: pointer;
+  gap: 4px;
+}
+.bos-proto-brand-select select {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-weight: 800;
+  outline: none;
+  cursor: pointer;
+  font-size: 11px;
+}
 
 /* ── Page area ── */
 .bos-proto-page-area {
@@ -249,8 +266,8 @@ body {
   font-family: inherit;
   white-space: nowrap;
 }
-.bos-proto-tab:hover { color: var(--ink); background: rgba(11,61,46,.05); }
-.bos-proto-tab.active { background: var(--brand); color: var(--on-brand); font-weight: 600; }
+.bos-proto-tab:hover { color: var(--brand); background: rgba(200,232,216,.35); }
+.bos-proto-tab.active { background: var(--brand); color: var(--on-brand); font-weight: 600; } /* dark on light — brand rule compliance */
 .bos-proto-tab-badge {
   background: var(--accent);
   color: var(--on-brand);
@@ -293,18 +310,20 @@ body {
 }
 .stream-kicker {
   font-size: 11px;
-  color: var(--muted-stone);
+  color: var(--brand); /* dark on light — brand rule compliance */
   text-transform: uppercase;
-  letter-spacing: .07em;
+  letter-spacing: .14em;
   margin-bottom: 4px;
-  font-weight: 500;
+  font-weight: 700;
+  font-family: var(--font-display);
 }
 .stream-title {
-  font-size: 20px;
+  font-size: 24px;
   font-weight: 700;
   margin: 0 0 4px;
-  color: #1a1a1a;
+  color: var(--brand);
   letter-spacing: -0.3px;
+  font-family: var(--font-display);
 }
 .stream-sub {
   font-size: 13px;
@@ -365,15 +384,15 @@ body {
 .g2card {
   background: var(--surface);
   border: 1px solid var(--border-light);
-  border-radius: var(--r); /* source: 12px, brand compliance fix */
+  border-radius: var(--r);
   padding: 18px 20px;
   margin-bottom: 0;
   box-shadow: none;
   overflow: visible;
 }
 .g2card.featured {
-  border-color: var(--racing-green);
-  border-left: 3px solid var(--racing-green);
+  border-color: var(--brand);
+  border-left: 2px solid var(--brand);
 }
 .g2top {
   display: flex;
@@ -382,23 +401,24 @@ body {
   margin-bottom: 8px;
   flex-wrap: wrap;
 }
+/* g2type: tinted badge — light background, dark text (correct brand contrast) */
 .g2type {
   font-size: 10px;
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: .05em;
-  padding: 3px 8px;
-  border-radius: var(--r); /* source: 5px, brand compliance fix */
+  padding: 2px 7px;
+  border-radius: var(--r);
 }
-.g2type.decision_brief { background: #fef3c7; color: #92400e; }
+.g2type.decision_brief  { background: #fef3c7; color: #92400e; }
 .g2type.pending_artifact { background: #eff6ff; color: #1d4ed8; }
-.g2type.outcome { background: #dcfce7; color: #15803d; }
-.g2type.setup_blocker { background: #fef2f2; color: #dc2626; }
+.g2type.outcome          { background: #dcfce7; color: #15803d; }
+.g2type.setup_blocker    { background: #fef2f2; color: #dc2626; }
 .g2conf {
   font-size: 10px;
   font-weight: 600;
   padding: 2px 7px;
-  border-radius: var(--r); /* source: 4px, brand compliance fix */
+  border-radius: var(--r);
   margin-left: auto;
 }
 .g2conf.amber { background: #fef3c7; color: #92400e; }
@@ -663,8 +683,8 @@ body {
 .cmo-ta::placeholder { color: var(--muted-stone); }
 .btn-send {
   width: 28px; height: 28px;
-  border-radius: 50%; /* circle — exempt */
-  background: var(--racing-green);
+  border-radius: var(--r); /* 2px — CTA copper, not circle (CSS override in live app) */
+  background: var(--cta-primary); /* #B85C30 copper */
   color: var(--ivory);
   border: none;
   cursor: pointer;
@@ -675,7 +695,7 @@ body {
   flex-shrink: 0;
   transition: background .1s;
 }
-.btn-send:hover { background: var(--green-deep); }
+.btn-send:hover { background: var(--cta-primary-hover); }
 
 /* ── Stream embedded in CMO split ── */
 .stream-cmo-feed .stream-feed-col {
@@ -774,8 +794,8 @@ body {
   width: 100%;
   text-align: left;
 }
-.admin-nav-item:hover { background: rgba(11,61,46,.05); color: var(--ink); }
-.admin-nav-item.active { background: var(--brand); color: var(--on-brand); font-weight: 600; }
+.admin-nav-item:hover { background: rgba(11,61,46,.04); color: var(--ink); border-left: 2px solid transparent; }
+.admin-nav-item.active { background: transparent; color: var(--brand); font-weight: 600; border-left: 2px solid var(--brand); padding-left: 10px; } /* left border accent, no fill */
 .admin-nav-icon { width: 16px; text-align: center; flex-shrink: 0; }
 .admin-sidebar-footer {
   margin-top: auto;
@@ -937,10 +957,10 @@ body {
   font-family: inherit;
 }
 .btn:hover { background: var(--bg-subtle); border-color: rgba(11,61,46,.3); }
-.btn.btn-dark { background: var(--brand); border-color: var(--brand); color: var(--on-brand); }
-.btn.btn-dark:hover { background: var(--green-deep); border-color: var(--green-deep); }
-.btn.btn-accent { background: var(--cta-gold); border-color: var(--cta-gold); color: var(--ivory); }
-.btn.btn-accent:hover { background: var(--cta-gold-hover); border-color: var(--cta-gold-hover); }
+.btn.btn-dark { background: var(--cta-primary); border-color: var(--cta-primary); color: var(--ivory); } /* copper CTA */
+.btn.btn-dark:hover { background: var(--cta-primary-hover); border-color: var(--cta-primary-hover); }
+.btn.btn-accent { background: var(--cta-primary); border-color: var(--cta-primary); color: var(--ivory); }
+.btn.btn-accent:hover { background: var(--cta-primary-hover); border-color: var(--cta-primary-hover); }
 .btn.btn-ghost { background: transparent; border-color: transparent; color: var(--stone-deep); }
 .btn.btn-ghost:hover { background: var(--bg-subtle); }
 .btn.btn-secondary { background: transparent; border-color: var(--brand); color: var(--brand); }
@@ -1070,10 +1090,14 @@ body {
     <!-- Topbar -->
     <div class="bos-proto-topbar">
       <a class="bos-proto-logo" href="#">Klaroha</a>
-      <div class="bos-proto-brand-chip">
-        <span>Motormoto</span>
-        <span style="opacity:.5;font-size:10px">▾</span>
-      </div>
+      <label class="bos-proto-brand-chip bos-proto-brand-select">
+        <span>All Brands</span>
+        <select>
+          <option>All brands</option>
+          <option>Klaroha</option>
+          <option>Golden Gate Memorial</option>
+        </select>
+      </label>
       <div class="bos-proto-topbar-right">
         <button class="bos-proto-signout">Sign out</button>
       </div>
@@ -1087,32 +1111,60 @@ body {
 
             <!-- Stream header -->
             <div class="stream-header-zone">
-              <div class="stream-kicker">Saturday, June 14 · Motormoto</div>
-              <h2 class="stream-title">3 items need your judgment</h2>
+              <div class="stream-kicker">Sunday, June 14 · All Brands</div>
+              <h2 class="stream-title">5 items need your judgment</h2>
               <div class="stream-sub">Ranked by urgency. Act on what matters, dismiss what does not.</div>
 
               <!-- Objective anchor -->
               <div class="obj-anchor">
                 <span class="obj-dot"></span>
-                <div>
+                <div class="obj-anchor-body">
                   <div class="obj-label">Active Objective</div>
-                  <div class="obj-text">Generate 20 qualified demo bookings for Motormoto by end of Q2</div>
+                  <div class="obj-text">Generate pipeline from dormant prospects through Gmail</div>
                 </div>
-                <span class="obj-meta">active</span>
+                <span class="obj-meta">Active</span>
               </div>
             </div>
 
             <!-- Artifact feed -->
             <div class="stream-artifact-feed">
 
-              <!-- Card 1: Decision Brief (featured) -->
+              <!-- Card 1: Facebook Pages (approved artifact — StreamArtifactCard + native preview) -->
+              <article class="g2card">
+                <div class="g2top">
+                  <span class="g2type pending_artifact">Facebook Pages</span>
+                  <span class="g2conf green">Approved</span>
+                </div>
+                <div class="g2obj">Generate pipeline from dormant prospects through Gmail</div>
+                <div class="g2brand">Klaroha</div>
+                <!-- Native preview (approved state — shows Facebook page card) -->
+                <div class="stream-artifact-preview" style="margin-top:10px">
+                  <div class="fb-preview-mock">
+                    <div class="fb-preview-header">
+                      <div class="fb-page-avatar">K</div>
+                      <div>
+                        <div class="fb-page-name">Klaroha</div>
+                        <div class="fb-page-meta">Sponsored · 🌐</div>
+                      </div>
+                    </div>
+                    <div class="fb-copy"># Facebook Page **Klarohahq** — Advertising/Marketing Followers: 1</div>
+                    <div class="fb-img-mock">Creative Placeholder</div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;padding-top:8px;border-top:1px solid #e5e7eb;">
+                      <span style="font-size:13px;font-weight:600;color:#1a1a1a">Klaroha</span>
+                      <button style="background:#e4e6eb;border:none;padding:6px 14px;font-size:13px;font-weight:600;border-radius:2px;cursor:pointer;">Learn More</button>
+                    </div>
+                  </div>
+                </div>
+              </article>
+
+              <!-- Card 2: Decision Brief (featured) -->
               <article class="g2card featured">
                 <div class="g2top">
                   <span class="g2type decision_brief">Decision Brief</span>
                   <span class="g2conf amber">Directional</span>
                 </div>
-                <div class="g2obj">Generate 20 qualified demo bookings for Motormoto by end of Q2</div>
-                <div class="g2brand">Motormoto</div>
+                <div class="g2obj">Generate pipeline from dormant prospects through Gmail</div>
+                <div class="g2brand">Klaroha</div>
                 <div class="g2src-row">
                   <span class="g2src">email.reply_monitor</span>
                   <span class="g2src">2h ago</span>
@@ -1126,65 +1178,64 @@ body {
                 </div>
               </article>
 
-              <!-- Card 2: Pending Artifact (with ApprovalBundle) -->
+              <!-- Card 3: Pending Artifact (with ApprovalBundle) -->
               <article class="g2card">
                 <div class="g2top">
                   <span class="g2type pending_artifact">Facebook Post Draft</span>
                   <span class="g2conf amber">Needs review</span>
                 </div>
-                <div class="g2obj">Generate 20 qualified demo bookings for Motormoto by end of Q2</div>
-                <div class="g2brand">Motormoto</div>
-
+                <div class="g2obj">Generate pipeline from dormant prospects through Gmail</div>
+                <div class="g2brand">Klaroha</div>
                 <!-- ApprovalBundle inside g2card -->
                 <div class="approval-bundle">
                   <div class="artifact-preview-area">
                     <div class="fb-preview-mock">
                       <div class="fb-preview-header">
-                        <div class="fb-page-avatar">M</div>
+                        <div class="fb-page-avatar">K</div>
                         <div>
-                          <div class="fb-page-name">Motormoto</div>
+                          <div class="fb-page-name">Klaroha</div>
                           <div class="fb-page-meta">Sponsored · 🌐</div>
                         </div>
                       </div>
-                      <div class="fb-copy">Tired of guessing which campaigns are working? Motormoto gives your dealership real-time visibility into lead source, cost per acquisition, and pipeline value — without the spreadsheet chaos. Book a 20-min demo and see it live.</div>
+                      <div class="fb-copy">Tired of losing dormant leads? Klaroha automates re-engagement with Gmail sequences — so you convert warm contacts before competitors do. Book a 20-min demo.</div>
                       <div class="fb-img-mock">Creative asset pending</div>
                     </div>
                   </div>
                   <div class="approval-actions">
                     <button class="btn btn-dark btn-sm">Approve</button>
-                    <button class="btn btn-sm">Revise</button>
+                    <button class="btn btn-secondary btn-sm">Revise</button>
                     <button class="btn btn-ghost btn-sm">Dismiss</button>
                   </div>
                 </div>
               </article>
 
-              <!-- Card 3: Outcome -->
+              <!-- Card 4: Outcome -->
               <article class="g2card">
                 <div class="g2top">
                   <span class="g2type outcome">Outcome</span>
                   <span class="g2conf green">Settled</span>
                 </div>
-                <div class="g2obj">Generate 20 qualified demo bookings for Motormoto by end of Q2</div>
-                <div class="g2brand">Motormoto</div>
+                <div class="g2obj">Generate pipeline from dormant prospects through Gmail</div>
+                <div class="g2brand">Klaroha</div>
                 <div class="g2src-row">
                   <span class="g2src">channel.gmail</span>
                   <span class="g2src">yesterday</span>
                 </div>
-                <div class="g2why">Email sequence to 1,240 contacts completed. 31% open rate, 4.2% click-through, 3 demo bookings recorded. Memory updated with results.</div>
+                <div class="g2why">Email sequence to 1,240 contacts completed. 31% open rate, 4.2% click-through, 3 bookings recorded. Memory updated with results.</div>
                 <div class="g2actions">
                   <button class="btn btn-ghost btn-sm">Dismiss</button>
                 </div>
               </article>
 
-              <!-- Card 4: Setup Blocker -->
+              <!-- Card 5: Setup Blocker -->
               <article class="g2card">
                 <div class="g2top">
                   <span class="g2type setup_blocker">Setup Blocker</span>
                   <span class="g2conf amber">Urgent</span>
                 </div>
-                <div class="g2obj">Generate 20 qualified demo bookings for Motormoto by end of Q2</div>
-                <div class="g2brand">Motormoto</div>
-                <div class="g2why">Google Ads credential missing for Motormoto. Campaign cannot launch until the API key is added in Admin → Brands → Capabilities.</div>
+                <div class="g2obj">Generate pipeline from dormant prospects through Gmail</div>
+                <div class="g2brand">Golden Gate Memorial</div>
+                <div class="g2why">Google Ads credential missing. Campaign cannot launch until the API key is added in Admin → Brands → Capabilities.</div>
                 <div class="g2actions">
                   <button class="btn btn-accent btn-sm">Configure</button>
                   <button class="btn btn-ghost btn-sm">Ask CMO</button>
@@ -1201,9 +1252,9 @@ body {
     <!-- Bottom tabs -->
     <div class="bos-proto-bottom-tabs">
       <div class="bos-proto-tab-group">
-        <button class="bos-proto-tab active">▶ Stream <span class="bos-proto-tab-badge">3</span></button>
-        <button class="bos-proto-tab" onclick="showView('cmo',null)">◎ CMO</button>
-        <button class="bos-proto-tab" onclick="showView('admin',null)">⚙ Admin</button>
+        <button class="bos-proto-tab active" onclick="showView('stream',this)">▶ Stream</button>
+        <button class="bos-proto-tab" onclick="showView('cmo',this)">◎ CMO</button>
+        <button class="bos-proto-tab" onclick="showView('admin',this)">⚙ Admin</button>
       </div>
     </div>
 
@@ -1219,10 +1270,14 @@ body {
     <!-- Topbar -->
     <div class="bos-proto-topbar">
       <a class="bos-proto-logo" href="#">Klaroha</a>
-      <div class="bos-proto-brand-chip">
-        <span>Motormoto</span>
-        <span style="opacity:.5;font-size:10px">▾</span>
-      </div>
+      <label class="bos-proto-brand-chip bos-proto-brand-select">
+        <span>All Brands</span>
+        <select>
+          <option>All brands</option>
+          <option>Klaroha</option>
+          <option>Golden Gate Memorial</option>
+        </select>
+      </label>
       <div class="bos-proto-topbar-right">
         <button class="bos-proto-signout">Sign out</button>
       </div>
@@ -1232,103 +1287,79 @@ body {
     <div class="bos-proto-page-area">
       <div class="stream-cmo-shell">
 
-        <!-- Left: CMO chat -->
+        <!-- Left: CMO chat (empty state — actual screenshot shows no messages) -->
         <div class="stream-cmo-chat-col">
           <div class="cmo-pane">
 
-            <!-- Context chips -->
-            <div class="cmo-ctx">
-              <span class="g2src" style="font-size:11px">Brand · Motormoto</span>
-              <span class="g2src" style="font-size:11px">20 demo bookings by Q2</span>
+            <!-- Context: single truncated objective text line -->
+            <div class="cmo-ctx" style="padding:8px 12px;">
+              <span class="g2src" style="font-size:11px;font-family:var(--font-mono);color:var(--muted-stone);">Generate pipeline from dormant prospects...</span>
             </div>
 
-            <!-- Messages -->
+            <!-- Empty messages area -->
             <div class="cmo-msgs">
-              <div class="cmo-msgs-body">
-
-                <div>
-                  <div class="msg-label">CMO · 9:41 AM</div>
-                  <div class="msg-ai">Good morning. The Facebook post draft for Motormoto is pending review in Stream. Email open rate dropped to 18% after the June 12 subject line change — I've surfaced a decision brief. What would you like to run next?</div>
-                </div>
-
-                <div class="msg-user">
-                  Draft an email follow-up sequence for leads from last week's trade show event.
-                </div>
-
-                <div>
-                  <div class="msg-label">CMO · 9:42 AM</div>
-                  <div class="msg-ai" style="padding:0">
-                    <div class="cmo-typing" style="padding:10px 13px">
-                      <div class="cmo-typing-dot"></div>
-                      <div class="cmo-typing-dot"></div>
-                      <div class="cmo-typing-dot"></div>
-                    </div>
-                  </div>
-                </div>
-
-              </div>
+              <div class="cmo-msgs-body"></div>
             </div>
 
-            <!-- Composer -->
+            <!-- Composer: TWO copper btn-send buttons (send ⏎ and drive +) -->
             <div class="cmo-input-wrap">
               <div class="cmo-composer">
                 <textarea class="cmo-ta" rows="1" placeholder="Direct your CMO — brief a campaign, request a revision, or ask for a report..."></textarea>
-                <button class="btn-send">⏎</button>
+                <button class="btn-send" title="Send">⏎</button>
+                <button class="btn-send" title="Attach from Drive"><span style="font-size:15px;line-height:1">+</span></button>
               </div>
             </div>
           </div><!-- /cmo-pane -->
         </div><!-- /stream-cmo-chat-col -->
 
-        <!-- Right: Stream feed (embedded) -->
+        <!-- Right: Stream feed (same as stream view, denser) -->
         <div class="stream-cmo-feed">
           <div class="stream-feed-col">
             <div class="stream-content-inner">
               <div class="stream-header-zone">
-                <div class="stream-kicker">Saturday, June 14 · Motormoto</div>
-                <h2 class="stream-title" style="font-size:16px">3 items need your judgment</h2>
+                <div class="stream-kicker">Sunday, June 14 · All Brands</div>
+                <h2 class="stream-title" style="font-size:18px">5 items need your judgment</h2>
                 <div class="obj-anchor" style="margin-bottom:10px">
                   <span class="obj-dot"></span>
-                  <div>
+                  <div class="obj-anchor-body">
                     <div class="obj-label">Active Objective</div>
-                    <div class="obj-text" style="max-width:200px">20 qualified demo bookings by Q2</div>
+                    <div class="obj-text">Generate pipeline from dormant prospects through Gmail</div>
                   </div>
-                  <span class="obj-meta">active</span>
+                  <span class="obj-meta">Active</span>
                 </div>
               </div>
               <div class="stream-artifact-feed">
+                <!-- Facebook Pages approved card -->
+                <article class="g2card" style="padding:14px 16px">
+                  <div class="g2top">
+                    <span class="g2type pending_artifact">Facebook Pages</span>
+                    <span class="g2conf green">Approved</span>
+                  </div>
+                  <div class="g2obj">Generate pipeline from dormant prospects through Gmail</div>
+                  <div class="g2brand">Klaroha</div>
+                  <div class="stream-artifact-preview" style="margin-top:8px">
+                    <div class="fb-preview-mock" style="font-size:12px;padding:10px">
+                      <div class="fb-preview-header">
+                        <div class="fb-page-avatar" style="width:24px;height:24px;font-size:10px">K</div>
+                        <div><div class="fb-page-name" style="font-size:12px">Klaroha</div><div class="fb-page-meta">Sponsored · 🌐</div></div>
+                      </div>
+                      <div class="fb-copy" style="font-size:12px"># Facebook Page **Klarohahq** — Advertising/Marketing Followers: 1</div>
+                      <div class="fb-img-mock" style="height:80px">Creative Placeholder</div>
+                    </div>
+                  </div>
+                </article>
+                <!-- Decision brief -->
                 <article class="g2card featured" style="padding:14px 16px">
                   <div class="g2top">
                     <span class="g2type decision_brief">Decision Brief</span>
                     <span class="g2conf amber">Directional</span>
                   </div>
-                  <div class="g2obj">20 qualified demo bookings by Q2</div>
-                  <div class="g2brand">Motormoto</div>
+                  <div class="g2obj">Generate pipeline from dormant prospects through Gmail</div>
+                  <div class="g2brand">Klaroha</div>
                   <div class="g2why" style="font-size:12px">Email open rate dropped to 18% after subject line change on June 12.</div>
                   <div class="g2actions">
                     <button class="btn btn-accent btn-sm">Investigate</button>
                     <button class="btn btn-ghost btn-sm">Dismiss</button>
-                  </div>
-                </article>
-                <article class="g2card" style="padding:14px 16px">
-                  <div class="g2top">
-                    <span class="g2type pending_artifact">Facebook Post Draft</span>
-                    <span class="g2conf amber">Needs review</span>
-                  </div>
-                  <div class="g2obj">20 qualified demo bookings by Q2</div>
-                  <div class="g2brand">Motormoto</div>
-                  <div class="approval-bundle">
-                    <div class="fb-preview-mock" style="font-size:12px;padding:10px">
-                      <div class="fb-preview-header">
-                        <div class="fb-page-avatar" style="width:24px;height:24px;font-size:10px">M</div>
-                        <div><div class="fb-page-name" style="font-size:12px">Motormoto</div></div>
-                      </div>
-                      <div class="fb-copy" style="font-size:12px">Real-time visibility into lead source and pipeline value — without the spreadsheet chaos. Book a 20-min demo.</div>
-                    </div>
-                    <div class="approval-actions" style="margin-top:8px">
-                      <button class="btn btn-dark btn-sm">Approve</button>
-                      <button class="btn btn-sm">Revise</button>
-                      <button class="btn btn-ghost btn-sm">Dismiss</button>
-                    </div>
                   </div>
                 </article>
               </div>
@@ -1342,9 +1373,9 @@ body {
     <!-- Bottom tabs -->
     <div class="bos-proto-bottom-tabs">
       <div class="bos-proto-tab-group">
-        <button class="bos-proto-tab" onclick="showView('stream',null)">▶ Stream <span class="bos-proto-tab-badge">3</span></button>
-        <button class="bos-proto-tab active">◎ CMO</button>
-        <button class="bos-proto-tab" onclick="showView('admin',null)">⚙ Admin</button>
+        <button class="bos-proto-tab" onclick="showView('stream',this)">▶ Stream</button>
+        <button class="bos-proto-tab active" onclick="showView('cmo',this)">◎ CMO</button>
+        <button class="bos-proto-tab" onclick="showView('admin',this)">⚙ Admin</button>
       </div>
     </div>
 
@@ -1432,25 +1463,25 @@ body {
               </div>
             </div>
 
-            <!-- Stat grid (dark obsidian) -->
+            <!-- Stat grid (dark obsidian — real data from live app) -->
             <div class="admin-stat-grid">
-              <div class="admin-stat-card" style="cursor:pointer">
+              <div class="admin-stat-card">
                 <div class="admin-stat-label">Needs Review</div>
-                <div class="admin-stat-value" style="color:var(--champagne)">3</div>
+                <div class="admin-stat-value">22</div>
                 <div class="admin-stat-sub">pending approvals</div>
               </div>
               <div class="admin-stat-card">
                 <div class="admin-stat-label">Active Campaigns</div>
-                <div class="admin-stat-value">2</div>
-                <div class="admin-stat-sub">of 5 total</div>
+                <div class="admin-stat-value">6</div>
+                <div class="admin-stat-sub">of 18 total</div>
               </div>
               <div class="admin-stat-card">
                 <div class="admin-stat-label">Brands</div>
-                <div class="admin-stat-value">4</div>
+                <div class="admin-stat-value">2</div>
               </div>
               <div class="admin-stat-card">
                 <div class="admin-stat-label">Platform Spend</div>
-                <div class="admin-stat-value">$12.40</div>
+                <div class="admin-stat-value">$34.55</div>
                 <div class="admin-stat-sub">billing &amp; BYOK usage →</div>
               </div>
             </div>
@@ -1461,68 +1492,53 @@ body {
               <div style="display:grid;gap:0">
                 <div class="settings-row">
                   <div class="settings-row-info">
-                    <div class="settings-row-name">3 artifacts need human review</div>
+                    <div class="settings-row-name">22 artifacts need human review</div>
                     <div class="settings-row-desc">Approve, reject, or revise before anything can publish.</div>
                   </div>
-                  <span class="badge badge-warning">Review →</span>
+                  <button class="btn btn-secondary btn-sm">Review →</button>
                 </div>
                 <div class="settings-row">
                   <div class="settings-row-info">
-                    <div class="settings-row-name">1 recent failed run</div>
-                    <div class="settings-row-desc">Check setup blockers, credentials, or provider routing.</div>
-                  </div>
-                  <span class="badge badge-warning">Debug →</span>
-                </div>
-                <div class="settings-row">
-                  <div class="settings-row-info">
-                    <div class="settings-row-name">Brands waiting on review: Motormoto</div>
+                    <div class="settings-row-name">Brands waiting on review: Klaroha, Golden Gate Memorial</div>
                     <div class="settings-row-desc">Prioritize client-facing work before starting new generation.</div>
                   </div>
                 </div>
               </div>
             </div>
 
-            <!-- Two-col: Brands + Recent runs -->
+            <!-- Two-col: Brands + Recent activity -->
             <div class="admin-two-col">
 
               <!-- Brands -->
               <div class="admin-card">
-                <div class="admin-card-title">Brands</div>
+                <div class="admin-card-title">
+                  <span>Brands</span>
+                  <button class="btn btn-secondary btn-sm">Manage →</button>
+                </div>
                 <div class="brand-grid">
                   <div class="brand-row">
-                    <div class="brand-icon">M</div>
+                    <div class="brand-icon">K</div>
                     <div>
-                      <div class="brand-name">Motormoto</div>
-                      <div class="brand-meta">3 pending · 2 active campaigns</div>
+                      <div class="brand-name">Klaroha</div>
+                      <div class="brand-meta">22 pending · 6 active</div>
                     </div>
                   </div>
                   <div class="brand-row">
-                    <div class="brand-icon" style="background:#1a5c42">D</div>
+                    <div class="brand-icon" style="background:#1a3a30">G</div>
                     <div>
-                      <div class="brand-name">DriveForward</div>
-                      <div class="brand-meta">0 pending · 1 active campaign</div>
-                    </div>
-                  </div>
-                  <div class="brand-row">
-                    <div class="brand-icon" style="background:#4a3820">K</div>
-                    <div>
-                      <div class="brand-name">Karbonite</div>
+                      <div class="brand-name">Golden Gate Memorial</div>
                       <div class="brand-meta">0 pending</div>
-                    </div>
-                  </div>
-                  <div class="brand-row">
-                    <div class="brand-icon" style="background:#2a3a4a">V</div>
-                    <div>
-                      <div class="brand-name">Velociti</div>
-                      <div class="brand-meta">Setup incomplete</div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              <!-- Recent runs -->
+              <!-- Recent Activity -->
               <div class="admin-card">
-                <div class="admin-card-title">Recent runs</div>
+                <div class="admin-card-title">
+                  <span>Recent Activity</span>
+                  <button class="btn btn-secondary btn-sm">All runs →</button>
+                </div>
                 <table class="run-table">
                   <thead>
                     <tr>
@@ -1534,33 +1550,27 @@ body {
                   </thead>
                   <tbody>
                     <tr>
-                      <td class="run-module">channel.meta.posts.draft</td>
-                      <td>Motormoto</td>
-                      <td><span class="run-status-dot pnd"></span>Pending</td>
+                      <td class="run-module">channel.meta.pages.read</td>
+                      <td>Klaroha</td>
+                      <td><span class="run-status-dot ok"></span>Approved</td>
                       <td style="color:var(--muted-stone)">8m ago</td>
                     </tr>
                     <tr>
                       <td class="run-module">channel.gmail</td>
-                      <td>Motormoto</td>
-                      <td><span class="run-status-dot ok"></span>Complete</td>
+                      <td>Klaroha</td>
+                      <td><span class="run-status-dot pnd"></span>Pending</td>
                       <td style="color:var(--muted-stone)">2h ago</td>
                     </tr>
                     <tr>
                       <td class="run-module">analytics.search_console</td>
-                      <td>DriveForward</td>
+                      <td>Klaroha</td>
                       <td><span class="run-status-dot ok"></span>Complete</td>
                       <td style="color:var(--muted-stone)">4h ago</td>
                     </tr>
                     <tr>
                       <td class="run-module">marketing.planning.strategy</td>
-                      <td>Karbonite</td>
+                      <td>Golden Gate</td>
                       <td><span class="run-status-dot err"></span>Failed</td>
-                      <td style="color:var(--muted-stone)">yesterday</td>
-                    </tr>
-                    <tr>
-                      <td class="run-module">media.image</td>
-                      <td>Motormoto</td>
-                      <td><span class="run-status-dot ok"></span>Approved</td>
                       <td style="color:var(--muted-stone)">yesterday</td>
                     </tr>
                   </tbody>
@@ -1578,9 +1588,9 @@ body {
     <!-- Bottom tabs (FooterNav) -->
     <div class="bos-proto-bottom-tabs" style="background:#fff;border-top:.5px solid var(--border)">
       <div class="bos-proto-tab-group">
-        <button class="bos-proto-tab" onclick="showView('stream',null)">▶ Stream <span class="bos-proto-tab-badge">3</span></button>
-        <button class="bos-proto-tab" onclick="showView('cmo',null)">◎ CMO</button>
-        <button class="bos-proto-tab active">⚙ Admin</button>
+        <button class="bos-proto-tab" onclick="showView('stream',this)">▶ Stream</button>
+        <button class="bos-proto-tab" onclick="showView('cmo',this)">◎ CMO</button>
+        <button class="bos-proto-tab active" onclick="showView('admin',this)">⚙ Admin</button>
       </div>
     </div>
 
@@ -1592,13 +1602,10 @@ function showView(id, btn) {
   document.querySelectorAll('.view-wrap').forEach(el => el.classList.remove('active'));
   document.querySelectorAll('.proto-btn').forEach(el => el.classList.remove('active'));
   document.getElementById('v-' + id).classList.add('active');
-  if (btn) btn.classList.add('active');
-  else {
-    // find the matching proto-btn by data
-    const map = {stream:0, cmo:1, admin:2};
-    const btns = document.querySelectorAll('.proto-btn');
-    if (btns[map[id]]) btns[map[id]].classList.add('active');
-  }
+  // sync proto-nav buttons
+  const map = {stream:0, cmo:1, admin:2};
+  const navBtns = document.querySelectorAll('.proto-btn');
+  if (navBtns[map[id]]) navBtns[map[id]].classList.add('active');
 }
 </script>
 

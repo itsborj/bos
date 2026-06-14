@@ -1,0 +1,239 @@
+{
+  "base": "http://localhost:8090",
+  "generated_at": "2026-06-14T03:12:57.147Z",
+  "routes": [
+    {
+      "title": "Brand Guidelines",
+      "route": "/brand-guidelines",
+      "name": "brand-guidelines",
+      "auth": false,
+      "group": "Reference",
+      "static": true,
+      "file": "ui-frontend-pages/brand-guidelines.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Auth",
+      "route": "/auth",
+      "name": "auth",
+      "auth": false,
+      "group": "Entry",
+      "file": "ui-frontend-pages/auth.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Stream",
+      "route": "/stream",
+      "name": "stream",
+      "auth": true,
+      "group": "Core",
+      "file": "ui-frontend-pages/stream.html",
+      "status": 200,
+      "failed": [
+        "404 http://localhost:8090/api/media/video/bos_video_c7717db138c0.mp4",
+        "404 http://localhost:8090/api/media/video/bos_video_1d5a92b50caf.mp4",
+        "404 http://localhost:8090/api/media/video/bos_video_bd8917b100b1.mp4",
+        "404 http://localhost:8090/api/media/video/bos_video_e7fd50dfc749.mp4"
+      ]
+    },
+    {
+      "title": "CMO",
+      "route": "/cmo",
+      "name": "cmo",
+      "auth": true,
+      "group": "Core",
+      "file": "ui-frontend-pages/cmo.html",
+      "status": 200,
+      "failed": [
+        "404 http://localhost:8090/api/media/video/bos_video_1d5a92b50caf.mp4",
+        "404 http://localhost:8090/api/media/video/bos_video_c7717db138c0.mp4",
+        "404 http://localhost:8090/api/media/video/bos_video_bd8917b100b1.mp4",
+        "404 http://localhost:8090/api/media/video/bos_video_e7fd50dfc749.mp4"
+      ]
+    },
+    {
+      "title": "Workspace",
+      "route": "/workspace",
+      "name": "workspace",
+      "auth": true,
+      "group": "Core",
+      "file": "ui-frontend-pages/workspace.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Command Centre",
+      "route": "/admin/overview",
+      "name": "admin-overview",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-overview.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Brands / Clients",
+      "route": "/admin/brands",
+      "name": "admin-brands",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-brands.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Brand Detail",
+      "route": "/admin/brands/7b4c97aa-ee5c-42cd-8932-5779ed0f4590",
+      "name": "admin-brand-detail",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-brand-detail.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Setup Checklist",
+      "route": "/admin/getting-started",
+      "name": "admin-getting-started",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-getting-started.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Onboarding",
+      "route": "/admin/onboarding",
+      "name": "admin-onboarding",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-onboarding.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Client Readiness",
+      "route": "/admin/client-readiness",
+      "name": "admin-client-readiness",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-client-readiness.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Approvals",
+      "route": "/admin/agent-activity",
+      "name": "admin-agent-activity",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-agent-activity.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Campaign Board",
+      "route": "/admin/campaigns",
+      "name": "admin-campaigns",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-campaigns.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Capabilities",
+      "route": "/admin/modules",
+      "name": "admin-modules",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-modules.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "AI Providers",
+      "route": "/admin/providers",
+      "name": "admin-providers",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-providers.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Billing",
+      "route": "/admin/billing",
+      "name": "admin-billing",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-billing.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Run Logs",
+      "route": "/admin/runs",
+      "name": "admin-runs",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-runs.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Booking Pages",
+      "route": "/admin/calendar",
+      "name": "admin-calendar",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-calendar.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Loop Setup",
+      "route": "/admin/objective-loop",
+      "name": "admin-objective-loop",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-objective-loop.html",
+      "status": 200,
+      "failed": [
+        "422 http://localhost:8090/api/onboarding/brand-kit/latest?status=approved"
+      ]
+    },
+    {
+      "title": "Loop Flow",
+      "route": "/admin/loop-flow",
+      "name": "admin-loop-flow",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-loop-flow.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Watchpoints",
+      "route": "/admin/watchpoints",
+      "name": "admin-watchpoints",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-watchpoints.html",
+      "status": 200,
+      "failed": []
+    },
+    {
+      "title": "Memory & Audit",
+      "route": "/admin/memory-audit",
+      "name": "admin-memory-audit",
+      "auth": true,
+      "group": "Admin",
+      "file": "ui-frontend-pages/admin-memory-audit.html",
+      "status": 200,
+      "failed": []
+    }
+  ]
+}

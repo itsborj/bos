@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from attachment_context import DOC_EXTRACT_CAP, apply_extraction_json, extract_doc_text
+from attachment_context import DOC_EXTRACT_CAP, apply_extraction_json, ensure_reference_identity, extract_doc_text, persist_chat_references, sha256_hex
 from auth import require_api_key
 from config import get_settings
 from db import get_db
@@ -962,16 +962,25 @@ async def upload_drive_reference(
             raise _drive_reauth_exception() from exc
         raise
 
-    return {
+    result = {
         "kind": "image",
-        "source": "google_drive",
+        "source": "upload",
         "title": uploaded.get("name") or safe_name,
         "drive_file_id": uploaded.get("id"),
         "drive_file_name": uploaded.get("name") or safe_name,
         "drive_web_view_link": uploaded.get("webViewLink"),
         "mime_type": uploaded.get("mimeType") or mime,
         "drive_folder_id": folder_id,
+        "sha256": sha256_hex(data),
+        "metadata_json": {"byte_size": len(data), "drive_folder_id": folder_id},
+        "extraction_status": "vision_ready",
+        "extraction_json": {"image": {"title": uploaded.get("name") or safe_name, "mime_type": uploaded.get("mimeType") or mime, "byte_size": len(data), "drive_file_id": uploaded.get("id")}},
     }
+    ensure_reference_identity(result)
+    ws = await get_singleton(db)
+    await persist_chat_references([result], workspace_id=ws.id if ws else None, brand_id=brand_uuid, db=db)
+    await db.commit()
+    return result
 
 
 _ATTACHMENT_MIME_TO_KIND: dict[str, str] = {
@@ -1036,14 +1045,17 @@ async def upload_drive_attachment(
 
     result = {
         "kind": kind,
-        "source": "google_drive",
+        "source": "upload",
         "title": uploaded.get("name") or safe_name,
         "drive_file_id": uploaded.get("id"),
         "drive_file_name": uploaded.get("name") or safe_name,
         "drive_web_view_link": uploaded.get("webViewLink"),
         "mime_type": uploaded.get("mimeType") or mime,
         "drive_folder_id": folder_id,
+        "sha256": sha256_hex(data),
+        "metadata_json": {"byte_size": len(data), "drive_folder_id": folder_id},
     }
+    ensure_reference_identity(result)
     if kind == "document":
         try:
             text = extract_doc_text(data, mime).strip()
@@ -1055,7 +1067,7 @@ async def upload_drive_attachment(
             result["extraction_status"] = "failed"
             result["extraction_error"] = str(exc)[:500]
     else:
-        result["extraction_status"] = "metadata_only"
+        result["extraction_status"] = "vision_ready"
         result["extraction_json"] = {
             "image": {
                 "title": result["title"],
@@ -1064,6 +1076,9 @@ async def upload_drive_attachment(
                 "drive_file_id": result["drive_file_id"],
             }
         }
+    ws = await get_singleton(db)
+    await persist_chat_references([result], workspace_id=ws.id if ws else None, brand_id=brand_uuid, db=db)
+    await db.commit()
     return result
 
 

@@ -78,7 +78,7 @@ export function AdminOverview() {
           onClick={totalPending > 0 ? () => { window.location.href = '/stream'; } : undefined}
         >
           <div className="admin-stat-label">Needs Review</div>
-          <div className="admin-stat-value" style={{ color: totalPending > 0 ? 'var(--accent)' : undefined }}>
+          <div className={`admin-stat-value${totalPending > 0 ? ' admin-stat-value--amber' : ''}`}>
             {totalPending}
           </div>
           <div className="admin-stat-sub">pending approvals</div>

@@ -58,8 +58,8 @@ function ArtifactReferenceCard({ refData, onOpen }: { refData: ArtifactRef; onOp
           Open Strategy Workflow →
         </button>
       ) : (
-        <button className="artifact-btn primary" onClick={() => onOpen(refData.artifact_id)}>
-          Review in Stream →
+        <button className="artifact-btn review-stream-btn" onClick={() => onOpen(refData.artifact_id)}>
+          <span className="artifact-chip-icon">▶</span>Review in Stream →
         </button>
       )}
     </div>
@@ -475,7 +475,7 @@ export function CmoChat() {
       {contextChips.length > 0 && (
         <div className="cmo-ctx">
           {contextChips.map(chip => (
-            <span key={chip} className="g2src" style={{ fontSize: 11 }}>{chip}</span>
+            <span key={chip} className="cmo-ctx-chip">{chip}</span>
           ))}
         </div>
       )}
@@ -490,7 +490,7 @@ export function CmoChat() {
               const complete = msg.stepsComplete ?? false;
               return (
                 <div key={msg.id}>
-                  {showSender && <div className="msg-label">CMO</div>}
+                  {showSender && <div className="msg-label"><span className="msg-label-dot ai" />CMO</div>}
                   <div className="msg-ai">
                     {steps.length > 0 ? (
                       <div className={`cmo-steps${complete ? ' cmo-steps-done' : ''}`}>
@@ -520,7 +520,7 @@ export function CmoChat() {
             if (artifactRef) {
               return (
                 <div key={msg.id}>
-                  {showSender && <div className="msg-label">CMO</div>}
+                  {showSender && <div className="msg-label"><span className="msg-label-dot ai" />CMO</div>}
                   <div className="msg-ai">
                     <ArtifactReferenceCard refData={artifactRef} onOpen={handleOpenArtifact} />
                   </div>
@@ -531,7 +531,7 @@ export function CmoChat() {
             if (msg.outcomeForm && !msg.outcomeConfirm) {
               return (
                 <div key={msg.id}>
-                  <div className="msg-label">CMO</div>
+                  <div className="msg-label"><span className="msg-label-dot ai" />CMO</div>
                   <div className="msg-ai">
                     <OutcomeFormMessage
                       msgId={msg.id}
@@ -549,7 +549,7 @@ export function CmoChat() {
               const typeLabel = OUTCOME_TYPES.find(t => t.value === c.outcomeType)?.label ?? c.outcomeType;
               return (
                 <div key={msg.id}>
-                  <div className="msg-label">CMO</div>
+                  <div className="msg-label"><span className="msg-label-dot ai" />CMO</div>
                   <div className="msg-ai">
                     <div className="bos-outcome-confirm">
                       <div className="bos-outcome-confirm-tags">
@@ -567,7 +567,7 @@ export function CmoChat() {
             if (msg.handoffBrief) {
               return (
                 <div key={msg.id}>
-                  <div className="msg-label">CMO · handoff brief · {fmtTime(msg.time)}</div>
+                  <div className="msg-label"><span className="msg-label-dot ai" />CMO · handoff brief · {fmtTime(msg.time)}</div>
                   <HandoffBriefMessage brief={msg.handoffBrief} />
                 </div>
               );
@@ -576,7 +576,7 @@ export function CmoChat() {
             if (msg.councilRound) {
               return (
                 <div key={msg.id}>
-                  <div className="msg-label">Council · Round {msg.councilRound.round_num} · {fmtTime(msg.time)}</div>
+                  <div className="msg-label"><span className="msg-label-dot ai" />Council · Round {msg.councilRound.round_num} · {fmtTime(msg.time)}</div>
                   <div className="msg-ai">
                     <CouncilRoundMessage round={msg.councilRound} />
                   </div>
@@ -587,7 +587,7 @@ export function CmoChat() {
             if (msg.councilBrief) {
               return (
                 <div key={msg.id}>
-                  <div className="msg-label">Council · Brief · {fmtTime(msg.time)}</div>
+                  <div className="msg-label"><span className="msg-label-dot ai" />Council · Brief · {fmtTime(msg.time)}</div>
                   <div className="msg-ai">
                     <CouncilBriefMessage brief={msg.councilBrief} />
                   </div>
@@ -597,24 +597,28 @@ export function CmoChat() {
 
             if (msg.role === 'user') {
               return (
-                <div key={msg.id} className="msg-user">
-                  <div>{msg.text}</div>
-                  {msg.references && msg.references.length > 0 && (
-                    <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6, justifyContent: 'flex-end' }}>
-                      {msg.references.map((ref, i) => (
-                        <span key={i} className="g2src" style={{ fontSize: 10, background: 'rgba(255,255,255,0.16)' }}>
-                          {ref.kind === 'image' ? '🖼️' : '📄'} {ref.title || ref.drive_file_name || 'Reference'}
-                        </span>
-                      ))}
-                    </div>
-                  )}
+                <div key={msg.id} className="msg-user-row">
+                  <div className="msg-label"><span className="msg-label-dot user" />You</div>
+                  <div className="msg-user">
+                    <div>{msg.text}</div>
+                    {msg.references && msg.references.length > 0 && (
+                      <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
+                        {msg.references.map((ref, i) => (
+                          <span key={i} className="attach-chip">
+                            <span className="attach-chip-icon">{ref.kind === 'image' ? '🖼️' : '📄'}</span>
+                            <span className="attach-chip-label">{ref.title || ref.drive_file_name || 'Reference'}</span>
+                          </span>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                 </div>
               );
             }
 
             return (
               <div key={msg.id}>
-                {showSender && <div className="msg-label">CMO · {fmtTime(msg.time)}</div>}
+                {showSender && <div className="msg-label"><span className="msg-label-dot ai" />CMO · {fmtTime(msg.time)}</div>}
                 <div className="msg-ai">
                   <SurfaceProvider type="chat-inline">
                     <BlockRenderer block={textToBlock(msg.text!)} />
@@ -653,15 +657,15 @@ export function CmoChat() {
         )}
 
         {pendingReferences.length > 0 && (
-          <div style={{ marginBottom: 10, padding: 10, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)' }}>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {pendingReferences.map((ref, i) => (
-                <button key={i} type="button" className="btn btn-ghost" style={{ fontSize: 11 }} onClick={() => removeReference(i)} title="Remove reference">
-                  {ref.kind === 'image' ? '🖼️' : ref.kind === 'document' ? '📄' : '📝'} {ref.title || ref.drive_file_name || 'Reference'} ×
-                </button>
-              ))}
-              <button type="button" className="btn btn-ghost" style={{ fontSize: 11 }} onClick={clearReferences}>Clear all</button>
-            </div>
+          <div className="attach-preview">
+            {pendingReferences.map((ref, i) => (
+              <span key={i} className="attach-chip" style={{ cursor: 'pointer' }} onClick={() => removeReference(i)} title="Remove">
+                <span className="attach-chip-icon">{ref.kind === 'image' ? '🖼️' : ref.kind === 'document' ? '📄' : '📝'}</span>
+                <span className="attach-chip-label">{ref.title || ref.drive_file_name || 'Reference'}</span>
+                <span className="attach-chip-status">×</span>
+              </span>
+            ))}
+            <button type="button" className="btn btn-ghost" style={{ fontSize: 10, marginLeft: 'auto' }} onClick={clearReferences}>Clear all</button>
           </div>
         )}
 
@@ -774,7 +778,7 @@ export function CmoChat() {
           </button>
           <button
             type="button"
-            className="btn-send"
+            className="btn-attach"
             onClick={openDrivePicker}
             disabled={busy}
             title="Attach from Drive"

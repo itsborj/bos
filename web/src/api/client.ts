@@ -336,10 +336,10 @@ export const api = {
   getBillingSummary: (brandId?: string | null) =>
     request<BillingSummary>(brandId ? `/billing/summary?brand_id=${brandId}` : '/billing/summary'),
 
-  chat: (message: string, history: ChatHistoryItem[], brandId?: string | null, campaignId?: string | null, references: ChatReference[] = []) =>
+  chat: (message: string, history: ChatHistoryItem[], brandId?: string | null, campaignId?: string | null, references: ChatReference[] = [], conversationId?: string | null) =>
     request<ChatResponse>('/chat', {
       method: 'POST',
-      body: JSON.stringify({ message, history, brand_id: brandId ?? null, campaign_id: campaignId ?? null, references }),
+      body: JSON.stringify({ message, history, brand_id: brandId ?? null, campaign_id: campaignId ?? null, conversation_id: conversationId ?? null, references }),
     }),
 
   async *chatStream(
@@ -348,6 +348,7 @@ export const api = {
     brandId?: string | null,
     campaignId?: string | null,
     references: ChatReference[] = [],
+    conversationId?: string | null,
   ): AsyncGenerator<ChatStreamEvent> {
     const key = getApiKey();
     const resp = await fetch(`${BASE}/chat/stream`, {
@@ -356,7 +357,7 @@ export const api = {
         'Content-Type': 'application/json',
         ...(key ? { 'X-API-Key': key } : {}),
       },
-      body: JSON.stringify({ message, history, brand_id: brandId ?? null, campaign_id: campaignId ?? null, references }),
+      body: JSON.stringify({ message, history, brand_id: brandId ?? null, campaign_id: campaignId ?? null, conversation_id: conversationId ?? null, references }),
     });
     if (!resp.ok) throw new Error(`Chat stream failed: ${resp.status}`);
     const reader = resp.body!.getReader();
@@ -541,7 +542,7 @@ export const api = {
     const form = new FormData();
     form.append('brand_id', brand_id);
     form.append('file', file);
-    return request<{ kind: string; source: string; title: string; drive_file_id: string; drive_file_name: string; drive_web_view_link?: string; mime_type: string; drive_folder_id: string }>(
+    return request<DriveReferenceUploadResponse>(
       '/social/drive/attachment-upload',
       { method: 'POST', body: form },
     );
