@@ -19,6 +19,7 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from attachment_context import DOC_EXTRACT_CAP, apply_extraction_json, extract_doc_text
 from auth import require_api_key
 from config import get_settings
 from db import get_db
@@ -891,6 +892,8 @@ async def list_drive_images(
         "application/vnd.ms-powerpoint",
         "application/vnd.google-apps.document",
         "application/vnd.google-apps.presentation",
+        "application/json",
+        "text/plain",
     ]
     _MIME_TYPES: dict[str, list[str]] = {
         "image": _IMAGE_MIMES,
@@ -981,6 +984,8 @@ _ATTACHMENT_MIME_TO_KIND: dict[str, str] = {
     "application/vnd.openxmlformats-officedocument.presentationml.presentation": "document",
     "application/vnd.ms-powerpoint": "document",
     "application/pdf": "document",
+    "application/json": "document",
+    "text/plain": "document",
 }
 _MAX_ATTACHMENT_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB
 
@@ -995,7 +1000,8 @@ async def upload_drive_attachment(
     """Upload any supported file (image or document) to the brand's Drive CMO References folder.
 
     Returns a ChatReference-compatible dict. kind='image' for images, kind='document' for docs.
-    Image vision content and document text are both resolved lazily at chat-request time.
+    Document uploads are extracted immediately into JSON so CMO chat and specialists
+    receive a structured payload instead of a bare filename.
     """
     brand_uuid = _parse_brand_uuid(brand_id)
     if brand_uuid is None:
@@ -1004,7 +1010,7 @@ async def upload_drive_attachment(
     mime = (file.content_type or "").strip().lower().split(";")[0]
     kind = _ATTACHMENT_MIME_TO_KIND.get(mime)
     if not kind:
-        raise HTTPException(status_code=415, detail={"error": {"code": "UNSUPPORTED_ATTACHMENT_MIME", "message": "Supported formats: JPG, PNG, WebP, GIF, DOCX, DOC, PPTX, PPT, PDF.", "details": None}})
+        raise HTTPException(status_code=415, detail={"error": {"code": "UNSUPPORTED_ATTACHMENT_MIME", "message": "Supported formats: JPG, PNG, WebP, GIF, DOCX, DOC, PPTX, PPT, PDF, JSON, TXT.", "details": None}})
 
     data = await file.read()
     if not data:
@@ -1028,7 +1034,7 @@ async def upload_drive_attachment(
             raise _drive_reauth_exception() from exc
         raise
 
-    return {
+    result = {
         "kind": kind,
         "source": "google_drive",
         "title": uploaded.get("name") or safe_name,
@@ -1038,6 +1044,27 @@ async def upload_drive_attachment(
         "mime_type": uploaded.get("mimeType") or mime,
         "drive_folder_id": folder_id,
     }
+    if kind == "document":
+        try:
+            text = extract_doc_text(data, mime).strip()
+            result["text"] = text[:DOC_EXTRACT_CAP] if text else ""
+            result["extraction_status"] = "read" if result["text"] else "empty"
+            result["extracted_chars"] = len(result["text"] or "")
+            apply_extraction_json(result)
+        except Exception as exc:
+            result["extraction_status"] = "failed"
+            result["extraction_error"] = str(exc)[:500]
+    else:
+        result["extraction_status"] = "metadata_only"
+        result["extraction_json"] = {
+            "image": {
+                "title": result["title"],
+                "mime_type": result["mime_type"],
+                "byte_size": len(data),
+                "drive_file_id": result["drive_file_id"],
+            }
+        }
+    return result
 
 
 @router.post("/drive/root", dependencies=[Depends(require_api_key)])

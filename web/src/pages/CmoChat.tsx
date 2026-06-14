@@ -434,6 +434,8 @@ export function CmoChat() {
     'application/pdf',
     'application/vnd.google-apps.document',
     'application/vnd.google-apps.presentation',
+    'application/json',
+    'text/plain',
   ]);
 
   function attachDriveSelected() {

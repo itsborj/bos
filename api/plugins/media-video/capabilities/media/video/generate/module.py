@@ -309,6 +309,50 @@ class MediaVideoGenerateModule(ChannelModule):
         ).strip()
         return f"Visit {domain}" if domain else "Learn more"
 
+    @staticmethod
+    def _operator_reference_context_text(brief: dict, cap: int = 7000) -> str:
+        payload = brief.get("operator_reference_context")
+        if not payload and brief.get("operator_reference_context_json"):
+            try:
+                payload = json.loads(str(brief.get("operator_reference_context_json") or "{}"))
+            except Exception:
+                payload = None
+        if not isinstance(payload, dict) or not payload.get("items"):
+            return ""
+        return json.dumps(payload, ensure_ascii=False)[:cap]
+
+    def _compose_video_prompt(self, brief: dict, hook_text: str, cta_text: str) -> str:
+        brand = str(brief.get("brand_name") or "").strip()
+        request = str(brief.get("request") or brief.get("objective") or brief.get("message") or "").strip()
+        audience = str(brief.get("audience") or brief.get("target_audience") or "").strip()
+        tone = str(brief.get("tone") or brief.get("voice") or "").strip()
+        constraints = str(brief.get("campaign_brand_kit_excerpt") or brief.get("brand_guidelines_excerpt") or "").strip()
+        reference_context = self._operator_reference_context_text(brief)
+        parts = [
+            "Generate a brand-safe short-form marketing video asset.",
+            "Use clean cinematic footage/motion; avoid baked-in captions, fake readable text, fake logos, gore, shock, or exploitative grief imagery.",
+        ]
+        if brand:
+            parts.append(f"Brand: {brand}.")
+        if request:
+            parts.append(f"Operator request: {request}.")
+        if audience:
+            parts.append(f"Audience: {audience}.")
+        if hook_text:
+            parts.append(f"Core hook/emotional frame: {hook_text}.")
+        if cta_text:
+            parts.append(f"CTA intent: {cta_text}.")
+        if tone:
+            parts.append(f"Brand tone: {tone}.")
+        if constraints:
+            parts.append(f"Brand constraints: {constraints[:1800]}")
+        if reference_context:
+            parts.append(
+                "Structured operator reference context JSON. Use readable document excerpts, notes, and vision-ready image references as source context; ignore failed or metadata-only items: "
+                + reference_context
+            )
+        return " ".join(parts)
+
     def execute_tool_result(self, brief: dict) -> tuple[dict, dict]:
         start = time.perf_counter()
         creds = brief.get("_channel_credentials", {}) if isinstance(brief, dict) else {}
@@ -329,7 +373,15 @@ class MediaVideoGenerateModule(ChannelModule):
         # bg_color / text_color are available in brief for future overlay rendering;
         # current provider integrations do not use them yet.
         brand_name = str(brief.get("brand_name") or "").strip()
-        prompt = str(brief.get("video_prompt") or brief.get("prompt") or hook_text).strip()
+        reference_context = self._operator_reference_context_text(brief)
+        prompt = str(brief.get("video_prompt") or brief.get("prompt") or "").strip()
+        if not prompt:
+            prompt = self._compose_video_prompt(brief, hook_text, cta_text)
+        elif reference_context and "operator reference context" not in prompt.lower():
+            prompt = (
+                f"{prompt}\n\nStructured operator reference context JSON for source grounding. "
+                f"Use readable excerpts and vision-ready references; ignore failed/metadata-only items:\n{reference_context}"
+            )
 
         output_path = f"/tmp/bos_video_{uuid.uuid4().hex[:12]}.mp4"
         external_video_url: str | None = None
@@ -424,6 +476,8 @@ class MediaVideoGenerateModule(ChannelModule):
                 "drive_web_view_link": drive_web_view_link,
                 "drive_folder": "Creative Assets/Video" if drive_file_id else None,
                 "reusable": bool(drive_file_id or external_video_url),
+                "operator_reference_context": brief.get("operator_reference_context"),
+                "source_variables": (brief.get("operator_reference_context") or {}).get("variables", []) if isinstance(brief.get("operator_reference_context"), dict) else [],
                 "allowed_actions": ["publish_youtube", "publish_facebook", "regenerate", "dismiss"],
                 "action_modules": {
                     "publish_youtube": "marketing.channel.youtube.video.publish",

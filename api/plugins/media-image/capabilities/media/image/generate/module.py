@@ -93,6 +93,18 @@ class MediaImageGenerateModule(ChannelModule):
             },
         }
 
+    @staticmethod
+    def _operator_reference_context_text(brief: dict, cap: int = 6000) -> str:
+        payload = brief.get("operator_reference_context")
+        if not payload and brief.get("operator_reference_context_json"):
+            try:
+                payload = json.loads(str(brief.get("operator_reference_context_json") or "{}"))
+            except Exception:
+                payload = None
+        if not isinstance(payload, dict) or not payload.get("items"):
+            return ""
+        return json.dumps(payload, ensure_ascii=False)[:cap]
+
     def _build_prompt(self, brief: dict) -> str:
         brand = str(brief.get("brand_name") or brief.get("workspace_name") or "").strip()
         product = str(brief.get("product_name") or "").strip()
@@ -125,6 +137,12 @@ class MediaImageGenerateModule(ChannelModule):
             parts.append("Visual tone: clean, composed, premium, and commercially grounded.")
         if visual_constraints:
             parts.append(f"Brand constraints to follow: {visual_constraints[:1800]}")
+        reference_context = self._operator_reference_context_text(brief)
+        if reference_context:
+            parts.append(
+                "Structured operator reference context JSON. Use readable document excerpts, notes, and vision-ready image references as source context; ignore failed or metadata-only items: "
+                + reference_context
+            )
         return " ".join(parts)
 
     def _http_post(self, url: str, payload: dict, headers: dict, timeout: int = 120) -> dict:
@@ -284,8 +302,14 @@ class MediaImageGenerateModule(ChannelModule):
         provider = str(creds.get("image_gen_provider") or "bytedance").lower().strip()
 
         prompt = str(brief.get("image_prompt") or brief.get("prompt") or "").strip()
+        reference_context = self._operator_reference_context_text(brief)
         if not prompt:
             prompt = self._build_prompt(brief)
+        elif reference_context and "operator reference context" not in prompt.lower():
+            prompt = (
+                f"{prompt}\n\nStructured operator reference context JSON for source grounding. "
+                f"Use readable excerpts and vision-ready references; ignore failed/metadata-only items:\n{reference_context}"
+            )
         if not prompt:
             return self._failure(start, "missing_prompt", "image_prompt is required in brief", provider)
 
@@ -347,7 +371,11 @@ class MediaImageGenerateModule(ChannelModule):
             return self._failure(start, "empty_response", "Provider returned empty response", provider)
 
         image_b64 = base64.b64encode(image_bytes).decode("utf-8")
-        return self._success(start, image_b64, mime, prompt, provider, len(image_bytes), brand_constraints, constraints_applied)
+        attempt, result = self._success(start, image_b64, mime, prompt, provider, len(image_bytes), brand_constraints, constraints_applied)
+        if isinstance(result.get("block"), dict) and brief.get("operator_reference_context"):
+            result["block"]["operator_reference_context"] = brief.get("operator_reference_context")
+            result["block"]["source_variables"] = (brief.get("operator_reference_context") or {}).get("variables", [])
+        return attempt, result
 
     def self_check(self, content: str, brief: dict) -> tuple[str, list[str]]:
         failures: list[str] = []

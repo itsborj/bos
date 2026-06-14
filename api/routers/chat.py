@@ -18,6 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from ai_provider_registry import list_dominant_text_provider_ids
 from artifacts import ArtifactRef, artifact_ref_from_run
+from attachment_context import (
+    brief_fields as _reference_context_brief_fields,
+    enrich_drive_references as _enrich_drive_references,
+    format_for_prompt as _format_reference_context,
+)
 from auth import require_api_key
 from capability_manifest import build_dispatchable_manifest, format_manifest_for_prompt, format_manifest_for_brand
 from config import get_settings
@@ -470,7 +475,7 @@ class ChatHistoryItem(BaseModel):
 
 
 class ChatReference(BaseModel):
-    kind: str = "text"  # "text" | "image"
+    kind: str = "text"  # "text" | "image" | "document"
     source: str = "inline"  # "inline" | "google_drive"
     title: Optional[str] = None
     notes: Optional[str] = None
@@ -480,6 +485,12 @@ class ChatReference(BaseModel):
     drive_web_view_link: Optional[str] = None
     mime_type: Optional[str] = None
     thumbnail_link: Optional[str] = None
+    # Set server-side by attachment_context.py so downstream modules can audit
+    # whether file contents were actually extracted or only metadata was present.
+    extraction_status: Optional[str] = None  # read | vision_ready | provided | failed | skipped | empty
+    extraction_error: Optional[str] = None
+    extracted_chars: Optional[int] = None
+    extraction_json: Optional[dict] = None
 
 
 class ChatRequest(BaseModel):
@@ -490,121 +501,8 @@ class ChatRequest(BaseModel):
     references: list[ChatReference] = []
 
 
-def _format_reference_context(references: list[ChatReference] | None) -> str:
-    """Format non-image operator references as bounded prompt context.
 
-    Inline images are handled as vision content by _build_user_message_content
-    and are excluded here to avoid embedding raw base64 blobs in the text prompt.
-    """
-    refs = [r for r in (references or []) if not (r.kind == "image" and r.text)][:8]
-    if not refs:
-        return ""
-    lines = ["CMO discussion/planning references attached by the operator:"]
-    for idx, ref in enumerate(refs, start=1):
-        kind = (ref.kind or "reference").strip().lower()
-        source = (ref.source or "inline").strip().lower()
-        title = (ref.title or ref.drive_file_name or f"Reference {idx}").strip()[:160]
-        lines.append(f"{idx}. {title} ({kind}, source: {source})")
-        if ref.notes:
-            lines.append(f"   Notes: {ref.notes.strip()[:800]}")
-        if ref.text:
-            lines.append("   Text excerpt:")
-            lines.append("   " + ref.text.strip()[:3000].replace("\n", "\n   "))
-        if ref.drive_file_id:
-            lines.append(f"   Drive file id: {ref.drive_file_id}")
-        if ref.mime_type:
-            lines.append(f"   MIME: {ref.mime_type}")
-        if ref.drive_web_view_link:
-            lines.append(f"   Drive link: {ref.drive_web_view_link}")
-    lines.append("Use these references only as context for the current discussion/planning turn.")
-    return "\n".join(lines)
-
-
-_DOC_EXTRACT_CAP = 6_000  # chars injected into the prompt per document
-
-
-async def _enrich_drive_references(
-    references: list[ChatReference] | None,
-    brand_id: str | None,
-    db: AsyncSession,
-    settings,
-) -> None:
-    """Fetch content for Drive attachment references, mutating refs in-place.
-
-    - kind='document': downloads bytes, extracts text, sets ref.text (capped).
-    - kind='image': downloads bytes, base64-encodes as data URL, sets ref.text
-      so _build_user_message_content can embed it as a vision block.
-
-    Only processes refs with source='google_drive', a drive_file_id, and no
-    existing text. Silently skips if Drive is unavailable.
-    """
-    if not references or not brand_id:
-        return
-    drive_refs = [
-        r for r in references
-        if r.source == "google_drive" and r.drive_file_id and not r.text
-        and r.kind in ("image", "document")
-    ]
-    if not drive_refs:
-        return
-
-    try:
-        from routers.social import _load_google_drive_client  # type: ignore[attr-defined]
-        from provider_auth import get_page_token
-        DriveClient = _load_google_drive_client()
-    except Exception:
-        logger.warning("DriveClient unavailable; skipping Drive enrichment")
-        return
-
-    token, _ = await get_page_token(db, brand_id, "google_drive", settings)
-    if not token:
-        logger.warning("No Drive token for brand %s; skipping Drive enrichment", brand_id)
-        return
-
-    _GOOGLE_NATIVE_DOC_MIMES = {
-        "application/vnd.google-apps.document",
-        "application/vnd.google-apps.presentation",
-    }
-    import base64 as _b64
-    for ref in drive_refs:
-        try:
-            mime = (ref.mime_type or "").lower()
-            with DriveClient(token) as drive:
-                if mime in _GOOGLE_NATIVE_DOC_MIMES:
-                    data = drive.export_file(ref.drive_file_id, "text/plain")
-                    ref.text = data.decode("utf-8", errors="replace")[:_DOC_EXTRACT_CAP]
-                elif ref.kind == "image":
-                    data = drive.download_file(ref.drive_file_id)
-                    ref.text = f"data:{mime or 'image/jpeg'};base64,{_b64.b64encode(data).decode()}"
-                else:
-                    data = drive.download_file(ref.drive_file_id)
-                    text = _extract_doc_text(data, mime)
-                    ref.text = text[:_DOC_EXTRACT_CAP] if text else "(no extractable text)"
-        except Exception as exc:
-            logger.warning("Drive enrichment failed for %s: %s", ref.drive_file_id, exc)
-            if ref.kind == "document":
-                ref.text = f"(could not extract content: {type(exc).__name__})"
-
-
-def _extract_doc_text(data: bytes, mime: str) -> str:
-    """Extract plain text from document bytes. Supports DOCX and PDF."""
-    from io import BytesIO
-    if "wordprocessingml" in mime or mime == "application/msword":
-        try:
-            from docx import Document  # type: ignore[import-untyped]
-            doc = Document(BytesIO(data))
-            return "\n".join(p.text for p in doc.paragraphs if p.text.strip())
-        except Exception as exc:
-            raise RuntimeError(f"DOCX extraction failed: {exc}") from exc
-    if mime == "application/pdf":
-        try:
-            from pypdf import PdfReader  # type: ignore[import-untyped]
-            reader = PdfReader(BytesIO(data))
-            return "\n".join(page.extract_text() or "" for page in reader.pages)
-        except Exception as exc:
-            raise RuntimeError(f"PDF extraction failed: {exc}") from exc
-    raise RuntimeError(f"Unsupported doc MIME for extraction: {mime}")
-
+# Attachment extraction and JSON handoff live in api/attachment_context.py.
 
 def _build_user_message_content(text: str, references: list[ChatReference] | None) -> "str | list":
     """Return a plain string or an OpenAI-style multipart content list.
@@ -1355,6 +1253,7 @@ async def _continue_cmo_loop_after_results(
                 "objective": body.message,
                 "message": body.message,
                 "conversation_context": "\n".join(conversation_lines) + (f"\n\n{_ref_ctx_1}" if _ref_ctx_1 else ""),
+                **_reference_context_brief_fields(body.references),
             }
         )
         run_inline_params = _parse_run_inline_params(reply_without_scope)
@@ -1463,6 +1362,7 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
     if active_brand and body.brand_id != str(active_brand.id):
         body = ChatRequest(message=body.message, history=body.history, brand_id=str(active_brand.id), campaign_id=body.campaign_id, references=body.references)
         _resolved_brand_switch = _resolved_brand_switch or inferred_brand_action
+    await _enrich_drive_references(body.references, str(body.brand_id) if body.brand_id else None, db, settings)
 
     routed = route_chat_skills(body.message)
     if not routed.module_ids and len(body.message.strip().split()) <= 5 and body.history:
@@ -1553,6 +1453,7 @@ async def _generate_chat_stream(body: ChatRequest, db: AsyncSession, settings) -
                 "message": body.message,
                 "conversation_context": "\n".join(conversation_lines) + (f"\n\n{_ref_ctx_2}" if _ref_ctx_2 else ""),
                 "cmo_directive_text": reply_without_scope,
+                **_reference_context_brief_fields(body.references),
             })
             active_brand_uuid: UUID | None = (execution_brand or active_brand).id if (execution_brand or active_brand) else None
             run_inline_params = _parse_run_inline_params(reply_without_scope)
@@ -1692,6 +1593,7 @@ async def chat(
             references=body.references,
         )
         _resolved_brand_switch = _resolved_brand_switch or inferred_brand_action
+    await _enrich_drive_references(body.references, str(body.brand_id) if body.brand_id else None, db, settings)
 
     list_all()  # ensure plugin skill roots are registered before chat skill routing
     routed = route_chat_skills(body.message)
@@ -1802,6 +1704,7 @@ async def chat(
                 "message": body.message,
                 "conversation_context": "\n".join(conversation_lines) + (f"\n\n{_ref_ctx_3}" if _ref_ctx_3 else ""),
                 "cmo_directive_text": reply_without_scope,
+                **_reference_context_brief_fields(body.references),
             }
             brief = await _brand_scoped_brief(db, ws, execution_brand or active_brand, chat_overrides)
             active_brand_uuid: UUID | None = (execution_brand or active_brand).id if (execution_brand or active_brand) else None

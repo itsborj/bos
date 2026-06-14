@@ -377,6 +377,10 @@ export interface ChatReference {
   drive_web_view_link?: string;
   mime_type?: string;
   thumbnail_link?: string;
+  extraction_status?: string;
+  extraction_error?: string;
+  extracted_chars?: number;
+  extraction_json?: Record<string, unknown>;
 }
 
 export interface DriveReferenceUploadResponse extends ChatReference {
