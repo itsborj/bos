@@ -1,9 +1,9 @@
 # BOS — Business Operating System
 ## Unified Project Brief
 
-**Date:** 2026-06-08
-**Status:** Phase 6 in progress — Strategy Workflow fully live; Creative Supply Chain brand-locked media generation policy documented; managed provisioning + pricing model locked; plugin lifecycle architecture expanded into Extension Host + compatibility/release-integrity model; regression loop root cause and thin-core invariant locked (v3.56)
-**Version:** 3.56 (regression loop named + root-caused; thin-core invariant locked; current core escapees catalogued; spec-kit build governance direction added)
+**Date:** 2026-06-25
+**Status:** Phase 6 in progress — Strategy Workflow fully live; Creative Supply Chain brand-locked media generation policy documented; single-folder Brand Kit asset root locked for Imprint/media outputs; managed provisioning + pricing model locked; plugin lifecycle architecture expanded into Extension Host + compatibility/release-integrity model; regression loop root cause and thin-core invariant locked; WordPress plugin model gap analysis complete (v3.58)
+**Version:** 3.58 (WordPress hook model gap analysis locked — two-registry merge is the prerequisite for all remaining hook work; credential injection is already declarative; chat hook work gated on chat_v2 timeline decision)
 
 > **MANDATORY READING:** Before any new system update, feature build, or architectural change, read `BITE.md`. It is both the Business Implementation by Example methodology and the BOS architecture constitution for minimal core, plugin/package extensibility, SKILL.md ownership, live manifests, MCP boundaries, lifecycle hooks, and command registration.
 ---
@@ -22,7 +22,8 @@
 - **Planning:** `marketing.planning.strategy_workflow` is the sole plan module as of 2026-06-04. `marketing.planning.gtm_plan` is **retired** (`status: retired`, `allowed_from_chat: false`) — do not re-enable. `marketing.plan.campaign_strategy` is also retired. All CMO chat GTM/launch/strategy/marketing-plan requests route to `marketing.planning.strategy_workflow`. The Strategy Workflow decomposes the plan into 10 independently revisable components with typed JSON output contracts, archetype weighting (golden_gate / gold_smelting / teko / direct_sales), and a cascade model. Each run persists a `WorkflowRun` record with `WorkflowComponent` rows. `StrategyWorkflowPage` at `/strategy-workflows/:workflowId` fetches live data from `GET /strategy-workflows/:id` (including `brand_name`) and renders the dark header as `{BrandName} Marketing Strategy` with white text. Prototypes at `/prototype/strategy-draft`, `/prototype/golden-gate-plan`, `/prototype/motormoto` remain as static reference builds only. Pre-build contract: `STRATEGY_WORKFLOW.md`. Read before touching any strategy workflow capability or component module.
 - **Agent Marketplace concept:** Parked in `AGENT_MARKETPLACE_CONCEPT.md`. Stripe business model ported to marketing execution — AI workflows as API-invocable composable primitives, escrow-on-delivery payment rails, schema registry, agent-calls-agent supply chain. No implementation until BOS plugin lifecycle, Extension Host, and composable pipeline are proven.
 - **Public lead-capture demo:** Parked mini-project in `PUBLIC_LEAD_CAPTURE_DEMO.md`. Direction: a public website/PDF/text intake can create a provisional Business Profile Draft, allow public correction chat, then call the existing internal Strategy Workflow server-side for a Marketing Plan Preview. It must not duplicate/recreate planning prompts or output logic outside the logged-in BOS capability. The rough HTML at `sample/public_website_to_plan_demo_klaroha.html` is a visual/conversation artifact only, not an approved implementation sample.
-- **Creative Supply Chain:** Full media generation is now brand-locked by contract. The CMO brain generates the text, image, audio, video, and stitching prompts from active Brand guidelines / `BRAND.md`; specialists execute those prompts; `CompositionSpec` applies final logo, typography, captions, CTA, color treatment, safe zones, timing, and transitions. Brand alignment is a hard gate before provider calls, before render, and before Creative Bundle review. Sample: `sample/brand_locked_media_production_blueprint_v1.json`; architecture: `CREATIVE_SUPPLY_CHAIN.md`.
+- **Creative Supply Chain:** Full media generation is now brand-locked by contract. The CMO brain generates the text, image, audio, video, and stitching prompts from active Brand guidelines / `BRAND.md`; specialists execute those prompts; `CompositionSpec` applies final logo, typography, captions, CTA, color treatment, safe zones, timing, and transitions. Brand alignment is a hard gate before provider calls, before render, and before Creative Bundle review. Brand-scoped onboarding requires one validated Google Drive Brand Kit folder containing at least one `*_logo.*` image; this same folder is the authorized source folder and default output folder for Imprint/media artifacts. Product, character, people, location, and aesthetic references are optional campaign evidence. Fixed templates are optional production aids, not a universal readiness gate. Sample: `sample/brand_locked_media_production_blueprint_v1.json`; architecture: `CREATIVE_SUPPLY_CHAIN.md`.
+- **Lean launch positioning:** Target audience remains overloaded marketing operators, fractional CMOs, and agency/client teams managing brand and campaign execution. The internal near-term value proposition is “chat-based image and video editing ready for social media,” but external messaging to medium-size organizations should not lead with that raw feature phrase until it is packaged. Position the wedge as faster creative revision loops, social-ready assets, retained brand/campaign context, and approval-gated execution.
 - **Next active work:** Council memory integration (approved settlement → MemoryEvent), re-enable C3–C5 seats with diverse models. Then: not-wired strategy workflow components (`market_context`, `framework_lenses`, `channel_content_matrix`, `measurement_model`). Then Phase 6 subsections (creative bundle, shortform video, social publishing).
 
 ### Phase 6 Loop Direction — Summary
@@ -40,7 +41,7 @@ Default creative production should run in parallel from a shared campaign brief 
 | # | Topic | ✓ Current (locked) | ✗ Do Not Revert To |
 |---|---|---|---|
 | 1 | **CMO routing** | LLM reads `capability_manifest.py`; zero routing logic in `chat.py` | `_explicit_platforms()`, `_is_broad_sample_ads_request()`, `_has_generation_intent()`, `_requested_module_ids()`, phrase-matching — all removed 2026-05-12 |
-| 2 | **Channel capabilities** | Installed channel capabilities come from external plugin packages (`/external_plugins` / `~/bos-plugins`) via the Extension Host; bundled `api/plugins/` is SDK/example source only unless explicitly enabled for local compatibility | `api/capabilities/marketing/channel/` — deleted; must never be recreated; source-tree plugin folders treated as production-installed by default |
+| 2 | **Channel capabilities** | Installed channel capabilities come from `./plugins/{plugin}` inside the BOS repo, mounted as `/external_plugins`, via the Extension Host; bundled `api/plugins/` is SDK/example/legacy reference only unless explicitly enabled for local compatibility | `api/capabilities/marketing/channel/` — deleted; must never be recreated; source-tree plugin folders treated as production-installed by default |
 | 3 | **CMO artifact output** | Chat returns artifact refs/links only; Workspace + Stream own native preview, approval, revision | Inline Subject/Body, Headline/Description, copy, targeting, budgets, fake proof in CMO chat replies |
 | 4 | **Brand dispatch** | `_brand_scoped_brief(db, ws, active_brand, overrides)` when `brand_id` is set | `_resolve_brief(db, ws, overrides)` in an active-brand context (causes cross-brand bleed) |
 | 5 | **Brand memory hydration** | `hydrate_memory_slots(brand=active_brand)` — filters products, audiences, docs, run memory by `brand_id` | Workspace-wide memory in active-brand turns |
@@ -49,7 +50,7 @@ Default creative production should run in parallel from a shared campaign brief 
 | 8 | **CMO product surface** | `marketing.plan`, `marketing.execute`, `marketing.optimize` — collapsed job model | Channel/vendor names (Google Ads, Gmail, Meta, etc.) as primary product nav or capability catalog |
 | 9 | **CMO reply style** | Mobile-first: 1–4 short lines, one idea per line, bullets for choices, max one question. Ref: `sample/mobile_cmo_reply_style_v1.md` | Dense paragraphs, pasting full plans or platform content inline |
 | 10 | **Capability gate** | `SKILL.md` fields `allowed_from_chat: true`, `triggers`, `excluded_triggers`, `module_id` own activation policy | Hardcoded module ID lists or intent classifiers in `chat.py` / `skills/router.py` |
-| 11 | **Plugin credentials** | `inject_channel_credentials()` in `runs.py`; plugins read `brief["_channel_credentials"]` only | Plugins calling `get_settings()` or querying `social_connections` / DB directly |
+| 11 | **Plugin credentials** | `inject_channel_credentials()` in `plugin_loader.py` (called by `runs.py`); declarative `credential_slots` in `channel.json` — no platform branches in the resolver; plugins read `brief["_channel_credentials"]` only | Plugins calling `get_settings()` or querying `social_connections` / DB directly; adding platform-specific branches to `inject_channel_credentials()`; the remaining hardcoded platform list is in `social.py` OAuth relay routing, not in credential injection |
 | 12 | **Capability manifest** | `api/capability_manifest.py` auto-generates from SKILL.md files at runtime | Manual manifest edits; hardcoded module IDs in `_build_system_prompt()` |
 | 13 | **`_brand_scoped_brief()` contract** | Builds from overrides + Brand rows only; must not call `_resolve_brief()` first | Calling `_resolve_brief()` as a fallback inside `_brand_scoped_brief()` |
 | 14 | **Revise endpoint brand** | Resolves Brand from `original_run.brand_id` before building execution brief | Using workspace context for revision runs |
@@ -63,18 +64,33 @@ Default creative production should run in parallel from a shared campaign brief 
 | 22 | **Plugin installed-state registry** | The installed/active plugin registry or lockfile is operational truth; the external install root is validated against recorded plugin id/version/hash/manifest state; bundled core examples do not create capabilities | Treating whatever directory happens to exist under `api/plugins/` as the whole truth after a git checkout, deploy, or branch switch |
 | 23 | **Capability release integrity** | System updates compare before/after capability manifests and block/warn on unexpected removals, downgrades, duplicate IDs, or manifest hash drift | Silent capability disappearance that looks like a rollback; unintentional retirement without an explicit ledger entry |
 | 24 | **Plugin failure quarantine** | Invalid/incompatible plugins are marked installed-but-disabled with reason; one bad plugin must not crash core, erase the manifest, or hide unrelated capabilities | Import-time side effects, scan-wide failures, or plugin errors that break CMO startup or capability discovery |
-| 25 | **Everything is a package — no module concept** | All capabilities are packages. Built-in packages (`api/capabilities/`) ship with BOS and auto-activate org-wide. Installed packages (`~/bos-plugins/`) require explicit per-brand activation. Same contract for both: `SKILL.md` + `module.py` + `channel.json`. No package imports BOS internals. Source: BITE.md § Everything is a Package; pi.dev / WordPress / VS Code reference model. | Treating `api/capabilities/` entries as core code with special privileges; allowing any package to import `db`/`models`/`routers`; maintaining a module vs plugin distinction in any runner, manifest, or dispatch path |
+| 25 | **Thin core + plugin packages** | Core primitives in `api/capabilities/` ship with BOS and are always-on. Installed plugin packages live under `./plugins/{plugin}` (mounted as `/external_plugins`) and require explicit per-brand activation. Runtime plugin packages use `channel.json` + capability `SKILL.md` + `module.py`; root `SKILL.md` is optional human/operator guidance for now. Plugin packages must not import BOS internals. Source of truth for current marching orders: `plugins/plugins.md`. | Treating `api/plugins/` as runtime source; maintaining duplicate live plugin trees; allowing plugin packages to import `db`/`models`/`routers`; pretending all current `api/capabilities/` already follow the plugin install/activation lifecycle |
+| 26 | **Video revision pipeline — CMO owns the brief** | For media editing (`media.image.edit`, `media.video.edit`): the CMO generates the structured revision brief (including `source_run_id`, `reference_type`, `edit_intent`); the module is a pure executor; `attachment_context.py` provides structured facts only. Every edit run must carry `source_run_id` and echo `edit_brief` in its output block. The artifact card surfaces the modification requirement as the primary display field. Spec: `~/bos-plugins/media-editing/PIPELINE_SPEC.md`. | Semantic interpretation in the module (`_extract_payload`, `_hydrate_ref_images_from_drive` doing CMO-level work); edit runs without `source_run_id`; brief discarded rather than echoed as `edit_brief`; modification requirement buried in system details |
+| 27 | **Generic workflow registry for multi-step pipelines** | Multi-step artifact flows are declared by packages as workflow metadata: workflow id, stage, artifact type, allowed transitions, action modules, continuation/fresh-start policy, and background status events. Core resolves compact generic workflow state for CMO; CMO reads that state and emits generic `RUN`/`ACTION` directives only from declared actions. Spec: `WORKFLOW_REGISTRY.md`. | Hardcoding storyboard/email/ads/video lifecycle branches or affirmative-intent heuristics into CMO prompt text, `chat.py`, or UI components for each new workflow |
+| 28 | **Single Brand Kit Drive folder for media assets** | Brand-scoped onboarding requires selecting one Google Drive Brand Kit folder. The folder must validate with at least one image named like `*_logo.*`. That one authorized folder is the canonical location for the logo, optional product/character/location/aesthetic references, optional locked templates, and generated outputs. Brand Kit metadata may expose legacy keys (`logo`, `templates`, `brand_assets`, `generated`) but they all point to the same folder for compatibility. | Separate logo/template/generated folder pickers; generated media silently creating nested `Creative Assets/...` subfolders; Imprint/media falling back to invented logos when a validated folder exists |
+| 29 | **CMO v2 loop — one path, native tool calls** | The CMO is a thin loop: read state → evaluate against goal → call tools → repeat. The loop calls tools; it never integrates them. No text directive parsing (RUN:/ACTION:/SCOPE:/PATCH_REFERENCE:), no synthesis loop, no module-specific branches. Spec: `api/routers/chat_v2.md`. | Re-introducing regex directive parsing, per-module branches, or synthesis logic into the CMO loop; adding loop logic to handle a specific tool's output shape |
+| 30 | **Specialist model — one tool per module, typed parameters** | Each module declares an `actions` class attribute (dict of action → typed parameters). `build_tools()` merges all action parameters into one typed tool schema per module. `execute_tool_result(brief: dict) -> (attempt, result)` is the one unchanging lifecycle contract. The module dispatches internally based on which fields are present. `ModuleBase.actions = None` is the default; modules opt in. | N tools per module (`postcraft_create`, `postcraft_revise`, `postcraft_publish`); opaque `brief: string` parameter; module-specific revision branches in the loop or endpoint |
+| 31 | **Phase pipeline — modules read completed state by type, not by source** | Each module persists its completed state in a stable named artifact block field. Downstream modules read by artifact type, not by source module ID. Changing a module's output shape is a breaking change to the pipeline. `produces` and `consumes` appear in system prompt prose for CMO chaining reasoning, not in the function-calling schema. | Downstream modules reaching into upstream artifact blocks by field name; coupling phases by source module identity; putting produces/consumes into the function-calling schema |
+| 32 | **Plugin install root — `~/bos/plugins/` only** | The canonical plugin install directory is `./plugins/` inside the BOS repo (`~/bos/plugins/`). `docker-compose.yml` mounts it at `/external_plugins/` with a fixed path — no env var. A plugin folder with a valid `channel.json` placed there is discovered on next stack restart. A plugin NOT in `~/bos/plugins/` does not exist: it is not discovered, not listed in Admin, and not available in the CMO manifest. `~/bos-plugins/` is retired — nothing in that directory loads. | Using `~/bos-plugins/` as plugin install root; setting `EXTERNAL_PLUGINS_PATH` to any path other than `./plugins`; treating a plugin in `~/bos-plugins/` as installed or active |
+| 33 | **No duplicate plugin source trees** | Each plugin has one canonical source tree under `./plugins/{plugin}/`. `api/plugins/` is not a second implementation surface; if retained at all, it is SDK/example/deprecated reference material and must not be changed in parallel with runtime plugins. When duplicated plugin folders, duplicated docs, or duplicated capability implementations are found in any system architecture, treat it as architecture drift and correct it to one source of truth. | Maintaining both `plugins/{plugin}` and `api/plugins/{plugin}` as live copies; patching both to “keep them in sync”; allowing duplicate capability IDs/source trees to hide which package runtime actually loads |
 
 ### Key File Ownership
 | File | Owns |
 |---|---|
 | `api/capability_manifest.py` | CMO-dispatchable capability list — generated at runtime from SKILL.md |
-| `api/routers/chat.py` | 7-step pipeline only: receive → context → LLM → strip directives → dispatch → persist → return |
+| `api/routers/chat.py` | Current production CMO endpoint — being replaced by `chat_v2.py`. Do not add new capabilities here. |
+| `api/routers/chat_v2.py` | CMO v2 — the loop. One path, native tool calls, no text directives. Spec: `chat_v2.md`. |
+| `api/routers/cmo_providers.py` | LLM I/O for CMO v2. The loop never sees HTTP. `resolve_provider` + `call_cmo`. |
+| `api/routers/cmo_tools.py` | Tool registry, typed schema generation from `ModuleBase.actions`, prompt assembly, `execute_all`. |
+| `api/routers/chat_v2.md` | CMO v2 architecture spec — loop contract, specialist model, phase pipeline, migration path. Read before touching CMO v2. |
 | `api/routers/chat_notes.md` | Regression patterns, architecture direction, do-nots for `chat.py` |
 | `BITE.md` | Architecture constitution — overrides all conflicting code patterns or stale docs |
-| `api/plugins/PLUGIN_SDK.md` | Complete plugin developer contract |
+| `plugins/plugins.md` | Current plugin root/source-of-truth decisions and cleanup marching orders |
+| `api/plugins/PLUGIN_SDK.md` | Plugin developer contract; `api/plugins/` itself is legacy/reference source, not the runtime install root |
 | `api/capabilities/workspace/council/` | CMO Council deliberation layer (post-Gate 2) |
-| `CREATIVE_SUPPLY_CHAIN.md` | Creative supply chain mini project brief — concept → primitives → blueprints → render targets → Drive; all detail lives there |
+| `CREATIVE_SUPPLY_CHAIN.md` | Creative supply chain mini project brief — concept → primitives → blueprints → render targets → Drive; includes the locked single Brand Kit Drive folder rule for logo/template/source/output assets |
+| `~/bos-plugins/media-editing/PIPELINE_SPEC.md` | Video revision pipeline spec — business requirement, CMO brief generation contract, attachment context (instruction vs inspiration), run lineage, artifact card revision brief display, stream before/after linkage. Read before modifying `media.editing`, `attachment_context.py`, or the video artifact card rendering. |
+| `WORKFLOW_REGISTRY.md` | Generic workflow registry direction for multi-step artifact pipelines — package-declared stages/actions/transitions/fresh-start policy, generic CMO workflow-state injection, and app-level background progress. Read before adding any new multi-step CMO workflow. |
 | `sample/brand_locked_media_production_blueprint_v1.json` | BITE sample for CMO-brain-generated, brand-locked text/image/audio/video/stitch production blueprint and compliance gates |
 | `sample/creative_factory_ux_v1.md` | Creative Factory user experience documentation — setup, conversation flow, and approval workflow |
 | `STRATEGY_WORKFLOW.md` | Strategy Workflow pre-build contract — component DAG, field contracts per component, archetype weight table, cascade rules, workflow record schema, and build prerequisites. Read before touching any strategy workflow capability or component module. |
@@ -165,7 +181,7 @@ Filters are ordered and composable. A plugin that modifies a brief field it does
 
 **Activation state — installed is not active**
 
-A plugin package present in the external installed plugin root (for example `/external_plugins` or `~/bos-plugins/`) and recorded by the installed-state registry = installed. A bundled directory under `api/plugins/` is **not** installed; it is SDK/example/deprecated source unless explicitly loaded with a local compatibility flag. A `PluginActivation` DB row = active. These are separate states. The Extension Host discovers installed plugins from the external install root / registry; the capability manifest serves only active ones. Activation is explicit and can be scoped per brand — a plugin active for Brand A is invisible to Brand B's pipeline runs.
+A plugin package present in the installed plugin root (`./plugins/{plugin}` in the repo, mounted as `/external_plugins/{plugin}`) and recorded by the installed-state registry = installed. A bundled directory under `api/plugins/` is **not** installed; it is SDK/example/deprecated source unless explicitly loaded with a local compatibility flag. A `PluginActivation` DB row = active. These are separate states. The Extension Host discovers installed plugins from the external install root / registry; the capability manifest serves only active ones. Activation is explicit and can be scoped per brand — a plugin active for Brand A is invisible to Brand B's pipeline runs.
 
 `on_activate(brand_id)` — plugin runs setup: validates required credentials, creates any plugin-owned tables, seeds defaults.
 `on_deactivate(brand_id)` — plugin tears down: removes scheduled work, releases connections.
@@ -184,6 +200,50 @@ A plugin declares in `channel.json` what it contributes: capability IDs, hook su
 - A plugin that needs to add pipeline behavior must do so via a hook subscription declared in `channel.json`. It must not modify any file outside its own plugin directory.
 - Activation state is not optional for third-party plugins. The sequence is always: install → review → activate per brand. Never activate on discovery.
 - These are architecture principles. No implementation until a BITE sample of the hook contract and activation model is approved.
+
+#### WordPress Model — Current Implementation Gaps (locked 2026-06-25)
+
+Gap analysis from a full codebase read against the WordPress/VS Code plugin model. These gaps are the delta between the design above and what the code actually does today.
+
+**Gap 1 — Two disconnected HookRegistry classes (blocking)**
+
+`api/hooks.py` defines `HookRegistry` with `fire_filter()`/`fire_action()` — used by `runs.py` for plugin hook dispatch. `api/pipeline/hooks.py` defines a separate `HookRegistry` with `subscribe()`/`fire()` — used by `main.py` for system hook registration. They are different instances on different execution paths. A plugin subscribed to `brief.before_dispatch` fires through `api/hooks.py`; system-level brand scoping registered via `pipeline/hooks.py` is on a different track entirely. This is the single blocking gap — nothing else in the completion sequence can be done reliably until there is one registry.
+
+Fix: `api/pipeline/hooks.py` becomes the single source of truth. `api/hooks.py` becomes a thin re-export or is deleted. All existing subscribers (system hooks + plugin hooks) pass through the same `fire()` path with ordered priority.
+
+**Gap 2 — Only 2 of 5 declared hooks are wired**
+
+| Hook | Declared | Actually Fired | Where |
+|---|---|---|---|
+| `brief.before_dispatch` | ✅ | ✅ | `runs.py` |
+| `run.after_complete` | ✅ | ✅ | `runs.py` |
+| `manifest.built` | ✅ (pipeline) | ❌ | Should fire in `capability_manifest.py` during scan |
+| `plugin.activated` | ✅ (pipeline) | ❌ | Should fire when `PluginActivation.status` flips to `active` |
+| `plugin.deactivated` | ✅ (pipeline) | ❌ | Should fire when activation row is deactivated or deleted |
+
+`plugin.activated` / `plugin.deactivated` are what make plugins stateful — they're where a plugin runs setup code, validates credentials, and seeds defaults. Without them plugins are permanently stateless transformers.
+
+**Gap 3 — Credential injection characterization in this brief was wrong**
+
+The existing text (and Rule #11 before v3.58) described `inject_channel_credentials()` as a manually-maintained platform-specific list. This is not accurate. The function in `plugin_loader.py` is already declarative: plugins declare `credential_slots` in `channel.json` with typed slot definitions (`social_token`, `platform_var`, `brand_json_path`, `backend_override_provider`, etc.), and the resolver handles them generically with no platform branches. The actual remaining hardcoded platform list is in `social.py` OAuth relay routing — that is the real anti-pattern target.
+
+**Gap 4 — Chat hook work is gated on chat_v2 timeline**
+
+`chat.before_reply` / `chat.after_reply` hooks wired into `chat_v1` (`api/routers/chat.py`) are wasted investment if `chat_v2` (native tool calls, no directive parsing) replaces it within the current phase. Hook density work for the chat layer must target `chat_v2` natively. This decision must be made before any Phase 4 work below begins.
+
+**Completion sequence**
+
+```
+Phase 1  Merge registries — api/hooks.py + api/pipeline/hooks.py → one registry     (prerequisite; ~1-2 days)
+Phase 2  Wire plugin.activated / plugin.deactivated / manifest.built               (~2-3 days)
+Phase 3  Decide chat_v1 vs chat_v2 timeline — gates Phase 4 scope
+Phase 4  Add new hooks to chosen chat path: run.before_execute,
+         artifact.before_persist / after_persist, chat-layer hooks               (~3-5 days)
+Phase 5  Plugin storage API — PluginStorage model + get/set_plugin_option in SDK  (~2-3 days)
+Phase 6  Template override chain — brand override → plugin default → core default (~2-3 days)
+```
+
+After Phase 4, adding a new channel plugin requires zero core changes: `module.py` + `SKILL.md` + `channel.json` (including hook subscriptions and credential slots). No branches in `chat.py`, `runs.py`, or `social.py`.
 
 ### Extension Host, Compatibility Layer, and Release Integrity
 
@@ -372,11 +432,12 @@ This section records the architecture direction. No implementation should begin 
 `api/capability_manifest.py` is the single source of truth for what the CMO can deploy.
 
 - Generated at runtime from all eligible active SKILL.md files with `allowed_from_chat: true` and a `module_id`.
-- `format_manifest_for_prompt()` produces the deployable capability list injected into the CMO system prompt. Each entry is a `RUN: <module_id>  [Label] — description` line the LLM can copy directly.
+- `format_manifest_for_prompt()` produces the deployable capability list injected into the CMO system prompt.
 - `build_dispatchable_manifest()` returns typed `CapabilityEntry` objects for API use.
 - **No hardcoded module IDs, platform names, phrase triggers, or dispatch conditions exist anywhere in `routers/chat.py` or `skills/router.py`.** The LLM reads the manifest and uses its own judgment. Each module's SKILL.md owns its activation policy.
-- Adding a new dispatchable capability = add a plugin or capability directory with a valid SKILL.md (`allowed_from_chat: true`, `module_id: <id>`), validate it through the Extension Host, then activate it for the relevant brand/scope. The manifest and CMO system prompt update from active registry state rather than hardcoded route edits.
-- **Target architecture (Phase 4+):** `chat.py` should be a fixed 7-step contract (~100 lines); all cross-cutting concerns (brand-scoping, memory hydration, connector context, `@klar` commands) move into packages subscribing to `bridge.before_transform` and other lifecycle hooks. This eliminates the regression pattern caused by the current monolithic chat endpoint. Full model and BITE mapping: `api/routers/chat_notes.md` § *Architecture Direction — Pi-Pattern Target*.
+- Adding a new dispatchable capability = add a plugin or capability directory with a valid SKILL.md (`allowed_from_chat: true`, `module_id: <id>`), validate it through the Extension Host, then activate it for the relevant brand/scope.
+- **CMO v2 tool schema (active direction):** `build_tools()` in `cmo_tools.py` reads each module's `ModuleBase.actions` dict and builds one typed tool schema per module — not an opaque `brief: string`. `produces`/`consumes` per action appear in the system prompt tool listing prose so the CMO can reason about chaining; they are not in the function-calling schema. Modules without `actions` declared fall back to opaque brief (backward compatible). Spec: `api/routers/chat_v2.md`.
+- **Target CMO architecture:** `chat_v2.py` — thin loop, native tool calls, one path. `chat.py` is the current production endpoint and migration source; do not add new capabilities to it. Full model: `api/routers/chat_v2.md`.
 
 ### First-party capability shape (non-channel only)
 
@@ -1162,8 +1223,11 @@ Run this sync whenever a significant batch of tasks is completed or added. The s
 - `web/`: React + Vite frontend.
 
 ### Critical Endpoints
-- `POST /chat`: The primary entry point for the CMO. It handles discussion and intent-gated module dispatch, then returns artifact references for generated outputs.
-- `POST /chat/runs/{run_id}/revise`: LLM-backed approval-thread revision for a specific generated module result.
+- `POST /chat`: Current production CMO endpoint (being replaced by `/cmo_v2/chat`). Handles discussion and intent-gated module dispatch via text directives.
+- `POST /chat/runs/{run_id}/revise`: Current production revision endpoint. In CMO v2, revision is a native tool call — `source_run_id` + `instruction` in the module's `actions` schema; this endpoint is not ported.
+- `POST /cmo_v2/chat`: CMO v2 non-streaming endpoint — thin loop, native tool calls, typed parameters.
+- `POST /cmo_v2/chat/stream`: CMO v2 SSE streaming endpoint.
+- `GET /cmo_v2/test`: CMO v2 test HTML page.
 - `POST /runs`: Trigger a specific module run.
 - `GET /onboarding/status`: Deployment readiness check (Org + Brand + Campaign Brand Kit + installed specialists).
 - `POST /onboarding/brand-kit`: Generate the required Campaign Brand Kit document from the current workspace context.

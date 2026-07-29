@@ -7,7 +7,7 @@ from typing import Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.exc import DBAPIError
@@ -15,11 +15,19 @@ from sqlalchemy.exc import DBAPIError
 from auth import require_api_key
 from data_hygiene import contains_fuzzer_garbage, reject_fuzzer_garbage
 from db import get_db
-from models.workspace import Audience, Brand, Campaign, Product
+from models.workspace import Audience, Brand, Product
+from campaign import db as campaign_db
 from models.document import WorkspaceDocument
 from models.run import Run
 from routers.workspace import get_singleton
 from schemas.brands import BrandCreate, BrandResponse, BrandUpdate
+from services.brand_kit_templates import (
+    TemplateSelectionError,
+    bulk_update_templates,
+    classify_brand_kit_resources,
+    list_brand_kit_resources,
+    update_one_template,
+)
 
 
 def _safe_json(data: dict) -> dict:
@@ -213,6 +221,28 @@ class ClaimResult(BaseModel):
     claimed: dict[str, int]
 
 
+class BrandKitResourceClassifyRequest(BaseModel):
+    resource_ids: list[str] = Field(default_factory=list)
+    classification: str = Field(..., pattern="^(template|reference|logo|asset)$")
+    template_defaults: dict = Field(default_factory=dict)
+
+
+class BrandKitTemplateBulkRequest(BaseModel):
+    template_ids: list[str] | None = None
+    updates: dict = Field(default_factory=dict)
+    templates: list[dict] = Field(default_factory=list)
+    selection_policy: dict = Field(default_factory=dict)
+
+
+class BrandKitTemplatePatchRequest(BaseModel):
+    updates: dict = Field(default_factory=dict)
+
+
+def _template_http_error(exc: TemplateSelectionError) -> HTTPException:
+    status = 404 if exc.code in {"brand_not_found", "brand_kit_not_found", "resource_not_found", "template_not_found"} else 422
+    return HTTPException(status_code=status, detail=exc.to_dict())
+
+
 @router.post("/{brand_id}/claim-workspace", response_model=ClaimResult, responses={404: {"description": "Brand not found"}})
 async def claim_workspace(
     brand_id: UUID,
@@ -242,7 +272,6 @@ async def claim_workspace(
         ("products",            Product),
         ("audiences",           Audience),
         ("workspace_documents", WorkspaceDocument),
-        ("campaigns",           Campaign),
         ("runs",                Run),
     ]
     claimed: dict[str, int] = {}
@@ -254,9 +283,94 @@ async def claim_workspace(
         )
         claimed[label] = result.rowcount
 
+    claimed["campaigns"] = await campaign_db.claim_unassigned_campaigns(
+        db, workspace_id=ws.id, brand_id=brand.id
+    )
+
     await db.commit()
     await db.refresh(brand)
     return ClaimResult(brand=_to_response(brand), claimed=claimed)
+
+
+@router.get("/{brand_id}/brand-kit/resources")
+async def get_brand_kit_resources(
+    brand_id: UUID,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """List indexed Brand Kit resources and the canonical template manifest."""
+    ws = await get_singleton(db)
+    if not ws:
+        raise HTTPException(status_code=412, detail="Workspace not initialized")
+    brand = (await db.execute(select(Brand).where(Brand.id == brand_id, Brand.workspace_id == ws.id))).scalar_one_or_none()
+    if not brand:
+        raise HTTPException(status_code=404, detail="Brand not found")
+    try:
+        return await list_brand_kit_resources(db, ws, brand_id)
+    except TemplateSelectionError as exc:
+        raise _template_http_error(exc)
+
+
+@router.patch("/{brand_id}/brand-kit/resources/classify")
+async def classify_brand_kit_resource_batch(
+    brand_id: UUID,
+    body: BrandKitResourceClassifyRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Classify selected Brand Kit resources in the Brand Kit document metadata."""
+    ws = await get_singleton(db)
+    if not ws:
+        raise HTTPException(status_code=412, detail="Workspace not initialized")
+    try:
+        doc = await classify_brand_kit_resources(
+            db,
+            ws,
+            brand_id,
+            [str(rid) for rid in body.resource_ids],
+            body.classification,
+            body.template_defaults,
+        )
+        return {"brand_kit_document_id": str(doc.id), "template_manifest": (doc.metadata_json or {}).get("template_manifest", {})}
+    except TemplateSelectionError as exc:
+        raise _template_http_error(exc)
+
+
+@router.patch("/{brand_id}/brand-kit/templates/bulk")
+async def bulk_patch_brand_kit_templates(
+    brand_id: UUID,
+    body: BrandKitTemplateBulkRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Bulk approve/deactivate/edit Brand Kit template routing metadata."""
+    ws = await get_singleton(db)
+    if not ws:
+        raise HTTPException(status_code=412, detail="Workspace not initialized")
+    try:
+        doc = await bulk_update_templates(db, ws, brand_id, body.template_ids, body.updates, body.templates, body.selection_policy)
+        return {"brand_kit_document_id": str(doc.id), "template_manifest": (doc.metadata_json or {}).get("template_manifest", {})}
+    except TemplateSelectionError as exc:
+        raise _template_http_error(exc)
+
+
+@router.patch("/{brand_id}/brand-kit/templates/{template_id}")
+async def patch_brand_kit_template(
+    brand_id: UUID,
+    template_id: str,
+    body: BrandKitTemplatePatchRequest,
+    db: AsyncSession = Depends(get_db),
+    _: str = Depends(require_api_key),
+):
+    """Update one approved/draft Brand Kit template record."""
+    ws = await get_singleton(db)
+    if not ws:
+        raise HTTPException(status_code=412, detail="Workspace not initialized")
+    try:
+        doc = await update_one_template(db, ws, brand_id, template_id, body.updates)
+        return {"brand_kit_document_id": str(doc.id), "template_manifest": (doc.metadata_json or {}).get("template_manifest", {})}
+    except TemplateSelectionError as exc:
+        raise _template_http_error(exc)
 
 
 async def resolve_brand(db: AsyncSession, brand_id: Optional[uuid.UUID | str]) -> Optional[Brand]:

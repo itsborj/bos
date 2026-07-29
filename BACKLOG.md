@@ -473,6 +473,9 @@ Brand switching via `@klar check brand X`, `@klar list brands`, `@klar plan`, `@
 - [ ] CRTV-043 · 2026-05-21 · Export pack: ZIP/CSV with MP4 URLs, captions, hashtags, titles, platform targets, suggested publish dates, UTM fields
 - [ ] CRTV-044 · 2026-05-21 · Localhost proof harness: generate one shortform MP4 end-to-end from hardcoded content atom, no external credentials
 
+**Bug fixed 2026-06-23:**
+- [x] CRTV-045 · 2026-06-23 · BUG: postcraft revision always generated fresh image — `chat_revise_run` missing postcraft handling block; `edit_instruction` never set; prior `brand_kit`/`template_type`/`post_format`/`copy`/`vision_intake` not forwarded to module. Fixed: added postcraft block in `chat.py:2253` mapping `feedback` → `edit_instruction` and carrying previous block context as `original_artifact_block` + `artifact_data`.
+
 ### Completed: Creative Foundation ✓
 
 - DB migration 034: `creative_jobs`, `creative_assets`, `creative_blueprints` tables + models

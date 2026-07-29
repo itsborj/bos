@@ -1,9 +1,10 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { AppErrorBoundary } from './components/AppErrorBoundary';
 import { Layout } from './components/Layout';
 import { Auth } from './pages/Auth';
 import { getApiKey } from './api/client';
+import { ActiveProvider } from './context/ActiveContext';
 
 const CmoPage = lazy(() => import('./pages/CmoPage').then((m) => ({ default: m.CmoPage })));
 const Stream = lazy(() => import('./pages/Stream').then((m) => ({ default: m.Stream })));
@@ -18,6 +19,7 @@ const Ops = lazy(() => import('./pages/Ops').then((m) => ({ default: m.Ops })));
 const Intelligence = lazy(() => import('./pages/Intelligence').then((m) => ({ default: m.Intelligence })));
 const History = lazy(() => import('./pages/History').then((m) => ({ default: m.History })));
 const Settings = lazy(() => import('./pages/Settings').then((m) => ({ default: m.Settings })));
+const About = lazy(() => import('./pages/About').then((m) => ({ default: m.About })));
 const RunResult = lazy(() => import('./pages/RunResult').then((m) => ({ default: m.RunResult })));
 const AdminLayout = lazy(() => import('./pages/admin/AdminLayout').then((m) => ({ default: m.AdminLayout })));
 const AdminGettingStarted = lazy(() => import('./pages/admin/AdminGettingStarted').then((m) => ({ default: m.AdminGettingStarted })));
@@ -34,7 +36,6 @@ const AdminOnboarding = lazy(() => import('./pages/admin/AdminOnboarding').then(
 const AdminReports = lazy(() => import('./pages/admin/AdminReports').then((m) => ({ default: m.AdminReports })));
 const AdminBrands = lazy(() => import('./pages/admin/AdminBrands').then((m) => ({ default: m.AdminBrands })));
 const AdminBrandDetail = lazy(() => import('./pages/admin/AdminBrandDetail').then((m) => ({ default: m.AdminBrandDetail })));
-const AdminClientReadiness = lazy(() => import('./pages/admin/AdminClientReadiness').then((m) => ({ default: m.AdminClientReadiness })));
 const AdminCalendar = lazy(() => import('./pages/admin/AdminCalendar').then((m) => ({ default: m.AdminCalendar })));
 const AdminObjectiveLoop = lazy(() => import('./pages/admin/AdminObjectiveLoop').then((m) => ({ default: m.AdminObjectiveLoop })));
 const AdminLoopFlow = lazy(() => import('./pages/admin/AdminLoopFlow').then((m) => ({ default: m.AdminLoopFlow })));
@@ -58,53 +59,54 @@ export default function App() {
         <Suspense fallback={<RouteLoading />}>
           <Routes>
             <Route path="/auth" element={<Auth />} />
-            <Route
-              path="/"
-              element={
-                <RequireAuth>
-                  <Layout />
-                </RequireAuth>
-              }
-            >
-              <Route index element={<Navigate to="/stream" replace />} />
-              <Route path="ops"          element={<Ops />} />
-              <Route path="intelligence" element={<Intelligence />} />
-              <Route path="workspace"    element={<><div className="desktop-only"><Workspace /></div><div className="mobile-only"><WorkspaceMobile /></div></>} />
-              <Route path="workspace/artifacts/:runId" element={<WorkspaceArtifact />} />
-              <Route path="history"      element={<History />} />
-              <Route path="history/:runId" element={<RunResult />} />
-              <Route path="settings"     element={<Settings />} />
-              <Route path="stream"       element={<Stream />} />
-              <Route path="cmo"          element={<CmoPage />} />
-              <Route path="prototype/strategy-draft" element={<StrategyDraftPrototype />} />
-              <Route path="prototype/golden-gate-plan" element={<GoldenGateStrategyWorkflow />} />
-              <Route path="prototype/motormoto" element={<MotorMotoStrategyWorkflow />} />
-              <Route path="strategy-workflows/:workflowId" element={<StrategyWorkflowPage />} />
-            </Route>
-            <Route path="admin" element={<AdminLayout />}>
-              <Route index element={<Navigate to="/admin/overview" replace />} />
-              <Route path="brands"          element={<AdminBrands />} />
-              <Route path="client-readiness" element={<AdminClientReadiness />} />
-              <Route path="brands/:brandId" element={<AdminBrandDetail />} />
-              <Route path="getting-started" element={<AdminGettingStarted />} />
-              <Route path="onboarding"      element={<AdminOnboarding />} />
-              <Route path="overview"        element={<AdminOverview />} />
-              <Route path="reports"         element={<AdminReports />} />
-              <Route path="runs"            element={<AdminRuns />} />
-              <Route path="runs/:runId"     element={<AdminRunDetail />} />
-              <Route path="workspace"       element={<AdminWorkspace />} />
-              <Route path="campaigns"       element={<AdminCampaigns />} />
-              <Route path="providers"       element={<AdminProviders />} />
-              <Route path="billing"         element={<AdminBilling />} />
-              <Route path="modules"         element={<AdminModules />} />
-              <Route path="agent-activity"  element={<AdminAgentActivity />} />
-              <Route path="connectors"      element={<AdminModules />} />
-              <Route path="calendar"         element={<AdminCalendar />} />
-              <Route path="objective-loop"   element={<AdminObjectiveLoop />} />
-              <Route path="loop-flow"        element={<AdminLoopFlow />} />
-              <Route path="council-seats"    element={<AdminCouncilSeats />} />
-              <Route path="memory-audit"     element={<AdminMemoryAudit />} />
-              <Route path="watchpoints"      element={<AdminWatchpoints />} />
+            <Route path="/about" element={<About />} />
+            {/* RequireAuth gates ActiveProvider's mount, not just Layout's — it
+                fetches brands immediately on mount, and doing that before a key
+                exists would 401 and force a redirect-to-/auth loop. */}
+            <Route element={<RequireAuth><ActiveProvider><Outlet /></ActiveProvider></RequireAuth>}>
+              <Route path="/" element={<Layout />}>
+                <Route index element={<Navigate to="/stream" replace />} />
+                <Route path="ops"          element={<Ops />} />
+                <Route path="intelligence" element={<Intelligence />} />
+                <Route path="workspace"    element={<><div className="desktop-only"><Workspace /></div><div className="mobile-only"><WorkspaceMobile /></div></>} />
+                <Route path="workspace/artifacts/:runId" element={<WorkspaceArtifact />} />
+                <Route path="history"      element={<History />} />
+                <Route path="history/:runId" element={<RunResult />} />
+                <Route path="settings"     element={<Settings />} />
+                <Route path="stream"       element={<Stream />} />
+                <Route path="cmo"          element={<CmoPage />} />
+                <Route path="prototype/strategy-draft" element={<StrategyDraftPrototype />} />
+                <Route path="prototype/golden-gate-plan" element={<GoldenGateStrategyWorkflow />} />
+                <Route path="prototype/motormoto" element={<MotorMotoStrategyWorkflow />} />
+                <Route path="strategy-workflows/:workflowId" element={<StrategyWorkflowPage />} />
+              </Route>
+              <Route path="admin" element={<AdminLayout />}>
+                <Route index element={<Navigate to="/admin/overview" replace />} />
+                <Route path="brands"          element={<AdminBrands />} />
+                <Route path="client-readiness" element={<Navigate to="/admin/setup" replace />} />
+                <Route path="brands/:brandId" element={<AdminBrandDetail />} />
+                <Route path="setup" element={<AdminGettingStarted />} />
+                <Route path="getting-started" element={<Navigate to="/admin/setup" replace />} />
+                <Route path="onboarding"      element={<AdminOnboarding />} />
+                <Route path="overview"        element={<AdminOverview />} />
+                <Route path="reports"         element={<AdminReports />} />
+                <Route path="runs"            element={<AdminRuns />} />
+                <Route path="runs/:runId"     element={<AdminRunDetail />} />
+                <Route path="workspace"       element={<AdminWorkspace />} />
+                <Route path="campaigns"       element={<AdminCampaigns />} />
+                <Route path="providers"       element={<AdminProviders />} />
+                <Route path="billing"         element={<AdminBilling />} />
+                <Route path="modules"         element={<AdminModules />} />
+                <Route path="agent-activity"  element={<AdminAgentActivity />} />
+                <Route path="connectors"      element={<AdminModules />} />
+                <Route path="calendar"         element={<AdminCalendar />} />
+                <Route path="stream-setup"     element={<AdminObjectiveLoop />} />
+                <Route path="objective-loop"   element={<Navigate to="/admin/stream-setup" replace />} />
+                <Route path="loop-flow"        element={<AdminLoopFlow />} />
+                <Route path="council-seats"    element={<AdminCouncilSeats />} />
+                <Route path="memory-audit"     element={<AdminMemoryAudit />} />
+                <Route path="watchpoints"      element={<AdminWatchpoints />} />
+              </Route>
             </Route>
             <Route path="*" element={<Navigate to="/stream" replace />} />
           </Routes>

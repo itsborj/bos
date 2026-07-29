@@ -36,6 +36,13 @@ router = APIRouter(prefix="/plugins", tags=["plugins"])
 log = logging.getLogger("bos.plugins")
 
 
+def _normalize_backend_provider(provider: str | None) -> str:
+    value = str(provider or "").strip().lower()
+    if value in {"byteplus_modelark", "byteplus", "modelark"}:
+        return "bytedance"
+    return value
+
+
 class MediaModelOption(BaseModel):
     value: str
     label: str
@@ -81,7 +88,9 @@ class PluginInfo(BaseModel):
     credential_source: str = "none"
     activation_by_brand: list[ActivationState] = []
     media_provider_options: list[MediaProviderOption] = []
+    media_modality: Optional[str] = None      # "image" | "video" | None — from default_backend.modality
     connections: list[PluginConnectionInfo] = []
+    supports_backend_override: bool = False   # True iff manifest has backend_override_provider slots
 
 
 class SaveCredentialsRequest(BaseModel):
@@ -183,11 +192,6 @@ async def list_plugins(
         else:
             cred_source = "none"
 
-        # T100/T101: credentials_configured covers three slot types:
-        # - platform_var: missing[] must be empty
-        # - social_token: at least one declared platform must have a connected SocialConnection
-        # - backend_override_*/backend_provider_api_key: treated as configured when no platform_var
-        #   vars are missing (backend overrides are set via Admin → AI Providers, not this check)
         social_token_platforms = {
             s.platform for s in m.credential_slots
             if s.type == "social_token" and s.platform
@@ -201,9 +205,58 @@ async def list_plugins(
             (social_meta_by_platform.get(s.platform) or {}).get(s.field) not in (None, "")
             for s in social_meta_slots
         )
-        credentials_configured = not missing and social_configured and social_meta_configured
 
         media_opts = [MediaProviderOption(**opt) for opt in m.provider_options]
+        has_backend_override_slot = any(
+            s.type == "backend_override_provider" for s in m.credential_slots
+        )
+        backend_provider_slots = [
+            s for s in m.credential_slots
+            if s.type == "backend_provider_api_key" and s.module
+        ]
+        backend_ok = True
+        backend_sources: set[str] = set()
+        if backend_provider_slots and ws:
+            from provider_auth import resolve_stored_provider_credential
+            from executor import get_platform_key
+            from routers.backend_settings import get_db_backend_override
+            from plugin_loader import get_plugin_default_backend
+            from model_overrides import get_backend_override
+
+            for slot in backend_provider_slots:
+                provider_name = ""
+                row = await get_db_backend_override(db, ws.id, slot.module)
+                if row and row.provider:
+                    provider_name = str(row.provider)
+                else:
+                    plugin_default = get_plugin_default_backend(slot.module)
+                    env_override = get_backend_override(settings, slot.module)
+                    if plugin_default and plugin_default.provider:
+                        provider_name = str(plugin_default.provider)
+                    elif env_override and env_override.provider:
+                        provider_name = str(env_override.provider)
+                provider_name = _normalize_backend_provider(provider_name)
+                if not provider_name:
+                    backend_ok = False
+                    continue
+                provider_key, _auth_mode = await resolve_stored_provider_credential(
+                    db, ws.id, provider_name, settings, brand_id=brand_uuid
+                )
+                if provider_key:
+                    backend_sources.add("database")
+                    continue
+                if get_platform_key(provider_name, settings):
+                    backend_sources.add("env_var")
+                    continue
+                backend_ok = False
+        elif backend_provider_slots:
+            backend_ok = False
+
+        credentials_configured = not missing and social_configured and social_meta_configured and backend_ok
+        if backend_sources and cred_source == "none":
+            cred_source = "database" if "database" in backend_sources and "env_var" not in backend_sources else "env_var"
+
+        default_modality = (m.default_backend or {}).get("modality") if m.default_backend else None
         result.append(PluginInfo(
             plugin_id=plugin_id,
             name=m.name,
@@ -219,6 +272,8 @@ async def list_plugins(
             credential_source=cred_source,
             activation_by_brand=activation_by_plugin.get(plugin_id, []),
             media_provider_options=media_opts,
+            media_modality=default_modality if default_modality in ("image", "video") else None,
+            supports_backend_override=has_backend_override_slot,
             connections=[
                 PluginConnectionInfo(
                     platform=c.platform,

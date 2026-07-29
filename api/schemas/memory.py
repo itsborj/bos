@@ -22,7 +22,12 @@ _RATIONALE_REQUIRED = {"decision_made", "decision_not_to_act"}
 class MemoryEventCreate(BaseModel):
     brand_id: Optional[uuid.UUID] = None
     objective_id: Optional[uuid.UUID] = None
+    campaign_id: Optional[uuid.UUID] = None
     event_type: MemoryEventType
+    primitive_type: Optional[str] = Field(default=None, max_length=64)
+    primitive_status: Optional[str] = Field(default=None, max_length=32)
+    confidence: Optional[str] = Field(default=None, max_length=32)
+    source_type: Optional[str] = Field(default=None, max_length=64)
     topic_tags: list[str] = Field(default_factory=list)
     summary: str = Field(min_length=1)
     rationale: Optional[str] = None
@@ -41,7 +46,12 @@ class MemoryEventOut(BaseModel):
     workspace_id: uuid.UUID
     brand_id: Optional[uuid.UUID]
     objective_id: Optional[uuid.UUID]
+    campaign_id: Optional[uuid.UUID]
     event_type: MemoryEventType
+    primitive_type: Optional[str]
+    primitive_status: Optional[str]
+    confidence: Optional[str]
+    source_type: Optional[str]
     topic_tags: list[str]
     summary: str
     rationale: Optional[str]

@@ -25,6 +25,10 @@ excluded_triggers:
   - check youtube
   - validate youtube
   - update youtube channel
+  - youtube image post
+  - post image to youtube
+  - publish image to youtube
+  - youtube community post
 memory_slots:
   - brand_profile
 related_modules:

@@ -75,7 +75,7 @@ class OpenAICodexOAuthHandler:
             "state": state,
             "id_token_add_organizations": "true",
             "codex_cli_simplified_flow": "true",
-            "originator": "bos",
+            "originator": "pi",
         }
         return LoginStart(
             login_type="browser",
@@ -117,7 +117,7 @@ class OpenAICodexOAuthHandler:
             access_token=access,
             refresh_token=refresh,
             expires_at=datetime.now(timezone.utc) + timedelta(seconds=expires_in),
-            metadata={"account_id": account_id},
+            metadata={"account_id": account_id, "auth_surface": "chatgpt_codex", "supports_api_images": False},
         )
 
     async def refresh_auth(self, refresh_token: str, settings) -> OAuthCredential:
@@ -144,7 +144,7 @@ class OpenAICodexOAuthHandler:
             access_token=access,
             refresh_token=refresh,
             expires_at=datetime.now(timezone.utc) + timedelta(seconds=expires_in),
-            metadata={"account_id": account_id},
+            metadata={"account_id": account_id, "auth_surface": "chatgpt_codex", "supports_api_images": False},
         )
 
 
@@ -164,7 +164,7 @@ _GEMINI_AI_SCOPES = "https://www.googleapis.com/auth/cloud-platform openid email
 _TIKTOK_AUTHORIZE_URL = "https://www.tiktok.com/v2/auth/authorize/"
 _TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
 _TIKTOK_USERINFO_URL = "https://open.tiktokapis.com/v2/user/info/"
-_TIKTOK_SCOPES = "user.info.basic"
+_TIKTOK_SCOPES = "user.info.basic,video.publish"
 _GOOGLE_DRIVE_SCOPES = "https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.readonly openid email"
 _GBP_SCOPES = "https://www.googleapis.com/auth/business.manage openid email"
 _GBP_ACCOUNTS_URL = "https://mybusinessaccountmanagement.googleapis.com/v1/accounts"
@@ -597,6 +597,7 @@ _FACEBOOK_AUTHORIZE_URL = "https://www.facebook.com/dialog/oauth"
 _FACEBOOK_TOKEN_URL = "https://graph.facebook.com/oauth/access_token"
 _FACEBOOK_GRAPH_URL = "https://graph.facebook.com/v21.0"
 _FACEBOOK_SCOPES = "pages_show_list,pages_read_engagement,pages_manage_posts"
+_INSTAGRAM_SCOPES = "instagram_basic,pages_show_list"
 
 
 class TikTokOAuthHandler:
@@ -730,6 +731,11 @@ class TikTokOAuthHandler:
 class FacebookOAuthHandler:
     provider = "facebook"
     display_name = "Facebook"
+    scopes = _FACEBOOK_SCOPES
+    callback_path = "/social/facebook/callback"
+
+    def _config_id(self, overrides: dict) -> str:
+        return ""
 
     def _app_id(self, settings, overrides: dict) -> str:
         v = overrides.get("meta_app_id") or overrides.get("META_APP_ID") or settings.meta_app_id
@@ -745,22 +751,29 @@ class FacebookOAuthHandler:
 
     def _redirect_uri(self, settings, overrides: dict) -> str:
         from urllib.parse import urlparse
+
         frontend = settings.frontend_url or "http://localhost"
         frontend_host = urlparse(frontend).netloc
+        expected_path = self.callback_path
+
+        def _matches(candidate: str) -> bool:
+            if not candidate:
+                return False
+            parsed = urlparse(candidate)
+            if parsed.netloc and frontend_host and parsed.netloc != frontend_host:
+                return False
+            return parsed.path == expected_path
+
         stored = overrides.get("meta_redirect_uri") or overrides.get("META_REDIRECT_URI")
-        if stored:
-            stored_host = urlparse(stored).netloc
-            if stored_host and frontend_host and stored_host != frontend_host:
-                stored = None
-        if stored:
+        if stored and _matches(stored):
             return stored
+
         env_redirect = settings.meta_redirect_uri or ""
-        if env_redirect and env_redirect != "http://localhost/social/facebook/callback":
-            env_host = urlparse(env_redirect).netloc
-            if not frontend_host or not env_host or env_host == frontend_host:
-                return env_redirect
+        if env_redirect and _matches(env_redirect):
+            return env_redirect
+
         base = frontend.rstrip("/")
-        return f"{base}/social/facebook/callback"
+        return f"{base}{expected_path}"
 
     async def start_login(self, settings, overrides: dict | None = None) -> LoginStart:
         overrides = overrides or {}
@@ -770,10 +783,17 @@ class FacebookOAuthHandler:
         params = {
             "client_id": app_id,
             "redirect_uri": redirect_uri,
-            "scope": _FACEBOOK_SCOPES,
             "state": state,
             "response_type": "code",
         }
+        config_id = self._config_id(overrides)
+        if config_id:
+            # Facebook Login for Business / Instagram API setups prefer config_id
+            # over ad-hoc scope strings. This avoids developer-only "Invalid Scopes"
+            # errors when the app has switched to a business login configuration.
+            params["config_id"] = config_id
+        else:
+            params["scope"] = self.scopes
         return LoginStart(
             login_type="browser",
             authorize_url=f"{_FACEBOOK_AUTHORIZE_URL}?{urlencode(params)}",
@@ -853,6 +873,20 @@ class FacebookOAuthHandler:
 
     async def refresh_auth(self, refresh_token: str, settings) -> OAuthCredential:
         raise NotImplementedError("Facebook Page Access Tokens do not expire — refresh is not supported")
+
+
+class InstagramOAuthHandler(FacebookOAuthHandler):
+    provider = "instagram"
+    display_name = "Instagram"
+    scopes = _INSTAGRAM_SCOPES
+    callback_path = "/social/instagram/callback"
+
+    def _config_id(self, overrides: dict) -> str:
+        return str(
+            overrides.get("meta_instagram_config_id")
+            or overrides.get("META_INSTAGRAM_CONFIG_ID")
+            or ""
+        ).strip()
 
 
 class GoogleBusinessOAuthHandler:
@@ -1383,6 +1417,7 @@ _OAUTH_HANDLERS: dict[str, OAuthProviderHandler] = {
     "google_drive": GoogleDriveOAuthHandler(),
     "google_business": GoogleBusinessOAuthHandler(),
     "facebook": FacebookOAuthHandler(),
+    "instagram": InstagramOAuthHandler(),
     "google": GoogleLoginOAuthHandler(),
 }
 

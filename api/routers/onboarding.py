@@ -8,7 +8,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException
 from validation import NullableUUID
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -20,17 +20,27 @@ from executor import get_platform_key
 from models.document import WorkspaceDocument
 from models.provider import ProviderKey
 from models.run import Run, RunAttempt, RunResult
+from models.social import SocialConnection
 from models.workspace import Audience, Brand, Product, Workspace
 from registry import list_all
 from routers.runs import _execute_module, _resolve_brief
 from routers.workspace import _build_response, get_singleton
 from schemas.documents import WorkspaceDocumentOut
+from services.brand_kit_templates import ensure_template_manifest
+from campaign import db as campaign_db
 from schemas.workspace import WorkspaceResponse
 
 router = APIRouter(tags=["onboarding"])
 logger = logging.getLogger("bos.onboarding")
 
-_KNOWN_PROVIDERS = ["openai", "anthropic", "gemini", "openrouter", "nvidia", "bytedance"]
+_KNOWN_PROVIDERS = ["openai", "gemini", "bytedance", "openrouter", "nvidia"]
+
+
+def _normalize_backend_provider(provider: str | None) -> str:
+    value = str(provider or "").strip().lower()
+    if value in {"byteplus_modelark", "byteplus", "modelark"}:
+        return "bytedance"
+    return value
 
 
 class ProviderCheckResult(BaseModel):
@@ -47,16 +57,129 @@ class ModuleCheckResult(BaseModel):
     provider: str | None
 
 
+class BrandVisualAssetCategory(BaseModel):
+    label: str
+    count: int
+
+
+class ClientReadinessCell(BaseModel):
+    ok: bool
+    label: str
+
+
+class ClientReadinessAction(BaseModel):
+    key: str
+    label: str
+
+
+class ClientReadinessSnapshot(BaseModel):
+    brief: ClientReadinessCell
+    brand_kit: ClientReadinessCell
+    drive: ClientReadinessCell
+    capabilities: ClientReadinessCell
+    publish_channels: list[str] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    next_action: ClientReadinessAction | None = None
+    drive_setup_debt: bool = False
+
+
+def _build_client_readiness_snapshot(
+    *,
+    brand_profile_configured: bool,
+    campaign_brand_kit_approved: bool,
+    drive_connection_status: str | None,
+    drive_root_name: str | None,
+    brand_mark_configured: bool,
+    publish_channels: list[str],
+    live_campaign_present: bool,
+    capability_ready_count: int,
+    capability_total_count: int,
+    installed_plugin_count: int,
+    active_plugin_count: int,
+) -> ClientReadinessSnapshot:
+    drive_ready = drive_connection_status == "connected" and bool(drive_root_name) and brand_mark_configured
+
+    if drive_connection_status == "needs_reauth":
+        drive_label = "Reconnect required"
+    elif drive_connection_status != "connected":
+        drive_label = "Not connected"
+    elif not drive_root_name:
+        drive_label = "Choose folder"
+    elif not brand_mark_configured:
+        drive_label = "Add logo"
+    else:
+        drive_label = "Ready"
+
+    capability_ok = capability_total_count > 0 and capability_ready_count == capability_total_count
+    if capability_total_count <= 0:
+        capability_label = "None installed"
+    elif capability_ok:
+        capability_label = f"{capability_ready_count} ready"
+    else:
+        capability_label = f"{capability_ready_count}/{capability_total_count} ready"
+
+    blockers: list[tuple[str, str]] = []
+    if not brand_profile_configured:
+        blockers.append(("Import brand brief", "import_brief"))
+    if not campaign_brand_kit_approved:
+        blockers.append(("Approve brand kit", "approve_brand_kit"))
+    if drive_connection_status == "needs_reauth":
+        blockers.append(("Reconnect Drive", "reconnect_drive"))
+    elif drive_connection_status != "connected":
+        blockers.append(("Connect Drive", "connect_drive"))
+    elif not drive_root_name:
+        blockers.append(("Choose Drive folder", "choose_drive_folder"))
+    elif not brand_mark_configured:
+        blockers.append(("Add logo", "add_logo"))
+    if not publish_channels:
+        blockers.append(("Connect publish channel", "connect_publish_channel"))
+    if not live_campaign_present:
+        blockers.append(("Create live campaign", "create_live_campaign"))
+    if capability_total_count <= 0:
+        blockers.append(("Install capabilities", "install_capabilities"))
+    elif not capability_ok:
+        blockers.append((
+            "Activate capabilities" if installed_plugin_count > 0 and active_plugin_count <= 0 else "Fix capability setup",
+            "activate_capabilities" if installed_plugin_count > 0 and active_plugin_count <= 0 else "configure_capabilities",
+        ))
+
+    next_action = ClientReadinessAction(key=blockers[0][1], label=blockers[0][0]) if blockers else None
+    return ClientReadinessSnapshot(
+        brief=ClientReadinessCell(ok=brand_profile_configured, label="Imported" if brand_profile_configured else "Missing"),
+        brand_kit=ClientReadinessCell(
+            ok=campaign_brand_kit_approved,
+            label="Approved" if campaign_brand_kit_approved else ("Needs approval" if brand_profile_configured else "Missing"),
+        ),
+        drive=ClientReadinessCell(ok=drive_ready, label=drive_label),
+        capabilities=ClientReadinessCell(ok=capability_ok, label=capability_label),
+        publish_channels=publish_channels,
+        blockers=[label for label, _key in blockers],
+        next_action=next_action,
+        drive_setup_debt=not drive_ready,
+    )
+
+
 class OnboardingStatus(BaseModel):
     workspace_configured: bool
     workspace_name: str | None
     brand_profile_configured: bool
     campaign_brand_kit_approved: bool
     campaign_brand_kit_document_id: str | None = None
-    providers: list[ProviderCheckResult]
-    modules: list[ModuleCheckResult]
+    live_campaign_present: bool = False
+    live_campaign_id: str | None = None
+    drive_connected: bool = False
+    drive_connection_status: str | None = None
+    drive_root_folder_id: str | None = None
+    drive_root_name: str | None = None
+    brand_mark_configured: bool = False
+    brand_mark_file_id: str | None = None
+    brand_mark_file_name: str | None = None
+    brand_visual_assets: dict[str, BrandVisualAssetCategory] = Field(default_factory=dict)
+    providers: list[ProviderCheckResult] = Field(default_factory=list)
+    modules: list[ModuleCheckResult] = Field(default_factory=list)
+    client_readiness: ClientReadinessSnapshot
     all_ready: bool
-    issues: list[str]
+    issues: list[str] = Field(default_factory=list)
 
 
 @router.get(
@@ -78,6 +201,18 @@ async def onboarding_status(
     brand_profile_configured = False
     campaign_brand_kit_approved = False
     campaign_brand_kit_document_id = None
+    live_campaign_present = False
+    live_campaign_id = None
+    drive_connected = False
+    drive_connection_status: str | None = None
+    brand_mark_configured = False
+    brand_visual_assets: dict = {}
+    drive_meta: dict = {}
+    brand_social_rows: list[SocialConnection] = []
+    connected_brand_social_rows: list[SocialConnection] = []
+    connected_social_platforms: set[str] = set()
+    connected_social_meta: dict[str, dict] = {}
+    publish_channels: list[str] = []
 
     target_brand: Brand | None = None
     brand_rows: list[Brand] = []
@@ -90,9 +225,28 @@ async def onboarding_status(
         if not target_brand:
             raise HTTPException(status_code=404, detail="Brand not found")
 
+    if target_brand:
+        brand_social_rows = (await db.execute(
+            select(SocialConnection)
+            .where(
+                SocialConnection.workspace_id == ws.id,
+                SocialConnection.brand_id == target_brand.id,
+            )
+            .order_by(SocialConnection.created_at.desc())
+        )).scalars().all()
+        connected_brand_social_rows = [row for row in brand_social_rows if row.status == "connected"]
+        connected_social_platforms = {row.platform for row in connected_brand_social_rows}
+        connected_social_meta = {row.platform: (row.token_meta_json or {}) for row in connected_brand_social_rows}
+        latest_drive = next((row for row in brand_social_rows if row.platform == "google_drive"), None)
+        drive_connection_status = latest_drive.status if latest_drive else None
+        for platform, label in (("facebook", "facebook"), ("youtube", "youtube"), ("tiktok", "tiktok"), ("google_business", "GBP")):
+            if any(row.platform == platform and row.status == "connected" for row in brand_social_rows):
+                publish_channels.append(label)
+
     if not workspace_configured:
         issues.append("Workspace not configured — POST /workspace")
     else:
+        brand_json_data: dict | None = None
         if target_brand:
             product_count = len((await db.execute(
                 select(Product).where(Product.workspace_id == ws.id, Product.brand_id == target_brand.id)
@@ -100,7 +254,8 @@ async def onboarding_status(
             audience_count = len((await db.execute(
                 select(Audience).where(Audience.workspace_id == ws.id, Audience.brand_id == target_brand.id)
             )).scalars().all())
-            has_brand_json = bool(target_brand.brand_json)
+            brand_json_data = target_brand.brand_json if isinstance(target_brand.brand_json, dict) else None
+            has_brand_json = bool(brand_json_data)
         elif brand_rows:
             product_count = 0
             audience_count = 0
@@ -113,7 +268,8 @@ async def onboarding_status(
             audience_count = len((await db.execute(
                 select(Audience).where(Audience.workspace_id == ws.id, Audience.brand_id == None)  # noqa: E711
             )).scalars().all())
-            has_brand_json = bool(ws.brand_json)
+            brand_json_data = ws.brand_json if isinstance(ws.brand_json, dict) else None
+            has_brand_json = bool(brand_json_data)
         brand_profile_configured = bool(has_brand_json and product_count > 0 and audience_count > 0)
         if not brand_profile_configured:
             issues.append("Brand profile incomplete — import or enter brand, product, and audience context")
@@ -137,7 +293,35 @@ async def onboarding_status(
             campaign_brand_kit_approved = True
             campaign_brand_kit_document_id = str(brand_kit.id)
         else:
-            issues.append("Campaign Brand Kit not approved — generate and approve the required onboarding document")
+            issues.append("Brand Creative Brief not approved — generate and approve the required onboarding document")
+
+        live_campaign_rows = await campaign_db.read_rows(
+            db,
+            workspace_id=ws.id,
+            brand_id=target_brand.id if target_brand else None,
+            status="active",
+            limit=1,
+        )
+        if live_campaign_rows:
+            live_campaign_present = True
+            live_campaign_id = str(campaign_db.campaign_key(live_campaign_rows[0]))
+        else:
+            issues.append("No live campaign found — onboarding should extract the first active campaign from the brand profile")
+
+        drive_meta = await _brand_drive_asset_folder_metadata(
+            db, target_brand.id if target_brand else None
+        )
+        drive_connected = drive_meta.get("drive_connected", False)
+        brand_mark_configured = drive_meta.get("brand_mark_configured", False)
+        brand_visual_assets = drive_meta.get("brand_visual_assets", {})
+        if target_brand and drive_connection_status == "needs_reauth":
+            issues.append("Google Drive needs re-authentication — reconnect before image and video generation")
+        elif target_brand and not drive_connected:
+            issues.append("Google Drive not connected — required for image and video generation")
+        elif target_brand and not brand_mark_configured:
+            issues.append("Google Drive connected but no Brand Mark (logo/wordmark) found — validate the Brand Kit folder")
+        if target_brand and not publish_channels:
+            issues.append("No publish channel connected — connect Facebook, YouTube, TikTok, or Google Business before publishing")
 
     # Resolve which providers have keys
     stored_providers: dict[str, str] = {}
@@ -175,8 +359,14 @@ async def onboarding_status(
     # Check registered modules. Plugin/tool modules are ready based on installation
     # and brand activation, not the generic LLM capability router.
     module_results: list[ModuleCheckResult] = []
-    from plugin_loader import get_active_plugin_ids, get_plugin_for_module
+    from plugin_loader import get_active_plugin_ids, get_loaded_plugins, get_plugin_for_module
     active_plugin_ids = await get_active_plugin_ids(db, target_brand.id if target_brand else None)
+    loaded_plugins = get_loaded_plugins()
+    installed_plugin_ids = {
+        plugin_id for plugin_id in loaded_plugins.keys()
+        if "test_stub" not in plugin_id.lower()
+    }
+    active_installed_plugin_ids = {plugin_id for plugin_id in active_plugin_ids if plugin_id in installed_plugin_ids}
     for m in list_all():
         if m.get("internal"):
             continue
@@ -191,7 +381,6 @@ async def onboarding_status(
             provider_label = "plugin" if active else None
             if active:
                 import os
-                from models.social import SocialConnection
                 from plugin_loader import get_plugin_vars, required_plugin_vars
                 from routers.backend_settings import resolve_backend_override
 
@@ -200,23 +389,13 @@ async def onboarding_status(
                     var for var in required_plugin_vars(plugin.manifest)
                     if not (os.getenv(var) or db_plugin_vars.get(var) or db_plugin_vars.get(var.lower()))
                 ]
-                social_rows = []
-                if target_brand:
-                    social_rows = (await db.execute(
-                        select(SocialConnection).where(
-                            SocialConnection.brand_id == target_brand.id,
-                            SocialConnection.status == "connected",
-                        )
-                    )).scalars().all()
-                social_platforms = {r.platform for r in social_rows}
-                social_meta = {r.platform: (r.token_meta_json or {}) for r in social_rows}
                 required_social = {
                     s.platform for s in plugin.manifest.credential_slots
                     if s.type == "social_token" and s.platform
                 }
-                social_ok = required_social.issubset(social_platforms)
+                social_ok = required_social.issubset(connected_social_platforms)
                 meta_ok = all(
-                    (social_meta.get(s.platform) or {}).get(s.field) not in (None, "")
+                    (connected_social_meta.get(s.platform) or {}).get(s.field) not in (None, "")
                     for s in plugin.manifest.credential_slots
                     if s.type == "social_meta_field" and s.platform and s.field
                 )
@@ -224,14 +403,14 @@ async def onboarding_status(
                 for s in plugin.manifest.credential_slots:
                     if s.type == "backend_provider_api_key" and s.module:
                         override = await resolve_backend_override(db, ws.id, s.module) if ws else None
-                        provider_name = (override.provider if override else "") or ""
+                        provider_name = _normalize_backend_provider((override.provider if override else "") or "")
                         backend_ok = backend_ok and bool(provider_name in connected)
                 ready = not missing_vars and social_ok and meta_ok and backend_ok
                 if not ready:
                     if missing_vars:
                         issues.append(f"{module_id}: missing plugin vars {', '.join(missing_vars)}")
                     if not social_ok:
-                        issues.append(f"{module_id}: missing connected social platforms {', '.join(sorted(required_social - social_platforms))}")
+                        issues.append(f"{module_id}: missing connected social platforms {', '.join(sorted(required_social - connected_social_platforms))}")
                     if not meta_ok:
                         issues.append(f"{module_id}: missing required social metadata")
                     if not backend_ok:
@@ -272,8 +451,24 @@ async def onboarding_status(
         workspace_configured
         and brand_profile_configured
         and campaign_brand_kit_approved
+        and live_campaign_present
+        and brand_mark_configured
+        and bool(publish_channels)
         and bool(connected)
         and all(m.ready for m in module_results)
+    )
+    client_readiness = _build_client_readiness_snapshot(
+        brand_profile_configured=brand_profile_configured,
+        campaign_brand_kit_approved=campaign_brand_kit_approved,
+        drive_connection_status=drive_connection_status,
+        drive_root_name=drive_meta.get("drive_root_name"),
+        brand_mark_configured=brand_mark_configured,
+        publish_channels=publish_channels,
+        live_campaign_present=live_campaign_present,
+        capability_ready_count=sum(1 for module in module_results if module.ready),
+        capability_total_count=len(module_results),
+        installed_plugin_count=len(installed_plugin_ids),
+        active_plugin_count=len(active_installed_plugin_ids),
     )
 
     return OnboardingStatus(
@@ -282,8 +477,19 @@ async def onboarding_status(
         brand_profile_configured=brand_profile_configured,
         campaign_brand_kit_approved=campaign_brand_kit_approved,
         campaign_brand_kit_document_id=campaign_brand_kit_document_id,
+        live_campaign_present=live_campaign_present,
+        live_campaign_id=live_campaign_id,
+        drive_connected=drive_connected,
+        drive_connection_status=drive_connection_status,
+        drive_root_folder_id=drive_meta.get("drive_root_folder_id"),
+        drive_root_name=drive_meta.get("drive_root_name"),
+        brand_mark_configured=brand_mark_configured,
+        brand_mark_file_id=drive_meta.get("brand_mark_file_id"),
+        brand_mark_file_name=drive_meta.get("brand_mark_file_name"),
+        brand_visual_assets=brand_visual_assets,
         providers=provider_results,
         modules=module_results,
+        client_readiness=client_readiness,
         all_ready=all_ready,
         issues=issues,
     )
@@ -345,6 +551,144 @@ def _parse_profile(content: str) -> dict:
     return json.loads(cleaned)
 
 
+def _profile_json_from_profile(profile: dict, *, brand_name: str | None = None) -> dict:
+    """Persist the durable creative identity extracted during onboarding."""
+    nested_visual = profile.get("visual_identity") if isinstance(profile.get("visual_identity"), dict) else {}
+    fields = {
+        "voice": profile.get("voice"),
+        "tone": profile.get("tone"),
+        "values": profile.get("values"),
+        "industry": profile.get("industry"),
+        "color_palette": profile.get("color_palette") or nested_visual.get("color_palette") or nested_visual.get("colors"),
+        "visual_language": profile.get("visual_language") or nested_visual.get("visual_language") or nested_visual.get("style"),
+        "typography": profile.get("typography") or nested_visual.get("typography"),
+        "negative_prompts": profile.get("negative_prompts") or nested_visual.get("avoid"),
+        "mandatory_treatments": profile.get("mandatory_treatments") or nested_visual.get("mandatory_treatments"),
+    }
+    return {key: value for key, value in fields.items() if value not in (None, "", [], {})}
+
+
+def _clip_campaign_text(value: str | None, limit: int = 255) -> str | None:
+    text = " ".join(str(value or "").strip().split())
+    if not text:
+        return None
+    return text if len(text) <= limit else text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _campaign_seed_from_profile(profile: dict, *, brand_name: str) -> dict:
+    product = _first_dict(profile.get("products") or profile.get("product_catalog"))
+    audience = _first_dict(profile.get("audiences") or profile.get("audience_profiles"))
+
+    product_name = str(product.get("name") or product.get("product_name") or "").strip()
+    tagline = str(product.get("tagline") or "").strip()
+    benefits = product.get("benefits")
+    if benefits is None and isinstance(product.get("benefits_json"), dict):
+        benefits = product.get("benefits_json", {}).get("benefits")
+    benefits = [str(item).strip() for item in (benefits or []) if str(item).strip()]
+    first_benefit = benefits[0] if benefits else ""
+
+    audience_name = str(audience.get("name") or audience.get("audience") or "").strip()
+    demographics = str(audience.get("demographics") or ((audience.get("segment_json") or {}).get("demographics") if isinstance(audience.get("segment_json"), dict) else "") or "").strip()
+    pain_points = audience.get("pain_points") or ((audience.get("segment_json") or {}).get("pain_points") if isinstance(audience.get("segment_json"), dict) else []) or []
+    pain_points = [str(item).strip() for item in pain_points if str(item).strip()]
+
+    campaign_subject = product_name or brand_name
+    if product_name and product_name.lower() not in brand_name.lower():
+        campaign_name = f"{brand_name} — {product_name} Campaign"
+    else:
+        campaign_name = f"{brand_name} Campaign"
+
+    objective_parts: list[str] = []
+    if audience_name:
+        objective_parts.append(f"Generate qualified demand for {campaign_subject} among {audience_name}")
+    else:
+        objective_parts.append(f"Generate qualified demand for {campaign_subject}")
+    if tagline:
+        objective_parts.append(f"Core promise: {tagline}")
+    elif first_benefit:
+        objective_parts.append(f"Primary benefit: {first_benefit}")
+    initial_intent = ". ".join(part.rstrip(".") for part in objective_parts if part).strip()
+    if initial_intent and not initial_intent.endswith("."):
+        initial_intent += "."
+    if not initial_intent:
+        initial_intent = f"Turn the approved brand profile for {brand_name} into a live campaign foundation."
+
+    if tagline:
+        message_angle = tagline
+    elif first_benefit:
+        message_angle = first_benefit
+    elif pain_points:
+        message_angle = f"Address {pain_points[0]} with a clear next step."
+    else:
+        message_angle = initial_intent
+
+    audience_display = audience_name or demographics or ""
+    campaign_json = {
+        "source": "onboarding.brand_profile",
+        "seed_origin": "brand_profile_ingest",
+        "extracted_from_brand_profile": True,
+        "initial_intent": initial_intent,
+        "business_objective": initial_intent,
+        "goal": initial_intent,
+        "product_name": product_name or None,
+        "tagline": tagline or None,
+        "benefits": benefits,
+        "audience_name": audience_name or None,
+        "demographics": demographics or None,
+        "pain_points": pain_points,
+        "brand_name": brand_name,
+    }
+
+    return {
+        "name": _clip_campaign_text(campaign_name, 255) or f"{brand_name} Campaign",
+        "audience": _clip_campaign_text(audience_display, 255),
+        "message_angle": _clip_campaign_text(message_angle, 255),
+        "initial_intent": initial_intent,
+        "campaign_json": {k: v for k, v in campaign_json.items() if v not in (None, "", [], {})},
+    }
+
+
+async def _ensure_live_campaign_from_profile(
+    db: AsyncSession,
+    ws: Workspace,
+    *,
+    brand_id: UUID | None,
+    brand_name: str,
+    profile: dict,
+):
+    existing = await campaign_db.read_rows(
+        db,
+        workspace_id=ws.id,
+        brand_id=brand_id,
+        status="active",
+        limit=1,
+    )
+    if existing:
+        return existing[0]
+
+    seed = _campaign_seed_from_profile(profile, brand_name=brand_name)
+    row = await campaign_db.create_campaign_record(db, {
+        "workspace_id": ws.id,
+        "brand_id": brand_id,
+        "name": seed["name"],
+        "status": "active",
+        "audience": seed.get("audience"),
+        "message_angle": seed.get("message_angle"),
+        "campaign_json": seed.get("campaign_json") or {},
+    })
+    row.source_type = "onboarding.brand_profile_ingest"
+    row.source_ref = "onboarding/ingest"
+    row.producer = "onboarding"
+    row.actual_activity = "Live campaign extracted from the onboarding brand profile."
+    row.confidence = "medium"
+    row.what_changed = "Created the first live campaign from onboarding brand profile data."
+    row.next_action = "Confirm channel plan, first creative, and first evidence source."
+    row.evidence_refs = ["onboarding.brand_setup"]
+    await db.commit()
+    await db.refresh(row)
+    return row
+
+
 async def _resolve_target_brand(db: AsyncSession, ws: Workspace, brand_id: UUID | None) -> Brand | None:
     if brand_id is None:
         return None
@@ -370,7 +714,11 @@ async def _brand_brief(db: AsyncSession, ws: Workspace, brand: Brand, extra: dic
     brief["brand_name"] = brand.name
 
     bj = brand.brand_json or {}
-    for field in ("tone", "voice", "values", "domain", "website_url", "social_handles"):
+    for field in (
+        "tone", "voice", "values", "domain", "website_url", "social_handles",
+        "industry", "color_palette", "visual_language", "typography",
+        "negative_prompts", "mandatory_treatments",
+    ):
         if bj.get(field) and not brief.get(field):
             brief[field] = bj[field]
     social_handles = bj.get("social_handles") or {}
@@ -454,9 +802,7 @@ async def ingest_brand_doc(
     extracted_name = str(profile.get("brand_name") or "").strip()
     brand_name = body.workspace_name or extracted_name or (target_brand.name if target_brand else ws.name)
 
-    profile_json = {
-        k: profile[k] for k in ("voice", "tone", "values") if profile.get(k)
-    }
+    profile_json = _profile_json_from_profile(profile, brand_name=brand_name)
 
     if target_brand:
         await _ensure_brand_name_available(db, ws, target_brand, brand_name)
@@ -492,6 +838,14 @@ async def ingest_brand_doc(
                 "pain_points": a.get("pain_points", []),
             },
         ))
+
+    await _ensure_live_campaign_from_profile(
+        db,
+        ws,
+        brand_id=scoped_brand_id,
+        brand_name=brand_name,
+        profile={**profile, "brand_name": brand_name},
+    )
 
     await db.commit()
     await db.refresh(ws)
@@ -534,7 +888,7 @@ def _profile_to_brief(profile: dict | None) -> dict:
     """Flatten a submitted/extracted brand profile into Brand Kit brief fields.
 
     The onboarding UI receives the freshly extracted profile before the operator
-    asks for a Campaign Brand Kit.  Passing it through here makes that submitted
+    asks for a Brand Creative Brief. Passing it through here makes that submitted
     profile the explicit source of truth, while DB rows remain the fallback.
     """
     if not isinstance(profile, dict):
@@ -548,8 +902,18 @@ def _profile_to_brief(profile: dict | None) -> dict:
 
     nested_brand = profile.get("brand") if isinstance(profile.get("brand"), dict) else {}
     put("brand_name", profile.get("brand_name") or profile.get("name"))
-    for field in ("voice", "tone", "values", "domain", "website_url", "social_handles"):
+    for field in (
+        "voice", "tone", "values", "domain", "website_url", "social_handles",
+        "industry", "color_palette", "visual_language", "typography",
+        "negative_prompts", "mandatory_treatments",
+    ):
         put(field, profile.get(field) or nested_brand.get(field))
+    visual_identity = profile.get("visual_identity") if isinstance(profile.get("visual_identity"), dict) else {}
+    put("color_palette", brief.get("color_palette") or visual_identity.get("color_palette") or visual_identity.get("colors"))
+    put("visual_language", brief.get("visual_language") or visual_identity.get("visual_language") or visual_identity.get("style"))
+    put("typography", brief.get("typography") or visual_identity.get("typography"))
+    put("negative_prompts", brief.get("negative_prompts") or visual_identity.get("avoid"))
+    put("mandatory_treatments", brief.get("mandatory_treatments") or visual_identity.get("mandatory_treatments"))
 
     product = _first_dict(profile.get("products") or profile.get("product_catalog"))
     benefits = product.get("benefits")
@@ -727,202 +1091,106 @@ def _campaign_visual_rules(brief: dict) -> str:
     return " ".join(rules)
 
 
-def _campaign_brand_kit_markdown(brief: dict, title_fallback: str) -> str:
-    """Generate a deterministic Campaign Brand Kit without waiting on external LLMs.
+def _brand_creative_brief_markdown(brief: dict, title_fallback: str) -> str:
+    """Compile durable brand evidence into a concise, agency-style creative brief."""
+    brand_name = (_as_text(brief.get("brand_name")).strip()
+                  or title_fallback.replace(" — Campaign Brand Kit", "") or "Brand")
+    product_name = _as_text(brief.get("product_name")).strip() or "Not specified"
+    tagline = (_as_text(brief.get("tagline")).strip()
+               or _as_text(brief.get("key_benefit")).strip() or "Not specified")
+    audience = _as_text(brief.get("audience")).strip() or "Not specified"
+    voice = _as_text(brief.get("voice")).strip() or "Not specified"
+    tone = _as_text(brief.get("tone")).strip() or "Not specified"
+    values = _as_text(brief.get("values")).strip() or "Not specified"
+    visual_language = _as_text(brief.get("visual_language")).strip()
+    typography = _as_text(brief.get("typography")).strip()
+    if not typography:
+        typography_lines = [
+            raw.strip() for raw in _brief_document_text(brief).splitlines()
+            if any(token in raw.lower() for token in ("typography", "font", "typeface", "manrope", "inter"))
+        ]
+        typography = " ".join(typography_lines[:4])
+    mandatory = _as_text(brief.get("mandatory_treatments")).strip()
+    avoid = _as_text(brief.get("negative_prompts")).strip()
 
-    Onboarding should never be blocked by provider quota / fallback latency. This
-    draft intentionally satisfies the same required structure as the LLM module
-    and can be edited or regenerated later.
+    palette = brief.get("color_palette")
+    palette_lines: list[str] = []
+    if isinstance(palette, dict):
+        palette_lines = [f"- **{name}:** `{value}`" for name, value in palette.items() if value not in (None, "")]
+    elif isinstance(palette, list):
+        palette_lines = [f"- {_as_text(value)}" for value in palette if _as_text(value).strip()]
+    if not palette_lines:
+        document_text = _brief_document_text(brief)
+        for raw in document_text.splitlines():
+            if re.search(_HEX_PATTERN, raw):
+                labelled = re.sub(f"({_HEX_PATTERN})", lambda match: f"`{match.group(1).lower()}`", raw.strip())
+                palette_lines.append(f"- {labelled}")
+        palette_lines = palette_lines[:12]
+    palette_text = "\n".join(palette_lines) or "- No explicit palette supplied. Use colors sampled from the official logo conservatively until the brand owner adds exact values."
 
-    All sections are derived from the brand profile brief — no section should
-    contain hardcoded brand-specific copy that belongs to a different client.
-    """
-    brand_name  = (_as_text(brief.get("brand_name")).strip()
-                   or title_fallback.replace(" — Campaign Brand Kit", "") or "Brand")
-    product_name = _as_text(brief.get("product_name")).strip() or "Primary offer"
-    tagline      = (_as_text(brief.get("tagline")).strip()
-                    or _as_text(brief.get("key_benefit")).strip()
-                    or "Turn demand into measurable results")
-    audience     = _as_text(brief.get("audience")).strip() or "high-intent buyers and decision makers"
-    tone         = _as_text(brief.get("tone")).strip() or "clear, confident, and practical"
-    voice        = _as_text(brief.get("voice")).strip() or "authoritative and useful"
-    values_text  = _as_text(brief.get("values")).strip() or "clarity, precision, results"
-    benefits_text = _as_text(brief.get("benefits")).strip() or tagline
-    pain_text    = _as_text(brief.get("pain_points")).strip() or "fragmented tools, unclear next steps, and missed follow-up"
+    asset_summary = brief.get("brand_visual_assets") if isinstance(brief.get("brand_visual_assets"), dict) else {}
+    asset_lines = []
+    for item in asset_summary.values():
+        if not isinstance(item, dict) or not item.get("count"):
+            continue
+        asset_lines.append(f"- {item.get('label') or 'Brand asset'}: {item.get('count')}")
+    assets_text = "\n".join(asset_lines) or "- Official logo is the required identity anchor. Additional references are optional and campaign-dependent."
 
-    # ── Voice pillars: derived from the brand's values ─────────────────────────
-    raw_values = brief.get("values")
-    if isinstance(raw_values, list) and raw_values:
-        value_list = [str(v).strip() for v in raw_values if str(v).strip()]
-    else:
-        value_list = [v.strip() for v in values_text.split(",") if v.strip()]
+    return f"""# {brand_name} — Brand Creative Brief
+> The durable creative direction for agency and AI-assisted campaign production. It defines identity, taste, truth, and boundaries without prescribing a fixed layout.
 
-    def _pillar_guidance(val: str) -> str:
-        v = val.lower()
-        if any(w in v for w in ("clear", "clarity", "simple", "plain")):
-            return "use plain language, name the problem specifically, and always state the next step."
-        if any(w in v for w in ("preci", "specific", "exact", "accura")):
-            return "describe outcomes, buyers, channels, and constraints with concrete detail — avoid vague claims."
-        if any(w in v for w in ("result", "outcome", "impact", "growth", "revenue", "conver")):
-            return "connect every claim to a business movement: qualified conversations, conversion, revenue, or time saved."
-        if any(w in v for w in ("trust", "honest", "transparen", "authentic")):
-            return "cite facts, proof, or context rather than promises; let outcomes speak."
-        if any(w in v for w in ("speed", "fast", "quick", "efficien")):
-            return "cut filler; lead with what happens first and how quickly."
-        if any(w in v for w in ("partner", "collaborat", "team", "together")):
-            return "speak alongside the buyer, not above them — use 'your' not 'our clients'."
-        return f"make every message reflect {val.lower()} — remove anything that dilutes this signal."
+## 1. Brand Foundation
 
-    pillar_lines = "\n".join(
-        f"- **{v.capitalize()}:** {_pillar_guidance(v)}"
-        for v in value_list[:5]
-    ) or f"- **{voice.split()[0].capitalize()}:** every message should be direct, specific, and tied to a real business outcome."
+- **Core promise:** {tagline}
+- **Primary product/service:** {product_name}
+- **Primary audience:** {audience}
+- **Voice:** {voice}
+- **Tone:** {tone}
+- **Values:** {values}
 
-    # ── Do / Don't examples: derived from product, audience, and pain points ───
-    raw_pain = brief.get("pain_points")
-    pain_list: list[str] = (
-        raw_pain if isinstance(raw_pain, list) and raw_pain
-        else [p.strip() for p in pain_text.split(",") if p.strip()]
-    )
-    raw_benefits = brief.get("benefits")
-    benefit_list: list[str] = (
-        raw_benefits if isinstance(raw_benefits, list) and raw_benefits
-        else [b.strip() for b in benefits_text.split(",") if b.strip()]
-    )
+## 2. Visual Identity
 
-    first_pain  = pain_list[0] if pain_list else "missed follow-up"
-    second_pain = pain_list[1] if len(pain_list) > 1 else "inconsistent processes"
-    first_ben   = benefit_list[0] if benefit_list else tagline
+### Approved palette
+{palette_text}
 
-    do_1 = f'Do: "{product_name} — {tagline}."'
-    do_2 = f'Do: "Built for {audience} dealing with {first_pain}."'
-    do_3 = f'Do: "See exactly which step each buyer is at, and what happens next."'
-    dont_1 = 'Don\'t: "Revolutionize your business with a world-class platform."'
-    dont_2 = 'Don\'t: "Unlock synergy across your digital ecosystem."'
-    dont_3 = 'Don\'t: "Guaranteed growth with no operational change."'
+### Visual language
+{visual_language or "Use the official logo, palette, audience, and campaign objective as the base. The agency has latitude to establish composition, imagery, lighting, and channel-specific art direction."}
 
-    # ── CTA examples: derived from product and tagline ─────────────────────────
-    product_slug = product_name.split()[0] if product_name else "platform"
-    cta_examples = (
-        f'"See the {product_slug} in action," "Book a working session," '
-        f'"Review the campaign plan," "Start with one team."'
-    )
+### Typography
+{typography or "Use accessible, legible typography appropriate to the channel. Do not imply ownership of unlicensed fonts."}
 
-    # ── Component examples: derived from product, audience, and pain points ────
-    comp_primary_cta   = f'"Book a {product_slug} demo"; "Map your buyer path"; "Start a pilot."'
-    comp_secondary_cta = '"See how it works"; "View campaign examples"; "Read the brief."'
-    comp_ad_headline   = f'"{tagline}"; "Stop {first_pain} — give {audience} a clear next step."'
-    comp_ad_body       = f'"Built for {audience} who need {first_ben}.  Fast to deploy, clear to act on."'
-    comp_badge         = f'"{product_slug} Ready"; "Campaign Draft"; "Sales Ready."'
-    comp_card          = f'"{first_ben}"; "Keep {audience} follow-up consistent"; "Measure campaign conversations."'
-    comp_email_subject = f'"Your {product_slug} campaign path is ready"; "Where qualified inquiries are leaking."'
-    comp_landing_hero  = f'"{tagline}"; "Give every {audience} a clear path from intent to conversation."'
+## 3. Creative Assets
 
-    # ── Multi-platform rules: audience- and product-aware ──────────────────────
-    platform_product  = product_slug.lower()
-    platform_audience = audience.lower()
+{assets_text}
 
-    color_palette_rows = _campaign_color_palette_rows(brief)
-    typography_rows = _campaign_typography_rows(brief)
-    visual_rules = _campaign_visual_rules(brief)
+- Apply the official logo as a real source asset in post-production; never ask an image model to redraw it.
+- Treat aesthetic references as guidance, not mandatory layouts.
+- Use exact product, packaging, person, character, property, vehicle, or interface assets only when the campaign claims to depict them.
 
-    return f"""# {brand_name} — Campaign Brand Kit
-> This required onboarding artifact defines the minimum visual, voice, typography, CTA, component, and platform rules needed to produce cohesive multi-platform marketing campaigns for {brand_name}.
+## 4. Creative Latitude and Boundaries
 
----
+**Agency latitude:** The agency may create new compositions, environments, visual metaphors, crops, lighting, and channel adaptations consistent with this brief.
 
-## 1. Campaign Brand Kit Overview 🔲
+**Mandatory treatments:** {mandatory or "Preserve logo integrity, factual accuracy, legibility, and approved campaign claims."}
 
-| Field | Draft decision |
-|---|---|
-| Brand name | {brand_name} |
-| Core promise | {tagline} |
-| Campaign personality | {voice}; {tone}. |
-| Primary product/service | {product_name} |
-| Target audience | {audience} |
-| Campaign objective | Convert qualified demand into clear next-step conversations. |
-| Approval owner | Founder, marketing lead, or designated brand owner. |
+**Avoid:** {avoid or "Distorted logos, invented product facts, fabricated properties or people presented as real, unreadable text, and unapproved claims."}
 
-## 2. Color Palette 🔲
+## 5. Campaign Truth
 
-| Token | Hex | Usage |
-|---|---:|---|
-{color_palette_rows}
+Campaign-specific offers, claims, audiences, products, disclosures, and immutable source assets come from the active campaign. Missing campaign-specific evidence blocks only that deliverable—not the whole brand.
 
-## 3. Tone of Voice 🔲
+## 6. Governance
 
-**Voice summary:** {brand_name} should sound {voice}: direct enough to be trusted, practical enough to be acted on, and specific enough to avoid generic marketing claims.
-
-**Tone:** {tone}. The tone should speak to {audience}, especially when they are dealing with {pain_text}.
-
-**Voice pillars**
-{pillar_lines}
-
-**Do / Don't examples**
-- {do_1}
-- {do_2}
-- {do_3}
-- {dont_1}
-- {dont_2}
-- {dont_3}
-
-**Banned words or phrases:** revolutionary, effortless growth, game-changing, best-in-class without proof, one-size-fits-all, guaranteed results.
-
-**CTA language rules:** Use action-oriented CTAs with a clear commitment level: {cta_examples}
-
-## 4. Typography Basics 🔲
-
-| Token | Recommendation | Usage |
-|---|---|---|
-{typography_rows}
-
-**Heading style:** concise, benefit-led, sentence case. Use strong contrast and avoid decorative type.  
-**Body copy style:** short paragraphs, concrete nouns, active verbs.  
-**Label style:** short, scannable, and consistent. If custom fonts are introduced later, licensing must be confirmed before production use.
-
-## 5. Campaign Components 🔲
-
-| Component token | Purpose | Writing/style rules | Examples |
-|---|---|---|---|
-| `component-primary-cta` | Main conversion action. | Verb first, low ambiguity, one action. | {comp_primary_cta} |
-| `component-secondary-cta` | Lower-pressure next step. | Offer learning or proof without competing with primary CTA. | {comp_secondary_cta} |
-| `component-ad-headline` | Stop scroll/search with a clear promise. | 8–12 words, outcome first. | {comp_ad_headline} |
-| `component-ad-body` | Explain relevance and next step. | Name audience, pain, and result. | {comp_ad_body} |
-| `component-badge-label` | Small trust or status marker. | 2–4 words, factual. | {comp_badge} |
-| `component-content-card` | Reusable proof/benefit card. | One idea per card, headline + 1–2 lines. | {comp_card} |
-| `component-email-subject` | Earn the open. | Specific, useful, no hype. | {comp_email_subject} |
-| `component-landing-hero` | Explain the campaign promise above the fold. | Headline, proof-oriented subhead, primary CTA. | {comp_landing_hero} |
-
-## 6. Multi-Platform Rules 🔲
-
-- **facebook:** Lead with the specific operational pain facing {platform_audience}. Use a visual proof cue and one clear CTA referencing {platform_product}.
-- **twitter/x:** Compress the core promise into a sharp, specific point of view. Use threads for education; keep the CTA to a single next step.
-- **google:** Match search intent directly. Use the product/category phrase, state the outcome, and include a trust cue — do not change the core claim.
-- **email:** Use the same campaign promise in a more consultative sequence: problem for {platform_audience}, implication, practical next step with {platform_product}.
-- **landing page:** Expand the promise with proof blocks, {platform_audience}-specific use cases, objections, and a clear conversion path to {platform_product}.
-
-## 7. Accessibility & Consistency 🔲
-
-This kit requires WCAG 2.1 AA as the minimum standard. Maintain sufficient contrast for text and controls, use readable type sizes, preserve visible keyboard/focus states, never use color as the only meaning, and respect reduced-motion preferences. Keep CTA labels, color tokens, and component names stable across campaigns.
-
-**Visual system rules:** {visual_rules}
-
-## 8. Governance 🔲
-
-- **Status:** Draft until approved.
-- **Owner role:** Founder, marketing lead, or delegated brand owner.
-- **When to update:** Update only when positioning, audience, offer, channel strategy, or visual identity changes materially.
-- **Versioning recommendation:** Use semantic draft labels such as `v1.0-draft`, `v1.0-approved`, and `v1.1-refresh`.
-- **How campaign modules should use it:** Treat this kit as the stable source for voice, CTA, typography, color, and component decisions before creating ads, emails, landing pages, or social posts.
-
-This kit should remain stable for months or years unless the brand changes materially.
-
-## Optional Future Expansion ⬜
-
-Future expansions may include logo rules, illustration style, photography direction, detailed motion system, full component inventory, proof library, and a design token pipeline.
-
-<!-- Context used: brand={brand_name}; product={product_name}; audience={audience}; values={values_text}; benefits={benefits_text}; pain_points={pain_text} -->
+- Brand-folder authorization means assets in the selected Brand Kit folder are approved for production use.
+- Human approval occurs on campaign direction and finished creative, not on every source image.
+- Update this brief when identity, positioning, visual language, or legal boundaries change materially.
+- Templates are optional production aids for intentionally locked layouts; they are not a universal readiness requirement.
 """
+
+
+def _campaign_brand_kit_markdown(brief: dict, title_fallback: str) -> str:
+    """Compatibility entry point for deterministic Brand Creative Brief generation."""
+    return _brand_creative_brief_markdown(brief, title_fallback)
 
 
 @router.get("/onboarding/brand-kit/latest", response_model=WorkspaceDocumentOut, responses={404: {"description": "Not found"}, 422: {"description": "brand_id required in multi-brand workspace"}})
@@ -932,7 +1200,7 @@ async def get_latest_campaign_brand_kit(
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    """Return the latest Campaign Brand Kit document, including full Markdown content."""
+    """Return the latest Brand Creative Brief document, including full Markdown content."""
     if status in ("null", ""):
         status = None
     if status is not None and status not in {"draft", "approved", "changes_requested", "archived"}:
@@ -973,8 +1241,59 @@ async def get_latest_campaign_brand_kit(
     ).limit(1)
     doc = (await db.execute(stmt)).scalar_one_or_none()
     if not doc:
-        raise HTTPException(status_code=404, detail="Campaign Brand Kit not found")
+        raise HTTPException(status_code=404, detail="Brand Creative Brief not found")
     return _document_out(doc)
+
+
+def _asset_category(files: list, label: str) -> dict:
+    count = sum(1 for f in files if isinstance(f, dict) and f.get("id"))
+    return {"label": label, "count": count}
+
+
+async def _brand_drive_asset_folder_metadata(db: AsyncSession, brand_id) -> dict:
+    _empty = {"drive_connected": False, "brand_mark_configured": False, "brand_visual_assets": {}}
+    if not brand_id:
+        return _empty
+    row = (await db.execute(
+        select(SocialConnection).where(
+            SocialConnection.brand_id == brand_id,
+            SocialConnection.platform == "google_drive",
+            SocialConnection.status == "connected",
+        ).order_by(SocialConnection.created_at.desc()).limit(1)
+    )).scalar_one_or_none()
+    if not row:
+        return _empty
+
+    meta = dict(row.token_meta_json or {})
+    folder_id = str(meta.get("drive_root_folder_id") or "").strip()
+    validation = meta.get("imprint_asset_validation") if isinstance(meta.get("imprint_asset_validation"), dict) else {}
+
+    logo_files = validation.get("logo_files") or []
+    first_logo = next((f for f in logo_files if isinstance(f, dict) and f.get("id")), None)
+
+    result: dict = {
+        "drive_connected": True,
+        "brand_mark_configured": bool(first_logo),
+        "brand_visual_assets": {
+            "brand_mark":         _asset_category(logo_files, "Brand Mark"),
+            "brand_character":    _asset_category(
+                validation.get("brand_character_files") or validation.get("mascot_files") or [],
+                "Brand Character",
+            ),
+            "hero_imagery":       _asset_category(validation.get("hero_imagery_files") or [], "Hero Imagery"),
+            "lifestyle":          _asset_category(validation.get("lifestyle_files") or [], "Lifestyle & People"),
+            "location":           _asset_category(validation.get("location_files") or [], "Location & Space"),
+            "creative_references": _asset_category(validation.get("creative_reference_files") or [], "Creative References"),
+            "supporting_visuals": _asset_category(validation.get("visual_asset_files") or [], "Supporting Visuals"),
+        },
+    }
+    if folder_id:
+        result["drive_root_folder_id"] = folder_id
+        result["drive_root_name"] = meta.get("drive_root_name") or folder_id
+    if first_logo:
+        result["brand_mark_file_id"] = str(first_logo.get("id") or "")
+        result["brand_mark_file_name"] = str(first_logo.get("name") or "")
+    return result
 
 
 @router.post("/onboarding/brand-kit", response_model=BrandKitResponse, status_code=201)
@@ -983,7 +1302,7 @@ async def generate_campaign_brand_kit(
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
-    """Generate the required Campaign Brand Kit and store it as a draft document."""
+    """Generate the required Brand Creative Brief and store it as a draft document."""
     ws = await get_singleton(db)
     if ws is None:
         raise HTTPException(status_code=412, detail="Workspace not initialized")
@@ -1004,7 +1323,7 @@ async def generate_campaign_brand_kit(
         if not (target_brand.brand_json and products and audiences):
             raise HTTPException(
                 status_code=400,
-                detail="Brand profile must include brand voice, at least one product, and at least one audience before generating the Campaign Brand Kit",
+                detail="Brand profile must include brand voice, at least one product, and at least one audience before generating the Brand Creative Brief",
             )
         brief = await _brand_brief(db, ws, target_brand, brief_override)
         run_brand_id = target_brand.id
@@ -1016,17 +1335,22 @@ async def generate_campaign_brand_kit(
         if not (workspace_response.brand and workspace_products and workspace_audiences):
             raise HTTPException(
                 status_code=400,
-                detail="Brand profile must include brand, at least one product, and at least one audience before generating the Campaign Brand Kit",
+                detail="Brand profile must include brand, at least one product, and at least one audience before generating the Brand Creative Brief",
             )
         brief = await _resolve_brief(db, ws, brief_override)
         run_brand_id = None
         title_fallback = f"{ws.name} — Campaign Brand Kit"
 
+    asset_metadata = await _brand_drive_asset_folder_metadata(db, run_brand_id)
+
     # Generate synchronously and deterministically. This onboarding step must not
     # be blocked by external LLM quota, slow provider fallback chains, or nginx
     # timeouts. The artifact is a practical draft and can be edited/approved by
     # the operator.
-    content = _campaign_brand_kit_markdown(brief, title_fallback)
+    content = _campaign_brand_kit_markdown({
+        **brief,
+        "brand_visual_assets": asset_metadata.get("brand_visual_assets") or {},
+    }, title_fallback)
     title = _title_from_markdown(content, title_fallback)
 
     run = Run(
@@ -1064,19 +1388,21 @@ async def generate_campaign_brand_kit(
         content_markdown=content,
         status="draft",
         tags_json=["required_onboarding", "brand", "design", "campaign-readiness"],
-        metadata_json={
-            "version": "v1.0-draft",
+        metadata_json=ensure_template_manifest({
+            "version": "brand_creative_brief.v1-draft",
+            "artifact_kind": "brand_creative_brief",
             "generated_by_module": "onboarding.brand_guidelines",
             "generation_mode": "deterministic_local",
             "required_for_onboarding": True,
+            **asset_metadata,
             "summary_fields": [
-                "color_palette",
-                "tone_of_voice",
-                "typography_basics",
-                "campaign_components",
-                "platform_consistency_rules",
+                "brand_foundation",
+                "visual_identity",
+                "creative_assets",
+                "creative_boundaries",
+                "campaign_truth",
             ],
-        },
+        }),
         source_run_id=run.id,
     )
     db.add(doc)

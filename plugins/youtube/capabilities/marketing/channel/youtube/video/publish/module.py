@@ -154,9 +154,9 @@ class YouTubeVideoPublishModule(ChannelModule):
             description = self._brief_value(brief, "description", "video_description")
             tags_raw = brief.get("tags") or self._field_from_context(brief, "tags") or ""
             tags = tags_raw if isinstance(tags_raw, list) else [t.strip() for t in str(tags_raw).split(",") if t.strip()]
-            privacy = (self._brief_value(brief, "privacy", "privacy_status") or "private").lower()
+            privacy = (self._brief_value(brief, "privacy", "privacy_status") or "public").lower()
             if privacy not in {"private", "unlisted", "public"}:
-                privacy = "private"
+                privacy = "public"
 
             size = os.path.getsize(path)
             content_type = mimetypes.guess_type(path)[0] or "video/mp4"

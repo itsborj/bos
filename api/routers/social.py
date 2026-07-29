@@ -2,10 +2,14 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import json
+import os
 import re
 import secrets
+import time
 import uuid
+from pathlib import Path
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 from urllib.parse import urlencode
@@ -24,6 +28,7 @@ from auth import require_api_key
 from config import get_settings
 from db import get_db
 from models.provider import ProviderKey, ProviderLoginSession
+from models.document import WorkspaceDocument
 from models.social import SocialConnection
 from models.workspace import Brand
 from plugin_loader import get_plugin_id_for_connection, get_plugin_vars
@@ -40,12 +45,18 @@ from routers.workspace import get_singleton
 # Platforms that load OAuth app credentials from plugin vars (DB) rather than .env
 _PLATFORM_PLUGIN_ID: dict[str, str] = {
     "facebook": "channel.meta",
+    "instagram": "channel.meta",
     "tiktok": "channel.tiktok",
 }
 
 
+def _normalize_platform_key(platform: str | None) -> str:
+    return str(platform or "").strip().lower().replace("-", "_")
+
+
 def _plugin_id_for_platform(platform: str) -> str | None:
-    return _PLATFORM_PLUGIN_ID.get(platform) or get_plugin_id_for_connection(platform)
+    key = _normalize_platform_key(platform)
+    return _PLATFORM_PLUGIN_ID.get(key) or get_plugin_id_for_connection(key)
 
 
 router = APIRouter(prefix="/social", tags=["social"])
@@ -64,7 +75,6 @@ def _load_google_drive_client():
             candidates.insert(0, state.root_path / "drive_client.py")
     except Exception:
         pass
-    candidates.append(Path(__file__).parent.parent / "plugins" / "google-drive" / "drive_client.py")
 
     for path in candidates:
         if path.exists():
@@ -626,495 +636,9 @@ async def tiktok_callback(
     return _admin_brands_redirect(frontend, tiktok="connected", brand_id=brand_id, account=metadata.get("display_name") or open_id)
 
 
-# ── Google Drive OAuth Callback ───────────────────────────────────────────────
-
-@router.get("/google-drive/callback")
-async def google_drive_callback(
-    code: str = "",
-    state: str = "",
-    error: str = "",
-    handoff_token: str = "",
-    db: AsyncSession = Depends(get_db),
-    settings=Depends(get_settings),
-):
-    frontend = settings.frontend_url.rstrip("/")
-
-    if handoff_token and settings.klaroha_relay_url:
-        try:
-            payload = await relay_claim_handoff(handoff_token, settings)
-        except Exception:
-            return _admin_brands_redirect(frontend, google_drive="error", reason="relay_claim_failed")
-        meta = payload.get("metadata") or {}
-        email = meta.get("email", "")
-        brand_id = payload.get("brand_id") or ""
-        if not email:
-            return _admin_brands_redirect(frontend, google_drive="error", reason="incomplete_metadata")
-        ws = await get_singleton(db)
-        token_meta = None
-        if payload.get("refresh_token"):
-            token_meta = {
-                "refresh_token_encrypted": encrypt_secret(payload["refresh_token"], settings),
-                "expires_at": payload.get("expires_at"),
-            }
-        await _store_connection(db, ws.id, brand_id or None, settings, "google_drive", {
-            "id": email, "access_token": payload["access_token"],
-            "name": meta.get("name") or email, "username": email, "token_meta": token_meta,
-        })
-        await db.commit()
-        return _admin_brands_redirect(frontend, google_drive="connected", brand_id=brand_id, account=meta.get("name") or email)
-
-    if error or not code:
-        return _admin_brands_redirect(frontend, google_drive=_oauth_callback_status(error) if error else "denied", reason=error or "no_code")
-
-    session = (await db.execute(
-        select(ProviderLoginSession).where(
-            ProviderLoginSession.provider == "google_drive",
-            ProviderLoginSession.state == state,
-        )
-    )).scalar_one_or_none()
-
-    if not session:
-        return _admin_brands_redirect(frontend, google_drive="error", reason="session_not_found")
-
-    raw = decrypt_secret(session.verifier_encrypted, settings)
-    stored_verifier, brand_id = (raw.split("|", 1) + [""])[:2]
-
-    ws = await get_singleton(db)
-    handler = get_oauth_handler("google_drive")
-
-    try:
-        credential = await handler.complete_login(
-            code,
-            settings,
-            state=session.state,
-            verifier=stored_verifier,
-            redirect_uri=session.redirect_uri,
-        )
-    except Exception:
-        await db.delete(session)
-        await db.commit()
-        return _admin_brands_redirect(frontend, google_drive="error", reason="token_exchange_failed")
-
-    metadata = credential.metadata or {}
-    email = metadata.get("email", "")
-
-    if not email:
-        await db.delete(session)
-        await db.commit()
-        return _admin_brands_redirect(frontend, google_drive="error", reason="incomplete_metadata")
-
-    token_meta = None
-    if credential.refresh_token:
-        token_meta = {
-            "refresh_token_encrypted": encrypt_secret(credential.refresh_token, settings),
-            "expires_at": credential.expires_at.isoformat() if credential.expires_at else None,
-        }
-
-    page = {
-        # page_id is the stable connection identity (the Drive account email).
-        # The per-brand root folder ID is created later by drive.folder.setup.
-        "id": email,
-        "access_token": credential.access_token,
-        "name": metadata.get("name") or email,
-        "username": email,
-        "token_meta": token_meta,
-    }
-
-    await _store_connection(db, ws.id, brand_id or None, settings, "google_drive", page)
-    await db.delete(session)
-    await db.commit()
-    return _admin_brands_redirect(frontend, google_drive="connected", brand_id=brand_id, account=metadata.get("name") or email)
-
-
-# ── Google Drive folder selection (Google Picker) ─────────────────────────────
-
-class SetDriveRootRequest(BaseModel):
-    brand_id: str
-    folder_id: str
-    folder_name: Optional[str] = None
-    folder_path: Optional[str] = None
-
-
-class UploadDriveReferenceRequest(BaseModel):
-    brand_id: str
-    file_name: str
-    mime_type: str
-    data_b64: str
-
-
-_ALLOWED_REFERENCE_IMAGE_MIMES = {"image/jpeg", "image/png", "image/webp", "image/gif"}
-_MAX_REFERENCE_UPLOAD_BYTES = 10 * 1024 * 1024
-
-
-async def _drive_connection_row(db: AsyncSession, brand_id: str) -> SocialConnection | None:
-    brand_uuid = _parse_brand_uuid(brand_id)
-    if brand_uuid is None:
-        return None
-    return (await db.execute(
-        select(SocialConnection).where(
-            SocialConnection.brand_id == brand_uuid,
-            SocialConnection.platform == "google_drive",
-            SocialConnection.status.in_(["connected", "needs_reauth"]),
-        ).order_by(SocialConnection.created_at.desc()).limit(1)
-    )).scalar_one_or_none()
-
-
-async def _resolve_drive_root_folder(db: AsyncSession, brand_id: str) -> tuple[str, str | None]:
-    row = await _drive_connection_row(db, brand_id)
-    meta = (row.token_meta_json or {}) if row else {}
-    return str(meta.get("drive_root_folder_id") or "root"), meta.get("drive_root_name")
-
-
-async def _mark_drive_reauth_required(db: AsyncSession, brand_id: str) -> None:
-    row = await _drive_connection_row(db, brand_id)
-    if row and row.status != "needs_reauth":
-        row.status = "needs_reauth"
-        await db.commit()
-
-
-def _drive_reauth_exception() -> HTTPException:
-    return HTTPException(
-        status_code=401,
-        detail={"error": {"code": "DRIVE_REAUTH_REQUIRED", "message": "Reconnect Google Drive for this brand. The saved token expired or was revoked.", "details": None}},
-    )
-
-
-@router.get("/drive/picker-config", dependencies=[Depends(require_api_key)], responses={404: {"description": "Drive not connected for this brand"}, 422: {"description": "Invalid brand UUID"}})
-async def drive_picker_config(
-    brand_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    settings=Depends(get_settings),
-):
-    """Return what the browser Google Picker needs: a fresh OAuth token, the browser
-    API key, and the app (project) id. The token is the operator's own Drive token —
-    exposed only to the authenticated admin UI for the Picker session."""
-    token, _ = await get_page_token(db, str(brand_id), "google_drive", settings)
-    if not token:
-        raise HTTPException(status_code=404, detail={"error": {"code": "DRIVE_NOT_CONNECTED", "message": "Connect Google Drive for this brand first", "details": None}})
-    if not settings.google_picker_api_key:
-        raise HTTPException(status_code=412, detail={"error": {"code": "PICKER_KEY_MISSING", "message": "GOOGLE_PICKER_API_KEY is not configured", "details": None}})
-    app_id = settings.google_picker_app_id or (settings.google_client_id or "").split("-", 1)[0]
-    if not app_id:
-        raise HTTPException(
-            status_code=412,
-            detail={
-                "error": {
-                    "code": "PICKER_APP_ID_MISSING",
-                    "message": "GOOGLE_PICKER_APP_ID is not configured. Set it to the Google Cloud project number for the Picker-enabled project.",
-                    "details": None,
-                }
-            },
-        )
-    return {"access_token": token, "api_key": settings.google_picker_api_key, "app_id": app_id}
-
-
-@router.get("/drive/folders", dependencies=[Depends(require_api_key)])
-async def list_drive_folders(
-    brand_id: str,
-    parent_id: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
-    settings=Depends(get_settings),
-):
-    """List subfolders of a Drive folder for the brand folder browser.
-
-    Without parent_id, starts at the brand's configured Drive root folder.
-    """
-    DriveClient = _load_google_drive_client()
-
-    token, _ = await get_page_token(db, brand_id, "google_drive", settings)
-    if not token:
-        raise _drive_reauth_exception()
-
-    target_folder = parent_id
-    root_name = None
-    if not target_folder:
-        target_folder, root_name = await _resolve_drive_root_folder(db, brand_id)
-
-    try:
-        with DriveClient(token) as drive:
-            if target_folder == "root":
-                my_drive = drive.list_children("root", mime_type="application/vnd.google-apps.folder")
-                items = [{"id": f["id"], "name": f["name"]} for f in my_drive]
-                try:
-                    shared_with_me = drive.list_shared_with_me_folders()
-                    seen = {f["id"] for f in my_drive}
-                    for f in shared_with_me:
-                        if f["id"] not in seen:
-                            items.append({"id": f["id"], "name": f["name"]})
-                except Exception:
-                    pass
-                try:
-                    for sd in drive.list_shared_drives():
-                        items.append({"id": sd["id"], "name": sd["name"]})
-                except Exception:
-                    pass
-            else:
-                subfolders = drive.list_children(target_folder, mime_type="application/vnd.google-apps.folder", all_drives=True)
-                items = [{"id": f["id"], "name": f["name"]} for f in subfolders]
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code in (401, 403):
-            await _mark_drive_reauth_required(db, brand_id)
-            raise _drive_reauth_exception() from exc
-        raise
-
-    return {"folder_id": target_folder, "folder_name": root_name, "folders": sorted(items, key=lambda x: x["name"].lower())}
-
-
-@router.get("/drive/images", dependencies=[Depends(require_api_key)])
-async def list_drive_images(
-    brand_id: str,
-    folder_id: Optional[str] = None,
-    media_type: Optional[str] = "image",
-    db: AsyncSession = Depends(get_db),
-    settings=Depends(get_settings),
-):
-    """List image files from the brand's connected Google Drive folder.
-
-    Uses the folder_id query param if supplied, otherwise the brand's stored
-    drive_root_folder_id. Falls back to Drive 'root' if nothing is set.
-    """
-    DriveClient = _load_google_drive_client()
-
-    token, _ = await get_page_token(db, brand_id, "google_drive", settings)
-    if not token:
-        raise _drive_reauth_exception()
-
-    target_folder = folder_id
-    if not target_folder:
-        target_folder, _ = await _resolve_drive_root_folder(db, brand_id)
-
-    _IMAGE_MIMES = ["image/jpeg", "image/png", "image/gif", "image/webp"]
-    _DOC_MIMES = [
-        "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-        "application/pdf",
-        "application/msword",
-        "application/vnd.ms-powerpoint",
-        "application/vnd.google-apps.document",
-        "application/vnd.google-apps.presentation",
-        "application/json",
-        "text/plain",
-    ]
-    _MIME_TYPES: dict[str, list[str]] = {
-        "image": _IMAGE_MIMES,
-        "video": ["video/mp4", "video/quicktime", "video/x-msvideo", "video/webm"],
-        "document": _DOC_MIMES,
-        "all": _IMAGE_MIMES + _DOC_MIMES,
-    }
-    mimes = _MIME_TYPES.get(media_type or "image", _MIME_TYPES["image"])
-
-    try:
-        with DriveClient(token) as drive:
-            all_files = drive.search_files(mimes, parent_id=target_folder)
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code in (401, 403):
-            await _mark_drive_reauth_required(db, brand_id)
-            raise _drive_reauth_exception() from exc
-        raise
-
-    all_files.sort(key=lambda f: f.get("name", ""))
-    return {"folder_id": target_folder, "files": all_files}
-
-
-@router.post("/drive/reference-upload", dependencies=[Depends(require_api_key)])
-async def upload_drive_reference(
-    body: UploadDriveReferenceRequest,
-    db: AsyncSession = Depends(get_db),
-    settings=Depends(get_settings),
-):
-    """Upload an operator-supplied image to the brand Drive root for CMO references.
-
-    This stores bytes in Google Drive only and returns metadata that CMO chat can
-    attach as context. It intentionally does not create a Run or capability
-    dispatch, so inactive plugin/module boundaries remain unchanged.
-    """
-    brand_uuid = _parse_brand_uuid(body.brand_id)
-    if brand_uuid is None:
-        raise HTTPException(status_code=422, detail=[{"loc": ["body", "brand_id"], "msg": "value is not a valid UUID", "type": "uuid_parsing"}])
-
-    mime = (body.mime_type or "").strip().lower()
-    if mime not in _ALLOWED_REFERENCE_IMAGE_MIMES:
-        raise HTTPException(status_code=415, detail={"error": {"code": "UNSUPPORTED_REFERENCE_MIME", "message": "Only JPG, PNG, WebP, or GIF image references are supported.", "details": None}})
-
-    raw_b64 = re.sub(r"^data:[^;]+;base64,", "", (body.data_b64 or "").strip())
-    try:
-        data = base64.b64decode(raw_b64, validate=True)
-    except (binascii.Error, ValueError) as exc:
-        raise HTTPException(status_code=400, detail={"error": {"code": "INVALID_BASE64", "message": "Image upload payload is not valid base64.", "details": None}}) from exc
-    if not data:
-        raise HTTPException(status_code=400, detail={"error": {"code": "EMPTY_UPLOAD", "message": "Image upload is empty.", "details": None}})
-    if len(data) > _MAX_REFERENCE_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail={"error": {"code": "REFERENCE_TOO_LARGE", "message": "Image references are limited to 10 MB.", "details": None}})
-
-    safe_name = re.sub(r"[^A-Za-z0-9._ -]+", "_", (body.file_name or "reference-image")).strip(" ._") or "reference-image"
-    token, _ = await get_page_token(db, body.brand_id, "google_drive", settings)
-    if not token:
-        raise _drive_reauth_exception()
-    root_id, _ = await _resolve_drive_root_folder(db, body.brand_id)
-    DriveClient = _load_google_drive_client()
-    try:
-        with DriveClient(token) as drive:
-            folder_id = drive.ensure_path(["CMO References"], root_id)
-            uploaded = drive.upload_file(safe_name, data, mime, folder_id)
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code in (401, 403):
-            await _mark_drive_reauth_required(db, body.brand_id)
-            raise _drive_reauth_exception() from exc
-        raise
-
-    result = {
-        "kind": "image",
-        "source": "upload",
-        "title": uploaded.get("name") or safe_name,
-        "drive_file_id": uploaded.get("id"),
-        "drive_file_name": uploaded.get("name") or safe_name,
-        "drive_web_view_link": uploaded.get("webViewLink"),
-        "mime_type": uploaded.get("mimeType") or mime,
-        "drive_folder_id": folder_id,
-        "sha256": sha256_hex(data),
-        "metadata_json": {"byte_size": len(data), "drive_folder_id": folder_id},
-        "extraction_status": "vision_ready",
-        "extraction_json": {"image": {"title": uploaded.get("name") or safe_name, "mime_type": uploaded.get("mimeType") or mime, "byte_size": len(data), "drive_file_id": uploaded.get("id")}},
-    }
-    ensure_reference_identity(result)
-    ws = await get_singleton(db)
-    await persist_chat_references([result], workspace_id=ws.id if ws else None, brand_id=brand_uuid, db=db)
-    await db.commit()
-    return result
-
-
-_ATTACHMENT_MIME_TO_KIND: dict[str, str] = {
-    "image/jpeg": "image",
-    "image/png": "image",
-    "image/webp": "image",
-    "image/gif": "image",
-    "application/vnd.openxmlformats-officedocument.wordprocessingml.document": "document",
-    "application/msword": "document",
-    "application/vnd.openxmlformats-officedocument.presentationml.presentation": "document",
-    "application/vnd.ms-powerpoint": "document",
-    "application/pdf": "document",
-    "application/json": "document",
-    "text/plain": "document",
-}
-_MAX_ATTACHMENT_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 MB
-
-
-@router.post("/drive/attachment-upload", dependencies=[Depends(require_api_key)])
-async def upload_drive_attachment(
-    brand_id: str = Form(...),
-    file: UploadFile = File(...),
-    db: AsyncSession = Depends(get_db),
-    settings=Depends(get_settings),
-):
-    """Upload any supported file (image or document) to the brand's Drive CMO References folder.
-
-    Returns a ChatReference-compatible dict. kind='image' for images, kind='document' for docs.
-    Document uploads are extracted immediately into JSON so CMO chat and specialists
-    receive a structured payload instead of a bare filename.
-    """
-    brand_uuid = _parse_brand_uuid(brand_id)
-    if brand_uuid is None:
-        raise HTTPException(status_code=422, detail=[{"loc": ["body", "brand_id"], "msg": "value is not a valid UUID", "type": "uuid_parsing"}])
-
-    mime = (file.content_type or "").strip().lower().split(";")[0]
-    kind = _ATTACHMENT_MIME_TO_KIND.get(mime)
-    if not kind:
-        raise HTTPException(status_code=415, detail={"error": {"code": "UNSUPPORTED_ATTACHMENT_MIME", "message": "Supported formats: JPG, PNG, WebP, GIF, DOCX, DOC, PPTX, PPT, PDF, JSON, TXT.", "details": None}})
-
-    data = await file.read()
-    if not data:
-        raise HTTPException(status_code=400, detail={"error": {"code": "EMPTY_UPLOAD", "message": "Attachment upload is empty.", "details": None}})
-    if len(data) > _MAX_ATTACHMENT_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail={"error": {"code": "ATTACHMENT_TOO_LARGE", "message": "Attachments are limited to 25 MB.", "details": None}})
-
-    safe_name = re.sub(r"[^A-Za-z0-9._ -]+", "_", (file.filename or "attachment")).strip(" ._") or "attachment"
-    token, _ = await get_page_token(db, brand_id, "google_drive", settings)
-    if not token:
-        raise _drive_reauth_exception()
-    root_id, _ = await _resolve_drive_root_folder(db, brand_id)
-    DriveClient = _load_google_drive_client()
-    try:
-        with DriveClient(token) as drive:
-            folder_id = drive.ensure_path(["CMO References"], root_id)
-            uploaded = drive.upload_file(safe_name, data, mime, folder_id)
-    except httpx.HTTPStatusError as exc:
-        if exc.response.status_code in (401, 403):
-            await _mark_drive_reauth_required(db, brand_id)
-            raise _drive_reauth_exception() from exc
-        raise
-
-    result = {
-        "kind": kind,
-        "source": "upload",
-        "title": uploaded.get("name") or safe_name,
-        "drive_file_id": uploaded.get("id"),
-        "drive_file_name": uploaded.get("name") or safe_name,
-        "drive_web_view_link": uploaded.get("webViewLink"),
-        "mime_type": uploaded.get("mimeType") or mime,
-        "drive_folder_id": folder_id,
-        "sha256": sha256_hex(data),
-        "metadata_json": {"byte_size": len(data), "drive_folder_id": folder_id},
-    }
-    ensure_reference_identity(result)
-    if kind == "document":
-        try:
-            text = extract_doc_text(data, mime).strip()
-            result["text"] = text[:DOC_EXTRACT_CAP] if text else ""
-            result["extraction_status"] = "read" if result["text"] else "empty"
-            result["extracted_chars"] = len(result["text"] or "")
-            apply_extraction_json(result)
-        except Exception as exc:
-            result["extraction_status"] = "failed"
-            result["extraction_error"] = str(exc)[:500]
-    else:
-        result["extraction_status"] = "vision_ready"
-        result["extraction_json"] = {
-            "image": {
-                "title": result["title"],
-                "mime_type": result["mime_type"],
-                "byte_size": len(data),
-                "drive_file_id": result["drive_file_id"],
-            }
-        }
-    ws = await get_singleton(db)
-    await persist_chat_references([result], workspace_id=ws.id if ws else None, brand_id=brand_uuid, db=db)
-    await db.commit()
-    return result
-
-
-@router.post("/drive/root", dependencies=[Depends(require_api_key)])
-async def set_drive_root(
-    body: SetDriveRootRequest,
-    db: AsyncSession = Depends(get_db),
-    settings=Depends(get_settings),
-):
-    """Store the operator-picked root folder on the brand's Drive connection.
-    The creative factory, channel specialists, and CMO resolve asset paths from here."""
-    brand_uuid = _parse_brand_uuid(body.brand_id)
-    if brand_uuid is None:
-        raise HTTPException(status_code=422, detail=[{"loc": ["body", "brand_id"], "msg": "value is not a valid UUID", "type": "uuid_parsing"}])
-    row = (await db.execute(
-        select(SocialConnection).where(
-            SocialConnection.brand_id == brand_uuid,
-            SocialConnection.platform == "google_drive",
-            SocialConnection.status == "connected",
-        ).order_by(SocialConnection.created_at.desc()).limit(1)
-    )).scalar_one_or_none()
-    if not row:
-        raise HTTPException(status_code=404, detail={"error": {"code": "DRIVE_NOT_CONNECTED", "message": "Connect Google Drive for this brand first", "details": None}})
-
-    meta = dict(row.token_meta_json or {})
-    meta["drive_root_folder_id"] = body.folder_id
-    meta["drive_root_name"] = body.folder_name
-    meta["drive_root_path"] = body.folder_path
-    row.token_meta_json = meta
-    await db.commit()
-    return {
-        "status": "ok",
-        "drive_root_folder_id": body.folder_id,
-        "drive_root_name": body.folder_name,
-        "drive_root_path": body.folder_path,
-    }
+# ── Google Drive plugin API ───────────────────────────────────────────────────
+# Google Drive OAuth callback and Drive asset endpoints are owned by
+# plugins/google-drive/api.py and mounted by api/main.py.
 
 
 # ── Google Business Profile OAuth Callback ───────────────────────────────────
@@ -1335,35 +859,62 @@ async def gemini_callback(
     return _admin_providers_redirect(frontend, gemini="connected", account=email)
 
 
-# ── Facebook OAuth Callback ───────────────────────────────────────────────────
+# ── Meta OAuth Callbacks (Facebook / Instagram) ──────────────────────────────
 
-@router.get("/facebook/callback")
-async def facebook_callback(
-    code: str = "",
-    state: str = "",
-    error: str = "",
-    db: AsyncSession = Depends(get_db),
-    settings=Depends(get_settings),
+async def _store_meta_connection(db, workspace_id, brand_id, settings, provider: str, page: dict) -> SocialConnection:
+    if provider == "instagram":
+        ig_account_id = str(page.get("ig_account_id") or "").strip()
+        if not ig_account_id:
+            raise ValueError("Instagram Business Account ID missing from Meta page selection")
+        display_name = page.get("name") or ig_account_id
+        return await _store_connection(db, workspace_id, brand_id, settings, "instagram", {
+            "id": ig_account_id,
+            "name": f"{display_name} (Instagram)",
+            "access_token": page["access_token"],
+            "username": None,
+            "token_meta": {
+                "ig_account_id": ig_account_id,
+                "facebook_page_id": page.get("id"),
+                "facebook_page_name": page.get("name"),
+            },
+        })
+
+    return await _store_connection(db, workspace_id, brand_id, settings, "facebook", {
+        "id": page["id"],
+        "name": page["name"],
+        "access_token": page["access_token"],
+        "username": None,
+        "token_meta": {"ig_account_id": page.get("ig_account_id")},
+    })
+
+
+async def _complete_meta_callback(
+    provider: str,
+    code: str,
+    state: str,
+    error: str,
+    db: AsyncSession,
+    settings,
 ):
     frontend = settings.frontend_url.rstrip("/")
 
     if error or not code:
-        return _admin_brands_redirect(frontend, facebook="denied", reason=error or "no_code")
+        return _admin_brands_redirect(frontend, **{provider: "denied", "reason": error or "no_code"})
 
     session = (await db.execute(
         select(ProviderLoginSession).where(
-            ProviderLoginSession.provider == "facebook",
+            ProviderLoginSession.provider == provider,
             ProviderLoginSession.state == state,
         )
     )).scalar_one_or_none()
 
     if not session:
-        return _admin_brands_redirect(frontend, facebook="error", reason="session_not_found")
+        return _admin_brands_redirect(frontend, **{provider: "error", "reason": "session_not_found"})
 
     raw = decrypt_secret(session.verifier_encrypted, settings)
     _, brand_id = (raw.split("|", 1) + [""])[:2]
 
-    handler = get_oauth_handler("facebook")
+    handler = get_oauth_handler(provider)
     plugin_vars = await get_plugin_vars("channel.meta", db, settings)
 
     try:
@@ -1378,55 +929,65 @@ async def facebook_callback(
     except Exception:
         await db.delete(session)
         await db.commit()
-        return _admin_brands_redirect(frontend, facebook="error", reason="token_exchange_failed")
+        return _admin_brands_redirect(frontend, **{provider: "error", "reason": "token_exchange_failed"})
 
     pages = (credential.metadata or {}).get("pages", [])
+    if provider == "instagram":
+        pages = [page for page in pages if page.get("ig_account_id")]
 
     if not pages:
         await db.delete(session)
         await db.commit()
-        return _admin_brands_redirect(frontend, facebook="error", reason="no_pages_found")
+        reason = "no_instagram_accounts_found" if provider == "instagram" else "no_pages_found"
+        return _admin_brands_redirect(frontend, **{provider: "error", "reason": reason})
 
     ws = await get_singleton(db)
 
     if len(pages) == 1:
-        page = pages[0]
-        await _store_connection(db, ws.id, brand_id or None, settings, "facebook", {
-            "id": page["id"],
-            "name": page["name"],
-            "access_token": page["access_token"],
-            "username": None,
-            "token_meta": {"ig_account_id": page.get("ig_account_id")},
-        })
+        conn = await _store_meta_connection(db, ws.id, brand_id or None, settings, provider, pages[0])
         await db.delete(session)
         await db.commit()
-        return _admin_brands_redirect(frontend, facebook="connected", brand_id=brand_id, account=page["name"])
+        return _admin_brands_redirect(frontend, **{provider: "connected", "brand_id": brand_id, "account": conn.page_name or pages[0].get("name") or conn.page_id})
 
-    # Multiple pages: store pages in session for user selection
     session.verifier_encrypted = encrypt_secret(
-        json.dumps({"brand_id": brand_id or "", "pages": pages}), settings
+        json.dumps({"brand_id": brand_id or "", "pages": pages, "provider": provider}), settings
     )
     await db.commit()
-    return _admin_brands_redirect(frontend, facebook="select_page", session_id=str(session.id))
+    return _admin_brands_redirect(frontend, **{provider: "select_page", "session_id": str(session.id)})
 
 
-@router.get(
-    "/facebook/pending-pages",
-    dependencies=[Depends(require_api_key)],
-    responses={
-        400: {"description": "Pending page session is corrupt"},
-        404: {"description": "Pending page session not found"},
-    },
-)
-async def facebook_pending_pages(
-    session_id: uuid.UUID,
+@router.get("/facebook/callback")
+async def facebook_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
+):
+    return await _complete_meta_callback("facebook", code, state, error, db, settings)
+
+
+@router.get("/instagram/callback")
+async def instagram_callback(
+    code: str = "",
+    state: str = "",
+    error: str = "",
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    return await _complete_meta_callback("instagram", code, state, error, db, settings)
+
+
+async def _meta_pending_pages_response(
+    provider: str,
+    session_id: uuid.UUID,
+    db: AsyncSession,
+    settings,
 ):
     session = (await db.execute(
         select(ProviderLoginSession).where(
             ProviderLoginSession.id == session_id,
-            ProviderLoginSession.provider == "facebook",
+            ProviderLoginSession.provider == provider,
         )
     )).scalar_one_or_none()
 
@@ -1442,11 +1003,43 @@ async def facebook_pending_pages(
     return {"pages": [{"id": p["id"], "name": p["name"]} for p in pages]}
 
 
-@router.post("/facebook/select-page", dependencies=[Depends(require_api_key)])
-async def facebook_select_page(
-    body: SelectPageRequest,
+@router.get(
+    "/facebook/pending-pages",
+    dependencies=[Depends(require_api_key)],
+    responses={
+        400: {"description": "Pending page session is corrupt"},
+        404: {"description": "Pending page session not found"},
+    },
+)
+async def facebook_pending_pages(
+    session_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     settings=Depends(get_settings),
+):
+    return await _meta_pending_pages_response("facebook", session_id, db, settings)
+
+
+@router.get(
+    "/instagram/pending-pages",
+    dependencies=[Depends(require_api_key)],
+    responses={
+        400: {"description": "Pending page session is corrupt"},
+        404: {"description": "Pending page session not found"},
+    },
+)
+async def instagram_pending_pages(
+    session_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    return await _meta_pending_pages_response("instagram", session_id, db, settings)
+
+
+async def _meta_select_page(
+    provider: str,
+    body: SelectPageRequest,
+    db: AsyncSession,
+    settings,
 ):
     try:
         sid = uuid.UUID(body.session_id)
@@ -1456,7 +1049,7 @@ async def facebook_select_page(
     session = (await db.execute(
         select(ProviderLoginSession).where(
             ProviderLoginSession.id == sid,
-            ProviderLoginSession.provider == "facebook",
+            ProviderLoginSession.provider == provider,
         )
     )).scalar_one_or_none()
 
@@ -1475,16 +1068,28 @@ async def facebook_select_page(
         raise HTTPException(status_code=404, detail={"error": {"code": "PAGE_NOT_FOUND", "message": f"Page {body.page_id!r} not in session", "details": None}})
 
     ws = await get_singleton(db)
-    await _store_connection(db, ws.id, brand_id, settings, "facebook", {
-        "id": page["id"],
-        "name": page["name"],
-        "access_token": page["access_token"],
-        "username": None,
-        "token_meta": {"ig_account_id": page.get("ig_account_id")},
-    })
+    conn = await _store_meta_connection(db, ws.id, brand_id, settings, provider, page)
     await db.delete(session)
     await db.commit()
-    return {"status": "connected", "page_id": page["id"], "page_name": page["name"]}
+    return {"status": "connected", "page_id": conn.page_id, "page_name": conn.page_name or page.get("name")}
+
+
+@router.post("/facebook/select-page", dependencies=[Depends(require_api_key)])
+async def facebook_select_page(
+    body: SelectPageRequest,
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    return await _meta_select_page("facebook", body, db, settings)
+
+
+@router.post("/instagram/select-page", dependencies=[Depends(require_api_key)])
+async def instagram_select_page(
+    body: SelectPageRequest,
+    db: AsyncSession = Depends(get_db),
+    settings=Depends(get_settings),
+):
+    return await _meta_select_page("instagram", body, db, settings)
 
 
 # ── Direct token storage (admin / dev bypass) ─────────────────────────────────
@@ -1603,16 +1208,18 @@ async def generic_plugin_callback(
     it through its own connection.validate capability.
     """
     frontend = settings.frontend_url.rstrip("/")
-    plugin_id = get_plugin_id_for_connection(platform)
-    handler = get_oauth_handler(platform) if plugin_id else None
+    platform_key = _normalize_platform_key(platform)
+    plugin_id = get_plugin_id_for_connection(platform_key)
+    handler = get_oauth_handler(platform_key) if plugin_id else None
     if not plugin_id or not handler:
-        return _admin_connectors_redirect(frontend, platform=platform, status="unsupported")
+        return _admin_connectors_redirect(frontend, platform=platform_key or platform, status="unsupported")
     if error or not code:
-        return _admin_connectors_redirect(frontend, platform=platform, status="denied", reason=error or "no_code")
+        return _admin_connectors_redirect(frontend, platform=platform_key, status="denied", reason=error or "no_code")
 
+    provider_keys = [platform_key] if platform_key == platform else [platform, platform_key]
     session = (await db.execute(
         select(ProviderLoginSession).where(
-            ProviderLoginSession.provider == platform,
+            ProviderLoginSession.provider.in_(provider_keys),
             ProviderLoginSession.state == state,
         ).order_by(ProviderLoginSession.created_at.desc()).limit(1)
     )).scalar_one_or_none()
@@ -1645,12 +1252,12 @@ async def generic_plugin_callback(
                 redirect_uri=session.redirect_uri,
             )
     except Exception as exc:
-        logger.warning("Generic plugin OAuth callback failed for %s: %s", platform, exc)
-        return _admin_connectors_redirect(frontend, platform=platform, status="error", reason="oauth_failed")
+        logger.warning("Generic plugin OAuth callback failed for %s: %s", platform_key, exc)
+        return _admin_connectors_redirect(frontend, platform=platform_key, status="error", reason="oauth_failed")
 
     ws = await get_singleton(db)
     if not ws:
-        return _admin_connectors_redirect(frontend, platform=platform, status="error", reason="workspace_not_found")
+        return _admin_connectors_redirect(frontend, platform=platform_key, status="error", reason="workspace_not_found")
 
     meta = credential.metadata or {}
     account = meta.get("account") or {}
@@ -1662,7 +1269,7 @@ async def generic_plugin_callback(
     if credential.expires_at:
         token_meta["expires_at"] = credential.expires_at.isoformat()
 
-    await _store_connection(db, ws.id, brand_id or None, settings, platform, {
+    await _store_connection(db, ws.id, brand_id or None, settings, platform_key, {
         "id": account_id,
         "access_token": credential.access_token,
         "name": account_name,
@@ -1671,7 +1278,7 @@ async def generic_plugin_callback(
     })
     await db.delete(session)
     await db.commit()
-    return _admin_connectors_redirect(frontend, platform=platform, status="connected", brand_id=brand_id, account=account_name)
+    return _admin_connectors_redirect(frontend, platform=platform_key, status="connected", brand_id=brand_id, account=account_name)
 
 
 # ── Token resolution helper ────────────────────────────────────────────────────

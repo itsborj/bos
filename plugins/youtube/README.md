@@ -30,7 +30,7 @@ Every mutation (Upload/Update) must follow the BITE pipeline:
 `Intent` $\to$ `Specialist Transform` $\to$ `Proposal Artifact` $\to$ `Human Approval` $\to$ `Execution` $\to$ `Action Result Artifact`.
 
 ## Technical Constraints
-- **Plugin Boundary**: All code stays in `api/plugins/youtube/`.
+- **Plugin Boundary**: All code stays in `plugins/youtube/`.
 - **Credentials**: Use `inject_channel_credentials()` to get OAuth tokens.
 - **OAuth Scopes**: Current OAuth requests `https://www.googleapis.com/auth/youtube.upload` and `https://www.googleapis.com/auth/youtube.force-ssl`.
 - **Risk Policy**: Validation is read-only. Mutations require an approved artifact.
@@ -48,7 +48,7 @@ Every mutation (Upload/Update) must follow the BITE pipeline:
 
 ## Directory Structure
 ```
-api/plugins/youtube/
+plugins/youtube/
 ├── channel.json          # Plugin manifest
 ├── capabilities/         # Discoverable BOS plugin capabilities
 │   └── marketing/channel/youtube/connection/validate/

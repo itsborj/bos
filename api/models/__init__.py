@@ -3,7 +3,6 @@ from .council import CouncilSession
 from .backend import ExecutionBackendOverride
 from .calendar import CalendarBooking, CalendarPage
 from .capability import Capability, ModelOption
-from .creative_asset import CreativeAsset
 from .creative_blueprint import CreativeBlueprint
 from .creative_job import CreativeJob
 from .chat_reference import ChatReference
@@ -19,14 +18,14 @@ from .run import Run, RunAttempt, RunResult, RunTrace
 from .plugin_activation import PluginActivation
 from .social import SocialConnection
 from .stream import StreamUpdate
-from .workspace import Audience, Brand, Campaign, Product, Workspace
+from campaign.table import Campaign as _Campaign  # register Campaign-owned identity table
+from .workspace import Audience, Brand, Product, Workspace
 
 __all__ = [
     "Workspace",
     "Brand",
     "Product",
     "Audience",
-    "Campaign",
     "DecisionBrief",
     "WorkspaceDocument",
     "ProviderKey",
@@ -51,7 +50,6 @@ __all__ = [
     "CalendarPage",
     "CalendarBooking",
     "CouncilSession",
-    "CreativeAsset",
     "CreativeBlueprint",
     "CreativeJob",
     "ChatReference",

@@ -1,18 +1,20 @@
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../../api/client';
+import { useActiveContext } from '../../context/ActiveContext';
 import type {
+  BrandResponse,
   DecisionBriefOut,
   MemoryEventOut,
-  ObjectiveOut,
+  OnboardingStatus,
   OutcomeRecordOut,
   PendingDecisionOut,
+  PluginInfo,
+  ProviderInfo,
+  SocialConnectionResponse,
 } from '../../api/types';
 import { timeAgo } from '../../utils/runs';
-
-function StatusDot({ ok, warn }: { ok?: boolean; warn?: boolean }) {
-  const cls = ok ? 'green' : warn ? 'amber' : 'grey';
-  return <span className={`status-dot status-dot-${cls}`} />;
-}
+import { buildStreamActivationChecklist, type StreamActivationChecklistItem } from '../../utils/streamActivationChecklist';
 
 function confidenceBadge(confidence: string) {
   if (confidence.toLowerCase().includes('known')) return <span className="badge badge-success">{confidence}</span>;
@@ -29,44 +31,103 @@ function eventTypeBadge(type: string) {
   return <span className="badge badge-neutral">{type}</span>;
 }
 
+type SetupChecklistItem = StreamActivationChecklistItem;
+
+function ChecklistBullet({ item }: { item: SetupChecklistItem }) {
+  return (
+    <li style={{ padding: '10px 0', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ display: 'flex', gap: 10, alignItems: 'flex-start' }}>
+        <span className={`badge badge-${item.ok ? 'success' : 'warning'}`} style={{ minWidth: 52, textAlign: 'center' }}>
+          {item.ok ? 'Done' : 'Todo'}
+        </span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontWeight: 800, fontSize: 13 }}>{item.label}</div>
+          <div style={{ color: 'var(--text2)', fontSize: 12, marginTop: 2 }}>{item.detail}</div>
+          <div style={{ color: 'var(--text2)', fontSize: 11, marginTop: 4 }}>Required by: {item.requiredBy}</div>
+        </div>
+        <Link className="btn btn-ghost btn-sm" to={item.to} state={item.state} style={{ flexShrink: 0 }}>
+          Open →
+        </Link>
+      </div>
+    </li>
+  );
+}
+
 export function AdminObjectiveLoop() {
-  const [objective, setObjective] = useState<ObjectiveOut | null>(null);
+  const { activeBrand } = useActiveContext();
   const [outcomes, setOutcomes] = useState<OutcomeRecordOut[]>([]);
   const [events, setEvents] = useState<MemoryEventOut[]>([]);
   const [briefs, setBriefs] = useState<DecisionBriefOut[]>([]);
   const [pending, setPending] = useState<PendingDecisionOut[]>([]);
-  const [gmailConnected, setGmailConnected] = useState(false);
-  const [brandKitReady, setBrandKitReady] = useState(false);
+  const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [brand, setBrand] = useState<BrandResponse | null>(null);
+  const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null);
+  const [connections, setConnections] = useState<SocialConnectionResponse[]>([]);
+  const [plugins, setPlugins] = useState<PluginInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [generatingBrief, setGeneratingBrief] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    const brandId = activeBrand?.id;
     setLoading(true);
-    Promise.allSettled([
-      api.getActiveObjective().catch(() => null),
-      api.getOutcomes({ limit: 8 }).catch(() => ({ outcomes: [], total: 0 })),
-      api.getMemoryEvents({ limit: 20 }).catch(() => ({ events: [], total: 0 })),
-      api.getDecisionBriefs({ limit: 5 }).catch(() => ({ decision_briefs: [], total: 0 })),
-      api.getPendingDecisions({ status: 'open' }).catch(() => ({ pending_decisions: [], total: 0 })),
-      api.listSocialConnections().catch(() => []),
-      api.getLatestBrandKit('approved').catch(() => null),
-    ]).then(([obj, out, mem, db, pd, social, kit]) => {
-      if (obj.status === 'fulfilled') setObjective(obj.value);
+    setOutcomes([]);
+    setEvents([]);
+    setBriefs([]);
+    setPending([]);
+    setProviders([]);
+    setBrand(null);
+    setOnboardingStatus(null);
+    setConnections([]);
+    setPlugins([]);
+
+    async function load() {
+      const [out, mem, db, pd, social, prov, brands, onboarding, pluginResult] = await Promise.allSettled([
+        api.getOutcomes({ brand_id: brandId, limit: 8 }).catch(() => ({ outcomes: [], total: 0 })),
+        api.getMemoryEvents({ brand_id: brandId, limit: 20 }).catch(() => ({ events: [], total: 0 })),
+        api.getDecisionBriefs({ brand_id: brandId, limit: 5 }).catch(() => ({ decision_briefs: [], total: 0 })),
+        api.getPendingDecisions({ brand_id: brandId, status: 'open' }).catch(() => ({ pending_decisions: [], total: 0 })),
+        api.listSocialConnections(brandId).catch(() => []),
+        api.getProviders(brandId).catch(() => ({ providers: [] as ProviderInfo[] })),
+        api.getBrands().catch(() => ({ brands: [] as BrandResponse[], total: 0 })),
+        brandId ? api.getOnboardingStatus(brandId).catch(() => null) : Promise.resolve(null),
+        api.listPlugins(brandId).catch(() => ({ plugins: [] as PluginInfo[] })),
+      ]);
+
+      if (cancelled) return;
       if (out.status === 'fulfilled') setOutcomes(out.value.outcomes);
       if (mem.status === 'fulfilled') setEvents(mem.value.events);
       if (db.status === 'fulfilled') setBriefs(db.value.decision_briefs);
       if (pd.status === 'fulfilled') setPending(pd.value.pending_decisions);
-      if (social.status === 'fulfilled') setGmailConnected((social.value as any[]).some((c: any) => c.platform === 'gmail' && c.status === 'active'));
-      if (kit.status === 'fulfilled') setBrandKitReady(!!kit.value?.id);
-      setLoading(false);
-    });
-  }, []);
+      if (social.status === 'fulfilled') setConnections(social.value as SocialConnectionResponse[]);
+      if (prov.status === 'fulfilled') setProviders(prov.value.providers ?? []);
+      if (brands.status === 'fulfilled') setBrand((brands.value.brands ?? []).find(b => b.id === brandId) ?? null);
+      if (onboarding.status === 'fulfilled') setOnboardingStatus(onboarding.value);
+      if (pluginResult.status === 'fulfilled') setPlugins(pluginResult.value.plugins ?? []);
+
+      if (!cancelled) setLoading(false);
+    }
+
+    void load();
+    return () => { cancelled = true; };
+  }, [activeBrand?.id]);
+
+  useEffect(() => {
+    if (loading) return;
+    const hash = window.location.hash;
+    if (!hash) return;
+    const targetId = decodeURIComponent(hash.slice(1));
+    const timer = window.setTimeout(() => {
+      document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
 
   async function handleGenerateBrief() {
     setGeneratingBrief(true);
     try {
       const brief = await api.generateDecisionBrief({
-        objective_id: objective?.id,
+        brand_id: activeBrand?.id,
       });
       setBriefs(prev => [brief, ...prev]);
     } catch {
@@ -85,92 +146,62 @@ export function AdminObjectiveLoop() {
     return <div className="admin-page"><div className="loading-full"><span className="spinner" /></div></div>;
   }
 
-  const loopReady = gmailConnected && brandKitReady && !!objective;
+  const brandId = activeBrand?.id;
+  const checklist = buildStreamActivationChecklist({
+    brandId,
+    brandName: activeBrand?.name || brand?.name || '',
+    providers,
+    brand,
+    onboardingStatus,
+    connections,
+    plugins,
+  });
+  const requiredChecklist: SetupChecklistItem[] = checklist.items;
+  const completedRequired = checklist.completed;
+  const loopReady = checklist.ready;
 
   return (
     <div className="admin-page">
       <div className="admin-page-header">
         <div>
-          <div className="admin-page-title">Objective Loop</div>
-          <div className="admin-page-subtitle">Active objective, memory ledger, outcomes, and decision briefs for the Gmail-only loop.</div>
+          <div className="admin-page-title">Stream Setup</div>
+          <div className="admin-page-subtitle">Setup readiness, memory ledger, outcomes, and decision briefs for Stream monitoring.</div>
         </div>
-        {objective && (
-          <button
-            className="btn btn-primary"
-            onClick={handleGenerateBrief}
-            disabled={generatingBrief}
-          >
-            {generatingBrief ? 'Generating…' : 'Generate Decision Brief'}
-          </button>
-        )}
+        <button
+          className="btn btn-primary"
+          onClick={handleGenerateBrief}
+          disabled={generatingBrief}
+        >
+          {generatingBrief ? 'Generating…' : 'Generate Decision Brief'}
+        </button>
       </div>
 
-      {/* Loop readiness */}
+      {/* Stream activation checklist */}
       <div className="admin-card" style={{ marginBottom: 24 }}>
-        <div className="admin-card-title">Loop Readiness</div>
-        <div className="settings-list">
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-name">Active Objective</div>
-              <div className="settings-row-desc">
-                {objective ? objective.summary : 'No active objective — create one to start the loop.'}
-              </div>
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 10 }}>
+          <div>
+            <div className="admin-card-title" style={{ marginBottom: 4 }}>Stream Activation Checklist</div>
+            <div style={{ fontSize: 12, color: 'var(--text2)' }}>
+              Stream stays inactive until every required setup item below is complete{activeBrand?.name ? ` for ${activeBrand.name}` : ''}.
             </div>
-            <StatusDot ok={!!objective} warn={!objective} />
-            <span className="settings-row-status-text">{objective ? objective.status : 'Missing'}</span>
           </div>
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-name">Gmail Connection</div>
-              <div className="settings-row-desc">Required for outreach artifact execution.</div>
-            </div>
-            <StatusDot ok={gmailConnected} warn={!gmailConnected} />
-            <span className="settings-row-status-text">{gmailConnected ? 'Connected' : 'Not connected'}</span>
-          </div>
-          <div className="settings-row">
-            <div className="settings-row-info">
-              <div className="settings-row-name">Campaign Brand Kit</div>
-              <div className="settings-row-desc">Brand voice, product brief, ICP — read from database.</div>
-            </div>
-            <StatusDot ok={brandKitReady} warn={!brandKitReady} />
-            <span className="settings-row-status-text">{brandKitReady ? 'Approved' : 'Not approved'}</span>
-          </div>
+          <span className={`badge badge-${loopReady ? 'success' : 'warning'}`} style={{ whiteSpace: 'nowrap' }}>
+            {completedRequired}/{requiredChecklist.length} complete
+          </span>
         </div>
-        {loopReady && (
+        <ul style={{ listStyle: 'disc', paddingLeft: 18, margin: 0 }}>
+          {requiredChecklist.map(item => <ChecklistBullet key={item.key} item={item} />)}
+        </ul>
+        {loopReady ? (
           <div className="admin-notice admin-notice-success" style={{ marginTop: 12 }}>
-            Loop ready — Gmail connected, brand kit approved, objective active.
+            Stream ready — all setup requirements are complete.
+          </div>
+        ) : (
+          <div className="admin-notice admin-notice-warning" style={{ marginTop: 12 }}>
+            Stream activation blocked — complete the Todo items above before expecting decision, artifact, or outcome cards.
           </div>
         )}
       </div>
-
-      {/* Active objective detail */}
-      {objective && (
-        <div className="admin-card" style={{ marginBottom: 24 }}>
-          <div className="admin-card-title">Active Objective</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-            <div className="kv-row">
-              <span className="kv-key">Summary</span>
-              <span className="kv-val">{objective.summary}</span>
-            </div>
-            <div className="kv-row">
-              <span className="kv-key">Success metric</span>
-              <span className="kv-val">{objective.success_metric}</span>
-            </div>
-            <div className="kv-row">
-              <span className="kv-key">Horizon</span>
-              <span className="kv-val">{objective.horizon}</span>
-            </div>
-            <div className="kv-row">
-              <span className="kv-key">Status</span>
-              <span className="kv-val">
-                <span className={`badge ${objective.status === 'active' ? 'badge-success' : 'badge-neutral'}`}>
-                  {objective.status}
-                </span>
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20, marginBottom: 24 }}>
         {/* Decision briefs */}

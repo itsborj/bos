@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { ActivationState, BackendOverride, BrandResponse, MediaModelOption, MediaProviderOption, PluginInfo, ProviderInfo, ProviderModelLive, SocialConnectionResponse } from '../../api/types';
+import type { ActivationState, BackendOverride, BrandResponse, MediaModelOption, MediaProviderOption, OnboardingStatus, PluginInfo, ProviderInfo, ProviderModelLive, SocialConnectionResponse } from '../../api/types';
 
 type ConnectorSummary = {
   id: string;
@@ -120,9 +120,10 @@ function parseModelValue(value: string): { provider: string; model_id: string } 
 
 const _PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
+  anthropic: 'Anthropic',
   openrouter: 'OpenRouter',
   gemini: 'Google Gemini',
-  nvidia: 'NVIDIA',
+  nvidia: 'NVIDIA AI Cloud',
   bytedance: 'BytePlus',
 };
 
@@ -223,18 +224,84 @@ function oauthConnector(
   connections: SocialConnection[],
   platform: string,
   platformMeta: PlatformMeta,
+  onboardingStatus?: OnboardingStatus | null,
 ): ConnectorSummary {
-  const live = connections.filter(conn => conn.platform === platform && conn.status !== 'revoked');
+  const rows = connections.filter(conn => conn.platform === platform && conn.status !== 'revoked');
+  const connected = rows.filter(conn => conn.status === 'connected' || conn.status === 'active');
+  const needsReauth = !connected.length && rows.some(conn => conn.status === 'needs_reauth');
   const meta = platformMeta[platform] || { label: titleCase(platform), icon: '⚙️' };
+  const accountLabel = (connected[0] || rows[0])?.page_name;
+
+  if (platform === 'google_drive') {
+    const driveRootName = onboardingStatus?.drive_root_name || null;
+    const brandMarkConfigured = Boolean(onboardingStatus?.brand_mark_configured);
+    const optionalNote = 'Creative references and templates are optional.';
+    if (needsReauth) {
+      return {
+        id: `oauth.${platform}`,
+        label: `${meta.icon} ${meta.label}`,
+        detail: `Reconnect Google Drive for this brand. The saved token expired or was revoked. ${optionalNote}`,
+        status: 'needs_setup',
+        statusText: 'Reconnect',
+        actionLabel: 'Manage',
+        actionType: 'brands',
+      };
+    }
+    if (!rows.length) {
+      return {
+        id: `oauth.${platform}`,
+        label: `${meta.icon} ${meta.label}`,
+        detail: 'Connect from Brands / Clients',
+        status: 'needs_setup',
+        statusText: 'Not connected',
+        actionLabel: 'Connect',
+        actionType: 'brands',
+      };
+    }
+    if (!driveRootName) {
+      return {
+        id: `oauth.${platform}`,
+        label: `${meta.icon} ${meta.label}`,
+        detail: `${connected.length || rows.length} account${(connected.length || rows.length) !== 1 ? 's' : ''} connected${accountLabel ? ` · ${accountLabel}` : ''} · Brand Kit folder not selected. ${optionalNote}`,
+        status: 'needs_setup',
+        statusText: 'Choose folder',
+        actionLabel: 'Manage',
+        actionType: 'brands',
+      };
+    }
+    if (!brandMarkConfigured) {
+      return {
+        id: `oauth.${platform}`,
+        label: `${meta.icon} ${meta.label}`,
+        detail: `${connected.length || rows.length} account${(connected.length || rows.length) !== 1 ? 's' : ''} connected${accountLabel ? ` · ${accountLabel}` : ''} · ${driveRootName} selected, but no logo/wordmark is indexed. ${optionalNote}`,
+        status: 'needs_setup',
+        statusText: 'Add logo',
+        actionLabel: 'Manage',
+        actionType: 'brands',
+      };
+    }
+    return {
+      id: `oauth.${platform}`,
+      label: `${meta.icon} ${meta.label}`,
+      detail: `${connected.length} account${connected.length !== 1 ? 's' : ''} connected${accountLabel ? ` · ${accountLabel}` : ''} · ${driveRootName} · Logo ready`,
+      status: 'connected',
+      statusText: 'Connected',
+      actionLabel: 'Manage',
+      actionType: 'brands',
+    };
+  }
+
   return {
     id: `oauth.${platform}`,
     label: `${meta.icon} ${meta.label}`,
-    detail: live.length
-      ? `${live.length} account${live.length !== 1 ? 's' : ''} connected${live[0]?.page_name ? ` · ${live[0].page_name}` : ''}`
-      : `Connect from Brands / Clients`,
-    status: live.length ? 'connected' : 'needs_setup',
-    statusText: live.length ? 'Connected' : 'Not connected',
-    actionLabel: live.length ? 'Manage' : 'Connect',
+    detail: needsReauth
+      ? `Reconnect ${meta.label}. The saved token expired or was revoked.`
+      : connected.length
+        ? `${connected.length} account${connected.length !== 1 ? 's' : ''} connected${accountLabel ? ` · ${accountLabel}` : ''}`
+        : `Connect from Brands / Clients`,
+    status: connected.length ? 'connected' : 'needs_setup',
+    statusText: connected.length ? 'Connected' : needsReauth ? 'Reconnect' : 'Not connected',
+    actionLabel: connected.length || needsReauth ? 'Manage' : 'Connect',
     actionType: 'brands',
   };
 }
@@ -248,12 +315,12 @@ function compactConnectors(connectors: Array<ConnectorSummary | null>): Connecto
   });
 }
 
-function summarizeInstalledPlugin(plugin: PluginInfo, connections: SocialConnection[], platformMeta: PlatformMeta, brandId?: string | null): SpecialistSummary {
+function summarizeInstalledPlugin(plugin: PluginInfo, connections: SocialConnection[], platformMeta: PlatformMeta, brandId?: string | null, onboardingStatus?: OnboardingStatus | null): SpecialistSummary {
   const active = isPluginActive(plugin, brandId);
   const declaredPlatforms = [...new Set([...(plugin.requires_social_connection || []), ...((plugin.connections || []).map(c => c.platform))].filter(Boolean))];
   const connectors = compactConnectors([
     pluginConnectorFromPlugin(plugin),
-    ...declaredPlatforms.map(platform => oauthConnector(connections, platform, platformMeta)),
+    ...declaredPlatforms.map(platform => oauthConnector(connections, platform, platformMeta, onboardingStatus)),
   ]);
   const hasCredentialDebt = connectors.some(c => c.status === 'needs_setup');
   const readiness: SpecialistSummary['readiness'] = plugin.status === 'error' || (active && hasCredentialDebt)
@@ -261,8 +328,13 @@ function summarizeInstalledPlugin(plugin: PluginInfo, connections: SocialConnect
     : active ? 'ready' : 'installed';
   const firstImageModule = plugin.capability_ids.find(id => id.includes('image'));
   const firstVideoModule = plugin.capability_ids.find(id => id.includes('video'));
-  const mediaModuleId = plugin.plugin_id === 'media.image' ? (firstImageModule || 'media.image.generate')
-    : plugin.plugin_id === 'media.video' ? (firstVideoModule || 'media.video.generate')
+  const derivedModality = plugin.media_modality
+    || (plugin.plugin_id === 'media.video' ? 'video' : undefined)
+    || ((plugin.media_provider_options?.length ?? 0) > 0 ? 'image' : undefined);
+  const mediaModuleId = derivedModality === 'video'
+    ? (firstVideoModule || plugin.capability_ids[0])
+    : derivedModality === 'image'
+      ? (firstImageModule || plugin.capability_ids[0])
       : undefined;
   return {
     key: plugin.plugin_id,
@@ -282,9 +354,9 @@ function summarizeInstalledPlugin(plugin: PluginInfo, connections: SocialConnect
     moduleCount: plugin.capability_ids.length,
     moduleIds: plugin.capability_ids,
     capabilityKeys: plugin.capability_ids,
-    llmModuleIds: plugin.capability_ids,
+    llmModuleIds: plugin.supports_backend_override ? plugin.capability_ids : [],
     mediaModuleId,
-    mediaModality: plugin.plugin_id === 'media.image' ? 'image' : plugin.plugin_id === 'media.video' ? 'video' : undefined,
+    mediaModality: derivedModality as 'image' | 'video' | undefined,
     mediaProviderOptions: plugin.media_provider_options || [],
     connectors,
     nextStep: active ? 'Use the CMO to run this capability when its skill contract applies.' : 'Activate this capability for the selected Brand.',
@@ -306,6 +378,7 @@ export function AdminModules() {
   const [brands, setBrands] = useState<BrandResponse[]>([]);
   const [selectedBrandId, setSelectedBrandId] = useState<string | null>(null);
   const [providers, setProviders] = useState<ProviderInfo[]>([]);
+  const [onboardingStatus, setOnboardingStatus] = useState<OnboardingStatus | null>(null);
   const [availableModels, setAvailableModels] = useState<ProviderModelLive[]>([]);
   const [backendOverrides, setBackendOverrides] = useState<BackendOverride[]>([]);
   const [loading, setLoading] = useState(true);
@@ -411,6 +484,9 @@ export function AdminModules() {
       setProviders(providerResult.providers ?? []);
       setAvailableModels(modelResult.models ?? []);
       setBackendOverrides(overrideResult.overrides ?? []);
+      if (resolvedBrandId) {
+        setOnboardingStatus(await api.getOnboardingStatus(resolvedBrandId).catch(() => null));
+      }
       await refreshPlugins(resolvedBrandId);
     }
     load().catch(() => {}).finally(() => setLoading(false));
@@ -421,6 +497,11 @@ export function AdminModules() {
   useEffect(() => {
     if (isInitialMount.current) { isInitialMount.current = false; return; }
     refreshPlugins();
+    if (selectedBrandId) {
+      api.getOnboardingStatus(selectedBrandId).then(setOnboardingStatus).catch(() => setOnboardingStatus(null));
+    } else {
+      setOnboardingStatus(null);
+    }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedBrandId]);
 
@@ -431,7 +512,7 @@ export function AdminModules() {
     return plugins
       .filter(plugin => !plugin.plugin_id.toLowerCase().includes('test_stub'))
       .map(plugin => {
-        const s = summarizeInstalledPlugin(plugin, brandConnections, platformMeta, selectedBrandId);
+        const s = summarizeInstalledPlugin(plugin, brandConnections, platformMeta, selectedBrandId, onboardingStatus);
         if (s.mediaModality) {
           return { ...s, mediaProviderOptions: s.mediaProviderOptions?.length ? s.mediaProviderOptions : buildMediaProviderOptions(availableModels, s.mediaModality) };
         }
@@ -443,7 +524,7 @@ export function AdminModules() {
         const tb = tier[b.readiness] ?? 2;
         return ta - tb || a.name.localeCompare(b.name);
       });
-  }, [connections, plugins, selectedBrandId, availableModels]);
+  }, [connections, plugins, selectedBrandId, availableModels, onboardingStatus]);
 
   const providerReady = useMemo(() => new Set(providers.filter(providerConnected).map(p => p.provider)), [providers]);
   const overrideMap = useMemo(() => new Map(backendOverrides.map(override => [override.target, override])), [backendOverrides]);
@@ -738,33 +819,7 @@ export function AdminModules() {
                     </div>
                   );
                 })}
-                {/* Optional URL + Key fields for custom/seedance image and video providers */}
-                {configuringPlugin.plugin_id === 'media.image' && (() => {
-                  const prov = (credFields['IMAGE_GEN_PROVIDER'] || '').toLowerCase();
-                  if (prov && prov !== 'openai' && prov !== 'gemini') return (
-                    <>
-                      {(['IMAGE_GEN_WORKER_URL', 'IMAGE_GEN_API_KEY'] as const).map(varName => {
-                        const { label, sensitive, hint } = varLabel(varName);
-                        return (
-                          <div key={varName}>
-                            <label style={{ display: 'block', fontSize: 13, fontWeight: 600, marginBottom: 4 }}>{label}</label>
-                            {hint && <div style={{ color: 'var(--text2)', fontSize: 11, marginBottom: 5 }}>{hint}</div>}
-                            <input
-                              type={sensitive ? 'password' : 'text'}
-                              className="input"
-                              placeholder={varPlaceholder(varName)}
-                              value={credFields[varName] ?? ''}
-                              onChange={e => setCredFields(f => ({ ...f, [varName]: e.target.value }))}
-                              style={{ width: '100%', fontFamily: sensitive ? 'monospace' : undefined }}
-                              autoComplete="off"
-                            />
-                          </div>
-                        );
-                      })}
-                    </>
-                  );
-                  return null;
-                })()}
+                {/* Optional URL + Key fields for custom/seedance video providers */}
                 {configuringPlugin.plugin_id === 'media.video' && (() => {
                   const prov = (credFields['VIDEO_GEN_PROVIDER'] || '').toLowerCase();
                   if (prov && prov !== 'gemini' && prov !== 'local_ffmpeg') return (
@@ -1042,7 +1097,7 @@ export function AdminModules() {
                               <button
                                 className="btn btn-ghost btn-sm"
                                 style={{ fontSize: 11 }}
-                                onClick={() => s.mediaModuleId ? openConfigureMediaAI(s) : openConfigure(connector.pluginId!)}
+                                onClick={() => openConfigure(connector.pluginId!)}
                               >
                                 {connector.actionLabel}
                               </button>

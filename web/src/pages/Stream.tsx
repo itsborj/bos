@@ -12,7 +12,8 @@ import { EmailPreview } from '../components/blocks/previews/EmailPreview';
 import { PinterestPreview } from '../components/blocks/previews/PinterestPreview';
 import { TwitterFeedPreview } from '../components/blocks/previews/TwitterFeedPreview';
 import { ApprovalBundle } from '../components/blocks/ApprovalBundle';
-import type { ObjectiveOut, RunListItem, RunResponse, StreamUpdateOut } from '../api/types';
+import { sanitizeArtifactPreviewText } from '../utils/artifacts';
+import type { RunListItem, RunResponse, StreamUpdateOut } from '../api/types';
 
 type ArtifactStatus = 'pending' | 'approved' | 'dismissed' | 'complete' | 'failed';
 
@@ -29,13 +30,22 @@ function artifactTitle(run: RunResponse): string {
   if (!run?.module_id) return 'Artifact';
   const id = run.module_id.toLowerCase();
   const platform = titleCase(run.result?.platform || run.module_id.split('.').pop() || 'asset');
+  const block = (run.result?.block || {}) as any;
+  const blockTitle = String(block.display_title || block.title || '').trim();
+  if (blockTitle) return blockTitle;
   if (id.includes('strategy_workflow')) return 'Strategy Workflow';
   if (id.includes('gtm_plan') || id.includes('gtm')) return 'GTM Strategy';
   if (id.includes('email') && id.includes('plan')) return 'Email Campaign Plan';
   if (id.includes('email')) return 'Email Draft';
   if (id.includes('gbp') || platform.toLowerCase().includes('google business')) return 'Google Business Profile Audit';
   if (id.includes('plan')) return 'Campaign Plan';
+  if (id.includes('meta.pages.insights.report')) return 'Meta Insight Report';
   if (id.includes('report') || id.includes('analytics')) return 'Marketing Report';
+  if (id.includes('video.edit')) {
+    const b = run.result?.block as any;
+    return b?.source_run_id ? 'Video Edit · Revision' : 'Video Edit · Cut 1';
+  }
+  if (id.includes('shortform.video')) return 'Shortform Video · Cut 1';
   if (id.includes('creative.post')) return 'Facebook Post Creative';
   if (id.includes('meta.pages.read')) return 'Facebook Pages';
   if (id.includes('meta.posts.draft')) return 'Facebook Post Draft';
@@ -51,11 +61,16 @@ function artifactTitle(run: RunResponse): string {
 
 
 function artifactStatus(run: RunResponse): ArtifactStatus {
+  const block = run.result?.block as any;
   const status = (run as any).approval_status || (run.result as any)?.approval_status;
-  if (run.status === 'failed' || (run.result?.block as any)?.status === 'failed') return 'failed';
+  if (run.status === 'failed' || block?.status === 'failed') return 'failed';
+  // Staged text/draft artifacts are approval-to-render workflow items. Older
+  // runs may have been marked approved by the generic approve endpoint without
+  // executing their declared render action; keep them actionable in Stream.
+  if ((block?.type === 'postcraft_draft' || block?.type === 'storyboard_json') && block?.action_modules?.render) return 'pending';
   if (status === 'approved') return 'approved';
-  if (status === 'rejected') return 'dismissed';
-  if (status === 'pending') return 'pending';
+  if (status === 'dismissed') return 'dismissed';
+  if (status === 'rejected' || status === 'revised' || status === 'pending') return 'pending';
   return run.result?.self_check === 'pass' ? 'pending' : 'complete';
 }
 
@@ -88,6 +103,25 @@ function runFromListItem(item: RunListItem): RunResponse {
   };
 }
 
+function streamRunRank(run: RunResponse): number {
+  const status = artifactStatus(run);
+  if (status === 'pending') return 0;
+  if (status === 'failed') return 1;
+  if (status === 'complete') return 3;
+  if (status === 'approved') return 4;
+  return 5;
+}
+
+function sortStreamRuns(runs: RunResponse[]): RunResponse[] {
+  return [...runs].sort((a, b) => {
+    // Stream is a feed: newest generated artifact belongs at the top.
+    // Status still breaks exact timestamp ties, but must not push a new
+    // generated/failed artifact below older pending work.
+    const timeDelta = runTimestamp(b) - runTimestamp(a);
+    return timeDelta || (streamRunRank(a) - streamRunRank(b));
+  });
+}
+
 let artifactHydrationQueue: Promise<void> = Promise.resolve();
 
 function enqueueArtifactHydration(task: () => Promise<void>): Promise<void> {
@@ -102,14 +136,35 @@ function updateBrandRef(update: StreamUpdateOut): string | null {
 
 function statusText(status: ArtifactStatus): string {
   if (status === 'approved') return 'Approved';
-  if (status === 'dismissed') return 'Dismissed';
+  if (status === 'dismissed') return 'Deleted';
   if (status === 'failed') return 'Failed';
-  if (status === 'pending') return 'Needs review';
+  if (status === 'pending') return 'Needs approval';
   return 'Saved';
 }
 
 function artifactBrandName(run: RunResponse, fallback: string): string {
   return run.result?.block?.brand_name || run.result?.brand_name || run.brand_name || fallback;
+}
+
+function localVideoSrcFromBlock(block: any): string | undefined {
+  const url = String(block?.video_proxy_url || '').trim();
+  return url || undefined;
+}
+
+function DriveVideoPreview({ title, webViewLink }: { title?: string; webViewLink?: string }) {
+  return (
+    <div style={{ width: '100%', maxWidth: 540, border: '1px solid #e5e7eb', borderRadius: 12, overflow: 'hidden', background: '#fff' }}>
+      <div style={{ padding: '18px 16px', textAlign: 'center', color: '#4b5563' }}>
+        <div style={{ fontSize: 13, fontWeight: 700, color: '#111827', marginBottom: 4 }}>{title || 'Drive video'}</div>
+        <div style={{ fontSize: 12 }}>Preview this video from the artifact detail panel or open it in Drive.</div>
+      </div>
+      {webViewLink && (
+        <div style={{ padding: '8px 10px', background: '#fff', textAlign: 'right', borderTop: '1px solid #e5e7eb' }}>
+          <a href={webViewLink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 12, fontWeight: 700 }}>Open video in Drive →</a>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function StrategyWorkflowStreamCard({ block, onOpen }: { block: any; onOpen: () => void }) {
@@ -172,21 +227,98 @@ function renderNativePreview(run: RunResponse) {
   if (channel.includes('google') && channel.includes('display')) {
     return <GoogleDisplayPreview dimensions={result.dimensions || '300x250'} headline={result.headline || 'Headline Missing'} description={result.description || 'Description Missing'} ctaText={result.cta || 'Learn More'} />;
   }
+  if (result.block?.type === 'storyboard_json' || moduleId.includes('storyboard.create')) {
+    const b = (result.block || {}) as any;
+    const raw = b.storyboard_text || b.body_markdown || b.message || result.content || 'Storyboard text unavailable.';
+    const text = String(raw).split('\n---\nReview/revise')[0].split('\n---\nRender was held')[0].trim();
+    const isBlueprint = b.artifact_kind === 'video_production_blueprint';
+    const reviewNote = isBlueprint ? (b.review_note || '15-second hard cap: full story arc + CTA must fit within 15 seconds max.') : '';
+    return (
+      <div style={{ padding: '14px 16px', fontSize: 13, color: '#1f2937', border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff', maxHeight: 360, overflow: 'auto' }}>
+        <div style={{ fontSize: 11, color: '#6b7280', fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 8 }}>{isBlueprint ? 'Video production blueprint' : 'Storyboard draft'}</div>
+        {reviewNote && <div style={{ marginBottom: 10, padding: '8px 10px', borderRadius: 8, background: '#fff7ed', color: '#9a3412', fontSize: 12, fontWeight: 600 }}>{reviewNote}</div>}
+        <pre style={{ margin: 0, whiteSpace: 'pre-wrap', lineHeight: 1.45, fontFamily: 'inherit' }}>{text}</pre>
+      </div>
+    );
+  }
   if (result.block?.type === 'creative_post_asset' && result.block?.status === 'succeeded') {
     const b = result.block as any;
     const imageUrl = b.image_data_b64 ? `data:${b.mime_type || 'image/png'};base64,${b.image_data_b64}` : undefined;
     return <FacebookFeedPreview pageName={brandName} adCopy={b.caption || b.message || 'Caption pending — review to add copy'} imageUrl={imageUrl} ctaText="" />;
+  }
+  if (result.block?.type === 'imprint_asset' && result.block?.status === 'succeeded') {
+    const b = result.block as any;
+    const src = b.image_data_b64 ? `data:${b.mime_type || 'image/png'};base64,${b.image_data_b64}` : null;
+    return (
+      <div style={{ maxWidth: 420, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff', overflow: 'hidden' }}>
+        {src ? (
+          <img src={src} alt={b.headline || 'Generated image'} style={{ width: '100%', display: 'block' }} />
+        ) : (
+          <div style={{ minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 13 }}>
+            {b.asset_omitted ? 'Loading full image…' : 'Image preview unavailable'}
+          </div>
+        )}
+        {(b.headline || b.subheadline || b.body || b.cta_text || b.drive_web_view_link) && (
+          <div style={{ padding: '14px 16px', lineHeight: 1.4 }}>
+            {b.headline && <div style={{ fontSize: 17, fontWeight: 800, color: '#111827', marginBottom: 4 }}>{b.headline}</div>}
+            {b.subheadline && <div style={{ fontSize: 13, color: '#4b5563', marginBottom: 6 }}>{b.subheadline}</div>}
+            {b.body && <div style={{ fontSize: 13, color: '#374151', marginBottom: 10 }}>{b.body}</div>}
+            {b.cta_text && <div style={{ display: 'inline-block', padding: '6px 14px', background: '#111827', color: '#fff', borderRadius: 6, fontSize: 12, fontWeight: 700 }}>{b.cta_text}</div>}
+            {b.drive_web_view_link && <div style={{ marginTop: 10 }}><a href={b.drive_web_view_link} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 12, fontWeight: 700 }}>Open in Drive →</a></div>}
+          </div>
+        )}
+      </div>
+    );
+  }
+  if (result.block?.type === 'meta_page_insights_report') {
+    const b = result.block as any;
+    const page = b.page || {};
+    const insights: any[] = b.insights || [];
+    const scheduledPosts: any[] = b.scheduled_posts || [];
+    const recentPosts: any[] = b.recent_posts || [];
+    const warnings: any[] = b.warnings || [];
+    const metrics = b.metrics_overview || {};
+    const insightBullets: any[] = b.insight_bullets || [];
+    const notAvailable: string[] = b.not_available || [];
+    const coverageLabel = String(b.coverage_label || (warnings.length ? 'partial' : 'reported'));
+    return (
+      <div style={{ padding: '16px 20px', fontSize: 13, color: '#1f2937', maxWidth: 680, border: '1px solid #dbeafe', borderRadius: 12, background: '#eff6ff' }}>
+        <div style={{ color: '#1d4ed8', fontSize: 11, fontWeight: 900, textTransform: 'uppercase', letterSpacing: '.08em', marginBottom: 6 }}>Read-only Meta insight artifact · {coverageLabel}</div>
+        <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 4 }}>{page.name || brandName}</div>
+        <div style={{ color: '#6b7280', fontSize: 12, marginBottom: 12 }}>
+          {page.category || 'Facebook Page'}{page.followers != null ? ` · ${Number(page.followers).toLocaleString()} followers` : ''}{b.report_scope ? ` · ${String(b.report_scope).replace(/_/g, ' ')}` : ''}
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 8, marginBottom: 12 }}>
+          <div style={{ background: '#fff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 10 }}><div style={{ color: '#6b7280', fontSize: 11 }}>Scheduled</div><div style={{ fontWeight: 800 }}>{metrics.scheduled_posts ?? scheduledPosts.length}</div></div>
+          <div style={{ background: '#fff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 10 }}><div style={{ color: '#6b7280', fontSize: 11 }}>Recent posts</div><div style={{ fontWeight: 800 }}>{metrics.recent_posts ?? recentPosts.length}</div></div>
+          <div style={{ background: '#fff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 10 }}><div style={{ color: '#6b7280', fontSize: 11 }}>Metrics</div><div style={{ fontWeight: 800 }}>{metrics.insight_metrics_reported ?? insights.length}</div></div>
+          <div style={{ background: '#fff', border: '1px solid #bfdbfe', borderRadius: 8, padding: 10 }}><div style={{ color: '#6b7280', fontSize: 11 }}>Engagement rows</div><div style={{ fontWeight: 800 }}>{metrics.recent_posts_with_engagement_counts ?? 0}</div></div>
+        </div>
+        {insightBullets.length > 0 && <div style={{ background: '#fff', border: '1px solid #bfdbfe', borderRadius: 10, padding: 12, marginBottom: 10 }}>
+          <div style={{ fontWeight: 800, marginBottom: 6 }}>{b.insight_heading || 'Campaign insights'}</div>
+          <ul style={{ margin: 0, paddingLeft: 18, lineHeight: 1.45 }}>
+            {insightBullets.slice(0, 4).map((item: any, i: number) => <li key={i} style={{ marginBottom: 6 }}><strong>{item.insight}</strong>{item.why_it_matters ? <span style={{ color: '#4b5563' }}> — {item.why_it_matters}</span> : null}<div style={{ color: '#6b7280', fontSize: 11 }}>{item.confidence || 'unknown'} confidence · {item.coverage || 'coverage unknown'}</div></li>)}
+          </ul>
+        </div>}
+        {notAvailable.length > 0 && <div style={{ color: '#92400e', fontSize: 12, marginBottom: 8 }}>Not available yet: {notAvailable.slice(0, 3).join(' · ')}</div>}
+        {b.recommended_next_step && <div style={{ fontWeight: 700 }}>Next: {b.recommended_next_step}</div>}
+        {warnings.length > 0 && <div style={{ color: '#92400e', fontSize: 12, marginTop: 8 }}>Coverage partial: {warnings[0]?.scope || 'Meta'} permission limits detected.</div>}
+      </div>
+    );
   }
   if (result.block?.type === 'fb_page_post_draft') {
     return <FacebookFeedPreview pageName={result.block.page_name || brandName} adCopy={result.block.message || result.content || 'Post text missing'} ctaText="" />;
   }
   if (result.block?.type === 'fb_page_post_result') {
     const b = result.block as any;
-    const succeeded = b.status === 'succeeded';
+    const scheduled = b.status === 'scheduled';
+    const succeeded = b.status === 'succeeded' || scheduled;
+    const previewText = sanitizeArtifactPreviewText(b.message_preview || b.message || '');
     return (
       <div style={{ padding: '14px 16px', fontSize: 13, color: '#1f2937', border: `1px solid ${succeeded ? '#bbf7d0' : '#fca5a5'}`, borderRadius: 8, background: succeeded ? '#f0fdf4' : '#fef2f2' }}>
-        <div style={{ fontWeight: 700, marginBottom: 4 }}>{succeeded ? 'Published to Facebook' : 'Facebook publish failed'}</div>
-        {b.message_preview && <div style={{ color: '#4b5563', marginBottom: 6, lineHeight: 1.4 }}>{b.message_preview.slice(0, 120)}{b.message_preview.length > 120 ? '…' : ''}</div>}
+        <div style={{ fontWeight: 700, marginBottom: 4 }}>{scheduled ? 'Facebook post scheduled' : (succeeded ? 'Published to Facebook' : 'Facebook publish failed')}</div>
+        {previewText && <div style={{ color: '#4b5563', marginBottom: 6, lineHeight: 1.4 }}>{previewText.slice(0, 120)}{previewText.length > 120 ? '…' : ''}</div>}
+        {scheduled && b.scheduled_at && <div style={{ color: '#166534', fontSize: 11, marginBottom: 4 }}>Scheduled for: {b.scheduled_at}</div>}
         {b.post_id && <div style={{ color: '#6b7280', fontSize: 11, marginBottom: 4 }}>Post ID: {b.post_id}</div>}
         {b.permalink && <a href={b.permalink} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 12, fontWeight: 600 }}>View on Facebook →</a>}
       </div>
@@ -366,8 +498,7 @@ function renderNativePreview(run: RunResponse) {
     const src = `data:${b.mime_type || 'image/png'};base64,${b.image_data_b64}`;
     return (
       <div style={{ textAlign: 'center', padding: '12px 0' }}>
-        <img src={src} alt={b.prompt || 'Generated image'} style={{ maxWidth: '100%', borderRadius: 10, display: 'block', margin: '0 auto' }} />
-        {b.prompt && <div style={{ color: '#888', fontSize: 11, marginTop: 6, fontStyle: 'italic' }}>{b.width && b.height ? `${b.width}×${b.height} · ` : ''}{b.prompt}</div>}
+        <img src={src} alt={b.title || b.headline || 'Generated image'} style={{ maxWidth: '100%', borderRadius: 10, display: 'block', margin: '0 auto' }} />
       </div>
     );
   }
@@ -377,7 +508,6 @@ function renderNativePreview(run: RunResponse) {
       <div style={{ padding: 16, textAlign: 'center', color: '#6b7280', fontSize: 13, border: '1px dashed #d1d5db', borderRadius: 10 }}>
         <div style={{ fontWeight: 700, color: '#374151', marginBottom: 4 }}>Image asset</div>
         {b.width && b.height && <div style={{ fontSize: 12, marginBottom: 4 }}>{b.width}×{b.height} · {b.mime_type || 'image/png'}</div>}
-        {b.prompt && <div style={{ fontSize: 12, fontStyle: 'italic' }}>{b.prompt}</div>}
       </div>
     );
   }
@@ -412,6 +542,28 @@ function renderNativePreview(run: RunResponse) {
       </div>
     );
   }
+  if (result.block?.type === 'post_image') {
+    const b = result.block as any;
+    const src = b.image_data_b64 ? `data:${b.mime_type || 'image/png'};base64,${b.image_data_b64}` : null;
+    return (
+      <div style={{ maxWidth: 540, border: '1px solid #e5e7eb', borderRadius: 12, background: '#fff', overflow: 'hidden' }}>
+        {src ? (
+          <img src={src} alt={b.headline || 'Post image'} style={{ width: '100%', display: 'block' }} />
+        ) : (
+          <div style={{ minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#9ca3af', fontSize: 13 }}>Image preview unavailable</div>
+        )}
+        {(b.headline || b.subheadline || b.body_copy || b.cta_text || b.drive_web_view_link) && (
+          <div style={{ padding: '14px 16px', lineHeight: 1.4 }}>
+            {b.headline && <div style={{ fontSize: 17, fontWeight: 800, color: '#111827', marginBottom: 4 }}>{b.headline}</div>}
+            {b.subheadline && <div style={{ fontSize: 13, color: '#4b5563', marginBottom: 6 }}>{b.subheadline}</div>}
+            {b.body_copy && <div style={{ fontSize: 13, color: '#374151', marginBottom: 10 }}>{b.body_copy}</div>}
+            {b.cta_text && <div style={{ display: 'inline-block', padding: '6px 14px', background: '#111827', color: '#fff', borderRadius: 6, fontSize: 12, fontWeight: 700 }}>{b.cta_text}</div>}
+            {b.drive_web_view_link && <div style={{ marginTop: 10 }}><a href={b.drive_web_view_link} target="_blank" rel="noreferrer" style={{ color: '#2563eb', fontSize: 12, fontWeight: 700 }}>Open in Drive →</a></div>}
+          </div>
+        )}
+      </div>
+    );
+  }
   if (result.block?.type === 'creative_shortform_video' || result.block?.type === 'video_asset') {
     const b = result.block as any;
     if (b.status !== 'succeeded') {
@@ -421,9 +573,33 @@ function renderNativePreview(run: RunResponse) {
         </div>
       );
     }
-    const filename = (b.video_path || '').split('/').pop();
-    const videoSrc = filename ? `/api/media/video/${filename}` : b.video_url;
-    return <FacebookFeedPreview pageName={brandName} adCopy={b.hook_text || ''} videoSrc={videoSrc} ctaText={b.cta_text || 'Learn More'} />;
+    const videoSrc = localVideoSrcFromBlock(b);
+    const isRevision = (run.module_id || '').toLowerCase().includes('video.edit') && Boolean(b.source_run_id);
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+        {isRevision && (b.change_summary || b.source_run_id) && (
+          <div style={{ padding: '8px 12px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 7, fontSize: 12 }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: '#0369a1', textTransform: 'uppercase', letterSpacing: '.1em', marginBottom: 3 }}>
+              Change
+            </div>
+            {b.change_summary && <div style={{ color: '#1e40af', lineHeight: 1.35 }}>{b.change_summary}</div>}
+            {b.source_run_id && (
+              <button
+                onClick={e => { e.stopPropagation(); window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: { run_id: b.source_run_id } })); }}
+                style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', marginTop: 4, color: '#2563eb', fontSize: 10, textDecoration: 'underline', display: 'block', textAlign: 'left' }}
+              >
+                ← View source cut
+              </button>
+            )}
+          </div>
+        )}
+        {videoSrc ? (
+          <FacebookFeedPreview pageName={brandName} adCopy={b.hook_text || ''} videoSrc={videoSrc} ctaText={b.cta_text || 'Learn More'} />
+        ) : (
+          <DriveVideoPreview title={b.drive_file_name || 'Drive video'} webViewLink={b.drive_web_view_link} />
+        )}
+      </div>
+    );
   }
   return <div className="stream-artifact-fallback">{result.content || 'Artifact content unavailable.'}</div>;
 }
@@ -433,19 +609,21 @@ function streamCardTitle(update: StreamUpdateOut): string {
   if (update.type === 'outcome') return 'Outcome · Memory Updated';
   if (update.type === 'setup_blocker') return 'Setup Blocker';
   if (update.type === 'pending_artifact') return 'Pending Artifact';
+  if (update.type === 'alert') return 'Alert';
+  if (update.type === 'recommendation') return 'Recommendation';
   return titleCase(update.type || 'Stream Card');
 }
 
 function buildCmoPrefill(update: StreamUpdateOut): string {
   const data = update.data_json || {};
   const title = streamCardTitle(update);
-  const summary = data.why_now || data.summary || data.recommended_next || 'Review this stream card.';
+  const summary = data.why_now || data.summary || data.body || data.headline || data.recommended_next || 'Review this stream card.';
   const evidence = asStringArray(data.primary_evidence || data.evidence).slice(0, 3);
   const lines = [
     `Help me act on this ${title.toLowerCase()}.`,
     `Card: ${title}`,
     data.brand_name || data.brand ? `Brand: ${String(data.brand_name || data.brand)}` : null,
-    data.objective_ref || data.objective ? `Objective: ${String(data.objective_ref || data.objective)}` : null,
+    data.objective_ref || data.objective ? `Goal: ${String(data.objective_ref || data.objective)}` : null,
     `Context: ${String(summary)}`,
     evidence.length ? `Evidence: ${evidence.join(' | ')}` : null,
     update.source_key ? `Source: ${update.source_key}` : null,
@@ -464,36 +642,11 @@ function asStringArray(value: unknown): string[] {
   return Array.isArray(value) ? value.map(item => String(item)).filter(Boolean) : [];
 }
 
-function ObjectiveAnchor({ objective, onSetup }: { objective: ObjectiveOut | null; onSetup: () => void }) {
-  if (!objective) {
-    return (
-      <div className="obj-anchor obj-anchor-setup">
-        <span className="obj-dot" />
-        <div>
-          <div className="obj-label">Setup blocker</div>
-          <div className="obj-text">No active objective — BOS cannot run the loop without one.</div>
-        </div>
-        <button className="stream-link" onClick={onSetup}>Set up →</button>
-      </div>
-    );
-  }
-  return (
-    <div className="obj-anchor">
-      <span className="obj-dot" />
-      <div>
-        <div className="obj-label">Active Objective</div>
-        <div className="obj-text">{objective.summary}</div>
-      </div>
-      <button className="obj-meta" onClick={onSetup}>{objective.status}</button>
-    </div>
-  );
-}
-
-function StreamDataCard({ update, brandName, objectiveTitle, onDismiss, onAskCMO, onInvestigate, onConfigure }: {
+function StreamDataCard({ update, brandName, objectiveTitle, onDelete, onAskCMO, onInvestigate, onConfigure }: {
   update: StreamUpdateOut;
   brandName: string;
   objectiveTitle: string;
-  onDismiss: (update: StreamUpdateOut) => void;
+  onDelete: (update: StreamUpdateOut) => void;
   onAskCMO: (update: StreamUpdateOut) => void;
   onInvestigate: (update: StreamUpdateOut) => void;
   onConfigure: (update: StreamUpdateOut) => void;
@@ -507,13 +660,14 @@ function StreamDataCard({ update, brandName, objectiveTitle, onDismiss, onAskCMO
   const confidence = data.confidence || update.priority || 'Directional';
   const sourceState = data.source_state || update.source_key || timeAgo(update.created_at);
   const title = streamCardTitle(update);
-  const cardObjective = String(data.objective_ref || data.objective || objectiveTitle || 'Active objective');
+  const cardObjective = String(data.objective_ref || data.objective || objectiveTitle || 'Current operations');
   const cardBrand = String(data.brand_name || data.brand || brandName);
 
-  async function dismiss() {
+  async function deleteUpdate() {
+    if (!window.confirm('Delete this Stream card? This cannot be undone.')) return;
     setBusy(true);
-    onDismiss(update);
-    try { await api.dismissStreamUpdate(update.id); } catch { } finally { setBusy(false); }
+    onDelete(update);
+    try { await api.deleteStreamUpdate(update.id); } catch { } finally { setBusy(false); }
   }
 
   return (
@@ -525,7 +679,7 @@ function StreamDataCard({ update, brandName, objectiveTitle, onDismiss, onAskCMO
       <div className="g2obj">{cardObjective}</div>
       <div className="g2brand">{cardBrand}</div>
       <div className="g2src-row"><span className="g2src">{String(sourceState)}</span></div>
-      <div className="g2why">{String(data.why_now || data.summary || 'BOS surfaced this for review.')}</div>
+      <div className="g2why">{String(data.why_now || data.summary || data.body || data.headline || 'BOS surfaced this for review.')}</div>
       {(evidence.length > 0 || hypotheses.length > 0 || doNot.length > 0 || data.recommended_next || data.approval_boundary) && (
         <>
           <button className="g2toggle" onClick={() => setBodyOpen(o => !o)}>
@@ -552,29 +706,30 @@ function StreamDataCard({ update, brandName, objectiveTitle, onDismiss, onAskCMO
         {update.type !== 'outcome' && (
           <button className="btn btn-ghost" onClick={() => onAskCMO(update)}>Ask CMO</button>
         )}
-        <button className="btn btn-ghost" onClick={dismiss} disabled={busy}>{busy ? '…' : 'Dismiss'}</button>
+        <button type="button" className="btn btn-ghost" onClick={deleteUpdate} disabled={busy}>{busy ? '…' : 'Delete'}</button>
       </div>
     </article>
   );
 }
 
-function StreamArtifactCard({ run, brandName, objectiveTitle, focused = false, registerCard, onApproved, onDismissed, onRevised }: {
+function StreamArtifactCard({ run, brandName, objectiveTitle, focused = false, registerCard, onApproved, onDeleted, onRevised }: {
   run: RunResponse;
   brandName: string;
   objectiveTitle: string;
   focused?: boolean;
   registerCard?: (runId: string, node: HTMLElement | null) => void;
   onApproved: (run: RunResponse) => void;
-  onDismissed: (run: RunResponse) => void;
+  onDeleted: (run: RunResponse) => void;
   onRevised: (original: RunResponse) => void;
 }) {
   const [hydratedRun, setHydratedRun] = useState<RunResponse | null>(null);
   const [hydrating, setHydrating] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [hasEnteredView, setHasEnteredView] = useState(false);
   const cardRef = useRef<HTMLElement | null>(null);
   const navigate = useNavigate();
-  const status = artifactStatus(run);
   const displayRun = hydratedRun || run;
+  const status = artifactStatus(displayRun);
   const displayBrandName = artifactBrandName(displayRun, brandName);
 
   const setCardNode = useCallback((node: HTMLElement | null) => {
@@ -616,32 +771,57 @@ function StreamArtifactCard({ run, brandName, objectiveTitle, focused = false, r
     });
   }, [hasEnteredView, hydratedRun, hydrating, run]);
 
+  async function deleteArtifact() {
+    if (!window.confirm('Delete this artifact permanently? This cannot be undone.')) return;
+    setDeleting(true);
+    onDeleted(displayRun);
+    try {
+      await api.deleteRun(displayRun.run_id);
+    } catch {
+      setDeleting(false);
+    }
+  }
+
   return (
     <article className={`g2card${focused ? ' stream-focused-artifact' : ''}`} ref={setCardNode}>
       <div className="g2top">
-        <span className="g2type pending_artifact">{artifactTitle(run)}</span>
+        <span className="g2type pending_artifact">{artifactTitle(displayRun)}</span>
         <span className={`g2conf ${status === 'approved' ? 'green' : 'amber'}`}>{statusText(status)}</span>
       </div>
-      <div className="g2obj">{objectiveTitle || 'Active objective'}</div>
+      <div className="g2obj">{objectiveTitle || 'Current operations'}</div>
       <div className="g2brand">{displayBrandName}</div>
       {hydrating && !hydratedRun ? (
         <div className="stream-artifact-fallback" style={{ marginTop: 10 }}><span className="spinner" /> Loading artifact…</div>
       ) : displayRun.result?.block?.type === 'strategy_workflow' ? (
-        <StrategyWorkflowStreamCard block={displayRun.result.block as any} onOpen={() => {
-          const url = (displayRun.result?.block as any)?.workflow_url;
-          if (url) navigate(url);
-        }} />
-      ) : status === 'pending' ? (
+        <>
+          <StrategyWorkflowStreamCard block={displayRun.result.block as any} onOpen={() => {
+            const url = (displayRun.result?.block as any)?.workflow_url;
+            if (url) navigate(url);
+          }} />
+          {status !== 'dismissed' && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+              <button type="button" className="btn btn-ghost" onClick={deleteArtifact} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button>
+            </div>
+          )}
+        </>
+      ) : status === 'pending' || status === 'failed' ? (
         <ApprovalBundle
           run={displayRun}
           surfaceContext="panel"
           revisionHistory={[{ role: 'ai', text: displayRun.result?.content || '' }]}
           onApproved={onApproved}
-          onDismissed={onDismissed}
+          onDeleted={onDeleted}
           onRevision={(_, _revised) => onRevised(displayRun)}
         />
       ) : (
-        <div className="stream-artifact-preview" style={{ marginTop: 10 }}>{renderNativePreview(displayRun)}</div>
+        <div className="stream-artifact-preview" style={{ marginTop: 10 }}>
+          {renderNativePreview(displayRun)}
+          {status !== 'dismissed' && (
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 10 }}>
+              <button type="button" className="btn btn-ghost" onClick={deleteArtifact} disabled={deleting}>{deleting ? 'Deleting…' : 'Delete'}</button>
+            </div>
+          )}
+        </div>
       )}
     </article>
   );
@@ -699,23 +879,46 @@ function StreamUpdatePanel({ update, onClose }: { update: StreamUpdateOut; onClo
 }
 
 const RUN_PAGE_SIZE = 20;
+const DELETED_ARTIFACTS_KEY = 'bos_deleted_artifact_ids';
+
+function readDeletedArtifactIds(): Set<string> {
+  try {
+    const current = JSON.parse(localStorage.getItem(DELETED_ARTIFACTS_KEY) || '[]');
+    const legacy = JSON.parse(localStorage.getItem('bos_dismissed_artifact_ids') || '[]');
+    return new Set([...current, ...legacy].filter(id => typeof id === 'string'));
+  } catch {
+    return new Set();
+  }
+}
+
+function writeDeletedArtifactIds(ids: Set<string>): void {
+  try {
+    localStorage.setItem(DELETED_ARTIFACTS_KEY, JSON.stringify(Array.from(ids).slice(-500)));
+  } catch {}
+}
 
 export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
   const navigate = useNavigate();
   const { pendingRunItems, removePendingRun, activeBrand } = useUI();
   const [artifacts, setArtifacts] = useState<RunResponse[]>([]);
   const [streamUpdates, setStreamUpdates] = useState<StreamUpdateOut[]>([]);
-  const [activeObjective, setActiveObjective] = useState<ObjectiveOut | null>(null);
   const [loading, setLoading] = useState(false);
   const [panelItem, setPanelItem] = useState<StreamUpdateOut | null>(null);
   const [runOffset, setRunOffset] = useState(0);
+  const [totalArtifacts, setTotalArtifacts] = useState(0);
   const [hasMoreRuns, setHasMoreRuns] = useState(true);
   const [loadingMoreRuns, setLoadingMoreRuns] = useState(false);
   const [focusedRunId, setFocusedRunId] = useState<string | null>(null);
+  const [deletedArtifactIds, setDeletedArtifactIds] = useState<Set<string>>(() => readDeletedArtifactIds());
+  const deletedArtifactIdsRef = useRef(deletedArtifactIds);
   const knownRunIds = useRef(new Set<string>());
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const feedColRef = useRef<HTMLDivElement | null>(null);
   const artifactCardRefs = useRef(new Map<string, HTMLElement>());
+
+  useEffect(() => {
+    deletedArtifactIdsRef.current = deletedArtifactIds;
+  }, [deletedArtifactIds]);
 
   const registerArtifactCard = useCallback((runId: string, node: HTMLElement | null) => {
     if (node) artifactCardRefs.current.set(runId, node);
@@ -726,6 +929,7 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
   // If it is outside the currently loaded page, fetch a lightweight preview and inject it.
   useEffect(() => {
     const upsertFocusedRun = (focusedRun: RunResponse) => {
+      if (deletedArtifactIdsRef.current.has(focusedRun.run_id) || focusedRun.approval_status === 'dismissed') return;
       knownRunIds.current.add(focusedRun.run_id);
       setArtifacts(prev => {
         const exists = prev.some(r => r.run_id === focusedRun.run_id);
@@ -743,12 +947,23 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
         upsertFocusedRun(detail as RunResponse);
         return;
       }
-      api.getRun(runId, { includeAssets: false })
+      api.getRun(runId, { includeAssets: true })
         .then(run => upsertFocusedRun(run))
         .catch(() => {});
     };
     window.addEventListener('bos:focus-artifact', handleFocusArtifact);
-    return () => window.removeEventListener('bos:focus-artifact', handleFocusArtifact);
+    const params = new URLSearchParams(window.location.search);
+    const initialRunId = params.get('artifact') || params.get('run_id');
+    let timer: number | null = null;
+    if (initialRunId) {
+      timer = window.setTimeout(() => {
+        handleFocusArtifact(new CustomEvent('bos:focus-artifact', { detail: { run_id: initialRunId } }));
+      }, 600);
+    }
+    return () => {
+      window.removeEventListener('bos:focus-artifact', handleFocusArtifact);
+      if (timer) window.clearTimeout(timer);
+    };
   }, []);
 
   useEffect(() => {
@@ -768,27 +983,31 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
     const brandId = activeBrand?.id;
     setLoading(true);
     Promise.all([
-      api.getRuns({ limit: RUN_PAGE_SIZE, offset: 0, brand_id: brandId, include_preview: true }).then(r => {
-        setRunOffset(r.runs.length);
-        setHasMoreRuns(r.runs.length >= RUN_PAGE_SIZE && r.runs.length < r.total);
+      Promise.all([
+        api.getRuns({ limit: RUN_PAGE_SIZE, offset: 0, brand_id: brandId, exclude_approval_status: 'dismissed', include_preview: true }),
+        api.getRuns({ limit: 100, offset: 0, brand_id: brandId, approval_status: 'pending', include_preview: true }),
+        api.getRuns({ limit: 100, offset: 0, brand_id: brandId, approval_status: 'failed', include_preview: true }),
+      ]).then(([recent, pending, failed]) => {
+        setRunOffset(recent.runs.length);
+        setTotalArtifacts(recent.total);
+        setHasMoreRuns(recent.runs.length >= RUN_PAGE_SIZE && recent.runs.length < recent.total);
         const byId = new Map<string, RunResponse>();
-        r.runs
-          .filter(run => run.status !== 'failed' && run.approval_status !== 'rejected' && (!brandId || run.brand_id === brandId))
+        [...pending.runs, ...failed.runs, ...recent.runs]
+          .filter(run => run.approval_status !== 'dismissed' && !deletedArtifactIdsRef.current.has(run.run_id) && (!brandId || run.brand_id === brandId))
           .forEach(run => { if (!byId.has(run.run_id)) byId.set(run.run_id, runFromListItem(run)); });
-        return Array.from(byId.values());
+        return sortStreamRuns(Array.from(byId.values()));
       }),
       api.refreshStream().catch(() => null).then(() => api.getStream(false).catch(() => ({ updates: [], total: 0 }))),
-      api.getActiveObjective(brandId).catch(() => null),
     ])
-      .then(([fullRuns, stream, objective]) => {
+      .then(([fullRuns, stream]) => {
         if (!cancelled) {
           knownRunIds.current = new Set(fullRuns.map(r => r.run_id));
           setArtifacts(fullRuns);
-          setStreamUpdates((stream.updates || []).filter(update =>
-            ['outcome', 'decision_brief', 'setup_blocker', 'pending_artifact'].includes(update.type) &&
-            (!brandId || updateBrandRef(update) === brandId)
-          ));
-          setActiveObjective(objective);
+          setStreamUpdates((stream.updates || []).filter(update => {
+            const ref = updateBrandRef(update);
+            return ['outcome', 'decision_brief', 'setup_blocker', 'pending_artifact', 'alert', 'recommendation'].includes(update.type) &&
+              (!brandId || !ref || ref === brandId);
+          }));
         }
       })
       .catch(() => {})
@@ -799,15 +1018,17 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
   const loadMoreRuns = useCallback(async () => {
     if (loadingMoreRuns || !hasMoreRuns) return;
     const brandId = activeBrand?.id;
+    const currentOffset = runOffset;
     setLoadingMoreRuns(true);
     try {
-      const r = await api.getRuns({ limit: RUN_PAGE_SIZE, offset: runOffset, brand_id: brandId, include_preview: true });
+      const r = await api.getRuns({ limit: RUN_PAGE_SIZE, offset: currentOffset, brand_id: brandId, exclude_approval_status: 'dismissed', include_preview: true });
       setRunOffset(prev => prev + r.runs.length);
-      setHasMoreRuns(r.runs.length >= RUN_PAGE_SIZE && runOffset + r.runs.length < r.total);
+      setTotalArtifacts(r.total);
+      setHasMoreRuns(r.runs.length >= RUN_PAGE_SIZE && currentOffset + r.runs.length < r.total);
       const next = r.runs
         .filter(run =>
-          run.status !== 'failed' &&
-          run.approval_status !== 'rejected' &&
+          run.approval_status !== 'dismissed' &&
+          !deletedArtifactIdsRef.current.has(run.run_id) &&
           (!brandId || run.brand_id === brandId) &&
           !knownRunIds.current.has(run.run_id)
         )
@@ -823,13 +1044,16 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
 
   useEffect(() => {
     const node = loadMoreRef.current;
-    if (!node || !hasMoreRuns) return;
+    const root = feedColRef.current;
+    if (!node || !hasMoreRuns || !root) return;
     const observer = new IntersectionObserver(entries => {
-      if (entries.some(entry => entry.isIntersecting)) loadMoreRuns();
-    }, { root: feedColRef.current, rootMargin: '600px 0px' });
+      if (entries.some(entry => entry.isIntersecting)) {
+        loadMoreRuns();
+      }
+    }, { root, rootMargin: '600px 0px' });
     observer.observe(node);
     return () => observer.disconnect();
-  }, [hasMoreRuns, loadMoreRuns]);
+  }, [hasMoreRuns, runOffset, loadingMoreRuns, loadMoreRuns]);
 
   // Poll every 15 s for new runs — makes Stream a live TikTok-style feed.
   useEffect(() => {
@@ -838,10 +1062,11 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
 
     const poll = async () => {
       try {
-        const r = await api.getRuns({ limit: 10, brand_id: brandId, include_preview: true });
+        const r = await api.getRuns({ limit: 10, brand_id: brandId, exclude_approval_status: 'dismissed', include_preview: true });
+        setTotalArtifacts(r.total);
         const newCandidates = r.runs.filter(run =>
-          run.status !== 'failed' &&
-          run.approval_status !== 'rejected' &&
+          run.approval_status !== 'dismissed' &&
+          !deletedArtifactIdsRef.current.has(run.run_id) &&
           (!brandId || run.brand_id === brandId) &&
           !knownRunIds.current.has(run.run_id)
         );
@@ -867,34 +1092,59 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
   const streamArtifacts = useMemo(() => {
     const brandId = activeBrand?.id;
     const apiIds = new Set(artifacts.map(r => r.run_id));
-    const oneHourAgo = Date.now() - 60 * 60 * 1000;
     const freshPending = pendingRunItems.filter(r =>
       r?.run_id &&
       !apiIds.has(r.run_id) &&
-      runTimestamp(r) > oneHourAgo &&
+      !deletedArtifactIds.has(r.run_id) &&
       (!brandId || r.brand_id === brandId)
     );
-    return [...artifacts, ...freshPending]
-      .filter(r => !!r?.run_id && runTimestamp(r) > 0 && (!brandId || r.brand_id === brandId))
-      .sort((a, b) => runTimestamp(b) - runTimestamp(a));
-  }, [activeBrand?.id, artifacts, pendingRunItems]);
+    return sortStreamRuns(
+      [...artifacts, ...freshPending]
+        .filter(r => !!r?.run_id && r.approval_status !== 'dismissed' && !deletedArtifactIds.has(r.run_id) && runTimestamp(r) > 0 && (!brandId || r.brand_id === brandId))
+    );
+  }, [activeBrand?.id, artifacts, deletedArtifactIds, pendingRunItems]);
+
+  // Keep infinite scroll active even when deletes/filtering leave the visible
+  // feed shorter than the viewport. The sentinel still handles normal scrolling;
+  // this pre-fill guard prevents a short/empty feed from getting stuck before
+  // the observer can naturally intersect again.
+  useEffect(() => {
+    if (loading || loadingMoreRuns || !hasMoreRuns) return;
+    if (streamArtifacts.length >= RUN_PAGE_SIZE) return;
+    loadMoreRuns();
+  }, [hasMoreRuns, loadMoreRuns, loading, loadingMoreRuns, streamArtifacts.length]);
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent('bos:stream-count', {
+      detail: { count: totalArtifacts || streamArtifacts.length, brand_id: activeBrand?.id || null },
+    }));
+  }, [activeBrand?.id, streamArtifacts.length, totalArtifacts]);
+
+  function removeLocalRun(run: RunResponse) {
+    removePendingRun(run.run_id);
+    setDeletedArtifactIds(prev => {
+      const next = new Set(prev);
+      next.add(run.run_id);
+      writeDeletedArtifactIds(next);
+      return next;
+    });
+    setArtifacts(prev => prev.filter(item => item.run_id !== run.run_id));
+    setRunOffset(prev => Math.max(0, prev - 1));
+    setTotalArtifacts(prev => Math.max(0, prev - 1));
+  }
 
   function updateLocalStatus(run: RunResponse, status: 'approved' | 'rejected') {
     removePendingRun(run.run_id);
-    if (status === 'rejected') {
-      setArtifacts(prev => prev.filter(item => item.run_id !== run.run_id));
-      return;
-    }
     setArtifacts(prev => prev.map(item =>
       item.run_id === run.run_id ? ({ ...item, approval_status: status } as RunResponse) : item
     ));
   }
 
   function configureFromCard(update: StreamUpdateOut) {
-    const target = String(update.data_json?.config_target || 'objective-loop');
+    const target = String(update.data_json?.config_target || 'stream-setup');
     if (target.includes('connector')) navigate('/admin/modules');
     else if (target.includes('gmail')) navigate('/admin/brands');
-    else navigate('/admin/objective-loop');
+    else navigate('/admin/stream-setup');
   }
 
   function askCmoAboutCard(update: StreamUpdateOut) {
@@ -915,16 +1165,20 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
     navigate('/cmo');
   }
 
-  async function dismissUrgentUnread() {
-    const toDismiss = streamUpdates.filter(update => update.priority === 'urgent');
-    if (toDismiss.length === 0) return;
+  async function deleteUrgentUnread() {
+    const toDelete = streamUpdates.filter(update => update.priority === 'urgent');
+    if (toDelete.length === 0) return;
+    if (!window.confirm(`Delete ${toDelete.length} urgent Stream alert${toDelete.length === 1 ? '' : 's'}? This cannot be undone.`)) return;
     setStreamUpdates(prev => prev.filter(update => update.priority !== 'urgent'));
     try {
-      await api.dismissStreamUpdates({ priority: 'urgent' });
+      await Promise.all(toDelete.map(update => api.deleteStreamUpdate(update.id)));
     } catch {
-      // Reload the stream if the optimistic bulk-dismiss failed.
+      // Reload the stream if the optimistic delete failed.
       const brandId = activeBrand?.id;
-      api.getStream(false).then(stream => setStreamUpdates((stream.updates || []).filter(update => !brandId || updateBrandRef(update) === brandId))).catch(() => {});
+      api.getStream(false).then(stream => setStreamUpdates((stream.updates || []).filter(update => {
+        const ref = updateBrandRef(update);
+        return !brandId || !ref || ref === brandId;
+      }))).catch(() => {});
     }
   }
 
@@ -932,10 +1186,12 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
     return <div className="loading-full"><span className="spinner" /></div>;
   }
 
-  const attentionCount = streamArtifacts.filter(run => artifactStatus(run) === 'pending').length + streamUpdates.length;
+  const visibleStreamArtifacts = streamArtifacts;
+  const visibleStreamUpdates = streamUpdates;
+  const attentionCount = totalArtifacts || visibleStreamArtifacts.length;
   const dateLabel = new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' });
   const brandLabel = activeBrand?.name || 'All brands';
-  const objectiveTitle = activeObjective?.summary || 'Active objective';
+  const objectiveTitle = 'Current operations';
 
   return (
     <div className={`stream-fullscreen${embedded ? ' stream-embedded' : ''}`}>
@@ -943,57 +1199,67 @@ export function Stream({ embedded = false }: { embedded?: boolean } = {}) {
         <div className="stream-content-inner">
           <div className="stream-header-zone">
             <div className="stream-kicker">{dateLabel} · {brandLabel}</div>
-            {attentionCount > 0
-              ? <h2 className="stream-title">{attentionCount} item{attentionCount !== 1 ? 's' : ''} need your judgment</h2>
-              : <h2 className="stream-title">Objective loop quiet</h2>
-            }
-            <div className="stream-sub">Ranked by urgency. Act on what matters, dismiss what does not.</div>
+            <h2 className="stream-title">
+              {attentionCount} artifact{attentionCount !== 1 ? 's' : ''}
+            </h2>
+            <div className="stream-sub">
+              Newest artifacts first. Act on what matters, delete what does not.
+            </div>
             {streamUpdates.some(update => update.priority === 'urgent') && (
-              <button className="btn btn-ghost" style={{ marginBottom: 10 }} onClick={dismissUrgentUnread}>
-                Dismiss urgent alerts ({streamUpdates.filter(update => update.priority === 'urgent').length})
+              <button className="btn btn-ghost" style={{ marginBottom: 10 }} onClick={deleteUrgentUnread}>
+                Delete urgent alerts ({streamUpdates.filter(update => update.priority === 'urgent').length})
               </button>
             )}
-            <ObjectiveAnchor objective={activeObjective} onSetup={() => navigate('/admin/objective-loop')} />
           </div>
 
-          {streamArtifacts.length === 0 && streamUpdates.length === 0 ? (
-            <div className="g2card">
-              <span className="g2type outcome">Objective loop quiet</span>
-              <div className="g2why" style={{ marginTop: 10, fontWeight: 700 }}>No decisions need attention right now.</div>
-              <div className="g2why">BOS is watching the active objective, Gmail replies, pending outcomes, and setup readiness.</div>
-              <div className="g2rec"><b>Next —</b>Leave Stream alone until a decision, outcome, or setup blocker appears.</div>
-              <button className="btn btn-accent" onClick={() => navigate('/admin/objective-loop')}>Set up the objective loop →</button>
+          <div className="stream-artifact-feed">
+            {visibleStreamArtifacts.length === 0 && visibleStreamUpdates.length === 0 && (
+              <div className="g2card">
+                <span className="g2type outcome">Stream quiet</span>
+                <div className="g2why" style={{ marginTop: 10, fontWeight: 700 }}>No decisions need attention right now.</div>
+                <div className="g2why">BOS is watching Gmail replies, pending outcomes, setup readiness, and new artifacts.</div>
+                <div className="g2rec"><b>Next —</b>No action needed until BOS finds a decision, outcome, or setup blocker.</div>
+                <button className="btn btn-accent" onClick={() => navigate('/admin/stream-setup')}>Review Stream setup →</button>
+              </div>
+            )}
+            {visibleStreamArtifacts.map(run => (
+              <StreamArtifactCard
+                key={run.run_id}
+                run={run}
+                brandName={brandLabel}
+                objectiveTitle={objectiveTitle}
+                focused={focusedRunId === run.run_id}
+                registerCard={registerArtifactCard}
+                onApproved={r => updateLocalStatus(r, 'approved')}
+                onDeleted={r => removeLocalRun(r)}
+                onRevised={original => setArtifacts(prev => prev.filter(r => r.run_id !== original.run_id))}
+              />
+            ))}
+            {visibleStreamUpdates.map(update => (
+              <StreamDataCard
+                key={update.id}
+                update={update}
+                brandName={brandLabel}
+                objectiveTitle={objectiveTitle}
+                onDelete={deleted => setStreamUpdates(prev => prev.filter(item => item.id !== deleted.id))}
+                onAskCMO={askCmoAboutCard}
+                onInvestigate={card => setPanelItem(card)}
+                onConfigure={configureFromCard}
+              />
+            ))}
+            <div ref={loadMoreRef} className="stream-load-more">
+              {loadingMoreRuns ? (
+                <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <span className="spinner" style={{ width: 16, height: 16, borderWidth: 2 }} />
+                  Loading more…
+                </span>
+              ) : hasMoreRuns ? (
+                'Scroll for more'
+              ) : (
+                'End of stream'
+              )}
             </div>
-          ) : (
-            <div className="stream-artifact-feed">
-              {streamUpdates.map(update => (
-                <StreamDataCard
-                  key={update.id}
-                  update={update}
-                  brandName={brandLabel}
-                  objectiveTitle={objectiveTitle}
-                  onDismiss={dismissed => setStreamUpdates(prev => prev.filter(item => item.id !== dismissed.id))}
-                  onAskCMO={askCmoAboutCard}
-                  onInvestigate={card => setPanelItem(card)}
-                  onConfigure={configureFromCard}
-                />
-              ))}
-              {streamArtifacts.map(run => (
-                <StreamArtifactCard
-                  key={run.run_id}
-                  run={run}
-                  brandName={brandLabel}
-                  objectiveTitle={objectiveTitle}
-                  focused={focusedRunId === run.run_id}
-                  registerCard={registerArtifactCard}
-                  onApproved={r => updateLocalStatus(r, 'approved')}
-                  onDismissed={r => updateLocalStatus(r, 'rejected')}
-                  onRevised={original => setArtifacts(prev => prev.filter(r => r.run_id !== original.run_id))}
-                />
-              ))}
-              {hasMoreRuns && <div ref={loadMoreRef} className="stream-load-more">{loadingMoreRuns ? 'Loading more…' : 'Scroll for more'}</div>}
-            </div>
-          )}
+          </div>
         </div>
       </div>
 

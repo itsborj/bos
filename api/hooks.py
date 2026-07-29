@@ -105,16 +105,17 @@ class HookRegistry:
 
     async def fire_filter(self, hook: str, data: dict, ctx: HookContext) -> dict:
         """Fire a filter hook. Each subscriber may modify and return data.
-        Failures are logged and skipped — the pipeline is never aborted."""
+        Filter failures are not hidden: before-dispatch enrichment failures must
+        surface to the caller instead of silently rendering with stale context.
+        """
         for sub in self._subs.get(hook, []):
             if sub.applies_to and ctx.module_id not in sub.applies_to:
                 continue
             try:
                 data = await sub.handler_fn(data, ctx)
-            except Exception as exc:
-                log.warning(
-                    "Hook [%s] subscriber plugin=%s raised: %s", hook, sub.plugin_id, exc
-                )
+            except Exception:
+                log.exception("Hook [%s] subscriber plugin=%s raised", hook, sub.plugin_id)
+                raise
         return data
 
     async def fire_action(self, hook: str, ctx: HookContext) -> None:

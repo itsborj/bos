@@ -1,7 +1,7 @@
 ---
 id: onboarding.campaign_brand_kit
-name: generating-campaign-brand-kit
-description: Use during explicit onboarding/workspace flows to generate or revise the Campaign Brand Kit document from approved workspace context. Use when generating or revising the Campaign Brand Kit from existing workspace brand context.
+name: generating-brand-creative-brief
+description: Use during explicit onboarding/workspace flows to generate or revise the Brand Creative Brief from approved workspace context and supplied brand evidence.
 scope: onboarding
 allowed_from_chat: false
 module_id: onboarding.brand_guidelines
@@ -25,19 +25,19 @@ quality_gates:
   - no_normal_chat_dispatch
 ---
 
-# Campaign Brand Kit Generation Skill
+# Brand Creative Brief Generation Skill
 
 ## Purpose
 
-Generate or revise the required Campaign Brand Kit document from approved workspace context and supplied brand materials.
+Generate or revise the durable Brand Creative Brief from approved workspace context and supplied brand materials.
 
 ## Operating rules
 
 - This skill is not normal CMO chat-dispatchable.
 - The output is a durable workspace document, not casual chat copy.
-- Include practical voice/design rules that can guide future multi-channel campaign assets.
+- Capture identity, visual language, creative boundaries, and factual asset requirements without prescribing fixed layouts.
 - Drafts require human approval before becoming authoritative context.
 
 ## Quality gate
 
-Before creating the document, verify it includes voice, tone, values, CTA style, platform consistency rules, and basic campaign component guidance.
+Before creating the document, verify it includes brand foundation, visual identity, creative assets, creative latitude and boundaries, campaign truth, and governance.

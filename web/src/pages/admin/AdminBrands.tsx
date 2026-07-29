@@ -1,7 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
-import type { BrandResponse, WorkspaceResponse } from '../../api/types';
+import type { BrandResponse, OnboardingStatus, WorkspaceResponse } from '../../api/types';
 
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
@@ -12,256 +12,75 @@ function timeAgo(iso: string): string {
   return new Date(iso).toLocaleDateString([], { month: 'short', day: 'numeric' });
 }
 
-function profileComplete(brand: BrandResponse): boolean {
-  return !!(brand.voice || brand.tone || brand.values?.length);
+function profileBadge(status: OnboardingStatus | null | undefined, known: boolean): { tone: 'approved' | 'pending'; label: string } {
+  if (!known) return { tone: 'pending', label: 'Checking…' };
+  if (!status) return { tone: 'pending', label: 'Profile unknown' };
+  return status.brand_profile_configured
+    ? { tone: 'approved', label: 'Profile set' }
+    : { tone: 'pending', label: 'No profile' };
 }
 
-type SocialConn = { id: string; brand_id: string | null; platform: string; page_id: string; page_name: string | null; page_handle: string | null; status: string };
-
-const PLATFORM_ICON_CFG: Record<string, { bg?: string; color: string; glyph: string; glyphSize?: number }> = {
-  facebook:        { bg: '#1877F2', color: '#fff',    glyph: 'f' },
-  youtube:         { bg: '#FF0000', color: '#fff',    glyph: '▶', glyphSize: 9 },
-  tiktok:          { bg: '#010101', color: '#fff',    glyph: '♪' },
-  google_drive:    {               color: '#4285F4',  glyph: '▲' },
-  google_business: {               color: '#34A853',  glyph: 'G', glyphSize: 13 },
-  gmail:           {               color: '#D44638',  glyph: '✉' },
-  google_calendar: {               color: '#4285F4',  glyph: '▦' },
-};
-
-function PlatformIcon({ platform }: { platform: string }) {
-  const cfg = PLATFORM_ICON_CFG[platform] ?? { color: 'var(--text2)', glyph: '●' };
-  return (
-    <span style={{
-      width: 20, height: 20, borderRadius: 2,
-      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-      background: cfg.bg ?? 'transparent',
-      color: cfg.color,
-      fontSize: cfg.glyphSize ?? 10,
-      fontWeight: 700,
-      flexShrink: 0,
-    }}>
-      {cfg.glyph}
-    </span>
-  );
-}
-
-const connActionStyle: React.CSSProperties = {
-  fontSize: 11, color: '#ef8250', fontWeight: 600, cursor: 'pointer',
-  background: 'none', border: 'none', padding: 0, whiteSpace: 'nowrap',
-};
-
+const SOCIAL_CALLBACK_KEYS = ['facebook', 'instagram', 'gmail', 'google_calendar', 'google_drive', 'youtube', 'google_business', 'tiktok', 'gemini'] as const;
+const DRIVE_RETURN_KEY = 'bos_drive_return_to';
 const CONNECT_RETURN_KEY = 'bos_connect_return';
-const SOCIAL_CALLBACK_KEYS = ['facebook', 'youtube', 'tiktok', 'google_drive', 'google_business', 'gmail', 'google_calendar'];
-
-function hasSocialCallback(params: URLSearchParams): boolean {
-  return SOCIAL_CALLBACK_KEYS.some(key => params.has(key));
-}
-
-function loadGapiPicker(): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const w = window as unknown as { gapi?: { load: (n: string, o: { callback: () => void }) => void }; google?: { picker?: unknown } };
-    if (w.google?.picker) return resolve();
-    const ready = () => w.gapi!.load('picker', { callback: () => resolve() });
-    const existing = document.getElementById('gapi-script') as HTMLScriptElement | null;
-    if (existing) {
-      if (w.gapi) ready(); else existing.addEventListener('load', ready);
-      return;
-    }
-    const s = document.createElement('script');
-    s.id = 'gapi-script';
-    s.src = 'https://apis.google.com/js/api.js';
-    s.onload = ready;
-    s.onerror = () => reject(new Error('Failed to load Google API script'));
-    document.body.appendChild(s);
-  });
-}
-
 
 export function AdminBrands() {
   const navigate = useNavigate();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [brands, setBrands]             = useState<BrandResponse[]>([]);
-  const [workspace, setWorkspace]       = useState<WorkspaceResponse | null>(null);
-  const [connections, setConnections]   = useState<SocialConn[]>([]);
-  const [loading, setLoading]           = useState(true);
-  const [adding, setAdding]             = useState(false);
-  const [newName, setNewName]           = useState('');
-  const [saving, setSaving]             = useState(false);
-  const [seeding, setSeeding]           = useState(false);
-  const [error, setError]               = useState<string | null>(null);
-  const [deletingId, setDeletingId]     = useState<string | null>(null);
-  const [connectingId, setConnectingId] = useState<string | null>(null);
-  const [driveRoots, setDriveRoots]     = useState<Record<string, { id: string; name: string }>>({});
-  const [toast, setToast]               = useState<string | null>(null);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [searchParams] = useSearchParams();
+  const [brands, setBrands] = useState<BrandResponse[]>([]);
+  const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
+  const [brandStatusById, setBrandStatusById] = useState<Record<string, OnboardingStatus | null>>({});
+  const [loading, setLoading] = useState(true);
+  const [adding, setAdding] = useState(false);
+  const [newName, setNewName] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [seeding, setSeeding] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   useEffect(() => {
-    return () => {
-      if (toastTimer.current) clearTimeout(toastTimer.current);
-    };
-  }, []);
-
-  function showToast(msg: string) {
-    setToast(msg);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 4000);
-  }
+    const callbackKey = SOCIAL_CALLBACK_KEYS.find(key => searchParams.has(key));
+    if (!callbackKey) return;
+    const returnTo = localStorage.getItem(DRIVE_RETURN_KEY) || sessionStorage.getItem(CONNECT_RETURN_KEY);
+    localStorage.removeItem(DRIVE_RETURN_KEY);
+    sessionStorage.removeItem(CONNECT_RETURN_KEY);
+    if (!returnTo || returnTo === '/admin/brands' || returnTo.startsWith('/admin/brands?')) return;
+    const [path, existingQuery = ''] = returnTo.split('?', 2);
+    const merged = new URLSearchParams(existingQuery);
+    searchParams.forEach((value, key) => merged.set(key, value));
+    const qs = merged.toString();
+    navigate(`${path}${qs ? `?${qs}` : ''}`, { replace: true });
+  }, [navigate, searchParams]);
 
   useEffect(() => {
-    Promise.all([
-      api.getBrands().catch(() => ({ brands: [] as BrandResponse[], total: 0 })),
-      api.getWorkspace().catch(() => null),
-      api.listSocialConnections().catch(() => [] as SocialConn[]),
-    ]).then(([brandsRes, ws, conns]) => {
-      setBrands(brandsRes.brands);
+    let cancelled = false;
+
+    async function load() {
+      setLoading(true);
+      const [brandsRes, ws] = await Promise.all([
+        api.getBrands().catch(() => ({ brands: [] as BrandResponse[], total: 0 })),
+        api.getWorkspace().catch(() => null),
+      ]);
+      const brandList = brandsRes.brands ?? [];
+      const statusEntries = await Promise.all(brandList.map(async brand => [
+        brand.id,
+        await api.getOnboardingStatus(brand.id).catch(() => null),
+      ] as const));
+      if (cancelled) return;
+      setBrands(brandList);
       setWorkspace(ws);
-      const connList = conns as SocialConn[];
-      setConnections(connList);
-      // Populate driveRoots for brands that already have google_drive connected so
-      // the UI shows the current root folder name instead of always saying "Choose folder".
-      const driveConns = connList.filter(c => c.platform === 'google_drive' && c.brand_id);
-      if (driveConns.length > 0) {
-        Promise.allSettled(
-          driveConns.map(c =>
-            api.listDriveFolders(c.brand_id!).then(r => ({
-              brandId: c.brand_id!,
-              folder_id: r.folder_id,
-              folder_name: r.folder_name,
-            }))
-          )
-        ).then(results => {
-          const roots: Record<string, { id: string; name: string }> = {};
-          results.forEach(r => {
-            if (r.status === 'fulfilled' && r.value.folder_id && r.value.folder_id !== 'root') {
-              roots[r.value.brandId] = { id: r.value.folder_id, name: r.value.folder_name || r.value.folder_id };
-            }
-          });
-          if (Object.keys(roots).length > 0) setDriveRoots(prev => ({ ...prev, ...roots }));
-        }).catch(() => {});
-      }
-    }).finally(() => setLoading(false));
+      setBrandStatusById(Object.fromEntries(statusEntries));
+      setLoading(false);
+    }
+
+    load().catch((err: unknown) => {
+      if (cancelled) return;
+      setError(err instanceof Error ? err.message : 'Could not load brands');
+      setLoading(false);
+    });
+
+    return () => { cancelled = true; };
   }, []);
-
-  const [fbPendingSession, setFbPendingSession] = useState<{ sessionId: string; pages: { id: string; name: string }[] } | null>(null);
-
-  // Handle OAuth callback params from installed connector redirects.
-  useEffect(() => {
-    const returnPath = sessionStorage.getItem(CONNECT_RETURN_KEY);
-    if (returnPath && hasSocialCallback(searchParams)) {
-      sessionStorage.removeItem(CONNECT_RETURN_KEY);
-      const qs = searchParams.toString();
-      navigate(`${returnPath}${qs ? `?${qs}` : ''}`, { replace: true });
-      return;
-    }
-
-    const gc = searchParams.get('google_calendar');
-    if (gc) {
-      const reason = searchParams.get('reason') || '';
-      const account = searchParams.get('account') || '';
-      setSearchParams({});
-      if (gc === 'connected') {
-        showToast(`✅ Google Calendar "${account}" connected`);
-        api.listSocialConnections().then(conns => setConnections(conns)).catch(() => {});
-      } else if (gc === 'denied') {
-        showToast('Google Calendar connection cancelled');
-      } else {
-        showToast(`⚠️ Google Calendar connection failed — ${reason.replace(/_/g, ' ')}`);
-      }
-    }
-    const gm = searchParams.get('gmail');
-    const brandId = searchParams.get('brand_id');
-
-    if (gm) {
-      setSearchParams({}, { replace: true });
-      if (gm === 'connected') {
-        const account = searchParams.get('account') || 'Gmail account';
-        showToast(`✅ Gmail "${account}" connected`);
-        if (brandId) api.listSocialConnections(brandId).then(c => setConnections(prev => [...prev.filter(x => x.brand_id !== brandId), ...(c as SocialConn[])])).catch(() => {});
-      } else if (gm === 'denied') {
-        showToast('Gmail connection cancelled');
-      } else {
-        const reason = searchParams.get('reason') || 'unknown';
-        showToast(`⚠️ Gmail connection failed — ${reason.replace(/_/g, ' ')}`);
-      }
-    }
-    const fb = searchParams.get('facebook');
-    if (fb) {
-      setSearchParams({}, { replace: true });
-      if (fb === 'connected') {
-        const account = searchParams.get('account') || 'Facebook page';
-        showToast(`✅ Facebook "${account}" connected`);
-        api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
-      } else if (fb === 'select_page') {
-        const sessionId = searchParams.get('session_id') || '';
-        if (sessionId) {
-          api.facebookPendingPages(sessionId)
-            .then(res => setFbPendingSession({ sessionId, pages: res.pages }))
-            .catch(() => showToast('⚠️ Could not load Facebook pages — try connecting again'));
-        }
-      } else if (fb === 'denied') {
-        showToast('Facebook connection cancelled');
-      } else {
-        const reason = searchParams.get('reason') || 'unknown';
-        showToast(`⚠️ Facebook connection failed — ${reason.replace(/_/g, ' ')}`);
-      }
-    }
-    const yt = searchParams.get('youtube');
-    if (yt) {
-      setSearchParams({}, { replace: true });
-      if (yt === 'connected') {
-        const account = searchParams.get('account') || 'YouTube channel';
-        showToast(`✅ YouTube "${account}" connected`);
-        api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
-      } else if (yt === 'denied') {
-        showToast('YouTube connection cancelled');
-      } else {
-        const reason = searchParams.get('reason') || 'unknown';
-        showToast(`⚠️ YouTube connection failed — ${reason.replace(/_/g, ' ')}`);
-      }
-    }
-    const tt = searchParams.get('tiktok');
-    if (tt) {
-      setSearchParams({}, { replace: true });
-      if (tt === 'connected') {
-        const account = searchParams.get('account') || 'TikTok account';
-        showToast(`✅ TikTok "${account}" connected`);
-        api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
-      } else if (tt === 'denied') {
-        showToast('TikTok connection cancelled');
-      } else {
-        const reason = searchParams.get('reason') || 'unknown';
-        showToast(`⚠️ TikTok connection failed — ${reason.replace(/_/g, ' ')}`);
-      }
-    }
-    const gd = searchParams.get('google_drive');
-    if (gd) {
-      setSearchParams({}, { replace: true });
-      if (gd === 'connected') {
-        const account = searchParams.get('account') || 'Google Drive';
-        showToast(`✅ Google Drive "${account}" connected`);
-        api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
-      } else if (gd === 'denied') {
-        showToast('Google Drive connection cancelled');
-      } else {
-        const reason = searchParams.get('reason') || 'unknown';
-        showToast(`⚠️ Google Drive connection failed — ${reason.replace(/_/g, ' ')}`);
-      }
-    }
-    const gbp = searchParams.get('google_business');
-    if (gbp) {
-      setSearchParams({}, { replace: true });
-      if (gbp === 'connected') {
-        const account = searchParams.get('account') || 'Google Business Profile';
-        showToast(`✅ Google Business Profile "${account}" connected`);
-        api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
-      } else if (gbp === 'denied') {
-        showToast('Google Business Profile connection cancelled');
-      } else {
-        const reason = searchParams.get('reason') || 'unknown';
-        showToast(`⚠️ Google Business Profile connection failed — ${reason.replace(/_/g, ' ')}`);
-      }
-    }
-  }, [searchParams, setSearchParams, navigate]);
 
   async function handleCreate() {
     const name = newName.trim();
@@ -283,18 +102,19 @@ export function AdminBrands() {
     setSeeding(true);
     setError(null);
     try {
-      const ws_brand = (workspace.brand as any) || {};
+      const wsBrand = (workspace.brand as any) || {};
       const brand = await api.createBrand({
         name: workspace.name,
-        voice: ws_brand.voice || '',
-        tone: ws_brand.tone || '',
-        values: ws_brand.values || [],
-        domain: ws_brand.domain || '',
-        website_url: ws_brand.website_url || '',
-        social_handles: ws_brand.social_handles || {},
+        voice: wsBrand.voice || '',
+        tone: wsBrand.tone || '',
+        values: wsBrand.values || [],
+        domain: wsBrand.domain || '',
+        website_url: wsBrand.website_url || '',
+        social_handles: wsBrand.social_handles || {},
       });
       const result = await api.claimWorkspaceBrand(brand.id);
       setBrands([result.brand]);
+      setBrandStatusById(prev => ({ ...prev, [result.brand.id]: null }));
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Could not seed from workspace');
     } finally {
@@ -302,254 +122,22 @@ export function AdminBrands() {
     }
   }
 
-  async function handleConnectFacebook(brandId: string) {
-    sessionStorage.removeItem(CONNECT_RETURN_KEY);
-    setConnectingId(brandId + '_facebook');
-    try {
-      const res = await api.startSocialConnect(brandId, 'facebook');
-      window.location.href = res.authorize_url;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'check META_APP_ID in settings';
-      showToast(`⚠️ Could not start Facebook connect — ${msg}`);
-    } finally {
-      setConnectingId(null);
-    }
-  }
-
-  async function handleDisconnectFacebook(brandId: string) {
-    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'facebook');
-    if (!conn) return;
-    if (!window.confirm(`Disconnect Facebook page "${conn.page_name}"?`)) return;
-    try {
-      await api.disconnectSocial(conn.id);
-      setConnections(prev => prev.filter(c => c.id !== conn.id));
-      showToast('Facebook page disconnected');
-    } catch {
-      showToast('⚠️ Could not disconnect — try again');
-    }
-  }
-
-  async function handleSelectFacebookPage(pageId: string) {
-    if (!fbPendingSession) return;
-    try {
-      await api.facebookSelectPage(fbPendingSession.sessionId, pageId);
-      const page = fbPendingSession.pages.find(p => p.id === pageId);
-      setFbPendingSession(null);
-      showToast(`✅ Facebook "${page?.name || pageId}" connected`);
-      api.listSocialConnections().then(conns => setConnections(conns as SocialConn[])).catch(() => {});
-    } catch {
-      showToast('⚠️ Could not connect page — try again');
-    }
-  }
-
-  async function handleConnectGmail(brandId: string) {
-    sessionStorage.removeItem(CONNECT_RETURN_KEY);
-    setConnectingId(brandId + '_gmail');
-    try {
-      const res = await api.startSocialConnect(brandId, 'gmail');
-      window.location.href = res.authorize_url;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'check GOOGLE_CLIENT_ID in settings';
-      showToast(`⚠️ Could not start Gmail connect — ${msg}`);
-    } finally {
-      setConnectingId(null);
-    }
-  }
-
-  async function handleConnectYouTube(brandId: string) {
-    sessionStorage.removeItem(CONNECT_RETURN_KEY);
-    setConnectingId(brandId + '_youtube');
-    try {
-      const res = await api.startSocialConnect(brandId, 'youtube');
-      window.location.href = res.authorize_url;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'check Google OAuth settings';
-      showToast(`⚠️ Could not start YouTube connect — ${msg}`);
-    } finally {
-      setConnectingId(null);
-    }
-  }
-
-  async function handleDisconnectYouTube(brandId: string) {
-    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'youtube');
-    if (!conn) return;
-    if (!window.confirm(`Disconnect YouTube channel "${conn.page_name}"?`)) return;
-    try {
-      await api.disconnectSocial(conn.id);
-      setConnections(prev => prev.filter(c => c.id !== conn.id));
-      showToast('YouTube channel disconnected');
-    } catch {
-      showToast('⚠️ Could not disconnect — try again');
-    }
-  }
-
-  async function handleConnectTikTok(brandId: string) {
-    sessionStorage.removeItem(CONNECT_RETURN_KEY);
-    setConnectingId(brandId + '_tiktok');
-    try {
-      const res = await api.startSocialConnect(brandId, 'tiktok');
-      window.location.href = res.authorize_url;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'check TikTok OAuth settings';
-      showToast(`⚠️ Could not start TikTok connect — ${msg}`);
-    } finally {
-      setConnectingId(null);
-    }
-  }
-
-  async function handleConnectDrive(brandId: string) {
-    sessionStorage.removeItem(CONNECT_RETURN_KEY);
-    setConnectingId(brandId + '_google_drive');
-    try {
-      const res = await api.startSocialConnect(brandId, 'google_drive');
-      window.location.href = res.authorize_url;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'check Google OAuth settings';
-      showToast(`⚠️ Could not start Google Drive connect — ${msg}`);
-    } finally {
-      setConnectingId(null);
-    }
-  }
-
-  async function handleConnectGoogleBusiness(brandId: string) {
-    sessionStorage.removeItem(CONNECT_RETURN_KEY);
-    setConnectingId(brandId + '_google_business');
-    try {
-      const res = await api.startSocialConnect(brandId, 'google_business');
-      window.location.href = res.authorize_url;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'check Google OAuth settings';
-      showToast(`⚠️ Could not start Google Business Profile connect — ${msg}`);
-    } finally {
-      setConnectingId(null);
-    }
-  }
-
-  async function handleDisconnectTikTok(brandId: string) {
-    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'tiktok');
-    if (!conn) return;
-    if (!window.confirm(`Disconnect TikTok account "${conn.page_name}"?`)) return;
-    try {
-      await api.disconnectSocial(conn.id);
-      setConnections(prev => prev.filter(c => c.id !== conn.id));
-      showToast('TikTok account disconnected');
-    } catch {
-      showToast('⚠️ Could not disconnect — try again');
-    }
-  }
-
-  async function handleDisconnectDrive(brandId: string) {
-    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'google_drive');
-    if (!conn) return;
-    if (!window.confirm(`Disconnect Google Drive "${conn.page_name}"?`)) return;
-    try {
-      await api.disconnectSocial(conn.id);
-      setConnections(prev => prev.filter(c => c.id !== conn.id));
-      setDriveRoots(prev => { const next = { ...prev }; delete next[brandId]; return next; });
-      showToast('Google Drive disconnected');
-    } catch {
-      showToast('⚠️ Could not disconnect — try again');
-    }
-  }
-
-  async function handleDisconnectGoogleBusiness(brandId: string) {
-    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'google_business');
-    if (!conn) return;
-    if (!window.confirm(`Disconnect Google Business Profile "${conn.page_name || conn.page_id}"?`)) return;
-    try {
-      await api.disconnectSocial(conn.id);
-      setConnections(prev => prev.filter(c => c.id !== conn.id));
-      showToast('Google Business Profile disconnected');
-    } catch {
-      showToast('⚠️ Could not disconnect — try again');
-    }
-  }
-
-  async function handleChooseDriveFolder(brandId: string) {
-    try {
-      const cfg = await api.getDrivePickerConfig(brandId);
-      await loadGapiPicker();
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const g = (window as any).google;
-      const view = new g.picker.DocsView(g.picker.ViewId.FOLDERS)
-        .setSelectFolderEnabled(true)
-        .setMimeTypes('application/vnd.google-apps.folder');
-      const picker = new g.picker.PickerBuilder()
-        .setOAuthToken(cfg.access_token)
-        .setDeveloperKey(cfg.api_key)
-        .setAppId(cfg.app_id)
-        .addView(view)
-        .enableFeature(g.picker.Feature.SUPPORT_DRIVES)
-        .setTitle("Choose the root folder for this brand's assets")
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        .setCallback(async (data: any) => {
-          if (data.action !== g.picker.Action.PICKED) return;
-          const doc = data.docs?.[0];
-          if (!doc) return;
-          try {
-            await api.setDriveRoot(brandId, doc.id, doc.name, doc.url || undefined);
-            setDriveRoots(prev => ({ ...prev, [brandId]: { id: doc.id, name: doc.name } }));
-            showToast(`✅ Asset root set to "${doc.name}"`);
-          } catch {
-            showToast('⚠️ Could not save folder selection — try again');
-          }
-        })
-        .build();
-      picker.setVisible(true);
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'check GOOGLE_PICKER_API_KEY + Picker API enabled';
-      showToast(`⚠️ Could not open folder picker — ${msg}`);
-    }
-  }
-
-  async function handleDisconnectGmail(brandId: string) {
-    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'gmail');
-    if (!conn) return;
-    if (!window.confirm(`Disconnect Gmail account "${conn.page_name}"?`)) return;
-    try {
-      await api.disconnectSocial(conn.id);
-      setConnections(prev => prev.filter(c => c.id !== conn.id));
-      showToast('Gmail account disconnected');
-    } catch {
-      showToast('⚠️ Could not disconnect — try again');
-    }
-  }
-
-  async function handleConnectCalendar(brandId: string) {
-    sessionStorage.removeItem(CONNECT_RETURN_KEY);
-    setConnectingId(brandId + '_calendar');
-    try {
-      const res = await api.startSocialConnect(brandId, 'google_calendar');
-      window.location.href = res.authorize_url;
-    } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : 'check GOOGLE_CLIENT_ID in settings';
-      showToast(`⚠️ Could not start Calendar connect — ${msg}`);
-    } finally {
-      setConnectingId(null);
-    }
-  }
-
-  async function handleDisconnectCalendar(brandId: string) {
-    const conn = connections.find(c => c.brand_id === brandId && c.platform === 'google_calendar');
-    if (!conn) return;
-    if (!window.confirm(`Disconnect Google Calendar account "${conn.page_name}"?`)) return;
-    try {
-      await api.disconnectSocial(conn.id);
-      setConnections(prev => prev.filter(c => c.id !== conn.id));
-      showToast('Google Calendar disconnected');
-    } catch {
-      showToast('⚠️ Could not disconnect — try again');
-    }
-  }
-
   async function handleDelete(id: string) {
-    if (!window.confirm('Delete this brand? All associated data will be unlinked.')) return;
+    const brand = brands.find(b => b.id === id);
+    if (!brand) return;
+    if (!window.confirm(`Delete brand "${brand.name}"? This cannot be undone.`)) return;
     setDeletingId(id);
+    setError(null);
     try {
       await api.deleteBrand(id);
       setBrands(prev => prev.filter(b => b.id !== id));
-    } catch (err: unknown) {
-      showToast(`⚠️ Could not delete brand — ${err instanceof Error ? err.message : 'try again'}`);
+      setBrandStatusById(prev => {
+        const next = { ...prev };
+        delete next[id];
+        return next;
+      });
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Could not delete brand');
     } finally {
       setDeletingId(null);
     }
@@ -561,12 +149,6 @@ export function AdminBrands() {
 
   return (
     <div className="admin-page">
-      {toast && (
-        <div style={{ position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', background: 'var(--obsidian)', color: 'var(--ivory)', padding: '10px 20px', borderRadius: 0, fontSize: 13, fontWeight: 600, zIndex: 9999, border: '.5px solid var(--border-dark)' }}>
-          {toast}
-        </div>
-      )}
-
       <div className="admin-page-header">
         <div>
           <div className="admin-page-title">Brands</div>
@@ -599,31 +181,7 @@ export function AdminBrands() {
           </div>
           {error && <div style={{ fontSize: 12, color: 'var(--error)', marginTop: 8 }}>{error}</div>}
           <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 8 }}>
-            Create the brand first, then import a Brand Brief to set voice, tone, products, and audiences.
-          </div>
-        </div>
-      )}
-
-      {fbPendingSession && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div className="admin-card" style={{ width: 360, margin: 0, padding: 24 }}>
-            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 6 }}>Select a Facebook Page</div>
-            <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>
-              Your account manages multiple pages. Choose which one to connect to this brand.
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {fbPendingSession.pages.map(p => (
-                <button
-                  key={p.id}
-                  className="btn btn-secondary"
-                  style={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                  onClick={() => handleSelectFacebookPage(p.id)}
-                >
-                  {p.name}
-                </button>
-              ))}
-            </div>
-            <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => setFbPendingSession(null)}>Cancel</button>
+            Create the brand first, then import a Brand Brief and connect integrations inside the brand.
           </div>
         </div>
       )}
@@ -633,7 +191,7 @@ export function AdminBrands() {
           <div style={{ fontSize: 32, marginBottom: 12 }}>⊞</div>
           <div style={{ fontWeight: 800, fontSize: 16, marginBottom: 6 }}>No brands yet</div>
           <div style={{ color: 'var(--text2)', fontSize: 14, marginBottom: 20 }}>
-            Add a brand to start managing campaigns, audiences, and content for a specific client or business unit.
+            Add a brand to start managing profiles, integrations, campaigns, and creative assets for a specific client or business unit.
           </div>
           <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
             <button className="btn btn-dark" onClick={() => setAdding(true)}>+ New Brand</button>
@@ -649,14 +207,12 @@ export function AdminBrands() {
             )}
           </div>
           {error && <div style={{ fontSize: 12, color: 'var(--error)', marginTop: 12 }}>{error}</div>}
-          <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 16 }}>
-            "Import from workspace" promotes your existing brand profile, products, audiences, and documents into a named brand.
-          </div>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 14 }}>
           {brands.map(brand => {
-            const complete = profileComplete(brand);
+            const statusKnown = Object.prototype.hasOwnProperty.call(brandStatusById, brand.id);
+            const badge = profileBadge(brandStatusById[brand.id], statusKnown);
             return (
               <div key={brand.id} className="admin-card" style={{ margin: 0, display: 'flex', flexDirection: 'column', gap: 0 }}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 10 }}>
@@ -673,15 +229,13 @@ export function AdminBrands() {
                       {brand.domain && <> · {brand.domain}</>}
                     </div>
                   </div>
-                  <span className={`status-badge ${complete ? 'approved' : 'pending'}`}>
-                    {complete ? 'Profile set' : 'No profile'}
-                  </span>
+                  <span className={`status-badge ${badge.tone}`}>{badge.label}</span>
                 </div>
 
-                <div style={{ marginBottom: 10 }}>
+                <div style={{ marginBottom: 14 }}>
                   {[
                     { key: 'Voice', val: brand.voice || '—' },
-                    { key: 'Tone',  val: brand.tone  || '—' },
+                    { key: 'Tone', val: brand.tone || '—' },
                   ].map(({ key, val }) => (
                     <div key={key} style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '3px 12px', margin: '5px 0', fontSize: 12 }}>
                       <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text2)', paddingTop: 1 }}>{key}</div>
@@ -691,7 +245,7 @@ export function AdminBrands() {
                   <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr', gap: '3px 12px', margin: '5px 0', fontSize: 12, alignItems: 'flex-start' }}>
                     <div style={{ fontSize: 9, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', color: 'var(--text2)', paddingTop: 3 }}>Values</div>
                     <div>
-                      {brand.values?.length > 0 ? (
+                      {brand.values?.length ? (
                         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
                           {brand.values.map(v => (
                             <span key={v} style={{ padding: '2px 8px', border: '1px solid var(--brand)', color: 'var(--brand)', borderRadius: 12, fontSize: 11, fontWeight: 500 }}>{v}</span>
@@ -704,183 +258,14 @@ export function AdminBrands() {
                   </div>
                 </div>
 
-                {(() => {
-                  const gmConn = connections.find(c => c.brand_id === brand.id && c.platform === 'gmail');
-                  const gcConn = connections.find(c => c.brand_id === brand.id && c.platform === 'google_calendar');
-                  const fbConn = connections.find(c => c.brand_id === brand.id && c.platform === 'facebook');
-                  const ytConn = connections.find(c => c.brand_id === brand.id && c.platform === 'youtube');
-                  const ttConn = connections.find(c => c.brand_id === brand.id && c.platform === 'tiktok');
-                  const gdConn = connections.find(c => c.brand_id === brand.id && c.platform === 'google_drive');
-                  const gbpConn = connections.find(c => c.brand_id === brand.id && c.platform === 'google_business');
-                  return (
-                    <>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-                        <PlatformIcon platform="facebook" />
-                        <span style={{ fontSize: 12, flex: 1 }}>Facebook</span>
-                        {fbConn ? (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fbConn.page_name || fbConn.page_id}</span>
-                            <span style={{ fontSize: 11, color: 'var(--success)', fontWeight: 600 }}>✓</span>
-                            <button style={connActionStyle} onClick={() => handleDisconnectFacebook(brand.id)}>Disconnect</button>
-                          </>
-                        ) : (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
-                            <button style={connActionStyle} onClick={() => handleConnectFacebook(brand.id)} disabled={connectingId === brand.id + '_facebook'}>
-                              {connectingId === brand.id + '_facebook' ? 'Redirecting…' : 'Connect'}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-                        <PlatformIcon platform="youtube" />
-                        <span style={{ fontSize: 12, flex: 1 }}>YouTube</span>
-                        {ytConn ? (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ytConn.page_name || ytConn.page_id}</span>
-                            <span style={{ fontSize: 11, color: 'var(--success)', fontWeight: 600 }}>✓</span>
-                            <button style={connActionStyle} onClick={() => handleDisconnectYouTube(brand.id)}>Disconnect</button>
-                          </>
-                        ) : (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
-                            <button style={connActionStyle} onClick={() => handleConnectYouTube(brand.id)} disabled={connectingId === brand.id + '_youtube'}>
-                              {connectingId === brand.id + '_youtube' ? 'Redirecting…' : 'Connect'}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-                        <PlatformIcon platform="tiktok" />
-                        <span style={{ fontSize: 12, flex: 1 }}>TikTok</span>
-                        {ttConn ? (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{ttConn.page_name || ttConn.page_id}</span>
-                            <span style={{ fontSize: 11, color: 'var(--success)', fontWeight: 600 }}>✓</span>
-                            <button style={connActionStyle} onClick={() => handleDisconnectTikTok(brand.id)}>Disconnect</button>
-                          </>
-                        ) : (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
-                            <button style={connActionStyle} onClick={() => handleConnectTikTok(brand.id)} disabled={connectingId === brand.id + '_tiktok'}>
-                              {connectingId === brand.id + '_tiktok' ? 'Redirecting…' : 'Connect'}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-                        <PlatformIcon platform="google_drive" />
-                        <span style={{ fontSize: 12, flex: 1 }}>Drive</span>
-                        {gdConn ? (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {driveRoots[brand.id]?.name ? `Root: ${driveRoots[brand.id].name}` : (gdConn.page_name || gdConn.page_id)}
-                            </span>
-                            <span style={{ fontSize: 11, color: gdConn.status === 'connected' ? 'var(--success)' : 'var(--warning-amber)', fontWeight: 600 }}>
-                              {gdConn.status === 'connected' ? '✓' : '⚠'}
-                            </span>
-                            {gdConn.status === 'connected' ? (
-                              <button style={{ ...connActionStyle, marginRight: 4 }} onClick={() => handleChooseDriveFolder(brand.id)}>
-                                {driveRoots[brand.id] ? 'Change folder' : 'Choose folder'}
-                              </button>
-                            ) : (
-                              <button style={{ ...connActionStyle, marginRight: 4 }} onClick={() => handleConnectDrive(brand.id)} disabled={connectingId === brand.id + '_google_drive'}>
-                                {connectingId === brand.id + '_google_drive' ? 'Redirecting…' : 'Reconnect'}
-                              </button>
-                            )}
-                            <button style={connActionStyle} onClick={() => handleDisconnectDrive(brand.id)}>Disconnect</button>
-                          </>
-                        ) : (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
-                            <button style={connActionStyle} onClick={() => handleConnectDrive(brand.id)} disabled={connectingId === brand.id + '_google_drive'}>
-                              {connectingId === brand.id + '_google_drive' ? 'Redirecting…' : 'Connect'}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-                        <PlatformIcon platform="google_business" />
-                        <span style={{ fontSize: 12, flex: 1 }}>Google Business</span>
-                        {gbpConn ? (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{gbpConn.page_name || gbpConn.page_id}</span>
-                            <span style={{ fontSize: 11, color: gbpConn.status === 'connected' ? 'var(--success)' : 'var(--warning-amber)', fontWeight: 600 }}>
-                              {gbpConn.status === 'connected' ? '✓' : '⚠'}
-                            </span>
-                            {gbpConn.status !== 'connected' && (
-                              <button style={{ ...connActionStyle, marginRight: 4 }} onClick={() => handleConnectGoogleBusiness(brand.id)} disabled={connectingId === brand.id + '_google_business'}>
-                                {connectingId === brand.id + '_google_business' ? 'Redirecting…' : 'Reconnect'}
-                              </button>
-                            )}
-                            <button style={connActionStyle} onClick={() => handleDisconnectGoogleBusiness(brand.id)}>Disconnect</button>
-                          </>
-                        ) : (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
-                            <button style={connActionStyle} onClick={() => handleConnectGoogleBusiness(brand.id)} disabled={connectingId === brand.id + '_google_business'}>
-                              {connectingId === brand.id + '_google_business' ? 'Redirecting…' : 'Connect'}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)', marginTop: 8 }}>
-                        <PlatformIcon platform="gmail" />
-                        <span style={{ fontSize: 12, flex: 1 }}>Gmail</span>
-                        {gmConn ? (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {gmConn.page_name || gmConn.page_id}
-                            </span>
-                            <span style={{ fontSize: 11, color: 'var(--success)', fontWeight: 600 }}>✓</span>
-                            <button style={connActionStyle} onClick={() => handleDisconnectGmail(brand.id)}>Disconnect</button>
-                          </>
-                        ) : (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
-                            <button style={connActionStyle} onClick={() => handleConnectGmail(brand.id)} disabled={connectingId === brand.id + '_gmail'}>
-                              {connectingId === brand.id + '_gmail' ? 'Redirecting…' : 'Connect'}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '5px 0', borderTop: '1px solid var(--border)' }}>
-                        <PlatformIcon platform="google_calendar" />
-                        <span style={{ fontSize: 12, flex: 1 }}>Google Calendar</span>
-                        {gcConn ? (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                              {gcConn.page_name || gcConn.page_id}
-                            </span>
-                            <span style={{ fontSize: 11, color: 'var(--success)', fontWeight: 600 }}>✓</span>
-                            <button style={connActionStyle} onClick={() => handleDisconnectCalendar(brand.id)}>Disconnect</button>
-                          </>
-                        ) : (
-                          <>
-                            <span style={{ fontSize: 11, color: 'var(--text2)' }}>Not connected</span>
-                            <button style={connActionStyle} onClick={() => handleConnectCalendar(brand.id)} disabled={connectingId === brand.id + '_calendar'}>
-                              {connectingId === brand.id + '_calendar' ? 'Redirecting…' : 'Connect'}
-                            </button>
-                          </>
-                        )}
-                      </div>
-                    </>
-                  );
-                })()}
+                <div style={{ fontSize: 12, color: 'var(--text2)', padding: '10px 0', borderTop: '1px solid var(--border)' }}>
+                  Manage integrations, products, audiences, guidelines, and creative assets inside this brand.
+                </div>
 
-                <div style={{ display: 'flex', gap: 8, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => navigate(`/admin/brands/${brand.id}`)}
-                  >
-                    Manage
-                  </button>
-                  <button
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => navigate('/admin/campaigns', { state: { brand_id: brand.id, brand_name: brand.name } })}
-                  >
-                    Campaigns
-                  </button>
+                <div style={{ display: 'flex', gap: 8, paddingTop: 10, borderTop: '1px solid var(--border)', flexWrap: 'wrap' }}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/admin/brands/${brand.id}`)}>Manage</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/admin/brands/${brand.id}?tab=integrations`)}>Integrations</button>
+                  <button className="btn btn-ghost btn-sm" onClick={() => navigate('/admin/campaigns', { state: { brand_id: brand.id, brand_name: brand.name } })}>Campaigns</button>
                   <button
                     className="btn btn-danger btn-sm"
                     style={{ marginLeft: 'auto' }}
@@ -894,6 +279,10 @@ export function AdminBrands() {
             );
           })}
         </div>
+      )}
+
+      {error && !adding && brands.length > 0 && (
+        <div style={{ fontSize: 12, color: 'var(--error)', marginTop: 12 }}>{error}</div>
       )}
     </div>
   );

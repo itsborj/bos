@@ -3,10 +3,12 @@ from __future__ import annotations
 
 from typing import ClassVar
 
+from module_base import ModuleBase
+
 from .types import ArtifactBlock, RunResult
 
 
-class ChannelModule:
+class ChannelModule(ModuleBase):
     """
     Base class for all Klaroha channel plugins.
 

@@ -632,11 +632,19 @@ async def check_key(
     try:
         ok = await get_adapter(body.provider, api_key, auth_mode).check()
         status = "ok" if ok else "error"
-        message = "connected" if ok else "credential rejected or provider unreachable"
+        if body.provider == "openai" and auth_mode == "oauth" and ok:
+            message = "connected via OpenAI OAuth."
+        else:
+            message = "connected" if ok else "credential rejected or provider unreachable"
     except Exception as exc:
-        logger.warning("Provider check failed for '%s': %s", body.provider, exc)
-        status = "error"
-        message = str(exc)
+        from providers.openai_codex import QuotaExhaustedError
+        if isinstance(exc, QuotaExhaustedError):
+            status = "ok"
+            message = "connected (usage quota exhausted — will reset automatically)"
+        else:
+            logger.warning("Provider check failed for '%s': %s", body.provider, exc)
+            status = "error"
+            message = str(exc)
 
     if row:
         metadata = dict(row.metadata_json or {})
@@ -794,26 +802,6 @@ def _openai_text_models_from_payload(data: dict, *, limit: int = 3) -> list[Prov
     ]
 
 
-def _anthropic_text_models_from_payload(data: dict, *, limit: int = 3) -> list[ProviderModelLive]:
-    rows = []
-    for m in data.get("data", []):
-        model_id = str((m or {}).get("id") or "").strip()
-        if not model_id or not model_id.lower().startswith("claude"):
-            continue
-        rows.append(m)
-    rows.sort(key=lambda m: str(m.get("created_at") or m.get("created") or ""), reverse=True)
-    return [
-        _provider_model(
-            "anthropic",
-            str(m.get("id")),
-            m.get("display_name") or m.get("name") or str(m.get("id")),
-            quality_tier="high" if "opus" in str(m.get("id", "")).lower() else "medium",
-            modality="text",
-        )
-        for m in rows[:limit]
-    ]
-
-
 def _gemini_model_rank(model_id: str) -> tuple[int, str]:
     mid = model_id.lower()
     if "2.5-pro" in mid:
@@ -850,6 +838,48 @@ def _gemini_text_models_from_payload(data: dict, *, limit: int = 3) -> list[Prov
             context_length=int(m.get("inputTokenLimit") or m.get("input_token_limit") or 0),
             quality_tier="high" if "pro" in model_id.lower() else "medium",
             modality="text",
+        )
+        for m, model_id in rows[:limit]
+    ]
+
+
+def _gemini_video_model_rank(model_id: str) -> tuple[int, str]:
+    mid = model_id.lower()
+    if "veo-3.1" in mid and "fast" not in mid and "lite" not in mid:
+        return (0, mid)
+    if "veo-3.1-fast" in mid:
+        return (1, mid)
+    if "veo-3.1-lite" in mid:
+        return (2, mid)
+    if "veo-3" in mid:
+        return (3, mid)
+    if "veo-2" in mid:
+        return (4, mid)
+    return (9, mid)
+
+
+def _gemini_video_models_from_payload(data: dict, *, limit: int = 3) -> list[ProviderModelLive]:
+    """Return Gemini/Veo long-running video models from the native model list."""
+    rows = []
+    for m in data.get("models", []):
+        raw_name = str((m or {}).get("name") or "").strip()
+        model_id = raw_name.split("/", 1)[1] if raw_name.startswith("models/") else raw_name
+        mid = model_id.lower()
+        methods = set(m.get("supportedGenerationMethods") or [])
+        if not model_id or "predictLongRunning" not in methods:
+            continue
+        if "veo" not in mid:
+            continue
+        rows.append((m, model_id))
+    rows.sort(key=lambda pair: _gemini_video_model_rank(pair[1]))
+    return [
+        _provider_model(
+            "gemini",
+            model_id,
+            m.get("displayName") or m.get("display_name") or model_id,
+            context_length=int(m.get("inputTokenLimit") or m.get("input_token_limit") or 0),
+            quality_tier="high" if "fast" not in model_id.lower() and "lite" not in model_id.lower() else "medium",
+            modality="video",
         )
         for m, model_id in rows[:limit]
     ]
@@ -900,26 +930,6 @@ async def _fetch_openai_models(api_key: str, *, limit: int = 3, auth_mode: str |
     return models
 
 
-async def _fetch_anthropic_models(api_key: str, *, limit: int = 3) -> list[ProviderModelLive]:
-    cache_key = _cache_key("anthropic_live", api_key)
-    cached = _model_cache.get(cache_key)
-    if cached and time.time() - cached[1] < _CACHE_TTL:
-        return cached[0]
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.get(
-                "https://api.anthropic.com/v1/models",
-                headers={"x-api-key": api_key, "anthropic-version": "2023-06-01"},
-            )
-            r.raise_for_status()
-            models = _anthropic_text_models_from_payload(r.json(), limit=limit)
-    except Exception as exc:
-        logger.warning("Anthropic model list fetch failed: %s", exc)
-        return _model_cache.get(cache_key, ([], 0))[0]
-    _model_cache[cache_key] = (models, time.time())
-    return models
-
-
 async def _fetch_gemini_models(api_key: str, *, limit: int = 3, auth_mode: str | None = None) -> list[ProviderModelLive]:
     cache_key = _cache_key(f"gemini_live:{auth_mode or 'api_key'}", api_key)
     cached = _model_cache.get(cache_key)
@@ -935,7 +945,8 @@ async def _fetch_gemini_models(api_key: str, *, limit: int = 3, auth_mode: str |
             else:
                 r = await client.get("https://generativelanguage.googleapis.com/v1beta/models", params={"key": api_key})
             r.raise_for_status()
-            models = _gemini_text_models_from_payload(r.json(), limit=limit)
+            payload = r.json()
+            models = _gemini_text_models_from_payload(payload, limit=limit) + _gemini_video_models_from_payload(payload, limit=limit)
     except Exception as exc:
         logger.warning("Gemini model list fetch failed: %s", exc)
         return _model_cache.get(cache_key, ([], 0))[0]
@@ -988,10 +999,31 @@ async def _fetch_bytedance_models(api_key: str) -> list[ProviderModelLive]:
 async def _fetch_live_text_models(provider: str, api_key: str, *, limit: int = 3, auth_mode: str | None = None) -> list[ProviderModelLive]:
     if provider == "openai":
         return await _fetch_openai_models(api_key, limit=limit, auth_mode=auth_mode)
-    if provider == "anthropic":
-        return await _fetch_anthropic_models(api_key, limit=limit)
     if provider == "gemini":
         return await _fetch_gemini_models(api_key, limit=limit, auth_mode=auth_mode)
+    if provider == "bytedance":
+        all_models = await _fetch_bytedance_models(api_key)
+        text_models = [m for m in all_models if _is_text_model_id(m.model_id)]
+        # Sort: prefer seed-2-0-pro > seed-2-0-lite > deepseek-v4 > deepseek-v3 > rest
+        def _rank(m: ProviderModelLive) -> tuple[int, str]:
+            mid = m.model_id.lower()
+            if "seed-2-0-pro" in mid:
+                return (0, mid)
+            if "deepseek-v4-pro" in mid:
+                return (1, mid)
+            if "seed-2-0-lite" in mid:
+                return (2, mid)
+            if "deepseek-v3-2" in mid:
+                return (3, mid)
+            if "deepseek-v4-flash" in mid:
+                return (4, mid)
+            if "deepseek-r1" in mid:
+                return (5, mid)
+            if "skylark-pro" in mid:
+                return (6, mid)
+            return (99, mid)
+        text_models.sort(key=_rank)
+        return text_models[:limit]
     return []
 
 

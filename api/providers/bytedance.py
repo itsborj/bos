@@ -33,7 +33,7 @@ class ByteDanceAdapter(OpenAICompatAdapter):
         resolution: str = "480p",
         ratio: str = "16:9",
         duration: int = 4,
-        generate_audio: bool = False,
+        generate_audio: bool = True,
         watermark: bool = True,
     ) -> ProviderResponse:
         """Submit a video generation task and poll until complete. Returns video URL as content."""

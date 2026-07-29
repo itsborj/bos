@@ -46,7 +46,7 @@ _STALE_ON_RERUN: dict[str, list[str]] = {
 # Components supported for per-component re-run
 _WIRED_COMPONENTS = {
     "buyer_map", "strategic_thesis", "offer_architecture",
-    "channel_stack", "tactical_funnel", "work_orders",
+    "channel_stack", "channel_content_matrix", "tactical_funnel", "work_orders",
 }
 
 # Per-component input field requirements (upstream keys to inject)

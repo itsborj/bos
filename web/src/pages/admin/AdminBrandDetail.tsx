@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { AudienceOut, BillingSummary, BrandResponse, PmConfig, ProductOut, WorkspaceDocument, WorkspaceResponse } from '../../api/types';
+import { DriveFolderPickerModal, useDriveFolderPicker } from '../../components/DriveFolderPicker';
 
 type Tab = 'profile' | 'products' | 'audiences' | 'guidelines' | 'brand-kit' | 'project-management' | 'integrations';
 
@@ -309,7 +310,14 @@ function GuidelinesTab({ brandId }: { brandId: string }) {
 
 // ── Brand Kit tab ─────────────────────────────────────────────────────────────
 
-function BrandKitTab({ brandId }: { brandId: string }) {
+function imageNameCount(files: { name: string }[], pattern: RegExp): number {
+  return files.filter(f => pattern.test(f.name || '')).length;
+}
+
+type DriveImageLite = { id: string; name: string; mimeType: string; thumbnailLink?: string; webViewLink?: string };
+
+
+function BrandKitTab({ brandId, brand }: { brandId: string; brand: BrandResponse }) {
   const navigate = useNavigate();
   const [kit, setKit]         = useState<WorkspaceDocument | null>(null);
   const [loading, setLoading] = useState(true);
@@ -318,20 +326,55 @@ function BrandKitTab({ brandId }: { brandId: string }) {
   const [saving, setSaving]   = useState(false);
   const [copied, setCopied]   = useState(false);
   const [error, setError]     = useState<string | null>(null);
+  const drive = useDriveFolderPicker(brandId);
+  const [foldersLoading, setFoldersLoading] = useState(true);
+  const [driveImagesError, setDriveImagesError] = useState<string | null>(null);
+  const [assetImages, setAssetImages] = useState<DriveImageLite[]>([]);
+  const readinessGeneration = useRef(0);
+
+  async function loadDriveImages(generation: number): Promise<DriveImageLite[] | null> {
+    if (generation === readinessGeneration.current) {
+      setFoldersLoading(true);
+      setDriveImagesError(null);
+    }
+    try {
+      const images = await api.listDriveImages(brandId, undefined, 'image');
+      const files = images?.files || [];
+      if (generation === readinessGeneration.current) setAssetImages(files);
+      return files;
+    } catch (err: unknown) {
+      if (generation === readinessGeneration.current) setDriveImagesError(err instanceof Error ? err.message : 'Could not read images from the selected Drive folder.');
+      return null;
+    } finally {
+      if (generation === readinessGeneration.current) setFoldersLoading(false);
+    }
+  }
 
   useEffect(() => {
+    const generation = ++readinessGeneration.current;
+    setLoading(true);
+    setKit(null);
+    setDraft('');
+    setError(null);
+    setAssetImages([]);
+    setDriveImagesError(null);
     api.getDocuments({ doc_type: 'campaign_brand_kit', brand_id: brandId })
       .then(docs => {
+        if (generation !== readinessGeneration.current) return;
         const latest = docs[0] ?? null;
         setKit(latest);
         setDraft(latest?.content_markdown ?? '');
       })
       .catch((err: unknown) => {
+        if (generation !== readinessGeneration.current) return;
         const status = typeof err === 'object' && err !== null && 'status' in err ? (err as { status?: number }).status : undefined;
-        if (status !== 404) setError(err instanceof Error ? err.message : 'Could not load Brand Kit');
+        if (status !== 404) setError(err instanceof Error ? err.message : 'Could not load Brand Creative Brief');
       })
-      .finally(() => setLoading(false));
-  }, [brandId]);
+      .finally(() => { if (generation === readinessGeneration.current) setLoading(false); });
+
+    void loadDriveImages(generation);
+    return () => { if (generation === readinessGeneration.current) readinessGeneration.current += 1; };
+  }, [brandId]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (loading) return <div className="loading-full"><span className="spinner" /></div>;
 
@@ -339,7 +382,7 @@ function BrandKitTab({ brandId }: { brandId: string }) {
     return (
       <div style={{ textAlign: 'center', padding: '32px 0' }}>
         <div style={{ fontSize: 14, color: 'var(--text2)', marginBottom: 16 }}>
-          No Campaign Brand Kit generated yet.
+          No Brand Creative Brief generated yet.
         </div>
         <button className="btn btn-dark" onClick={() => navigate('/admin/onboarding', { state: { brand_id: brandId } })}>
           Generate in Onboarding →
@@ -348,6 +391,7 @@ function BrandKitTab({ brandId }: { brandId: string }) {
       </div>
     );
   }
+
 
   async function handleCopy() {
     if (!kit) return;
@@ -376,6 +420,10 @@ function BrandKitTab({ brandId }: { brandId: string }) {
 
   async function handleApprove() {
     if (!kit) return;
+    if (drive.driveLoading || !drive.driveRoot) {
+      setError('Choose and validate a Brand Kit Drive folder containing the official logo before approving the Brand Creative Brief.');
+      return;
+    }
     setSaving(true);
     try {
       const updated = await api.approveDocument(kit.id);
@@ -389,8 +437,9 @@ function BrandKitTab({ brandId }: { brandId: string }) {
     }
   }
 
+
   return (
-    <div>
+    <div id="campaign-brand-kit" style={{ scrollMarginTop: 90 }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16, marginBottom: 14 }}>
         <div>
           <div style={{ fontWeight: 800, fontSize: 16 }}>{kit.title}</div>
@@ -402,10 +451,78 @@ function BrandKitTab({ brandId }: { brandId: string }) {
           <button className="btn btn-secondary btn-sm" onClick={handleCopy}>{copied ? 'Copied' : 'Copy Markdown'}</button>
           <button className="btn btn-secondary btn-sm" onClick={() => setEditing(!editing)}>{editing ? 'Cancel' : 'Edit'}</button>
           {kit.status !== 'approved' && (
-            <button className="btn btn-dark btn-sm" onClick={handleApprove} disabled={saving}>{saving ? '…' : 'Approve'}</button>
+            <button
+              className="btn btn-dark btn-sm"
+              onClick={handleApprove}
+              disabled={saving || drive.driveLoading || !drive.driveRoot}
+              title={!drive.driveRoot ? 'Validate the Brand Kit Drive folder and logo before approval.' : undefined}
+            >{saving ? '…' : 'Approve'}</button>
           )}
         </div>
       </div>
+
+      {(() => {
+        const readinessLoading = drive.driveLoading || foldersLoading;
+        const logoCount = imageNameCount(assetImages, /(^|[-_ .])(logo|wordmark|brandmark|mark)([-_ .]|$)/i);
+        const supportingAssetCount = Math.max(0, assetImages.length - logoCount);
+        const profileReady = Boolean(brand.voice || brand.tone || brand.values?.length);
+        const rootReady = Boolean(drive.driveRoot && logoCount > 0);
+        const checklist: Array<{ ok: boolean; label: string; required?: boolean; action?: { label: string; onClick: () => void; disabled?: boolean } }> = [
+          { ok: profileReady, label: 'Brand profile imported', required: true },
+          { ok: kit.status === 'approved', label: 'Brand Creative Brief approved', required: true },
+          { ok: Boolean(drive.driveRoot), label: drive.driveRoot ? `Authorized Brand Kit folder: ${drive.driveRoot.name}` : 'Required: select one Brand Kit Drive folder in Integrations', required: true },
+          { ok: logoCount > 0, label: logoCount > 0 ? `Official logo/wordmark available (${logoCount})` : 'Required: add an image named like *_logo.*', required: true },
+          { ok: supportingAssetCount >= 3, label: supportingAssetCount >= 3 ? `Creative reference assets available (${supportingAssetCount})` : 'Optional: add 3–5 product, character, people, location, or aesthetic references' },
+        ];
+        return (
+          <div id="brand-kit-assets" style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 14, marginBottom: 14, scrollMarginTop: 90 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12, alignItems: 'flex-start', marginBottom: 8 }}>
+              <div>
+                <div style={{ fontWeight: 800, fontSize: 14 }}>Creative readiness</div>
+                <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 3 }}>
+                  The approved brief and official logo establish brand readiness. Additional assets guide creativity when relevant; fixed templates are optional.
+                </div>
+              </div>
+              <button className="btn btn-ghost btn-sm" onClick={() => navigate(`/admin/brands/${brandId}?tab=integrations`)} disabled={readinessLoading}>
+                {readinessLoading ? 'Checking…' : rootReady ? 'Change folder' : 'Choose folder'}
+              </button>
+            </div>
+            {error && (
+              <div role="alert" style={{ fontSize: 12, color: '#b91c1c', background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 8, padding: 8, marginBottom: 8 }}>
+                {error}
+              </div>
+            )}
+            {(drive.driveError || driveImagesError) && (
+              <div style={{ fontSize: 12, color: '#b45309', background: '#fffbeb', border: '1px solid #fde68a', borderRadius: 8, padding: 8, marginBottom: 8 }}>
+                {driveImagesError || drive.driveError}
+              </div>
+            )}
+            {readinessLoading ? <div style={{ fontSize: 12, color: 'var(--text2)' }}>Checking the authorized Drive folder…</div> : (
+              <div style={{ display: 'grid', gap: 7 }}>
+                {/* Event callbacks read the request-generation ref only after user interaction. */}
+                {/* eslint-disable-next-line react-hooks/refs */}
+                {checklist.map(item => {
+                  const missingRequired = item.required && !item.ok;
+                  return (
+                    <div key={item.label} style={{ display: 'flex', gap: 8, alignItems: 'flex-start', justifyContent: 'space-between', fontSize: 12, color: item.ok || !item.required ? 'var(--text)' : 'var(--text2)' }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-start', minWidth: 0 }}>
+                        <span className={`badge badge-${item.ok ? 'success' : missingRequired ? 'warning' : 'muted'}`} style={{ fontSize: 10, minWidth: 44, textAlign: 'center' }}>{item.ok ? 'OK' : missingRequired ? 'Todo' : 'Rec'}</span>
+                        <span>{item.label}</span>
+                      </div>
+                      {item.action && (
+                        <button className="btn btn-secondary btn-sm" style={{ flexShrink: 0, fontSize: 11, padding: '4px 8px' }} onClick={item.action.onClick} disabled={item.action.disabled}>
+                          {item.action.label}
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })()}
+
       {editing ? (
         <div>
           <textarea
@@ -579,6 +696,7 @@ type SocialConn = {
 
 const INTEGRATION_PLATFORMS = [
   { id: 'facebook',        label: 'Facebook Page',   icon: '📘', twoStep: true },
+  { id: 'instagram',       label: 'Instagram',        icon: '📸', twoStep: true },
   { id: 'youtube',         label: 'YouTube',          icon: '▶️' },
   { id: 'tiktok',          label: 'TikTok',           icon: '🎵' },
   { id: 'google_drive',    label: 'Google Drive',     icon: '🗂️', hasFolderPicker: true },
@@ -594,6 +712,7 @@ const SOCIAL_CALLBACK_LABELS: Record<string, string> = Object.fromEntries(
 );
 const SOCIAL_CALLBACK_DEFAULT_ACCOUNTS: Record<string, string> = {
   facebook: 'Facebook page',
+  instagram: 'Instagram account',
   youtube: 'YouTube channel',
   tiktok: 'TikTok account',
   google_drive: 'Google Drive',
@@ -620,15 +739,10 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
   const [conns, setConns]           = useState<SocialConn[]>([]);
   const [loading, setLoading]       = useState(true);
   const [connectingId, setConnectingId] = useState<string | null>(null);
-  const [fbModal, setFbModal]       = useState<{ sessionId: string; pages: { id: string; name: string }[] } | null>(null);
-  const [driveRoot, setDriveRoot]   = useState<{ id: string; name: string } | null>(null);
+  const [metaModal, setMetaModal]   = useState<{ platform: 'facebook' | 'instagram'; sessionId: string; pages: { id: string; name: string }[] } | null>(null);
   const [toast, setToast]           = useState<string | null>(null);
-  const [folderModalOpen, setFolderModalOpen]       = useState(false);
-  const [folderModalCurrent, setFolderModalCurrent] = useState<{ id: string; name: string }>({ id: 'root', name: 'My Drive' });
-  const [folderModalStack, setFolderModalStack]     = useState<{ id: string; name: string }[]>([]);
-  const [folderModalFolders, setFolderModalFolders] = useState<{ id: string; name: string }[]>([]);
-  const [folderModalLoading, setFolderModalLoading] = useState(false);
-  const [folderModalError, setFolderModalError]     = useState<string | null>(null);
+  const [folderModalOpen, setFolderModalOpen] = useState(false);
+  const drive = useDriveFolderPicker(brandId);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function showToast(msg: string) {
@@ -643,17 +757,7 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
     api.listSocialConnections(brandId)
       .then(c => {
         if (cancelled) return;
-        const list = c as SocialConn[];
-        setConns(list);
-        if (list.some(x => x.platform === 'google_drive')) {
-          api.listDriveFolders(brandId)
-            .then(r => {
-              if (!cancelled) setDriveRoot(r.folder_id && r.folder_id !== 'root' ? { id: r.folder_id, name: r.folder_name || r.folder_id } : null);
-            })
-            .catch(() => { if (!cancelled) setDriveRoot(null); });
-        } else {
-          setDriveRoot(null);
-        }
+        setConns(c as SocialConn[]);
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -667,16 +771,17 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
     const result = searchParams.get(platform) || '';
     const brandParam = searchParams.get('brand_id');
     const label = SOCIAL_CALLBACK_LABELS[platform] || platform;
-    setSearchParams({}, { replace: true });
+    setSearchParams({ tab: 'integrations' }, { replace: true });
 
     if (brandParam && brandParam !== brandId) return;
 
-    if (platform === 'facebook' && result === 'select_page') {
+    if ((platform === 'facebook' || platform === 'instagram') && result === 'select_page') {
       const sessionId = searchParams.get('session_id') || '';
       if (sessionId) {
-        api.facebookPendingPages(sessionId)
-          .then(res => setFbModal({ sessionId, pages: res.pages }))
-          .catch(() => showToast('⚠️ Could not load Facebook pages — try connecting again'));
+        const loader = platform === 'instagram' ? api.instagramPendingPages : api.facebookPendingPages;
+        loader(sessionId)
+          .then(res => setMetaModal({ platform: platform as 'facebook' | 'instagram', sessionId, pages: res.pages }))
+          .catch(() => showToast(`⚠️ Could not load ${label} choices — try connecting again`));
       }
       return;
     }
@@ -699,8 +804,7 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
 
   async function handleConnect(platform: string) {
     setConnectingId(platform);
-    // Store return path so the brands list can redirect back here after OAuth
-    sessionStorage.setItem(CONNECT_RETURN_KEY, window.location.pathname);
+    sessionStorage.setItem(CONNECT_RETURN_KEY, `${window.location.pathname}?tab=integrations`);
     try {
       const res = await api.startSocialConnect(brandId, platform);
       window.location.href = res.authorize_url;
@@ -717,20 +821,22 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
     try {
       await api.disconnectSocial(c.id);
       setConns(prev => prev.filter(x => x.id !== c.id));
-      if (platform === 'google_drive') setDriveRoot(null);
+      if (platform === 'google_drive') drive.refresh();
       showToast(`${label} disconnected`);
     } catch {
       showToast('⚠️ Could not disconnect — try again');
     }
   }
 
-  async function handleSelectFbPage(pageId: string) {
-    if (!fbModal) return;
+  async function handleSelectMetaPage(pageId: string) {
+    if (!metaModal) return;
     try {
-      await api.facebookSelectPage(fbModal.sessionId, pageId);
-      const page = fbModal.pages.find(p => p.id === pageId);
-      setFbModal(null);
-      showToast(`✅ Facebook "${page?.name || pageId}" connected`);
+      const picker = metaModal.platform === 'instagram' ? api.instagramSelectPage : api.facebookSelectPage;
+      await picker(metaModal.sessionId, pageId);
+      const page = metaModal.pages.find(p => p.id === pageId);
+      const label = metaModal.platform === 'instagram' ? 'Instagram' : 'Facebook';
+      setMetaModal(null);
+      showToast(`✅ ${label} "${page?.name || pageId}" connected`);
       const updated = await api.listSocialConnections(brandId).catch(() => conns);
       setConns(updated as SocialConn[]);
     } catch {
@@ -738,37 +844,9 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
     }
   }
 
-  async function loadFolderModalDir(folder: { id: string; name: string }, stack: { id: string; name: string }[]) {
-    setFolderModalLoading(true);
-    setFolderModalFolders([]);
-    setFolderModalError(null);
-    try {
-      const res = await api.listDriveFolders(brandId, folder.id);
-      setFolderModalCurrent(folder.id === 'root' ? { id: 'root', name: 'My Drive' } : folder);
-      setFolderModalStack(stack);
-      setFolderModalFolders(res.folders || []);
-    } catch (e) {
-      setFolderModalError(e instanceof Error ? e.message : 'Could not load Drive.');
-    } finally {
-      setFolderModalLoading(false);
-    }
-  }
-
-  async function handleChooseDriveFolder() {
-    setFolderModalOpen(true);
-    await loadFolderModalDir({ id: 'root', name: 'My Drive' }, []);
-  }
-
-  async function handleSelectDriveFolder() {
-    if (!folderModalCurrent || folderModalCurrent.id === 'root') return;
-    try {
-      await api.setDriveRoot(brandId, folderModalCurrent.id, folderModalCurrent.name);
-      setDriveRoot({ id: folderModalCurrent.id, name: folderModalCurrent.name });
-      setFolderModalOpen(false);
-      showToast(`✅ Asset root set to "${folderModalCurrent.name}"`);
-    } catch {
-      showToast('⚠️ Could not save folder — try again');
-    }
+  function handleDriveValidated() {
+    setFolderModalOpen(false);
+    drive.refresh();
   }
 
   if (loading) return <div className="loading-full"><span className="spinner" /></div>;
@@ -781,97 +859,41 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
         </div>
       )}
 
-      {fbModal && (
+      {metaModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div className="admin-card" style={{ width: 360, margin: 0, padding: 24 }}>
-            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 6 }}>Select a Facebook Page</div>
+            <div style={{ fontWeight: 800, fontSize: 15, marginBottom: 6 }}>
+              {metaModal.platform === 'instagram' ? 'Select an Instagram-connected Meta Page' : 'Select a Facebook Page'}
+            </div>
             <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>
-              Your account manages multiple pages. Choose which one to connect to this brand.
+              {metaModal.platform === 'instagram'
+                ? 'Choose the Meta Page that is linked to the Instagram Business Account you want to connect.'
+                : 'Your account manages multiple pages. Choose which one to connect to this brand.'}
             </div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-              {fbModal.pages.map(p => (
+              {metaModal.pages.map(p => (
                 <button
                   key={p.id}
                   className="btn btn-secondary"
                   style={{ justifyContent: 'flex-start', textAlign: 'left' }}
-                  onClick={() => handleSelectFbPage(p.id)}
+                  onClick={() => handleSelectMetaPage(p.id)}
                 >
                   {p.name}
                 </button>
               ))}
             </div>
-            <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => setFbModal(null)}>Cancel</button>
+            <button className="btn btn-ghost btn-sm" style={{ marginTop: 12 }} onClick={() => setMetaModal(null)}>Cancel</button>
           </div>
         </div>
       )}
 
-      {folderModalOpen && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-          onClick={e => { if (e.target === e.currentTarget) setFolderModalOpen(false); }}>
-          <div style={{ background: '#fff', borderRadius: 14, padding: 24, width: 480, maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 12 }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <div style={{ fontWeight: 700, fontSize: 15 }}>Choose asset root folder</div>
-              <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: '#6b7280' }} onClick={() => setFolderModalOpen(false)}>✕</button>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexWrap: 'wrap', fontSize: 12, color: '#6b7280', background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 8, padding: '7px 9px', minHeight: 34 }}>
-              {folderModalStack.length === 0 ? (
-                <span>📁 <strong style={{ color: '#111827' }}>My Drive</strong></span>
-              ) : (
-                <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: 11 }} disabled={folderModalLoading}
-                  onClick={() => loadFolderModalDir({ id: 'root', name: 'My Drive' }, [])}>
-                  📁 My Drive
-                </button>
-              )}
-              {folderModalStack.map((item, i) => (
-                <span key={item.id} style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <span style={{ color: '#9ca3af' }}>›</span>
-                  {i < folderModalStack.length - 1 ? (
-                    <button className="btn btn-ghost btn-sm" style={{ padding: '2px 6px', fontSize: 11 }} disabled={folderModalLoading}
-                      onClick={() => {
-                        const newStack = folderModalStack.slice(0, i + 1);
-                        loadFolderModalDir(item, newStack);
-                      }}>
-                      {item.name}
-                    </button>
-                  ) : (
-                    <span>📁 <strong style={{ color: '#111827' }}>{item.name}</strong></span>
-                  )}
-                </span>
-              ))}
-            </div>
-            {folderModalLoading && <div style={{ color: '#6b7280', fontSize: 13 }}>Loading…</div>}
-            {folderModalError && <div style={{ color: '#ef4444', fontSize: 13 }}>{folderModalError}</div>}
-            {!folderModalLoading && !folderModalError && folderModalFolders.length === 0 && (
-              <div style={{ color: '#6b7280', fontSize: 13 }}>No subfolders here.</div>
-            )}
-            {!folderModalLoading && folderModalFolders.length > 0 && (
-              <div style={{ overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
-                {folderModalFolders.map(f => (
-                  <button key={f.id}
-                    style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: '#fff7ed', border: '1px solid #fed7aa', borderRadius: 7, cursor: 'pointer', textAlign: 'left', fontSize: 13 }}
-                    onClick={() => loadFolderModalDir(f, [...folderModalStack, f])}>
-                    <span style={{ fontSize: 18, flexShrink: 0 }}>📁</span>
-                    <span style={{ fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{f.name}</span>
-                    <span style={{ marginLeft: 'auto', color: '#9a3412', fontSize: 11, flexShrink: 0 }}>Open →</span>
-                  </button>
-                ))}
-              </div>
-            )}
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, paddingTop: 4, borderTop: '1px solid #e5e7eb' }}>
-              <button className="btn btn-ghost btn-sm" onClick={() => setFolderModalOpen(false)}>Cancel</button>
-              <button className="btn btn-primary btn-sm" disabled={folderModalCurrent.id === 'root' || folderModalLoading} onClick={handleSelectDriveFolder}>
-                Select "{folderModalCurrent.id === 'root' ? 'My Drive' : folderModalCurrent.name}"
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <DriveFolderPickerModal brandId={brandId} open={folderModalOpen} onClose={() => setFolderModalOpen(false)} onValidated={handleDriveValidated} />
 
       <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 20 }}>
-        Connect social and data platforms for this brand. After OAuth, you'll return to the Brands page — navigate back here to see the updated status.
+        Connect social and data platforms for this brand. After OAuth, you'll return here and stay on the Integrations tab.
       </div>
 
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 0 }}>
+      <div id="publish-channels" style={{ display: 'flex', flexDirection: 'column', gap: 0, scrollMarginTop: 90 }}>
         {INTEGRATION_PLATFORMS.map(({ id, label, icon, ...flags }) => {
           const c = conn(id);
           const busy = connectingId === id;
@@ -881,7 +903,8 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
           return (
             <div
               key={id}
-              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 0', borderBottom: '1px solid var(--border)' }}
+              id={`integration-${id}`}
+              style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '14px 0', borderBottom: '1px solid var(--border)', scrollMarginTop: 90 }}
             >
               <span style={{ fontSize: 18, width: 28, textAlign: 'center', flexShrink: 0 }}>{icon}</span>
               <div style={{ flex: 1 }}>
@@ -891,16 +914,16 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
                 {c && (
                   <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 1 }}>{label}</div>
                 )}
-                {id === 'google_drive' && c && driveRoot && (
-                  <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 1 }}>Root: {driveRoot.name}</div>
+                {id === 'google_drive' && c && drive.driveRoot && (
+                  <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 1 }}>Root: {drive.driveRoot.name}</div>
                 )}
               </div>
               {c ? (
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexShrink: 0 }}>
                   <span className={`status-badge ${isConnected ? 'approved' : 'pending'}`} style={{ fontSize: 10 }}>{statusText}</span>
                   {isConnected && hasFolderPicker && (
-                    <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={handleChooseDriveFolder}>
-                      {driveRoot ? 'Change folder' : 'Choose folder'}
+                    <button className="btn btn-secondary btn-sm" style={{ fontSize: 11 }} onClick={() => setFolderModalOpen(true)}>
+                      {drive.driveRoot ? 'Change folder' : 'Choose folder'}
                     </button>
                   )}
                   {!isConnected && (
@@ -939,7 +962,7 @@ function IntegrationsTab({ brandId }: { brandId: string }) {
 export function AdminBrandDetail() {
   const { brandId } = useParams<{ brandId: string }>();
   const navigate    = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [brand, setBrand]         = useState<BrandResponse | null>(null);
   const [workspace, setWorkspace]  = useState<WorkspaceResponse | null>(null);
@@ -947,6 +970,21 @@ export function AdminBrandDetail() {
   const [loading, setLoading]      = useState(true);
   const [activeTab, setActiveTab]  = useState<Tab>(() => tabFromSearchParams(searchParams));
   const [error, setError]          = useState<string | null>(null);
+
+  useEffect(() => {
+    const nextTab = tabFromSearchParams(searchParams);
+    setActiveTab(current => current === nextTab ? current : nextTab);
+  }, [searchParams]);
+
+  useEffect(() => {
+    const hash = window.location.hash;
+    if (!hash) return;
+    const targetId = decodeURIComponent(hash.slice(1));
+    const timer = window.setTimeout(() => {
+      document.getElementById(targetId)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [activeTab, brand?.id, searchParams]);
 
   useEffect(() => {
     if (!brandId) return;
@@ -982,7 +1020,7 @@ export function AdminBrandDetail() {
     { id: 'products',           label: 'Products' },
     { id: 'audiences',          label: 'Audiences' },
     { id: 'guidelines',         label: 'Guidelines' },
-    { id: 'brand-kit',          label: 'Brand Kit' },
+    { id: 'brand-kit',          label: 'Creative Brief & Assets' },
     { id: 'project-management', label: 'Project Mgmt' },
   ];
 
@@ -1063,7 +1101,12 @@ export function AdminBrandDetail() {
             <div
               key={id}
               className={`tab${activeTab === id ? ' active' : ''}`}
-              onClick={() => setActiveTab(id)}
+              onClick={() => {
+                setActiveTab(id);
+                const next = new URLSearchParams(searchParams);
+                next.set('tab', id);
+                setSearchParams(next);
+              }}
             >
               {label}
             </div>
@@ -1086,7 +1129,7 @@ export function AdminBrandDetail() {
             <GuidelinesTab brandId={brand.id} />
           )}
           {activeTab === 'brand-kit' && (
-            <BrandKitTab brandId={brand.id} />
+            <BrandKitTab brandId={brand.id} brand={brand} />
           )}
           {activeTab === 'project-management' && (
             <ProjectManagementTab brand={brand} onUpdate={setBrand} />

@@ -34,10 +34,33 @@ def _block_type(run: Any) -> str:
     return str(block.get("type") or "").lower() if isinstance(block, dict) else ""
 
 
+def _block_artifact_kind(run: Any) -> str:
+    block = (getattr(run.result, "block", None) or {}) if getattr(run, "result", None) else {}
+    return str(block.get("artifact_kind") or "").lower() if isinstance(block, dict) else ""
+
+
+def _block_reason_code(run: Any) -> str:
+    block = (getattr(run.result, "block", None) or {}) if getattr(run, "result", None) else {}
+    return str(block.get("reason_code") or "").lower() if isinstance(block, dict) else ""
+
+
+def _block_display_title(run: Any) -> str:
+    block = (getattr(run.result, "block", None) or {}) if getattr(run, "result", None) else {}
+    if not isinstance(block, dict):
+        return ""
+    title = block.get("display_title") or block.get("title")
+    return str(title).strip() if title else ""
+
+
+_SETUP_BLOCKER_CODES = {"missing_credentials", "invalid_brief", "api_call_failed"}
+
+
 def artifact_type(run: Any) -> str:
     module_id = run.module_id.lower()
     if _block_status(run) == "failed":
-        return "setup_blocker"
+        if _block_reason_code(run) in _SETUP_BLOCKER_CODES:
+            return "setup_blocker"
+        return "draft_artifact"
     if "plan" in module_id:
         return "plan_artifact"
     if "gbp" in module_id or _block_type(run) == "gbp_completeness_result":
@@ -53,8 +76,17 @@ def artifact_title(run: Any) -> str:
     module_id = run.module_id.lower()
     platform = _title_case((run.result.platform if run.result and run.result.platform else run.module_id.rsplit(".", 1)[-1]) or "asset")
     platform_key = platform.lower()
+    block_title = _block_display_title(run)
+    if block_title:
+        return block_title
     if "strategy_workflow" in module_id:
         return "Strategy Workflow"
+    if "storyboard.motion" in module_id:
+        return "Previs Motion Draft"
+    if "storyboard" in module_id:
+        if _block_artifact_kind(run) == "video_production_blueprint":
+            return "Video Production Blueprint"
+        return "Storyboard Draft" if _block_type(run) == "storyboard_json" or "create" in module_id else "Storyboard Image"
     if "gtm_plan" in module_id or "marketing.planning.gtm" in module_id:
         return "GTM Strategy"
     if ("email" in module_id or "gmail" in module_id or "email" in platform_key) and "plan" in module_id:
@@ -90,6 +122,10 @@ def artifact_renderer(run: Any) -> str:
     channel = f"{module_id} {platform}"
     if "strategy_workflow" in module_id:
         return "strategy_workflow_preview"
+    if "storyboard" in module_id:
+        return "storyboard_preview"
+    if "postcraft" in module_id or _block_type(run) == "post_image":
+        return "approval_bundle"
     if "gtm_plan" in module_id or "marketing.planning.gtm" in module_id:
         return "gtm_strategy_preview"
     if "email" in channel:
@@ -122,7 +158,7 @@ def artifact_status(run: Any) -> str:
         return "failed"
     if run.approval_status == "approved":
         return "approved"
-    if run.approval_status in ("rejected", "dismissed"):
+    if run.approval_status in ("rejected", "dismissed", "revised"):
         return "dismissed"
     if run.approval_status == "pending":
         return "pending_review"

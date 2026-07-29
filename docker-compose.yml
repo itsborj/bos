@@ -27,7 +27,7 @@ services:
       - "${API_PORT:-8000}:8000"
     volumes:
       - bos_secrets:/data/secrets
-      - ${EXTERNAL_PLUGINS_PATH:-/home/ubu/bos-plugins}:/external_plugins:ro
+      - ./plugins:/external_plugins:ro
     environment:
       - EXTERNAL_PLUGINS_DIR=/external_plugins
     depends_on:

@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import require_api_key
 from db import get_db
-from models.workspace import Audience, Campaign, Product, Workspace
+from models.workspace import Audience, Product, Workspace
 from schemas.workspace import (
     AudienceOut,
     AudiencesPayload,

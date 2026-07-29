@@ -158,9 +158,9 @@ Make the operator workflow reliable end-to-end:
 - Expected: video uploads with title, description, privacy, tags.
 
 ### 22. Decide YouTube image requirement
-- Current YouTube plugin has video publish only.
-- No YouTube community/image post module exists.
-- Expected decision: either add YouTube image/community post support or mark it out of scope.
+- Current YouTube plugin should not claim native image/community post support.
+- Do not use the MP4 fallback as a substitute for a true YouTube image/community post.
+- Expected decision: either implement the real native YouTube image/community post flow or mark it out of scope.
 
 ---
 

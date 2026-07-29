@@ -11,6 +11,8 @@ import type {
   ChatStreamEvent,
   DriveReferenceUploadResponse,
   BrandKitResponse,
+  BrandKitResourcesResponse,
+  BrandKitTemplateMutationResponse,
   CouncilSeat,
   CouncilSeatUpdate,
   CouncilSessionState,
@@ -56,6 +58,13 @@ export function clearApiKey(): void {
   localStorage.removeItem('bos_api_key');
 }
 
+function normalizeNetworkError(err: unknown): Error {
+  if (err instanceof Error && /failed to fetch|networkerror/i.test(err.message)) {
+    return new Error('Could not reach the BOS API. If you are running locally, use http://localhost:8090 or the proxied app URL.');
+  }
+  return err instanceof Error ? err : new Error('Request failed');
+}
+
 function extractMessage(body: Record<string, unknown>): string {
   // FastAPI wraps HTTPException detail under "detail"
   const detail = body?.detail;
@@ -93,7 +102,12 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     };
     if (key) headers['X-API-Key'] = key;
 
-    const res = await fetch(`${BASE}${path}`, { ...options, headers });
+    let res: Response;
+    try {
+      res = await fetch(`${BASE}${path}`, { ...options, headers });
+    } catch (err) {
+      throw normalizeNetworkError(err);
+    }
 
     if (res.status === 401 || res.status === 403) {
       const body = await res.json().catch(() => ({})) as Record<string, unknown>;
@@ -265,6 +279,7 @@ export const api = {
     module_id?: string;
     status?: string;
     approval_status?: string;
+    exclude_approval_status?: string;
     brand_id?: string;
     created_after?: string;
     created_before?: string;
@@ -291,11 +306,8 @@ export const api = {
   refreshStream: () =>
     request<StreamRefreshOut>('/stream/refresh', { method: 'POST' }),
 
-  dismissStreamUpdate: (updateId: string) =>
+  deleteStreamUpdate: (updateId: string) =>
     request<import('./types').StreamUpdateOut>(`/stream/${updateId}`, { method: 'DELETE' }),
-
-  dismissStreamUpdates: (filters?: { priority?: string; type?: string }) =>
-    request<import('./types').StreamBulkDismissOut>('/stream/dismiss' + buildQuery(filters), { method: 'POST' }),
 
   getProviders: (brand_id?: string, include_available = false) =>
     request<{ providers: ProviderInfo[] }>('/providers' + buildQuery({ brand_id, include_available: include_available ? 'true' : undefined })),
@@ -337,10 +349,13 @@ export const api = {
     request<BillingSummary>(brandId ? `/billing/summary?brand_id=${brandId}` : '/billing/summary'),
 
   chat: (message: string, history: ChatHistoryItem[], brandId?: string | null, campaignId?: string | null, references: ChatReference[] = [], conversationId?: string | null) =>
-    request<ChatResponse>('/chat', {
+    request<ChatResponse>('/cmo_v2/chat', {
       method: 'POST',
       body: JSON.stringify({ message, history, brand_id: brandId ?? null, campaign_id: campaignId ?? null, conversation_id: conversationId ?? null, references }),
     }),
+
+  deleteChatConversation: (conversationId: string) =>
+    request<{ conversation_id: string; deleted_references: number }>(`/cmo_v2/chat/conversations/${encodeURIComponent(conversationId)}`, { method: 'DELETE' }),
 
   async *chatStream(
     message: string,
@@ -351,16 +366,30 @@ export const api = {
     conversationId?: string | null,
   ): AsyncGenerator<ChatStreamEvent> {
     const key = getApiKey();
-    const resp = await fetch(`${BASE}/chat/stream`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(key ? { 'X-API-Key': key } : {}),
-      },
-      body: JSON.stringify({ message, history, brand_id: brandId ?? null, campaign_id: campaignId ?? null, conversation_id: conversationId ?? null, references }),
-    });
-    if (!resp.ok) throw new Error(`Chat stream failed: ${resp.status}`);
-    const reader = resp.body!.getReader();
+    let resp: Response;
+    try {
+      resp = await fetch(`${BASE}/cmo_v2/chat/stream`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(key ? { 'X-API-Key': key } : {}),
+        },
+        body: JSON.stringify({ message, history, brand_id: brandId ?? null, campaign_id: campaignId ?? null, conversation_id: conversationId ?? null, references }),
+      });
+    } catch (err) {
+      throw normalizeNetworkError(err);
+    }
+    if (!resp.ok) {
+      const contentType = resp.headers.get('content-type') || '';
+      if (resp.status === 404 && contentType.includes('text/html')) {
+        throw new Error('BOS API not reached — use http://localhost:8090 locally, not the raw web port.');
+      }
+      const body = await resp.json().catch(() => ({})) as Record<string, unknown>;
+      const msg = extractMessage(body) || `Chat stream failed: ${resp.status}`;
+      throw new Error(msg);
+    }
+    if (!resp.body) throw new Error('Chat stream response had no body. Please retry.');
+    const reader = resp.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let sawDone = false;
@@ -373,8 +402,13 @@ export const api = {
       for (const part of parts) {
         const line = part.trim();
         if (line.startsWith('data: ')) {
+          const payload = line.slice(6).trim();
+          if (payload === '[DONE]') {
+            sawDone = true;
+            continue;
+          }
           try {
-            const event = JSON.parse(line.slice(6)) as ChatStreamEvent;
+            const event = JSON.parse(payload) as ChatStreamEvent;
             if (event.type === 'done') sawDone = true;
             yield event;
           } catch {
@@ -394,14 +428,23 @@ export const api = {
   getBrands: () =>
     request<BrandListResponse>('/brands'),
 
-  listCampaigns: () =>
-    request<import('./types').CampaignOut[]>('/campaigns'),
+  listCampaigns: (brandId?: string | null) =>
+    request<import('./types').CampaignOut[]>(brandId ? `/campaigns?brand_id=${encodeURIComponent(brandId)}` : '/campaigns'),
 
-  createCampaign: (body: { name: string; status?: string }) =>
+  createCampaign: (body: { name: string; brand_id: string; status?: string; audience?: string | null; message_angle?: string | null; campaign_json?: Record<string, unknown> | null }) =>
     request<import('./types').CampaignOut>('/campaigns', { method: 'POST', body: JSON.stringify(body) }),
 
-  updateCampaign: (id: string, body: { name?: string; status?: string }) =>
+  updateCampaign: (id: string, body: { name?: string; status?: string; brand_id?: string | null; audience?: string | null; message_angle?: string | null; campaign_json?: Record<string, unknown> | null; confirm_status_change?: boolean | null }) =>
     request<import('./types').CampaignOut>(`/campaigns/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+
+  deleteCampaign: (id: string) =>
+    request<void>(`/campaigns/${id}?confirm=true`, { method: 'DELETE' }),
+
+  getCampaignSheet: (id: string) =>
+    request<import('./types').CampaignSheetResponse>(`/campaigns/${id}/sheet`),
+
+  appendCampaignRow: (id: string, body: Partial<import('./types').CampaignRowOut>) =>
+    request<import('./types').CampaignRowOut>(`/campaigns/${id}/rows`, { method: 'POST', body: JSON.stringify(body) }),
 
   createBrand: (body: { name: string; voice?: string; tone?: string; values?: string[]; domain?: string; website_url?: string; social_handles?: Record<string, string> }) =>
     request<BrandResponse>('/brands', { method: 'POST', body: JSON.stringify(body) }),
@@ -412,6 +455,7 @@ export const api = {
   updateBrand: (brandId: string, body: Partial<{ name: string; voice: string; tone: string; values: string[]; domain: string; website_url: string; social_handles: Record<string, string>; pm_config: import('./types').PmConfig | null }>) =>
     request<BrandResponse>(`/brands/${brandId}`, { method: 'PUT', body: JSON.stringify(body) }),
 
+
   deleteBrand: (brandId: string) =>
     request<void>(`/brands/${brandId}`, { method: 'DELETE' }),
 
@@ -419,10 +463,46 @@ export const api = {
     request<{ brand: BrandResponse; claimed: Record<string, number> }>(`/brands/${brandId}/claim-workspace`, { method: 'POST' }),
 
   approveRun: (runId: string) =>
-    request<{ run_id: string; approval_status: string }>(`/runs/${runId}/approve`, { method: 'PATCH' }),
+    request<{ run_id: string; approval_status: string; action_run?: RunResponse }>(`/runs/${runId}/approve`, { method: 'PATCH' }),
 
   executeRunAction: (runId: string, action: string, body: { confirm: boolean; overrides?: Record<string, unknown> }) =>
     request<RunActionResponse>(`/runs/${runId}/actions/${action}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  renderPostcraftRun: (runId: string, body: { confirm: boolean; overrides?: Record<string, unknown> } = { confirm: true }) =>
+    request<RunActionResponse>(`/postcraft/runs/${runId}/render`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  renderStoryboardRun: (runId: string, body: { confirm: boolean; overrides?: Record<string, unknown> } = { confirm: true }) =>
+    request<RunActionResponse>(`/storyboard/runs/${runId}/render`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  generatePrevisVideo: (runId: string, body: { confirm: boolean; overrides?: Record<string, unknown> } = { confirm: true }) =>
+    request<RunActionResponse>(`/previs-motion/runs/${runId}/generate-video`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  revisePostcraftRun: (runId: string, body: { feedback: string; references?: ChatReference[]; overrides?: Record<string, unknown> }) =>
+    request<RunActionResponse>(`/postcraft/runs/${runId}/revise`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  reviseStoryboardRun: (runId: string, body: { feedback: string; references?: ChatReference[]; overrides?: Record<string, unknown> }) =>
+    request<RunActionResponse>(`/storyboard/runs/${runId}/revise`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+
+  revisePrevisVideo: (runId: string, body: { feedback: string; references?: ChatReference[]; overrides?: Record<string, unknown> }) =>
+    request<RunActionResponse>(`/previs-motion/runs/${runId}/revise`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
@@ -433,16 +513,19 @@ export const api = {
       body: JSON.stringify({ feedback }),
     }),
 
+  deleteRun: (runId: string) =>
+    request<{ run_id: string; deleted: boolean }>(`/runs/${runId}`, { method: 'DELETE' }),
+
   reviseRun: (runId: string, feedback?: string) =>
     request<RunResponse>(`/runs/${runId}/revise`, {
       method: 'POST',
       body: JSON.stringify({ feedback: feedback || undefined }),
     }),
 
-  chatReviseRun: (runId: string, feedback: string, history: ChatHistoryItem[]) =>
+  chatReviseRun: (runId: string, feedback: string, history: ChatHistoryItem[], references?: ChatReference[]) =>
     request<ChatResponse>(`/chat/runs/${runId}/revise`, {
       method: 'POST',
-      body: JSON.stringify({ feedback, history }),
+      body: JSON.stringify({ feedback, history, references: references || [] }),
     }),
 
   ingestBrandDoc: (document_text: string, workspace_name?: string, brand_id?: string) =>
@@ -466,6 +549,27 @@ export const api = {
 
   getLatestBrandKit: (status?: string, brand_id?: string) =>
     request<WorkspaceDocument>('/onboarding/brand-kit/latest' + buildQuery({ status, brand_id })),
+
+  getBrandKitResources: (brandId: string) =>
+    request<BrandKitResourcesResponse>(`/brands/${brandId}/brand-kit/resources`),
+
+  classifyBrandKitResources: (brandId: string, body: { resource_ids: string[]; classification: 'template' | 'reference' | 'logo' | 'asset'; template_defaults?: Record<string, unknown> }) =>
+    request<BrandKitTemplateMutationResponse>(`/brands/${brandId}/brand-kit/resources/classify`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  bulkUpdateBrandKitTemplates: (brandId: string, body: { template_ids?: string[]; updates?: Record<string, unknown>; templates?: Record<string, unknown>[]; selection_policy?: Record<string, unknown> }) =>
+    request<BrandKitTemplateMutationResponse>(`/brands/${brandId}/brand-kit/templates/bulk`, {
+      method: 'PATCH',
+      body: JSON.stringify(body),
+    }),
+
+  updateBrandKitTemplate: (brandId: string, templateId: string, updates: Record<string, unknown>) =>
+    request<BrandKitTemplateMutationResponse>(`/brands/${brandId}/brand-kit/templates/${templateId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ updates }),
+    }),
 
   getDocuments: (params?: { doc_type?: string; status?: string; brand_id?: string }) =>
     request<WorkspaceDocument[]>('/workspace/documents' + buildQuery(params)),
@@ -510,20 +614,26 @@ export const api = {
       body: JSON.stringify({ session_id, page_id }),
     }),
 
+  instagramPendingPages: (session_id: string) =>
+    request<{ pages: { id: string; name: string }[] }>(`/social/instagram/pending-pages?session_id=${session_id}`),
+
+  instagramSelectPage: (session_id: string, page_id: string) =>
+    request<{ status: string; page_id: string; page_name: string }>('/social/instagram/select-page', {
+      method: 'POST',
+      body: JSON.stringify({ session_id, page_id }),
+    }),
+
   disconnectSocial: (connection_id: string) =>
     request<{ status: string }>(`/social/connections/${connection_id}`, { method: 'DELETE' }),
-
-  getDrivePickerConfig: (brand_id: string) =>
-    request<{ access_token: string; api_key: string; app_id: string }>(`/social/drive/picker-config?brand_id=${brand_id}`),
 
   listDriveFolders: (brand_id: string, parent_id?: string) =>
     request<{ folder_id?: string; folder_name?: string | null; folders: { id: string; name: string }[] }>(
       `/social/drive/folders?brand_id=${encodeURIComponent(brand_id)}${parent_id ? `&parent_id=${encodeURIComponent(parent_id)}` : ''}`
     ),
 
-  listDriveImages: (brand_id: string, folder_id?: string, media_type?: string) =>
+  listDriveImages: (brand_id: string, folder_id?: string, media_type?: string, q?: string) =>
     request<{ folder_id: string; files: { id: string; name: string; mimeType: string; size?: number; webViewLink?: string; thumbnailLink?: string }[] }>(
-      `/social/drive/images?brand_id=${encodeURIComponent(brand_id)}${folder_id ? `&folder_id=${encodeURIComponent(folder_id)}` : ''}${media_type ? `&media_type=${encodeURIComponent(media_type)}` : ''}`
+      `/social/drive/images?brand_id=${encodeURIComponent(brand_id)}${folder_id ? `&folder_id=${encodeURIComponent(folder_id)}` : ''}${media_type ? `&media_type=${encodeURIComponent(media_type)}` : ''}${q ? `&q=${encodeURIComponent(q)}` : ''}`
     ),
 
   attachImageToRun: (runId: string, drive_file_id: string, drive_file_name: string, drive_file_mime: string) =>

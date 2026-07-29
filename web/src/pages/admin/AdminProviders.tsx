@@ -52,6 +52,10 @@ function friendlyModelName(modelId: string): string {
   if (id === 'google/gemma-2-27b-it') return 'Gemma 2 27B';
   if (id === 'google/gemma-2-9b-it') return 'Gemma 2 9B';
   if (id === 'mistralai/mistral-7b-instruct') return 'Mistral 7B';
+  if (id.includes('claude-fable-5')) return 'Claude Fable 5';
+  if (id.includes('claude-opus-4-8')) return 'Claude Opus 4.8';
+  if (id.includes('claude-haiku-4-5')) return 'Claude Haiku 4.5';
+  if (id.includes('claude-sonnet-4-6')) return 'Claude Sonnet 4.6';
   if (id === 'anthropic/claude-sonnet-4-5') return 'Claude Sonnet 4.5';
   if (id.includes('claude-opus-4')) return 'Claude Opus 4';
   if (id.includes('claude-sonnet-4')) return 'Claude Sonnet 4';
@@ -81,6 +85,10 @@ function modelVersionFamily(modelId: string): string {
   if (id.includes('qwen-2.5')) return 'qwen-25';
   if (id.includes('gemma-2')) return 'gemma-2';
   if (id.includes('mistral-7b')) return 'mistral-7b';
+  if (id.includes('claude-fable-5')) return 'claude-fable-5';
+  if (id.includes('claude-opus-4-8')) return 'claude-opus-48';
+  if (id.includes('claude-haiku-4-5')) return 'claude-haiku-45';
+  if (id.includes('claude-sonnet-4-6')) return 'claude-sonnet-46';
   if (id.includes('claude-sonnet-4-5') || id.includes('claude-sonnet-4')) return 'claude-sonnet-4';
   if (id.includes('claude-opus-4')) return 'claude-opus-4';
   if (id.includes('gpt-4o-mini')) return 'gpt-4o-mini';

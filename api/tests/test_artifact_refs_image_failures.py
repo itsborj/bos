@@ -6,7 +6,7 @@ from artifacts import artifact_ref_from_run, artifact_status, artifact_type
 def test_failed_image_asset_is_not_pending_draft_artifact() -> None:
     run = SimpleNamespace(
         run_id="run_failed_image",
-        module_id="media.image.generate",
+        module_id="postcraft.render",
         vertical="media",
         status="partial",
         approval_status="failed",

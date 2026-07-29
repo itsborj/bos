@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { api } from '../api/client';
+import { api, getApiKey } from '../api/client';
 import { useUI } from '../context/UIContext';
 import { useCmoChat } from '../context/CmoChatContext';
-import type { CouncilRoundMsg } from '../context/CmoChatContext';
+import type { CouncilRoundMsg, Msg } from '../context/CmoChatContext';
 import { BlockRenderer } from '../components/blocks/BlockRenderer';
 import { SurfaceProvider } from '../surfaces/SurfaceContext';
 import type { ArtifactRef } from '../utils/artifacts';
 import { artifactStatusLabel, buildArtifactRef } from '../utils/artifacts';
-import type { CouncilFinalizeResult, HandoffBriefOut, ObjectiveOut } from '../api/types';
+import type { CouncilFinalizeResult, HandoffBriefOut } from '../api/types';
 import type { BriefingBlock } from '../types/stream';
 
 const CARD_TYPE_LABELS: Record<string, string> = {
@@ -27,6 +27,21 @@ const OUTCOME_TYPES = [
   { value: 'other', label: 'Other' },
 ];
 
+const LOCAL_ATTACHMENT_ACCEPT = [
+  '.jpg', '.jpeg', '.png', '.webp', '.gif',
+  '.doc', '.docx', '.ppt', '.pptx', '.pdf', '.json', '.txt',
+  'image/jpeg', 'image/png', 'image/webp', 'image/gif',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/pdf', 'application/json', 'text/plain',
+].join(',');
+
+function dataTransferHasFiles(dataTransfer?: DataTransfer | null): boolean {
+  return Array.from(dataTransfer?.types || []).includes('Files');
+}
+
 function fmtTime(d: Date) { return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
 
 function textToBlock(text: string): BriefingBlock {
@@ -39,6 +54,19 @@ function textToBlock(text: string): BriefingBlock {
     interaction: 'passive',
     content: text
   };
+}
+
+function ThinkingIndicator({ label = 'CMO is thinking' }: { label?: string }) {
+  return (
+    <div className="cmo-thinking" role="status" aria-live="polite" aria-label={label}>
+      <span className="cmo-thinking-label">{label}</span>
+      <span className="cmo-typing" aria-hidden="true">
+        <span className="cmo-typing-dot" />
+        <span className="cmo-typing-dot" />
+        <span className="cmo-typing-dot" />
+      </span>
+    </div>
+  );
 }
 
 function ArtifactReferenceCard({ refData, onOpen }: { refData: ArtifactRef; onOpen: (artifactId: string) => void }) {
@@ -68,12 +96,10 @@ function ArtifactReferenceCard({ refData, onOpen }: { refData: ArtifactRef; onOp
 
 function OutcomeFormMessage({
   msgId,
-  objective,
   onConfirm,
   onCancel,
 }: {
   msgId: string;
-  objective: ObjectiveOut | null;
   onConfirm: (msgId: string, outcomeType: string, value: string, notes: string, objectiveSummary?: string) => Promise<void>;
   onCancel: (msgId: string) => void;
 }) {
@@ -84,17 +110,11 @@ function OutcomeFormMessage({
 
   async function handleSubmit() {
     setSubmitting(true);
-    await onConfirm(msgId, outcomeType, value, notes, objective?.summary);
+    await onConfirm(msgId, outcomeType, value, notes);
   }
 
   return (
     <div className="bos-outcome-form">
-      {objective && (
-        <div className="bos-outcome-form-obj">
-          <span className="bos-outcome-form-obj-label">Objective</span>
-          <span className="bos-outcome-form-obj-title">{objective.summary}</span>
-        </div>
-      )}
       <div className="bos-outcome-form-field">
         <div className="bos-outcome-form-label">Outcome type</div>
         <select
@@ -312,8 +332,8 @@ function CouncilBriefMessage({ brief }: { brief: CouncilFinalizeResult }) {
 export function CmoChat() {
   const { activeBrand } = useUI();
   const {
-    msgs, busy, streamCardCtx, activeObjective, activeCouncilSession,
-    pendingReferences, addReference, removeReference, clearReferences,
+    msgs, busy, streamCardCtx, activeCouncilSession,
+    pendingReferences, addReference, removeReference, clearReferences, deleteCurrentChat, deleteMessage,
     send, councilPass, councilFinalize, handleOutcomeConfirm, handleOutcomeCancel,
   } = useCmoChat();
 
@@ -326,10 +346,14 @@ export function CmoChat() {
   const [driveFolderStack, setDriveFolderStack] = useState<{ id: string; name: string }[]>([]);
   const [driveFolders, setDriveFolders] = useState<{ id: string; name: string }[]>([]);
   const [driveModalFiles, setDriveModalFiles] = useState<{ id: string; name: string; mimeType: string; size?: number; webViewLink?: string; thumbnailLink?: string }[]>([]);
+  const [driveSearch, setDriveSearch] = useState('');
   const [driveModalLoading, setDriveModalLoading] = useState(false);
   const [driveModalSelected, setDriveModalSelected] = useState<Set<string>>(new Set());
+  const [uploadingAttachment, setUploadingAttachment] = useState(false);
+  const [dragTarget, setDragTarget] = useState<'composer' | 'modal' | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const uploadInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [msgs]);
   useEffect(() => {
@@ -363,7 +387,10 @@ export function CmoChat() {
   }, []);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input).then(() => {}); setInput(''); }
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      doSend();
+    }
   }
 
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
@@ -376,7 +403,7 @@ export function CmoChat() {
     // Focus the exact artifact in Stream. Do not navigate to Workspace; Stream is
     // the inline review surface for pending artifacts.
     try {
-      const run = await api.getRun(artifactId, { includeAssets: false });
+      const run = await api.getRun(artifactId, { includeAssets: true });
       window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: run }));
     } catch {
       window.dispatchEvent(new CustomEvent('bos:focus-artifact', { detail: { run_id: artifactId } }));
@@ -385,14 +412,21 @@ export function CmoChat() {
 
   const DRIVE_ROOT = { id: 'root', name: 'My Drive' };
 
+  function driveThumbnailUrl(fileId: string): string {
+    const brandId = activeBrand?.id || '';
+    const key = getApiKey() || '';
+    return `/api/social/drive/thumbnail/${encodeURIComponent(fileId)}?brand_id=${encodeURIComponent(brandId)}${key ? `&api_key=${encodeURIComponent(key)}` : ''}`;
+  }
+
   async function openDrivePicker() {
     setDriveModalOpen(true);
     setDriveModalSelected(new Set());
     setDriveFilter('all');
-    await loadDrivePickerFolder(DRIVE_ROOT, []);
+    setDriveSearch('');
+    await loadDrivePickerFolder(DRIVE_ROOT, [], '');
   }
 
-  async function loadDrivePickerFolder(folder: { id: string; name: string } | null, stack: { id: string; name: string }[]) {
+  async function loadDrivePickerFolder(folder: { id: string; name: string } | null, stack: { id: string; name: string }[], searchOverride?: string) {
     setDriveModalLoading(true);
     setDriveModalFiles([]);
     setDriveFolders([]);
@@ -406,7 +440,8 @@ export function CmoChat() {
       }
       const foldersRes = await api.listDriveFolders(brandId, folder?.id);
       const current = folder || { id: (foldersRes as any).folder_id || 'root', name: (foldersRes as any).folder_name || 'Drive' };
-      const filesRes = await api.listDriveImages(brandId, current.id, 'all');
+      const query = searchOverride !== undefined ? searchOverride : driveSearch;
+      const filesRes = await api.listDriveImages(brandId, current.id, 'all', query.trim() || undefined);
       setDriveCurrentFolder(current);
       setDriveFolderStack(stack);
       setDriveFolders(foldersRes.folders || []);
@@ -455,23 +490,136 @@ export function CmoChat() {
     setDriveModalSelected(new Set());
   }
 
+  function openLocalUpload() {
+    setRefError(null);
+    uploadInputRef.current?.click();
+  }
+
+  async function uploadLocalFiles(files: File[]) {
+    if (!files.length) return;
+    const brandId = activeBrand?.id || '';
+    if (!brandId) {
+      setRefError('Select a brand with Google Drive connected first.');
+      return;
+    }
+    setUploadingAttachment(true);
+    setRefError(null);
+    try {
+      for (const file of files) {
+        const uploaded = await api.uploadDriveAttachment(brandId, file);
+        addReference(uploaded);
+      }
+      setDriveModalOpen(false);
+      setDriveModalSelected(new Set());
+    } catch (e) {
+      setRefError(e instanceof Error ? e.message : 'Could not upload attachment.');
+    } finally {
+      setUploadingAttachment(false);
+    }
+  }
+
+  async function handleLocalUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    await uploadLocalFiles(files);
+  }
+
+  function handleDragOver(e: React.DragEvent<HTMLElement>, target: 'composer' | 'modal') {
+    if (busy || uploadingAttachment || !dataTransferHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+    setDragTarget(target);
+  }
+
+  function handleDragLeave(target: 'composer' | 'modal') {
+    setDragTarget(current => current === target ? null : current);
+  }
+
+  async function handleDropFiles(e: React.DragEvent<HTMLElement>, target: 'composer' | 'modal') {
+    if (!dataTransferHasFiles(e.dataTransfer)) return;
+    e.preventDefault();
+    setDragTarget(current => current === target ? null : current);
+    if (busy || uploadingAttachment) return;
+    await uploadLocalFiles(Array.from(e.dataTransfer.files || []));
+  }
+
   function doSend() {
-    if (!input.trim() || busy) return;
+    if (!input.trim() || busy || uploadingAttachment) return;
     const text = input;
     setInput('');
     if (textareaRef.current) textareaRef.current.style.height = 'auto';
     send(text);
   }
 
+  async function handleDeleteChat() {
+    if (busy || uploadingAttachment) return;
+    const hasChatState = msgs.length > 0 || pendingReferences.length > 0 || input.trim().length > 0;
+    if (!hasChatState) return;
+    const ok = window.confirm('Delete this CMO chat? This clears the visible thread and removes its saved attachment references.');
+    if (!ok) return;
+    setInput('');
+    if (textareaRef.current) textareaRef.current.style.height = 'auto';
+    await deleteCurrentChat();
+  }
+
+  function messageDeleteSummary(msg: Msg): string {
+    if (msg.text && msg.text !== '__typing__') return msg.text.slice(0, 80);
+    if (msg.artifactRef || msg.runResult) return 'artifact reference';
+    if (msg.outcomeForm || msg.outcomeConfirm) return 'outcome message';
+    if (msg.handoffBrief) return 'handoff brief';
+    if (msg.councilRound) return `council round ${msg.councilRound.round_num}`;
+    if (msg.councilBrief) return 'council brief';
+    return 'this message';
+  }
+
+  function handleDeleteMessage(msg: Msg) {
+    if (busy || uploadingAttachment) return;
+    const summary = messageDeleteSummary(msg);
+    const ok = window.confirm(`Delete this message from the browser-saved chat?\n\n${summary}`);
+    if (!ok) return;
+    deleteMessage(msg.id);
+  }
+
+  function renderDeleteMessageButton(msg: Msg) {
+    return (
+      <button
+        type="button"
+        className="msg-delete-btn"
+        onClick={e => { e.stopPropagation(); handleDeleteMessage(msg); }}
+        disabled={busy || uploadingAttachment}
+        title="Delete this message"
+        aria-label="Delete this message"
+      >
+        ×
+      </button>
+    );
+  }
+
+  // Brand/campaign are already shown in the global top bar. Keep this row for
+  // transient work context only, so the CMO surface does not duplicate source-of-
+  // truth selection UI.
   const contextChips = [
-    activeBrand?.name ? `Brand · ${activeBrand.name}` : null,
-    activeObjective ? (activeObjective.summary.length > 40 ? `${activeObjective.summary.slice(0, 40)}…` : activeObjective.summary) : null,
     streamCardCtx ? `${CARD_TYPE_LABELS[streamCardCtx.type] ?? streamCardCtx.type}` : null,
     activeCouncilSession ? `⬡ Council in session` : null,
   ].filter(Boolean) as string[];
 
   return (
     <div className="cmo-pane">
+      <div className="cmo-chat-toolbar">
+        <div>
+          <div className="cmo-chat-title">CMO Chat</div>
+          <div className="cmo-chat-subtitle">Browser-saved thread</div>
+        </div>
+        <button
+          type="button"
+          className="cmo-chat-delete"
+          onClick={() => void handleDeleteChat()}
+          disabled={busy || uploadingAttachment || (msgs.length === 0 && pendingReferences.length === 0 && input.trim().length === 0)}
+          title={busy ? 'Wait for the current CMO response to finish before deleting.' : 'Delete this chat'}
+        >
+          Delete chat
+        </button>
+      </div>
       {contextChips.length > 0 && (
         <div className="cmo-ctx">
           {contextChips.map(chip => (
@@ -505,11 +653,7 @@ export function CmoChat() {
                         })}
                       </div>
                     ) : (
-                      <div className="cmo-typing">
-                        <div className="cmo-typing-dot" />
-                        <div className="cmo-typing-dot" />
-                        <div className="cmo-typing-dot" />
-                      </div>
+                      <ThinkingIndicator />
                     )}
                   </div>
                 </div>
@@ -521,7 +665,8 @@ export function CmoChat() {
               return (
                 <div key={msg.id}>
                   {showSender && <div className="msg-label"><span className="msg-label-dot ai" />CMO</div>}
-                  <div className="msg-ai">
+                  <div className="msg-ai msg-with-action">
+                    {renderDeleteMessageButton(msg)}
                     <ArtifactReferenceCard refData={artifactRef} onOpen={handleOpenArtifact} />
                   </div>
                 </div>
@@ -532,10 +677,10 @@ export function CmoChat() {
               return (
                 <div key={msg.id}>
                   <div className="msg-label"><span className="msg-label-dot ai" />CMO</div>
-                  <div className="msg-ai">
+                  <div className="msg-ai msg-with-action">
+                    {renderDeleteMessageButton(msg)}
                     <OutcomeFormMessage
                       msgId={msg.id}
-                      objective={activeObjective}
                       onConfirm={handleOutcomeConfirm}
                       onCancel={handleOutcomeCancel}
                     />
@@ -550,7 +695,8 @@ export function CmoChat() {
               return (
                 <div key={msg.id}>
                   <div className="msg-label"><span className="msg-label-dot ai" />CMO</div>
-                  <div className="msg-ai">
+                  <div className="msg-ai msg-with-action">
+                    {renderDeleteMessageButton(msg)}
                     <div className="bos-outcome-confirm">
                       <div className="bos-outcome-confirm-tags">
                         <span className="bos-outcome-confirm-tag">{typeLabel}</span>
@@ -568,7 +714,10 @@ export function CmoChat() {
               return (
                 <div key={msg.id}>
                   <div className="msg-label"><span className="msg-label-dot ai" />CMO · handoff brief · {fmtTime(msg.time)}</div>
-                  <HandoffBriefMessage brief={msg.handoffBrief} />
+                  <div className="msg-with-action">
+                    {renderDeleteMessageButton(msg)}
+                    <HandoffBriefMessage brief={msg.handoffBrief} />
+                  </div>
                 </div>
               );
             }
@@ -577,7 +726,8 @@ export function CmoChat() {
               return (
                 <div key={msg.id}>
                   <div className="msg-label"><span className="msg-label-dot ai" />Council · Round {msg.councilRound.round_num} · {fmtTime(msg.time)}</div>
-                  <div className="msg-ai">
+                  <div className="msg-ai msg-with-action">
+                    {renderDeleteMessageButton(msg)}
                     <CouncilRoundMessage round={msg.councilRound} />
                   </div>
                 </div>
@@ -588,7 +738,8 @@ export function CmoChat() {
               return (
                 <div key={msg.id}>
                   <div className="msg-label"><span className="msg-label-dot ai" />Council · Brief · {fmtTime(msg.time)}</div>
-                  <div className="msg-ai">
+                  <div className="msg-ai msg-with-action">
+                    {renderDeleteMessageButton(msg)}
                     <CouncilBriefMessage brief={msg.councilBrief} />
                   </div>
                 </div>
@@ -599,7 +750,8 @@ export function CmoChat() {
               return (
                 <div key={msg.id} className="msg-user-row">
                   <div className="msg-label"><span className="msg-label-dot user" />You</div>
-                  <div className="msg-user">
+                  <div className="msg-user msg-with-action">
+                    {renderDeleteMessageButton(msg)}
                     <div>{msg.text}</div>
                     {msg.references && msg.references.length > 0 && (
                       <div style={{ marginTop: 6, display: 'flex', flexDirection: 'column', gap: 4 }}>
@@ -619,7 +771,8 @@ export function CmoChat() {
             return (
               <div key={msg.id}>
                 {showSender && <div className="msg-label"><span className="msg-label-dot ai" />CMO · {fmtTime(msg.time)}</div>}
-                <div className="msg-ai">
+                <div className="msg-ai msg-with-action">
+                  {renderDeleteMessageButton(msg)}
                   <SurfaceProvider type="chat-inline">
                     <BlockRenderer block={textToBlock(msg.text!)} />
                   </SurfaceProvider>
@@ -668,14 +821,23 @@ export function CmoChat() {
             <button type="button" className="btn btn-ghost" style={{ fontSize: 10, marginLeft: 'auto' }} onClick={clearReferences}>Clear all</button>
           </div>
         )}
+        {uploadingAttachment && <div style={{ marginBottom: 8, color: 'var(--ink-muted)', fontSize: 12 }}>Uploading attachment…</div>}
+        {refError && !driveModalOpen && <div style={{ marginBottom: 8, color: 'var(--error)', fontSize: 12 }}>{refError}</div>}
 
         {driveModalOpen && (
           <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 9999, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
             onClick={e => { if (e.target === e.currentTarget) setDriveModalOpen(false); }}>
-            <div style={{ background: 'var(--white)', borderRadius: 0, padding: 24, width: 480, maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 12, border: '.5px solid var(--border)' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div
+              style={{ background: 'var(--white)', borderRadius: 0, padding: 24, width: 480, maxWidth: '95vw', maxHeight: '80vh', display: 'flex', flexDirection: 'column', gap: 12, border: dragTarget === 'modal' ? '1px dashed var(--brand)' : '.5px solid var(--border)', boxShadow: dragTarget === 'modal' ? '0 0 0 3px rgba(188, 108, 37, 0.12)' : undefined }}
+              onDragOver={e => handleDragOver(e, 'modal')}
+              onDragLeave={() => handleDragLeave('modal')}
+              onDrop={e => void handleDropFiles(e, 'modal')}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
                 <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--brand)', fontFamily: 'var(--font-display)' }}>Pick from Drive</div>
-                <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--ink-muted)' }} onClick={() => setDriveModalOpen(false)}>✕</button>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <button className="artifact-btn ghost" onClick={openLocalUpload} disabled={uploadingAttachment || busy}>Upload from desktop</button>
+                  <button style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 18, color: 'var(--ink-muted)' }} onClick={() => setDriveModalOpen(false)}>✕</button>
+                </div>
               </div>
               <div style={{ display: 'flex', gap: 6 }}>
                 {(['all', 'image', 'document'] as const).map(f => (
@@ -686,13 +848,29 @@ export function CmoChat() {
                   </button>
                 ))}
               </div>
+              {dragTarget === 'modal' && (
+                <div style={{ padding: '10px 12px', border: '1px dashed var(--brand)', background: 'var(--fill-active)', color: 'var(--brand)', fontSize: 12 }}>
+                  Drop files here to upload and attach them.
+                </div>
+              )}
+              <div style={{ display: 'flex', gap: 8 }}>
+                <input
+                  value={driveSearch}
+                  onChange={e => setDriveSearch(e.target.value)}
+                  onKeyDown={e => { if (e.key === 'Enter') void loadDrivePickerFolder(driveCurrentFolder || DRIVE_ROOT, driveFolderStack, driveSearch); }}
+                  placeholder="Search Drive files in this folder…"
+                  style={{ flex: 1, border: '.5px solid var(--border)', borderRadius: 2, padding: '8px 10px', fontSize: 13 }}
+                />
+                <button className="artifact-btn ghost" onClick={() => loadDrivePickerFolder(driveCurrentFolder || DRIVE_ROOT, driveFolderStack, driveSearch)} disabled={driveModalLoading}>Search</button>
+                {driveSearch && <button className="artifact-btn ghost" onClick={() => { setDriveSearch(''); void loadDrivePickerFolder(driveCurrentFolder || DRIVE_ROOT, driveFolderStack, ''); }} disabled={driveModalLoading}>Clear</button>}
+              </div>
               {driveCurrentFolder && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--ink-muted)', background: 'var(--bg-subtle)', border: '.5px solid var(--border)', borderRadius: 2, padding: '7px 9px' }}>
                   {driveFolderStack.length > 0 && (
                     <button className="artifact-btn ghost" style={{ padding: '2px 8px', fontSize: 11 }} disabled={driveModalLoading}
                       onClick={() => {
                         const nextStack = driveFolderStack.slice(0, -1);
-                        loadDrivePickerFolder(nextStack[nextStack.length - 1] || DRIVE_ROOT, nextStack);
+                        loadDrivePickerFolder(nextStack[nextStack.length - 1] || DRIVE_ROOT, nextStack, driveSearch);
                       }}>
                       Back
                     </button>
@@ -710,7 +888,7 @@ export function CmoChat() {
                   {driveFolders.map(folder => (
                     <button key={folder.id}
                       style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', background: 'var(--linen)', border: '.5px solid var(--border-warm)', borderRadius: 2, cursor: 'pointer', textAlign: 'left', fontSize: 13 }}
-                      onClick={() => { setDriveFilter('all'); setDriveModalSelected(new Set()); loadDrivePickerFolder(folder, [...driveFolderStack, folder]); }}>
+                      onClick={() => { setDriveFilter('all'); setDriveModalSelected(new Set()); loadDrivePickerFolder(folder, [...driveFolderStack, folder], driveSearch); }}>
                       <span style={{ fontSize: 20, flexShrink: 0 }}>📁</span>
                       <div style={{ minWidth: 0 }}>
                         <div style={{ fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', color: 'var(--ink-body)' }}>{folder.name}</div>
@@ -729,8 +907,8 @@ export function CmoChat() {
                         onClick={() => toggleDriveModalFile(f.id)}>
                         {isDoc
                           ? <span style={{ fontSize: 24, flexShrink: 0 }}>📄</span>
-                          : f.thumbnailLink
-                            ? <img src={f.thumbnailLink} alt={f.name} style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 2, flexShrink: 0, border: '.5px solid var(--border)' }} />
+                          : f.mimeType.startsWith('image/')
+                            ? <img src={driveThumbnailUrl(f.id)} alt={f.name} loading="lazy" style={{ width: 44, height: 44, objectFit: 'cover', borderRadius: 2, flexShrink: 0, border: '.5px solid var(--border)' }} />
                             : <span style={{ fontSize: 20, flexShrink: 0 }}>🖼</span>
                         }
                         <div style={{ minWidth: 0 }}>
@@ -755,7 +933,20 @@ export function CmoChat() {
           </div>
         )}
 
-        <div className="cmo-composer">
+        <input
+          ref={uploadInputRef}
+          type="file"
+          accept={LOCAL_ATTACHMENT_ACCEPT}
+          multiple
+          style={{ display: 'none' }}
+          onChange={handleLocalUpload}
+        />
+        <div
+          className="cmo-composer"
+          onDragOver={e => handleDragOver(e, 'composer')}
+          onDragLeave={() => handleDragLeave('composer')}
+          onDrop={e => void handleDropFiles(e, 'composer')}
+          style={{ borderColor: dragTarget === 'composer' ? 'var(--brand)' : undefined, boxShadow: dragTarget === 'composer' ? '0 0 0 3px rgba(188, 108, 37, 0.12)' : undefined }}>
           <textarea
             ref={textareaRef}
             className="cmo-ta"
@@ -766,21 +957,22 @@ export function CmoChat() {
             value={input}
             onChange={handleInput}
             onKeyDown={handleKeyDown}
-            disabled={busy}
+            disabled={busy || uploadingAttachment}
           />
           <button
-            className="btn-send"
-            onClick={doSend}
-            disabled={busy}
-            title="Send"
+            type="button"
+            className="btn-attach"
+            onClick={openLocalUpload}
+            disabled={busy || uploadingAttachment}
+            title="Upload from desktop"
           >
-            ⏎
+            ⤴
           </button>
           <button
             type="button"
             className="btn-attach"
             onClick={openDrivePicker}
-            disabled={busy}
+            disabled={busy || uploadingAttachment}
             title="Attach from Drive"
           >
             {pendingReferences.length > 0
@@ -788,7 +980,18 @@ export function CmoChat() {
               : <span style={{ fontSize: 15, lineHeight: 1 }}>+</span>
             }
           </button>
+          <button
+            className="btn-send"
+            onClick={doSend}
+            disabled={busy || uploadingAttachment}
+            title="Send"
+          >
+            ⏎
+          </button>
         </div>
+        {dragTarget === 'composer' && (
+          <div style={{ marginTop: 8, fontSize: 12, color: 'var(--brand)' }}>Drop files here to attach them to this chat.</div>
+        )}
       </div>
     </div>
   );

@@ -1,7 +1,7 @@
 ---
 id: marketing.channel.meta.posts.publish
 name: Facebook Post Publish
-description: "Use ONLY when the user gives an explicit publish command with the post text already decided — e.g. 'post this to facebook: <text>', 'publish this exact text', 'post it now'. The operator's message must contain both the intent to publish AND the copy. Never use for any generate/create/make request — those go to creative.post.image. Never co-dispatch alongside creative.post.image. REQUIRED: append `message:` with the exact post text on the line after RUN: — write the actual copy, never a placeholder."
+description: "Use ONLY when the user gives an explicit publish/schedule command with the post text already decided — e.g. 'post this to facebook: <text>', 'publish this exact text', 'schedule this approved post for tomorrow at 9'. The operator's message or artifact action must contain both the intent to publish/schedule AND the copy or source artifact. For scheduling, pass `scheduled_at` as ISO-8601 in the brief/overrides. Never use for any generate/create/make request — those go to creative.post.image. Never co-dispatch alongside creative.post.image. REQUIRED: include the exact post text when no source artifact is used — write the actual copy, never a placeholder."
 scope: module
 status: active
 version: 0.1.0
@@ -21,6 +21,8 @@ triggers:
   - send this post
   - post on facebook now
   - post to facebook now
+  - schedule approved post
+  - schedule this post to facebook
 excluded_triggers:
   - generate a post
   - make a post
@@ -31,7 +33,6 @@ excluded_triggers:
   - write a post
   - show my posts
   - what did I post
-  - schedule a post
   - this is a test
   - just testing
   - test post
@@ -64,13 +65,14 @@ metadata:
 
 ## Purpose
 
-Publish an explicit, operator-approved text post directly to the connected Facebook Page.
+Publish or schedule an explicit, operator-approved text/image post to the connected Facebook Page.
 
 ## When to use
 
-Only when the operator's message contains both a publish command AND the post text. Example valid triggers:
+Only when the operator's message contains both a publish/schedule command AND the post text, or when an existing artifact action provides the approved post/image. Example valid triggers:
 - "post this to facebook: Our summer sale starts today. Shop now at klaroha.com"
 - "publish this to the page: [specific copy the operator provided]"
+- "schedule the approved Postcraft image for 2026-07-06T09:00:00+08:00"
 
 Never use when the operator asks to generate, create, make, or draft a post. That goes to `creative.post.image`.
 
@@ -84,7 +86,7 @@ RUN: marketing.channel.meta.posts.publish
 message: Our summer sale starts today. Shop now at klaroha.com
 ```
 
-If the operator has not provided the post text, do not dispatch this module. Ask for the text or offer to generate a reviewable creative instead.
+If scheduling, include `scheduled_at` as ISO-8601. If the operator has not provided the post text/source artifact, do not dispatch this module. Ask for the text or offer to generate a reviewable creative instead.
 
 ## Hard boundaries
 

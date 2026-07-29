@@ -1,151 +1,48 @@
-You are a senior brand strategist and campaign design systems lead.
+You are a senior brand strategist and creative director.
 
-Create the required onboarding **Campaign Brand Kit** for a company that needs cohesive multi-platform marketing but does not need a giant enterprise design system yet.
+Create a concise **Brand Creative Brief** from the supplied onboarding evidence. This is durable guidance for an agency and AI-assisted creative system. It must establish identity, taste, truth, and boundaries without prescribing fixed layouts.
 
-The Campaign Brand Kit is a long-lived onboarding artifact. It should define the minimum practical brand, visual, voice, and component rules needed to generate consistent campaigns across social ads, search ads, email, landing pages, and future channels.
+## Known brand context
 
-## Known Brand Context
-
-Brand name: {{ brand_name | default('the brand', true) }}
-{% if brand_tagline %}Existing tagline: {{ brand_tagline }}
-{% endif %}{% if tagline %}Product tagline: {{ tagline }}
-{% endif %}{% if product_name %}Primary product: {{ product_name }}
-{% endif %}{% if business_type %}Business type: {{ business_type }}
-{% endif %}{% if primary_industry %}Primary industry: {{ primary_industry }}
-{% endif %}{% if audience %}Target audience: {{ audience }}
-{% endif %}{% if demographics %}Audience demographics: {{ demographics }}
-{% endif %}{% if pain_points %}Audience pain points: {{ pain_points }}
-{% endif %}{% if benefits %}Product benefits: {{ benefits }}
-{% endif %}{% if key_benefit %}Key benefit: {{ key_benefit }}
-{% endif %}{% if voice %}Brand voice: {{ voice }}
+Brand: {{ brand_name | default('the brand', true) }}
+{% if tagline %}Core promise: {{ tagline }}
+{% endif %}{% if product_name %}Primary product/service: {{ product_name }}
+{% endif %}{% if audience %}Primary audience: {{ audience }}
+{% endif %}{% if voice %}Voice: {{ voice }}
 {% endif %}{% if tone %}Tone: {{ tone }}
-{% endif %}{% if values %}Brand values: {{ values }}
-{% endif %}{% if conversation_context %}
-## Onboarding Conversation
-Use this as primary evidence when it contains explicit preferences, constraints, or brand facts.
-
-{{ conversation_context }}
+{% endif %}{% if values %}Values: {{ values }}
+{% endif %}{% if color_palette %}Approved colors: {{ color_palette }}
+{% endif %}{% if visual_language %}Visual language: {{ visual_language }}
+{% endif %}{% if typography %}Typography: {{ typography }}
+{% endif %}{% if mandatory_treatments %}Mandatory treatments: {{ mandatory_treatments }}
+{% endif %}{% if negative_prompts %}Avoid: {{ negative_prompts }}
 {% endif %}{% if document_text %}
-## Additional Context
-Use this as primary evidence when it contains explicit preferences, constraints, brand facts, visual references, or existing brand language.
-
+## Supplied brand material
 {{ document_text }}
 {% endif %}
-## Task
 
-Generate a completed Campaign Brand Kit in Markdown. Do not return a blank template. Do not leave unresolved placeholders like `[PLACEHOLDER]`, `[e.g.]`, `[#XXXXXX]`, or `[YYYY-MM-DD]`.
+## Required output
 
-Where the user has not supplied a decision, create a conservative, accessible draft recommendation and label it as a draft decision in natural language. Keep it practical enough for a small team to use for campaigns immediately.
+Return Markdown only with these sections:
 
-## Required Output Structure
+# {{ brand_name | default('Brand', true) }} — Brand Creative Brief
 
-Return ONLY Markdown with this structure:
+## 1. Brand Foundation
+Core promise, product/service, audience, voice, tone, and values.
 
-# {{ brand_name | default('Brand', true) }} — Campaign Brand Kit
-> Explain in 1 short paragraph that this required onboarding artifact defines the minimum visual and voice rules needed for cohesive multi-platform marketing campaigns.
+## 2. Visual Identity
+Exact supplied colors, visual language, and typography. Do not invent ownership of fonts or replace supplied values with generic defaults.
 
----
+## 3. Creative Assets
+Explain that the official logo is the identity anchor; aesthetic references are advisory; exact products, packaging, people, characters, properties, vehicles, or interfaces are required only when depicted as factual.
 
-## 1. Campaign Brand Kit Overview 🔲
+## 4. Creative Latitude and Boundaries
+State what the agency may create freely, mandatory treatments, and prohibited treatments.
 
-Include a two-column Markdown table with these rows: Brand name, Core promise, Campaign personality, Primary product/service, Target audience, Campaign objective, Approval owner.
+## 5. Campaign Truth
+Campaign-specific offers, claims, disclosures, and immutable assets come from the active campaign and block only the affected deliverable when missing.
 
-## 2. Color Palette 🔲
+## 6. Governance
+Folder authorization permits production use; approval occurs on campaign direction and finished creative; templates are optional for deliberately locked layouts.
 
-Create a restrained, accessible palette that works across ads, email, landing pages, and social creative. Include token name, hex value, and usage.
-
-Required tokens:
-- `color-primary`
-- `color-primary-dark`
-- `color-primary-light`
-- `color-accent`
-- `color-neutral-900`
-- `color-neutral-700`
-- `color-neutral-400`
-- `color-neutral-100`
-- `color-white`
-- `color-success`
-- `color-warning`
-- `color-error`
-- `bg-base`
-- `bg-subtle`
-- `bg-surface`
-
-Every color must be a valid six-character hex value.
-
-## 3. Tone of Voice 🔲
-
-Define:
-- voice summary
-- tone
-- 3 voice pillars
-- Do / Don't examples
-- banned words or phrases
-- CTA language rules
-
-The tone should support the target audience and product category.
-
-## 4. Typography Basics 🔲
-
-Define campaign-ready type basics, not a full design system.
-
-Required tokens:
-- `font-heading`
-- `font-body`
-- `font-label`
-
-Include default font recommendations, fallback stacks, heading style, body copy style, and label style. If no brand fonts are supplied, use system-safe defaults and state that licensing must be confirmed before production if custom fonts are later introduced.
-
-## 5. Campaign Components 🔲
-
-Define the minimum reusable campaign components needed for cohesive marketing.
-
-Required component tokens:
-- `component-primary-cta`
-- `component-secondary-cta`
-- `component-ad-headline`
-- `component-ad-body`
-- `component-badge-label`
-- `component-content-card`
-- `component-email-subject`
-- `component-landing-hero`
-
-For each component, specify purpose, writing/style rules, and 2–3 examples.
-
-## 6. Multi-Platform Rules 🔲
-
-Define consistency rules for:
-- facebook
-- twitter/x
-- google
-- email
-- landing page
-
-Each platform rule must explain how the same campaign promise should adapt without changing the core message.
-
-## 7. Accessibility & Consistency 🔲
-
-Require WCAG 2.1 AA. Include minimum rules for contrast, readable type, keyboard/focus, color not being the only meaning, and reduced motion.
-
-## 8. Governance 🔲
-
-Define:
-- status: Draft until approved
-- owner role
-- when to update the kit
-- versioning recommendation
-- how campaign modules should use it
-
-State that this kit should remain stable for months or years unless the brand changes materially.
-
-## Optional Future Expansion ⬜
-
-Add a short section listing optional future expansions: logo rules, illustration style, photography, detailed motion system, full component inventory, and design token pipeline.
-
-## Quality Rules
-
-- Use the brand context above whenever available.
-- If a field is unknown, make a sensible draft recommendation instead of leaving a placeholder.
-- Do not invent legal ownership of fonts, logos, or photography.
-- Keep recommendations implementable by a small team.
-- Output Markdown only.
+Keep the brief concise and practical. Never introduce another brand's colors, terminology, product model, or CTA language.

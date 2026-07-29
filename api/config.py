@@ -67,7 +67,7 @@ class Settings(BaseSettings):
     tiktok_client_key: str = ""
     tiktok_client_secret: str = ""
     tiktok_redirect_uri: str = "http://localhost/social/tiktok/callback"
-    tiktok_scopes: str = "user.info.basic"
+    tiktok_scopes: str = "user.info.basic,video.publish"
 
     # Auth relay — empty = dev mode (direct OAuth with local GOOGLE_CLIENT_ID/SECRET)
     klaroha_relay_url: str = ""

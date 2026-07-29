@@ -4,13 +4,11 @@ from module_base import ModuleBase
 
 
 _REQUIRED_SECTIONS = [
-    "Campaign Brand Kit Overview",
-    "Color Palette",
-    "Tone of Voice",
-    "Typography Basics",
-    "Campaign Components",
-    "Multi-Platform Rules",
-    "Accessibility & Consistency",
+    "Brand Foundation",
+    "Visual Identity",
+    "Creative Assets",
+    "Creative Latitude and Boundaries",
+    "Campaign Truth",
     "Governance",
 ]
 
@@ -50,21 +48,9 @@ class BrandGuidelinesModule(ModuleBase):
             if marker.lower() in content.lower():
                 failures.append(f"unresolved_placeholder:{marker}")
 
-        required_tokens = [
-            "color-primary",
-            "color-accent",
-            "color-neutral-900",
-            "bg-base",
-            "font-heading",
-            "component-primary-cta",
-            "component-ad-headline",
-            "email",
-        ]
-        for token in required_tokens:
-            if token not in content.lower():
-                failures.append(f"missing_campaign_kit_item:{token}")
-
-        if "WCAG" not in content or "AA" not in content:
-            failures.append("accessibility_standard_missing")
+        required_concepts = ["official logo", "creative", "campaign", "templates are optional"]
+        for concept in required_concepts:
+            if concept not in content.lower():
+                failures.append(f"missing_creative_brief_item:{concept}")
 
         return ("fail" if failures else "pass"), failures

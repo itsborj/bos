@@ -57,14 +57,16 @@ app.add_middleware(RequestLoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_methods=["GET", "POST", "OPTIONS"],
+    allow_methods=["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "X-API-Key", "Authorization"],
 )
 app.add_exception_handler(BosError, bos_error_handler)
 app.add_exception_handler(Exception, unhandled_error_handler)
 
 from routers import auth as auth_router, google_auth as google_auth_router  # noqa: E402
-from routers import agent, backend_settings, billing, brands, calendar, capabilities, campaigns, chat, council, decision_briefs, documents, handoff, health, intents, media, memory, objectives, onboarding, outcomes, plugins, providers, runs, social, stream, strategy_workflows, verticals, webhooks, workspace  # noqa: E402
+from routers import agent, backend_settings, billing, brands, calendar, capabilities, chat_v2, council, decision_briefs, documents, handoff, health, intents, media, memory, objectives, onboarding, outcomes, plugins, providers, runs, social, stream, strategy_workflows, verticals, webhooks, workspace  # noqa: E402
+from campaign.api import router as campaign_router  # noqa: E402
+from plugin_loader import iter_plugin_api_routers  # noqa: E402
 
 app.include_router(health.router)
 app.include_router(agent.router)
@@ -74,7 +76,7 @@ app.include_router(documents.router)
 app.include_router(verticals.router)
 app.include_router(capabilities.router)
 app.include_router(runs.router)
-app.include_router(chat.router)
+app.include_router(chat_v2.router)
 app.include_router(providers.router)
 app.include_router(backend_settings.router)
 app.include_router(billing.router)
@@ -88,7 +90,14 @@ app.include_router(onboarding.router)
 app.include_router(stream.router)
 app.include_router(auth_router.router)
 app.include_router(google_auth_router.router)
-app.include_router(campaigns.router)
+app.include_router(campaign_router)
+
+# Plugin-owned HTTP adapters must mount before the generic /social/{platform}/callback
+# fallback so exact plugin callback routes (for example /social/google-drive/callback)
+# are not shadowed by the catch-all social callback handler.
+for _plugin_id, _plugin_router in iter_plugin_api_routers():
+    app.include_router(_plugin_router)
+
 app.include_router(social.router)
 app.include_router(webhooks.router)
 app.include_router(plugins.router)

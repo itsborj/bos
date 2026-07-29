@@ -42,6 +42,22 @@ def Path(default=None, *args, **kwargs):
 def Body(default=None, *args, **kwargs):
     return default
 
+def File(default=None, *args, **kwargs):
+    return default
+
+def Form(default=None, *args, **kwargs):
+    return default
+
+class UploadFile:
+    def __init__(self, filename: str | None = None, content_type: str | None = None, file=None):
+        self.filename = filename
+        self.content_type = content_type
+        self.file = file
+    async def read(self):
+        if self.file and hasattr(self.file, 'read'):
+            return self.file.read()
+        return b''
+
 def Security(dep=None):
     # In real FastAPI this returns a Depends with a security scheme.
     return Depends(dep)

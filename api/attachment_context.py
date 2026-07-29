@@ -12,10 +12,50 @@ from typing import Any
 logger = logging.getLogger("bos.attachment_context")
 
 DOC_EXTRACT_CAP = 6_000
+# Images larger than this are shrunk before being embedded as vision content.
+# ~750KB raw ≈ 1MB base64 ≈ ~250K tokens — safe for most model context windows.
+_VISION_MAX_BYTES = 768_000
+_VISION_MAX_DIMENSION = 1024
 MAX_VARIABLES = 500
 _REFERENCE_UUID_NAMESPACE = uuid.UUID("5d947f69-fb60-4e86-9c68-2d1a5965cf49")
 _READABLE_STATUSES = {"read", "vision_ready", "provided"}
 _SPEC_STATUSES = {"pending", "read", "vision_ready", "failed", "empty", "skipped"}
+
+
+def _shrink_image_for_vision(data: bytes, mime: str) -> tuple[bytes, str]:
+    """Resize image so it fits within _VISION_MAX_BYTES for LLM vision context.
+
+    Strategy:
+      1. Resize to max _VISION_MAX_DIMENSION px on longest side.
+      2. Always output JPEG (far smaller than PNG for real-world images).
+      3. If still over the limit, lower quality until it fits (min q=50).
+
+    Returns (possibly_resized_bytes, output_mime). Falls back to original on any error.
+    """
+    if len(data) <= _VISION_MAX_BYTES:
+        return data, mime
+    try:
+        from PIL import Image  # type: ignore[import-untyped]
+        img = Image.open(BytesIO(data))
+        w, h = img.size
+        scale = _VISION_MAX_DIMENSION / max(w, h)
+        if scale < 1.0:
+            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        if img.mode in ("RGBA", "P", "LA"):
+            img = img.convert("RGB")
+        quality = 85
+        while quality >= 50:
+            buf = BytesIO()
+            img.save(buf, format="JPEG", quality=quality, optimize=True)
+            resized = buf.getvalue()
+            if len(resized) <= _VISION_MAX_BYTES:
+                break
+            quality -= 10
+        logger.info("Vision image shrunk %d→%d bytes (%dx%d→%dx%d q=%d)", len(data), len(resized), w, h, img.width, img.height, quality)
+        return resized, "image/jpeg"
+    except Exception as exc:
+        logger.warning("Image resize failed, using original: %s", exc)
+        return data, mime
 
 
 def _get(ref: Any, key: str, default: Any = None) -> Any:
@@ -423,6 +463,20 @@ def apply_extraction_json(ref: Any) -> None:
         _set(ref, "variables_json", {"variables": variables_for_extraction_json(content_json)})
 
 
+def _extract_b64_and_mime(text: str | None, fallback_mime: str | None = None) -> tuple[str, str] | None:
+    """Return (bare_b64, mime) from a data URI or raw base64 string. Returns None if no image data."""
+    import re as _re
+    raw = (text or "").strip()
+    if not raw:
+        return None
+    if raw.startswith("data:"):
+        m = _re.match(r"data:([^;]+);base64,(.+)", raw, _re.DOTALL)
+        if m:
+            return m.group(2).strip(), m.group(1)
+        return None
+    return raw, fallback_mime or "image/png"
+
+
 def brief_fields(references: list[Any] | None, *, brand_id: str | None = None, conversation_id: str | None = None, objective: str | None = None) -> dict:
     if not references:
         return {}
@@ -434,6 +488,27 @@ def brief_fields(references: list[Any] | None, *, brand_id: str | None = None, c
     storyboard_spec = compose_storyboard_spec(references, brand_id=brand_id, conversation_id=conversation_id)
     image_spec = compose_image_spec(references, objective=objective, brand_id=brand_id, conversation_id=conversation_id)
     video_spec = compose_video_spec(references, objective=objective, brand_id=brand_id, conversation_id=conversation_id)
+
+    # Compact image manifest for module hydration (Stage 4).
+    # Carries pre-enriched base64 so modules never need to re-download from Drive.
+    # Parallel to operator_reference_context items but kept separate to avoid
+    # bloating the context JSON that gets logged and returned to clients.
+    reference_images: list[dict] = []
+    for ref in (references or [])[:8]:
+        if _get(ref, "kind") != "image":
+            continue
+        b64_and_mime = _extract_b64_and_mime(_get(ref, "text"), _get(ref, "mime_type"))
+        if not b64_and_mime:
+            continue
+        vision_b64, mime = b64_and_mime
+        reference_images.append({
+            "id": _get(ref, "id"),
+            "title": _get(ref, "title") or _get(ref, "drive_file_name"),
+            "drive_file_id": _get(ref, "drive_file_id"),
+            "mime_type": mime,
+            "vision_b64": vision_b64,
+        })
+
     fields = {
         "operator_reference_context": payload,
         "operator_reference_context_json": json.dumps(payload, ensure_ascii=False),
@@ -443,6 +518,7 @@ def brief_fields(references: list[Any] | None, *, brand_id: str | None = None, c
         "image_spec_json": json.dumps(image_spec, ensure_ascii=False),
         "video_spec": video_spec,
         "video_spec_json": json.dumps(video_spec, ensure_ascii=False),
+        "reference_images": reference_images,
     }
     if storyboard_spec:
         fields["storyboard_spec"] = storyboard_spec
@@ -639,11 +715,10 @@ async def enrich_drive_references(
         return
 
     try:
-        from routers.social import _load_google_drive_client  # type: ignore[attr-defined]
-        from provider_auth import get_page_token
+        from routers.social import _load_google_drive_client, get_page_token  # type: ignore[attr-defined]
         DriveClient = _load_google_drive_client()
     except Exception as exc:
-        logger.warning("DriveClient unavailable; skipping Drive enrichment")
+        logger.warning("DriveClient unavailable; skipping Drive enrichment: %s", exc)
         for ref in drive_refs:
             _set(ref, "extraction_status", "failed")
             _set(ref, "extraction_error", f"Drive reader unavailable: {type(exc).__name__}")
@@ -664,6 +739,7 @@ async def enrich_drive_references(
     for ref in drive_refs:
         try:
             mime = str(_get(ref, "mime_type") or "").lower()
+            _set(ref, "extraction_error", None)
             with DriveClient(token) as drive:
                 if mime in google_native_doc_mimes:
                     data = drive.export_file(_get(ref, "drive_file_id"), "text/plain")
@@ -675,10 +751,12 @@ async def enrich_drive_references(
                     apply_extraction_json(ref)
                 elif _get(ref, "kind") == "image":
                     data = drive.download_file(_get(ref, "drive_file_id"))
-                    _set(ref, "text", f"data:{mime or 'image/jpeg'};base64,{base64.b64encode(data).decode()}")
+                    original_bytes = len(data)
+                    data, mime = _shrink_image_for_vision(data, mime or "image/jpeg")
+                    _set(ref, "text", f"data:{mime};base64,{base64.b64encode(data).decode()}")
                     _set(ref, "extraction_status", "vision_ready")
                     _set(ref, "sha256", sha256_hex(data))
-                    _set(ref, "metadata_json", {**(_as_dict_json(_get(ref, "metadata_json")) or {}), "byte_size": len(data)})
+                    _set(ref, "metadata_json", {**(_as_dict_json(_get(ref, "metadata_json")) or {}), "byte_size": original_bytes, "vision_byte_size": len(data)})
                     apply_extraction_json(ref)
                 else:
                     data = drive.download_file(_get(ref, "drive_file_id"))

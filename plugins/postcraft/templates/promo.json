@@ -1,0 +1,23 @@
+{
+  "template_name": "promo",
+  "canvas": { "format": "square", "width": 1024, "height": 1024 },
+  "quick_update_inputs": {
+    "logo_file_url":  "{{auto_injected_from_brand_spec}}",
+    "hero_asset_url": "{{operator_attached_or_null}}",
+    "headline":       "{{headline}}",
+    "subheadline":    "{{subheadline}}",
+    "body":           "{{body_copy}}",
+    "cta":            "{{cta_text}}"
+  },
+  "brand_style": {
+    "color_primary":    "{{color_palette.primary}}",
+    "color_background": "{{color_palette.background}}",
+    "color_text":       "{{color_palette.text}}",
+    "visual_tone":      "{{visual_tone}}"
+  },
+  "generation_prompt": {
+    "prompt": "Create a premium {{size}} social media promotional flyer for {{brand_name}}. Style: high-impact sales design — large dominant headline, strong CTA band at the bottom, hero image panel on the right side, and brand accent ribbons. Background: {{color_palette.background}}. Primary accent: {{color_palette.primary}}. Text color: {{color_palette.text}}. Typography: bold uppercase headlines with strong contrast against the background. If a reference sheet is provided, extract each labeled asset and place it in the designated position described below.",
+    "important_instruction": "Layout: BRAND LOGO top-center (keep crisp and unmodified, do not stretch), HERO asset fills right panel with a curved {{color_palette.primary}} border on left edge, headline text large and dominant on left side, supporting copy below headline, CTA band across full bottom in {{color_palette.primary}} with {{color_palette.background}} text. Do NOT treat the reference sheet itself as the final design — extract and re-compose each labeled asset into this new layout.",
+    "negative_prompt": ["{{negative_prompts}}", "cheap flyer", "neon colors", "horror cemetery", "distorted logo", "blurry text", "clipped text", "reference sheet layout copied verbatim"]
+  }
+}

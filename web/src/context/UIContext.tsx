@@ -12,6 +12,8 @@ export interface ActiveBrand {
 export interface ActiveCampaign {
   id: string;
   name: string;
+  brand_id?: string | null;
+  status?: string | null;
 }
 
 export interface UIContextValue {

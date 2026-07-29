@@ -71,3 +71,21 @@ def test_gemini_live_parser_filters_to_generate_content_text_models():
     assert [m.model_id for m in models] == ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-2.0-flash"]
     assert models[0].context_length == 4000
     assert all(m.provider == "gemini" and m.modality == "text" for m in models)
+
+
+def test_gemini_live_parser_returns_veo_video_models():
+    from routers.providers import _gemini_video_models_from_payload
+
+    models = _gemini_video_models_from_payload({"models": [
+        {"name": "models/gemini-2.5-pro", "supportedGenerationMethods": ["generateContent"]},
+        {"name": "models/veo-3.1-lite-generate-preview", "displayName": "Veo 3.1 lite", "supportedGenerationMethods": ["predictLongRunning"]},
+        {"name": "models/veo-3.1-generate-preview", "displayName": "Veo 3.1", "supportedGenerationMethods": ["predictLongRunning"]},
+        {"name": "models/veo-3.1-fast-generate-preview", "displayName": "Veo 3.1 fast", "supportedGenerationMethods": ["predictLongRunning"]},
+    ]})
+
+    assert [m.model_id for m in models] == [
+        "veo-3.1-generate-preview",
+        "veo-3.1-fast-generate-preview",
+        "veo-3.1-lite-generate-preview",
+    ]
+    assert all(m.provider == "gemini" and m.modality == "video" for m in models)

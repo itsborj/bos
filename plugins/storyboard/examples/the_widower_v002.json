@@ -1,0 +1,223 @@
+{
+  "project": {
+    "title": "The Widower",
+    "format": "30–60 Second Story Film",
+    "core_idea": "A widower begins his day with a ritual that no longer feels complete at home. At Golden Gate, that same ritual finally finds its place again.",
+    "dialogue": "none",
+    "branding": "end card only"
+  },
+  "revision": {
+    "variation_id": "v002",
+    "updated_at": "2026-06-19T10:57:36Z",
+    "change_summary": "Edit Act 1 shots: Shot 1 is now an empty table; Shot 2 shows hands placing two empty mugs; Shots 3 and 4 have been reordered; remove any extra/other spoon so only one spoon may appear where explicitly needed."
+  },
+  "global_visual_rules": {
+    "style": "minimal pencil-drawn graphite emotional sketch",
+    "color_rule": "Minimal pencil sketches throughout. Shot 18 is the only bright, warm-color scene.",
+    "palette": "graphite, soft gray, off-white paper texture, very restrained warm morning light only as tonal shading",
+    "dialogue_or_text": "No dialogue, no captions, no readable text, no signage, no logos except final end card.",
+    "composition_rule": "Sparse frames with emotional negative space. Avoid clutter and excessive room detail.",
+    "continuity_rule": "The two mugs are the central visual motif. Treat the ritual with quiet care."
+  },
+  "locked_elements": {
+    "must_preserve_across_revisions": [
+      "pencil-drawn / graphite sketch style",
+      "no dialogue",
+      "no branding until end card",
+      "minimal sparse compositions",
+      "two mugs as the central ritual motif",
+      "quiet early morning atmosphere",
+      "Shot 18 remains the only bright warm-color scene"
+    ],
+    "do_not_add": [
+      "readable text",
+      "logos",
+      "busy kitchen clutter",
+      "extra people",
+      "cartoon style",
+      "photorealism",
+      "bright color in Act 1"
+    ]
+  },
+  "acts": [
+    {
+      "act_number": 1,
+      "title": "The Unfinished Cup",
+      "location": "Interior kitchen / dining table",
+      "time_of_day": "early morning",
+      "emotional_point": "At home, he can still begin the ritual, but he can no longer complete it.",
+      "visual_treatment": "Graphite pencil sketch, sparse tabletop scenes, soft morning light, emotional stillness.",
+      "shots": [
+        {
+          "shot_number": 1,
+          "title": "Empty Table",
+          "image_prompt": "Minimal graphite pencil sketch of a quiet empty tabletop in early morning. No mugs are present yet. No room detail, no background clutter, just the bare tabletop and stillness. Soft morning light touches the empty table through pale shading. Emotional negative space.",
+          "composition": "Close tabletop view. The frame is intentionally empty, centered on the bare table surface and negative space.",
+          "action": "The film opens on a quiet empty table before the ritual begins.",
+          "emotional_intent": "Stillness before the daily ritual appears.",
+          "must_include": [
+            "empty tabletop",
+            "no mugs yet",
+            "soft morning light",
+            "minimal background",
+            "emotional negative space"
+          ],
+          "must_avoid": [
+            "mugs",
+            "cups",
+            "spoons",
+            "room clutter",
+            "readable text",
+            "logos",
+            "bright color"
+          ]
+        },
+        {
+          "shot_number": 2,
+          "title": "Hands Place Two Empty Mugs",
+          "image_prompt": "Minimal graphite pencil sketch from the same close tabletop point of view. A pair of elderly hands gently places two empty mugs onto the previously empty table, side by side. The mugs are empty: no coffee, no water, no steam, no spoon. Sparse, quiet, early morning, with the gesture treated carefully and tenderly.",
+          "composition": "Same close tabletop view as Shot 1 for continuity. Hands enter frame while placing the two empty mugs side by side.",
+          "action": "Hands place two empty mugs onto the empty table.",
+          "emotional_intent": "The ritual is intentionally set up for two people, even before anything is prepared.",
+          "must_include": [
+            "hands placing two empty mugs",
+            "two empty mugs",
+            "same tabletop from Shot 1",
+            "careful gentle placement",
+            "minimal background"
+          ],
+          "must_avoid": [
+            "coffee in the mugs",
+            "water in the mugs",
+            "steam",
+            "spoons",
+            "extra kitchen detail",
+            "readable text",
+            "bright color"
+          ]
+        },
+        {
+          "shot_number": 3,
+          "title": "Water for One",
+          "image_prompt": "Minimal graphite pencil sketch of a hand and kettle entering frame. Hot water is poured into only one mug. Steam rises from the finished mug. The second mug remains dry and unfinished. If a spoon is visible, there must be only one spoon total, associated with the active mug; do not show any other spoon. Sparse tabletop, quiet early morning, emotional restraint.",
+          "composition": "Close tabletop frame with kettle angled toward one mug only. The dry second mug remains clearly visible. Only one spoon total may appear, and only if necessary.",
+          "action": "Hot water is poured into only one mug. Steam rises. The second mug remains dry and unfinished.",
+          "emotional_intent": "The ritual cannot be completed for the absent person.",
+          "must_include": [
+            "kettle",
+            "water poured into only one mug",
+            "steam from one mug",
+            "second mug dry and unfinished",
+            "no other spoon"
+          ],
+          "must_avoid": [
+            "steam from second mug",
+            "both mugs filled",
+            "second spoon",
+            "spare spoon",
+            "busy kitchen background",
+            "bright color"
+          ]
+        },
+        {
+          "shot_number": 4,
+          "title": "Sugar for One",
+          "image_prompt": "Minimal graphite pencil sketch of a hand adding sugar into one mug. The hand pauses above the second mug, but no sugar is added to the second. There is only one spoon total if a spoon is visible; remove any other spoon or spare spoon from the tabletop. The moment is subtle and quiet. Almost nothing happens, but the absence is understood. Sparse tabletop, two mugs, soft morning light.",
+          "composition": "Close tabletop detail. Hand and sugar gesture are visible, with the second mug nearby and untouched by sugar. Keep the table sparse with no other spoon.",
+          "action": "A hand adds sugar into one mug, pauses above the second, then does not add sugar.",
+          "emotional_intent": "The first visible break in the ritual.",
+          "must_include": [
+            "hand adding sugar to one mug",
+            "second mug beside it",
+            "pause implied above second mug",
+            "subtle restraint",
+            "no other spoon"
+          ],
+          "must_avoid": [
+            "dramatic expression",
+            "messy sugar spill",
+            "second spoon",
+            "spare spoon",
+            "readable text",
+            "bright color"
+          ]
+        },
+        {
+          "shot_number": 5,
+          "title": "Stirring",
+          "image_prompt": "Minimal graphite pencil sketch of the finished cup being stirred slowly. One spoon circles inside the one completed mug. The second mug stays untouched beside it, still unfinished. There must be only one spoon total in the scene; no other spoon or spare spoon on the table. Sparse tabletop, soft morning light, quiet repetitive motion implied through delicate sketch lines.",
+          "composition": "Close tabletop detail focused on the stirring spoon, with the untouched second mug beside it.",
+          "action": "The finished cup is stirred slowly while the second mug remains untouched.",
+          "emotional_intent": "Routine continues, but only halfway.",
+          "must_include": [
+            "one stirring spoon in one mug",
+            "second mug untouched beside it",
+            "slow circular motion implied",
+            "no other spoon"
+          ],
+          "must_avoid": [
+            "stirring both mugs",
+            "second spoon",
+            "spare spoon",
+            "extra props",
+            "readable text",
+            "bright color"
+          ]
+        },
+        {
+          "shot_number": 6,
+          "title": "Empty Seat",
+          "image_prompt": "Minimal graphite pencil sketch at eye-level. An elderly widower sits at the table and drinks from one mug. Across from him is an empty chair. The unfinished second mug remains on the table. A small plant may sit faintly in the background, but the frame stays sparse. Quiet grief, no melodrama, soft morning light.",
+          "composition": "Eye-level frame. Widower on one side of table, empty chair opposite, unfinished mug visible between them.",
+          "action": "The widower drinks from one mug while the empty chair and unfinished second mug remain across from him.",
+          "emotional_intent": "The absence is finally visible.",
+          "must_include": [
+            "widower seated at table",
+            "one mug being used",
+            "empty chair across from him",
+            "unfinished second mug on table"
+          ],
+          "optional_elements": [
+            "small plant in sparse background"
+          ],
+          "must_avoid": [
+            "another person",
+            "crowded room detail",
+            "exaggerated crying",
+            "readable text",
+            "bright color"
+          ]
+        }
+      ]
+    }
+  ],
+  "editable_region": {
+    "target": "Act 1, Shots 1-4, plus spoon continuity in Shot 5",
+    "description": "Revise the storyboard/image so Shot 1 is an empty table; Shot 2 shows hands placing empty mugs; Shots 3 and 4 are swapped from v001 order; remove any extra/other spoon."
+  },
+  "change_request": {
+    "summary": "Apply user edit to Act 1 sequence and preserve the prior generated image as the visual reference/source.",
+    "edits": [
+      {
+        "shot_number": 1,
+        "change": "Make the table empty with no mugs, cups, or spoons."
+      },
+      {
+        "shot_number": 2,
+        "change": "Place the two empty mugs here and show hands placing them on the table."
+      },
+      {
+        "shot_number": 3,
+        "change": "Use the former Water for One shot here; remove any other/extra spoon."
+      },
+      {
+        "shot_number": 4,
+        "change": "Use the former Sugar for One shot here, after Water for One."
+      },
+      {
+        "shot_number": 5,
+        "change": "Maintain only one spoon total; remove any other spoon."
+      }
+    ]
+  }
+}

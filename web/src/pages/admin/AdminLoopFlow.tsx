@@ -53,9 +53,9 @@ const STEPS: FlowStep[] = [
   {
     role: 'system',
     title: 'Stream: outcome card appears · memory updated',
-    sub: 'Campaign closes. Outcome card shows results and lists what was written to memory. Operator can dismiss or ask CMO for interpretation.',
+    sub: 'Campaign closes. Outcome card shows results and lists what was written to memory. Operator can delete it or ask CMO for interpretation.',
     tags: ['system', 'state: memory written'],
-    io: [['written', 'case_study_angle · email_2_response · no_show_pattern'], ['card type', 'outcome · dismissable']],
+    io: [['written', 'case_study_angle · email_2_response · no_show_pattern'], ['card type', 'outcome · deletable']],
   },
   {
     role: 'system',
@@ -76,7 +76,7 @@ function tagClass(t: string) {
 export function AdminLoopFlow() {
   return (
     <div>
-      <div className="admin-section-title">Loop Flow</div>
+      <div className="admin-section-title">Stream Flow</div>
       <div className="admin-section-sub">{STEPS.length} steps from first signal to compounding memory. Use this to trace how a decision moved through the system.</div>
 
       <div className="flow-legend">

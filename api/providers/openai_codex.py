@@ -132,7 +132,15 @@ class OpenAICodexAdapter:
             detail = exc.response.text[:300] if exc.response is not None else str(exc)
             raise ValueError(f"OpenAI auth check failed ({exc.response.status_code}): {detail}") from exc
         except Exception as exc:
+            msg = str(exc)
+            # 429 quota-exhausted means the credential is valid; OpenAI accepted it.
+            if "usage_limit_reached" in msg or ("429" in msg and "usage_limit" in msg):
+                raise QuotaExhaustedError(msg) from exc
             raise ValueError(f"OpenAI auth check failed: {exc}") from exc
+
+
+class QuotaExhaustedError(Exception):
+    """Raised when the provider credential is valid but the usage quota is exhausted."""
 
 
 def _codex_model(model_id: str) -> str:

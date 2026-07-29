@@ -66,7 +66,7 @@ export function AdminOverview() {
           <div className="admin-page-subtitle">Morning scan for approvals, blocked clients, campaign activity, and recent output.</div>
         </div>
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <Link to="/admin/client-readiness" className="btn btn-secondary btn-sm">Client readiness →</Link>
+          <Link to="/admin/setup" className="btn btn-secondary btn-sm">Setup & readiness →</Link>
           <Link to="/admin/agent-activity" className="btn btn-dark btn-sm">Approval queue</Link>
         </div>
       </div>

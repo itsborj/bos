@@ -1,0 +1,23 @@
+{
+  "template_name": "agent_award",
+  "canvas": { "format": "square", "width": 1024, "height": 1024 },
+  "quick_update_inputs": {
+    "logo_file_url":     "{{auto_injected_from_brand_spec}}",
+    "portrait_asset_url": "{{operator_attached_or_null}}",
+    "headline":          "{{headline}}",
+    "subheadline":       "{{subheadline}}",
+    "body":              "{{body_copy}}",
+    "cta":               "{{cta_text}}"
+  },
+  "brand_style": {
+    "color_primary":    "{{color_palette.primary}}",
+    "color_background": "{{color_palette.background}}",
+    "color_text":       "{{color_palette.text}}",
+    "visual_tone":      "{{visual_tone}}"
+  },
+  "generation_prompt": {
+    "prompt": "Create a formal {{size}} agent recognition or award social media post for {{brand_name}}. Style: prestigious professional recognition — agent portrait prominently on the right side, award or recognition headline text on the left, brand logo at top. Background: {{color_palette.background}}. Accent: {{color_palette.primary}}. The design must feel like a formal award announcement — dignified and premium.",
+    "important_instruction": "Layout: BRAND LOGO top-center, AGENT PORTRAIT right side (face clearly visible in upper third, subject at least half-body), award or recognition headline text large on left in {{color_palette.primary}} and {{color_palette.text}}, supporting copy below headline, decorative border or frame element in {{color_palette.primary}}, branded footer at bottom. The portrait must be clearly visible and undistorted. Do not obscure the agent's face.",
+    "negative_prompt": ["{{negative_prompts}}", "cartoon", "casual attire", "neon", "distorted portrait", "clipped face", "low quality", "blurry portrait"]
+  }
+}

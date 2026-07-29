@@ -14,10 +14,10 @@ function BrandReadOnly({ workspace }: { workspace: WorkspaceResponse }) {
     return (
       <div style={{ textAlign: 'center', padding: '32px 0' }}>
         <div style={{ fontSize: 14, color: 'var(--text2)', marginBottom: 16 }}>
-          Brand profile not set up yet.
+          Campaign foundation not set up yet.
         </div>
         <button className="btn btn-dark" onClick={() => navigate('/admin/onboarding')}>
-          Set up via Brand Brief →
+          Set up Campaign Foundation →
         </button>
       </div>
     );
@@ -41,7 +41,7 @@ function BrandReadOnly({ workspace }: { workspace: WorkspaceResponse }) {
       </div>
       <div style={{ borderTop: '1px solid var(--border)', paddingTop: 16, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
         <span style={{ fontSize: 12, color: 'var(--text2)' }}>
-          Set by document ingestion — edit by submitting an updated brief
+          Set by onboarding ingestion from the latest brand brief — edit by submitting an updated brief
         </span>
         <button className="btn btn-ghost btn-sm" onClick={() => navigate('/admin/onboarding')}>
           Update via Brand Brief →
@@ -177,7 +177,7 @@ function CampaignBrandKitTab() {
       .then(doc => { setKit(doc); setDraft(doc.content_markdown); })
       .catch((err: unknown) => {
         const status = typeof err === 'object' && err !== null && 'status' in err ? (err as { status?: number }).status : undefined;
-        if (status !== 404) setError(err instanceof Error ? err.message : 'Could not load Campaign Brand Kit');
+        if (status !== 404) setError(err instanceof Error ? err.message : 'Could not load Brand Creative Brief');
       })
       .finally(() => setLoading(false));
   }, []);
@@ -199,7 +199,7 @@ function CampaignBrandKitTab() {
       setDraft(updated.content_markdown);
       setEditing(false);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Could not save Campaign Brand Kit');
+      setError(err instanceof Error ? err.message : 'Could not save Brand Creative Brief');
     } finally {
       setSaving(false);
     }
@@ -215,7 +215,7 @@ function CampaignBrandKitTab() {
       setDraft(updated.content_markdown);
       setEditing(false);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Could not approve Campaign Brand Kit');
+      setError(err instanceof Error ? err.message : 'Could not approve Brand Creative Brief');
     } finally {
       setSaving(false);
     }
@@ -227,7 +227,7 @@ function CampaignBrandKitTab() {
     return (
       <div style={{ textAlign: 'center', padding: '32px 0' }}>
         <div style={{ fontSize: 14, color: 'var(--text2)', marginBottom: 16 }}>
-          No Campaign Brand Kit has been generated yet.
+          No Brand Creative Brief has been generated yet.
         </div>
         <button className="btn btn-dark" onClick={() => navigate('/admin/onboarding')}>
           Generate in Onboarding →
@@ -349,7 +349,7 @@ export function AdminWorkspace() {
               <button className="btn btn-ghost btn-sm" onClick={() => setNameEditing(true)}>Rename</button>
             </div>
           )}
-          <div className="admin-page-subtitle">Brand memory — profile, products, audiences, Brand Guidelines, and Campaign Brand Kit</div>
+          <div className="admin-page-subtitle">Brand memory — profile, products, audiences, Brand Guidelines, Brand Creative Brief, and extracted live campaign context</div>
         </div>
       </div>
 

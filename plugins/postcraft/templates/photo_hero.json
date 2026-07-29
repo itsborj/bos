@@ -1,0 +1,22 @@
+{
+  "template_name": "photo_hero",
+  "canvas": { "format": "square", "width": 1024, "height": 1024 },
+  "quick_update_inputs": {
+    "logo_file_url":  "{{auto_injected_from_brand_spec}}",
+    "hero_asset_url": "{{operator_attached_or_null}}",
+    "headline":       "{{headline}}",
+    "body":           "{{body_copy}}",
+    "cta":            "{{cta_text}}"
+  },
+  "brand_style": {
+    "color_primary":    "{{color_palette.primary}}",
+    "color_background": "{{color_palette.background}}",
+    "color_text":       "{{color_palette.text}}",
+    "visual_tone":      "{{visual_tone}}"
+  },
+  "generation_prompt": {
+    "prompt": "Create a cinematic {{size}} brand social media post for {{brand_name}}. Style: full-background photo hero with elegant text overlay. If a HERO asset is in the reference sheet, use it as the full-bleed background image. Apply a semi-transparent dark gradient overlay across the bottom third of the image so text remains legible. Place the brand logo at the top. Overlay headline text in {{color_palette.text}} with clean elegant typography. CTA button at the bottom.",
+    "important_instruction": "Hero photo fills the entire canvas edge-to-edge — do not add borders or frames around it. BRAND LOGO top-center, small and clean, on top of the photo. Gradient overlay covers bottom 30% for text legibility. Headline text large and cinematic in {{color_palette.text}}. CTA styled as a button with {{color_palette.primary}} background. Do NOT tile or repeat the reference image.",
+    "negative_prompt": ["{{negative_prompts}}", "stock photo border", "neon", "cartoon", "low quality", "tiled image", "repeated pattern", "text clipped outside canvas"]
+  }
+}

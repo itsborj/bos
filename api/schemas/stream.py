@@ -30,7 +30,3 @@ class StreamRefreshOut(BaseModel):
     created: int
     message: str
 
-
-class StreamBulkDismissOut(BaseModel):
-    dismissed: int
-    message: str

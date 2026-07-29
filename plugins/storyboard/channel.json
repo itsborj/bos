@@ -1,0 +1,132 @@
+{
+  "plugin_id": "channel.storyboard",
+  "name": "Storyboard",
+  "version": "1.3.0",
+  "klaroha_min_version": "3.5",
+  "sdk_version": "1.0",
+  "capabilities_root": "capabilities/",
+  "implements": [
+    "storyboard.render",
+    "storyboard.validate"
+  ],
+  "specialty": [
+    "storyboard",
+    "video_ads",
+    "storyboard_revision",
+    "image_referenced_editing",
+    "creative_direction",
+    "previs",
+    "shot_lists"
+  ],
+  "platforms": [
+    "openai",
+    "google_drive"
+  ],
+  "connector_protocol": "api_key",
+  "risk_policy": "generate_with_gates",
+  "output_contracts": [
+    "storyboard_validation",
+    "image_asset"
+  ],
+  "default_backend": {
+    "provider": "openai",
+    "model_id": "gpt-image-2",
+    "modality": "image"
+  },
+  "credential_slots": [
+    {
+      "key": "image_gen_provider",
+      "type": "backend_override_provider",
+      "module": "storyboard.render",
+      "fallback_var": "IMAGE_GEN_PROVIDER"
+    },
+    {
+      "key": "image_gen_model",
+      "type": "backend_override_model",
+      "module": "storyboard.render"
+    },
+    {
+      "key": "provider_api_key",
+      "type": "backend_provider_api_key",
+      "module": "storyboard.render"
+    },
+    {
+      "key": "platform_openai_key",
+      "type": "platform_var",
+      "var": "PLATFORM_OPENAI_KEY",
+      "optional": true
+    },
+    {
+      "key": "google_drive_page_token",
+      "type": "social_token",
+      "platform": "google_drive"
+    },
+    {
+      "key": "drive_root_folder_id",
+      "type": "social_meta_field",
+      "platform": "google_drive",
+      "field": "drive_root_folder_id"
+    },
+    {
+      "key": "drive_root_name",
+      "type": "social_meta_field",
+      "platform": "google_drive",
+      "field": "drive_root_name"
+    }
+  ],
+  "connections": [
+    {
+      "platform": "google_drive",
+      "display_name": "Google Drive",
+      "icon": "▣"
+    }
+  ],
+  "capability_ids": [
+    "storyboard.render",
+    "storyboard.validate"
+  ],
+  "provider_options": [
+    {
+      "provider": "openai",
+      "label": "OpenAI",
+      "role": "generation",
+      "models": [
+        { "value": "gpt-image-2", "label": "gpt-image-2 (default)" },
+        { "value": "gpt-image-1", "label": "gpt-image-1" }
+      ]
+    }
+  ],
+  "workflows": [
+    {
+      "id": "video_storyboard_pipeline",
+      "name": "Video Storyboard Pipeline",
+      "continuation_policy": "artifact_bound_else_fresh",
+      "stages": [
+        {
+          "id": "storyboard_image_review",
+          "artifact_type": "storyboard_image",
+          "module_id": "storyboard.render",
+          "actions": {
+            "revise": { "kind": "revision", "target_module": "storyboard.render" },
+            "generate_video": { "kind": "transition", "target_module": "storyboard.motion.render", "creates_stage": "previs_motion_review" },
+            "dismiss": { "kind": "terminal" }
+          }
+        }
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "storyboard_image_approval",
+      "question": "Does the rendered storyboard match the approved script and requested revision?",
+      "cost_of_wrong": "provider image-generation cost",
+      "phase": 1
+    },
+    {
+      "id": "picture_lock",
+      "question": "Is this storyboard locked for downstream previs/video work?",
+      "cost_of_wrong": "downstream video-generation cost",
+      "phase": 2
+    }
+  ]
+}

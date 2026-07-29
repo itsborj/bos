@@ -1,0 +1,184 @@
+{
+  "project": {
+    "title": "The Widower",
+    "format": "30–60 Second Story Film",
+    "core_idea": "A widower begins his day with a ritual that no longer feels complete at home. At Golden Gate, that same ritual finally finds its place again.",
+    "dialogue": "none",
+    "branding": "end card only"
+  },
+  "revision": {
+    "variation_id": "v001",
+    "updated_at": "2026-06-19T10:34:35Z",
+    "change_summary": "Initial JSON conversion of Act 1 — The Unfinished Cup."
+  },
+  "global_visual_rules": {
+    "style": "minimal pencil-drawn graphite emotional sketch",
+    "color_rule": "Minimal pencil sketches throughout. Shot 18 is the only bright, warm-color scene.",
+    "palette": "graphite, soft gray, off-white paper texture, very restrained warm morning light only as tonal shading",
+    "dialogue_or_text": "No dialogue, no captions, no readable text, no signage, no logos except final end card.",
+    "composition_rule": "Sparse frames with emotional negative space. Avoid clutter and excessive room detail.",
+    "continuity_rule": "The two mugs are the central visual motif. Treat the ritual with quiet care."
+  },
+  "locked_elements": {
+    "must_preserve_across_revisions": [
+      "pencil-drawn / graphite sketch style",
+      "no dialogue",
+      "no branding until end card",
+      "minimal sparse compositions",
+      "two mugs as the central ritual motif",
+      "quiet early morning atmosphere",
+      "Shot 18 remains the only bright warm-color scene"
+    ],
+    "do_not_add": [
+      "readable text",
+      "logos",
+      "busy kitchen clutter",
+      "extra people",
+      "cartoon style",
+      "photorealism",
+      "bright color in Act 1"
+    ]
+  },
+  "acts": [
+    {
+      "act_number": 1,
+      "title": "The Unfinished Cup",
+      "location": "Interior kitchen / dining table",
+      "time_of_day": "early morning",
+      "emotional_point": "At home, he can still begin the ritual, but he can no longer complete it.",
+      "visual_treatment": "Graphite pencil sketch, sparse tabletop scenes, soft morning light, emotional stillness.",
+      "shots": [
+        {
+          "shot_number": 1,
+          "title": "Two Empty Mugs",
+          "image_prompt": "Minimal graphite pencil sketch of a quiet tabletop in early morning. Two empty mugs sit side by side. No room detail, no background clutter, just the tabletop, the mugs, and stillness. Soft morning light touches the table through pale shading. Emotional negative space.",
+          "composition": "Close tabletop view. The two mugs are centered and treated equally.",
+          "action": "The film opens on a quiet table with two empty mugs side by side.",
+          "emotional_intent": "Stillness before grief is named.",
+          "must_include": [
+            "two empty mugs",
+            "quiet tabletop",
+            "soft morning light",
+            "minimal background"
+          ],
+          "must_avoid": [
+            "room clutter",
+            "readable text",
+            "logos",
+            "bright color"
+          ]
+        },
+        {
+          "shot_number": 2,
+          "title": "Coffee for Two",
+          "image_prompt": "Minimal graphite pencil sketch from the same close tabletop point of view. Coffee has been placed into both mugs. One mug has a teaspoon resting inside it, suggesting his usual preparation. The two cups are treated with the same care. Sparse, quiet, early morning.",
+          "composition": "Same close tabletop view as Shot 1 for continuity.",
+          "action": "Coffee is placed into both mugs. One mug contains a teaspoon.",
+          "emotional_intent": "The ritual begins as if it still belongs to two people.",
+          "must_include": [
+            "two mugs with coffee",
+            "teaspoon resting inside one mug",
+            "same careful treatment of both cups"
+          ],
+          "must_avoid": [
+            "extra kitchen detail",
+            "hands if not necessary",
+            "readable text",
+            "bright color"
+          ]
+        },
+        {
+          "shot_number": 3,
+          "title": "Sugar for One",
+          "image_prompt": "Minimal graphite pencil sketch of a hand adding sugar into one mug. The hand pauses above the second mug, but no sugar is added to the second. The moment is subtle and quiet. Almost nothing happens, but the absence is understood. Sparse tabletop, two mugs, soft morning light.",
+          "composition": "Close tabletop detail. Hand and sugar gesture are visible, with the second mug nearby and untouched by sugar.",
+          "action": "A hand adds sugar into one mug, pauses above the second, then does not add sugar.",
+          "emotional_intent": "The first visible break in the ritual.",
+          "must_include": [
+            "hand adding sugar to one mug",
+            "second mug beside it",
+            "pause implied above second mug",
+            "subtle restraint"
+          ],
+          "must_avoid": [
+            "dramatic expression",
+            "messy sugar spill",
+            "readable text",
+            "bright color"
+          ]
+        },
+        {
+          "shot_number": 4,
+          "title": "Water for One",
+          "image_prompt": "Minimal graphite pencil sketch of a hand and kettle entering frame. Hot water is poured into only one mug. Steam rises from the finished mug. The second mug remains dry, with coffee inside but unfinished. Sparse tabletop, quiet early morning, emotional restraint.",
+          "composition": "Close tabletop frame with kettle angled toward one mug only. The dry second mug remains clearly visible.",
+          "action": "Hot water is poured into only one mug. Steam rises. The second mug remains dry and unfinished.",
+          "emotional_intent": "The ritual cannot be completed for the absent person.",
+          "must_include": [
+            "kettle",
+            "water poured into only one mug",
+            "steam from one mug",
+            "second mug dry and unfinished"
+          ],
+          "must_avoid": [
+            "steam from second mug",
+            "both mugs filled",
+            "busy kitchen background",
+            "bright color"
+          ]
+        },
+        {
+          "shot_number": 5,
+          "title": "Stirring",
+          "image_prompt": "Minimal graphite pencil sketch of the finished cup being stirred slowly. The spoon circles inside the one completed mug. The second mug stays untouched beside it, still unfinished. Sparse tabletop, soft morning light, quiet repetitive motion implied through delicate sketch lines.",
+          "composition": "Close tabletop detail focused on the stirring spoon, with the untouched second mug beside it.",
+          "action": "The finished cup is stirred slowly while the second mug remains untouched.",
+          "emotional_intent": "Routine continues, but only halfway.",
+          "must_include": [
+            "stirring spoon in one mug",
+            "second mug untouched beside it",
+            "slow circular motion implied"
+          ],
+          "must_avoid": [
+            "stirring both mugs",
+            "extra props",
+            "readable text",
+            "bright color"
+          ]
+        },
+        {
+          "shot_number": 6,
+          "title": "Empty Seat",
+          "image_prompt": "Minimal graphite pencil sketch at eye-level. An elderly widower sits at the table and drinks from one mug. Across from him is an empty chair. The unfinished second mug remains on the table. A small plant may sit faintly in the background, but the frame stays sparse. Quiet grief, no melodrama, soft morning light.",
+          "composition": "Eye-level frame. Widower on one side of table, empty chair opposite, unfinished mug visible between them.",
+          "action": "The widower drinks from one mug while the empty chair and unfinished second mug remain across from him.",
+          "emotional_intent": "The absence is finally visible.",
+          "must_include": [
+            "widower seated at table",
+            "one mug being used",
+            "empty chair across from him",
+            "unfinished second mug on table"
+          ],
+          "optional_elements": [
+            "small plant in sparse background"
+          ],
+          "must_avoid": [
+            "another person",
+            "crowded room detail",
+            "exaggerated crying",
+            "readable text",
+            "bright color"
+          ]
+        }
+      ]
+    }
+  ],
+  "editable_region": {
+    "target": "none for initial conversion",
+    "description": "Future revisions should identify exact act, shot, and field to change."
+  },
+  "change_request": {
+    "summary": "Initial conversion from screenplay text into structured JSON.",
+    "edits": []
+  }
+}

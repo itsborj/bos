@@ -11,6 +11,7 @@ All capabilities live under `capabilities/marketing/channel/meta/`. The plugin e
 See `docs/` directory for plugin-specific documentation:
 - `docs/meta-publish-wiring.md` - Publish implementation details
 - `docs/api-endpoints.md` - Meta plugin API endpoints
+- `docs/public-visibility-troubleshooting.md` - Debug Graph-success posts that are hidden from logged-out/incognito users
 
 ---
 
@@ -19,6 +20,7 @@ See `docs/` directory for plugin-specific documentation:
 | Phase | Capability ID | Job | Artifact type | Output contract | Mutates Meta? |
 |---|---|---|---|---|---|
 | 1 | `marketing.channel.meta.pages.read` | `marketing.optimize` | `intelligence_artifact` | `meta_page_inventory` | No |
+| 1 | `marketing.channel.meta.pages.insights.report` | `marketing.optimize` | `intelligence_artifact` | `meta_page_insights_report` | No |
 | 1 | `marketing.channel.meta.posts.read` | `marketing.optimize` | `intelligence_artifact` | `meta_page_posts` | No |
 | 1 | `marketing.channel.meta.posts.draft` | `marketing.execute` | `draft_artifact` | `fb_page_post_draft` | No |
 | 1 | `marketing.channel.meta.posts.publish` | `marketing.execute` | `action_artifact` | `fb_page_post_result` | **Yes — approval-gated** |
@@ -61,6 +63,8 @@ Meta uses a **Use Cases** model (not the old Products model). The correct setup 
   ```
   https://staging.klaroha.com/social/facebook/callback
   https://hq.klaroha.com/social/facebook/callback
+  https://staging.klaroha.com/social/instagram/callback
+  https://hq.klaroha.com/social/instagram/callback
   ```
 - **Note:** `http://localhost` does not work when Enforce HTTPS is on. Use staging for OAuth testing.
 - Save Changes
@@ -335,7 +339,9 @@ GET  /me/accounts                                       → list pages + page to
 GET  /{page_id}?fields=name,category,fan_count,...      → page details
 GET  /{page_id}/posts?fields=message,created_time,...   → page posts
 POST /{page_id}/feed                                    → publish text post (+ optional link)
-POST /{page_id}/photos                                  → publish image post (url or binary source)
+POST /{page_id}/feed                                    → publish URL-backed image stream post with `link=<image_url>`
+POST /{page_id}/photos                                  → upload private/binary image media (use `published=false` for feed posts)
+POST /{page_id}/feed                                    → fallback private/binary image feed post with `attached_media`
 ```
 
 Key fields for text publish (`POST /{page_id}/feed`):
@@ -349,27 +355,49 @@ Key fields for text publish (`POST /{page_id}/feed`):
 }
 ```
 
-Key fields for image publish by URL (`POST /{page_id}/photos`):
+Key fields for URL-backed image stream posts (`POST /{page_id}/feed`), matching Zapier's Facebook Pages "Create Page Post" (`page_stream`) mental model rather than "Create Page Photo" (`page_photo`):
 
 ```json
 {
-  "url": "https://...",
   "message": "...",
-  "published": "true",
+  "link": "https://.../image.png",
   "access_token": "<page_token>"
 }
 ```
 
-Key fields for image publish from binary (`POST /{page_id}/photos`, multipart/form-data):
+Live Klarohahq testing showed `/feed` + `link=<image_url>` returns an `image_share` attachment and `full_picture` without touching `/photos`. `/feed source=<image_url>` may create a post but did not reliably render the image preview.
+
+Private/binary image fallback:
+
+Step 1 — upload the media unpublished (`POST /{page_id}/photos`):
+
+```json
+{
+  "url": "https://...",
+  "published": "false",
+  "access_token": "<page_token>"
+}
+```
+
+or multipart:
 
 ```
 source      <binary image bytes>
-message     ...
-published   true
+published   false
 access_token  <page_token>
 ```
 
-The `/photos` endpoint returns `{"id": "...", "post_id": "..."}`. Use `post_id` (not `id`) as the timeline post ID for the permalink. The publish module routes to `/photos` when `drive_file_id` or `image_url` is present in the brief, and falls back to `/feed` for text-only posts.
+Step 2 — create the actual Page feed post (`POST /{page_id}/feed`):
+
+```json
+{
+  "message": "...",
+  "attached_media[0]": "{\"media_fbid\":\"<photo_id>\"}",
+  "access_token": "<page_token>"
+}
+```
+
+Do **not** publish image posts directly with `published=true` on `/photos`; that creates a Photo object and can surface primarily in the Page's Photos tab instead of the normal Facebook feed/stream. The publish module now uses `/feed` + `link=<image_url>` for public `image_url`s. It only falls back to unpublished `/photos` + `/feed attached_media` for private binary/Drive bytes because Meta rejects multipart `/feed source` unless `source` is a valid URL.
 
 ---
 
@@ -395,8 +423,8 @@ The `/photos` endpoint returns `{"id": "...", "post_id": "..."}`. Use `post_id` 
 - Do not use the User Access Token for any page action. Exchange it for a Page Access Token at OAuth time and discard the user token.
 - Do not add ad account credential handling to Phase 1–3 capabilities. Ads are Phase 4 and use a separate credential path.
 - Do not hardcode page IDs. They come from `brief["_channel_credentials"]["facebook_page_id"]`.
-- Image posts via Drive attachment are supported in Phase 1: `PATCH /runs/{run_id}/attach-image` stores the Drive file reference; the publish module downloads and uploads binary to `/photos`. Direct image URL posting (`image_url` in brief) is also supported.
-- Do not schedule posts (Phase 1). `published: false` + `scheduled_publish_time` is a Phase 2 addition.
+- Image posts via Drive attachment are supported in Phase 1: `PATCH /runs/{run_id}/attach-image` stores the Drive file reference; the publish module uploads binary to `/photos` as unpublished media, then creates the visible stream post through `/feed` with `attached_media`. Direct image URL posting (`image_url` in brief) is also supported.
+- Scheduled Facebook posts are supported through the same approval-gated publish module when the action brief/overrides include `scheduled_at`, `publish_at`, `schedule_at`, or `scheduled_publish_time`. The module sends `published=false` + `scheduled_publish_time` and returns an `fb_page_post_result` block with `status: scheduled`.
 
 ---
 
@@ -432,7 +460,8 @@ Platform vars are stored in DB via Admin → Specialists → Social Specialist /
 3. Selects file → PATCH /runs/{run_id}/attach-image stores drive_file_id/name/mime in RunTrace.lineage_json.block
 4. Clicks "Approve & Publish" → POST /runs/{run_id}/actions/publish?confirm=true
 5. Publish module reads drive_file_id from brief, downloads binary via DriveClient (google_drive_page_token)
-6. POSTs multipart to /{page_id}/photos with source=<binary> → live image post on Facebook page
+6. POSTs multipart to /{page_id}/photos with source=<binary>, published=false → media_fbid
+7. POSTs to /{page_id}/feed with message + attached_media → visible Facebook stream post
 ```
 
 `GET /social/drive/images?brand_id=` lists images from the brand's `drive_root_folder_id` (set via Google Picker). Supported MIME types: `image/jpeg`, `image/png`, `image/gif`, `image/webp`.

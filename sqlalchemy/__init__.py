@@ -14,6 +14,7 @@ class DateTime(_Type): pass
 class Integer(_Type): pass
 class Float(_Type): pass
 class Boolean(_Type): pass
+class Numeric(_Type): pass
 class JSON(_Type): pass
 
 class ForeignKey(_Type): pass
@@ -47,6 +48,11 @@ class _Statement:
         return self
     def returning(self, *args, **kwargs):
         return self
+    def op(self, opstring, *args, **kwargs):
+        """Stub for SQLAlchemy ColumnOperator.op() — returns self for chaining."""
+        return lambda *a, **kw: self
+    def label(self, name):
+        return self
 
 # Export simple statement builders used in the code.
 def select(*args, **kwargs):
@@ -62,6 +68,23 @@ def delete(*args, **kwargs):
 def update(*args, **kwargs):
     """Return a placeholder representing an UPDATE statement."""
     return _Statement(*args, **kwargs)
+
+# Stubs for sqlalchemy.sql.expression helpers used in runs.py list_runs()
+def case(*whens, else_=None):
+    """Stub for sqlalchemy.case — returns a dummy expression."""
+    return _Statement()
+
+def cast(expression, type_):
+    """Stub for sqlalchemy.cast — returns a dummy expression."""
+    return _Statement()
+
+def literal(value, type_=None):
+    """Stub for sqlalchemy.literal — returns a dummy expression."""
+    return _Statement()
+
+def desc(column):
+    """Stub for sqlalchemy.desc — returns a dummy expression."""
+    return _Statement()
 
 # Stub for ``create_async_engine`` used in ``api/db.py``.
 def create_async_engine(url, **kwargs):

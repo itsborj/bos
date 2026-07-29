@@ -1,0 +1,42 @@
+{
+  "plugin_id": "channel.instagram",
+  "name": "Instagram Channel",
+  "version": "0.1.0",
+  "klaroha_min_version": "3.5",
+  "capabilities_root": "capabilities/",
+  "implements": [
+    "marketing.execute",
+    "marketing.optimize"
+  ],
+  "specialty": [
+    "instagram",
+    "instagram_business",
+    "content_publishing",
+    "connector_validation"
+  ],
+  "platforms": [
+    "instagram"
+  ],
+  "connector_protocol": "meta_graph_api_v21",
+  "risk_policy": "connection_validate_is_read_only; publish_is_approval_gated",
+  "output_contracts": [
+    "instagram_connection_check"
+  ],
+  "credential_slots": [
+    {
+      "key": "access_token",
+      "type": "social_token",
+      "platform": "instagram"
+    }
+  ],
+  "connections": [
+    {
+      "platform": "instagram",
+      "display_name": "Instagram via Meta",
+      "icon": "📸"
+    }
+  ],
+  "capability_ids": [
+    "marketing.channel.instagram.connection.validate"
+  ]
+}

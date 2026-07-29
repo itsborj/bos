@@ -10,7 +10,7 @@ from config import get_settings
 from db import get_db
 from models.stream import StreamUpdate
 from routers.workspace import get_singleton
-from schemas.stream import StreamBulkDismissOut, StreamListResponse, StreamRefreshOut, StreamUpdateOut
+from schemas.stream import StreamListResponse, StreamRefreshOut, StreamUpdateOut
 from stream.builder import build
 from stream.types import PRIORITY_ORDER
 
@@ -140,56 +140,21 @@ async def mark_read(
     return StreamUpdateOut.model_validate(update)
 
 
-@router.post(
-    "/stream/dismiss",
-    response_model=StreamBulkDismissOut,
-    summary="Bulk-dismiss unread stream updates",
-)
-async def bulk_dismiss_updates(
-    priority: str | None = None,
-    type: str | None = None,
-    db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_api_key),
-):
-    ws = await get_singleton(db)
-    if not ws:
-        return StreamBulkDismissOut(dismissed=0, message="No workspace configured.")
-    filters = [
-        StreamUpdate.workspace_id == ws.id,
-        StreamUpdate.dismissed_at.is_(None),
-    ]
-    if priority:
-        filters.append(StreamUpdate.priority == priority)
-    if type:
-        filters.append(StreamUpdate.type == type)
-    rows = (await db.execute(select(StreamUpdate).where(*filters))).scalars().all()
-    now = datetime.now(UTC)
-    for update in rows:
-        update.dismissed_at = now
-    if rows:
-        await db.commit()
-    return StreamBulkDismissOut(
-        dismissed=len(rows),
-        message=f"Dismissed {len(rows)} stream update(s).",
-    )
-
-
 @router.delete(
     "/stream/{update_id}",
     response_model=StreamUpdateOut,
-    summary="Dismiss a stream update",
+    summary="Delete a stream update",
 )
-async def dismiss_update(
+async def delete_update(
     update_id: uuid.UUID,
     db: AsyncSession = Depends(get_db),
     _: str = Depends(require_api_key),
 ):
     update = await _get_update(db, update_id)
-    if not update.dismissed_at:
-        update.dismissed_at = datetime.now(UTC)
-        await db.commit()
-        await db.refresh(update)
-    return StreamUpdateOut.model_validate(update)
+    deleted = StreamUpdateOut.model_validate(update)
+    await db.delete(update)
+    await db.commit()
+    return deleted
 
 
 async def _get_update(db: AsyncSession, update_id: uuid.UUID) -> StreamUpdate:

@@ -1,8 +1,3 @@
-import tempfile
-from pathlib import Path
-
-import pytest
-
 from plugins.youtube.capabilities.marketing.channel.youtube.connection.validate.module import (
     YouTubeConnectionValidateModule,
 )
@@ -104,6 +99,28 @@ def test_youtube_publish_api_path_mocked(tmp_path):
     assert result["block"]["changed_resources"] == ["abc123"]
 
 
+def test_youtube_publish_defaults_to_public(tmp_path):
+    video = tmp_path / "short.mp4"
+    video.write_bytes(b"fake mp4 bytes")
+    module = YouTubeVideoPublishModule()
+    captured = {}
+
+    def start_upload(token, metadata, content_type, size):
+        captured.update(metadata)
+        return "https://upload.example/session"
+
+    module._start_resumable_upload = start_upload
+    module._put_video = lambda upload_url, path, content_type: {"id": "public123"}
+    attempt, result = module.execute_tool_result({
+        "_channel_credentials": {"access_token": "mock_token"},
+        "video_file": str(video),
+        "title": "Test Short",
+    })
+    assert attempt["status"] == "succeeded"
+    assert captured["status"]["privacyStatus"] == "public"
+    assert result["block"]["privacy_status"] == "public"
+
+
 def test_youtube_publish_reads_inline_cmo_fields(tmp_path):
     video = tmp_path / "short.mp4"
     video.write_bytes(b"fake mp4 bytes")
@@ -132,3 +149,5 @@ def test_youtube_publish_reads_inline_cmo_fields(tmp_path):
     assert captured["snippet"]["title"] == "BOS YouTube upload test"
     assert captured["status"]["privacyStatus"] == "private"
     assert result["block"]["video_id"] == "inline123"
+
+

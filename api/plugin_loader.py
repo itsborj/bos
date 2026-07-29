@@ -24,8 +24,11 @@ from __future__ import annotations
 import json
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
+
+import importlib.util
 
 from pydantic import BaseModel, Field
 
@@ -47,6 +50,12 @@ def _get_external_root() -> Path | None:
         return _EXTERNAL_PLUGIN_ROOT
     env_path = os.getenv("EXTERNAL_PLUGINS_DIR", "/external_plugins")
     p = Path(env_path)
+    if not p.exists() and env_path == "/external_plugins":
+        # Direct local/dev runs do not have the Docker /external_plugins mount.
+        # The production install root is still ./plugins in the repo; Docker
+        # bind-mounts that same folder to /external_plugins.
+        repo_plugins = Path(__file__).resolve().parent.parent / "plugins"
+        p = repo_plugins if repo_plugins.exists() else p
     _EXTERNAL_PLUGIN_ROOT = p if p.exists() else None
     if _EXTERNAL_PLUGIN_ROOT:
         log.info("External plugin root: %s", _EXTERNAL_PLUGIN_ROOT)
@@ -56,6 +65,7 @@ _loaded: dict[str, "_PluginState"] = {}          # plugin_id → state
 _error_states: dict[str, dict] = {}              # plugin_id → {reason, path, source}
 _module_to_plugin: dict[str, str] = {}           # module_id → plugin_id
 _connection_to_plugin: dict[str, str] = {}       # platform → plugin_id
+_scanned = False
 
 
 class PluginConnectionManifest(BaseModel):
@@ -110,6 +120,10 @@ class CredentialSlot(BaseModel):
       backend_override_model    — BackendOverride(module).model_id
       backend_provider_api_key  — provider API key from provider_keys; second-pass slot,
                                    depends on backend_override_provider for same module
+
+    optional=True marks a slot as a fallback/runtime convenience, not an Admin
+    setup prerequisite. Media plugins use this for legacy env-var fallbacks when
+    the real credential source is the selected backend provider.
     """
     key: str
     type: str
@@ -119,6 +133,7 @@ class CredentialSlot(BaseModel):
     path: Optional[str] = None        # brand_json_path
     module: Optional[str] = None      # backend_override_*, backend_provider_api_key
     fallback_var: Optional[str] = None  # backend_override_provider fallback env var
+    optional: bool = False
 
 
 class ChannelPluginManifest(BaseModel):
@@ -171,14 +186,15 @@ def _version_lt(left: str, right: str) -> bool:
 
 
 def required_plugin_vars(manifest: ChannelPluginManifest) -> list[str]:
-    """Return env var names that must be configured for this plugin to execute.
+    """Return env var names that are true Admin setup prerequisites.
 
-    Derived from platform_var credential slots plus OAuth client credentials
-    declared in connection manifests. Order is stable; duplicates removed.
+    Derived from non-optional platform_var credential slots plus OAuth client
+    credentials declared in connection manifests. Order is stable; duplicates
+    removed.
     """
     values: list[str] = []
     for slot in manifest.credential_slots:
-        if slot.type == "platform_var" and slot.var and slot.var not in values:
+        if slot.type == "platform_var" and not slot.optional and slot.var and slot.var not in values:
             values.append(slot.var)
     for connection in manifest.connections:
         for var in (connection.client_id_var, connection.client_secret_var, connection.redirect_uri_var):
@@ -346,7 +362,16 @@ def scan_plugins() -> list[_PluginState]:
     deprecated compatibility and are skipped unless explicitly enabled.
     Registers module_id → plugin_id mappings and returns plugin states so the
     registry can load each plugin's module.py files.
+
+    This function is intentionally idempotent. Several request paths need active
+    plugin IDs before the registry has loaded module.py files; without the guard,
+    the second scan sees the already-loaded plugins as duplicates and quarantines
+    them, making CMO tool manifests drop capabilities such as Storyboard.
     """
+    global _scanned
+    if _scanned:
+        return list(_loaded.values())
+
     states: list[_PluginState] = []
 
     # 1. External plugins (~/bos-plugins/ mounted at /external_plugins/)
@@ -363,6 +388,7 @@ def scan_plugins() -> list[_PluginState]:
     elif _PLUGIN_ROOT.exists():
         log.info("Bundled api/plugins skipped — set KLAROHA_LOAD_INTERNAL_PLUGINS=true for local compatibility")
 
+    _scanned = True
     return states
 
 
@@ -418,6 +444,8 @@ async def get_active_plugin_ids(db, brand_id=None) -> set[str]:
         from sqlalchemy import select as _select
         from models.plugin_activation import PluginActivation
 
+        if not _loaded:
+            scan_plugins()
         loaded_ids = set(_loaded.keys())
         if not loaded_ids:
             return set()
@@ -455,6 +483,42 @@ def get_plugin_for_module(module_id: str) -> Optional[_PluginState]:
 
 def get_loaded_plugins() -> dict[str, "_PluginState"]:
     return dict(_loaded)
+
+
+def iter_plugin_api_routers() -> list[tuple[str, Any]]:
+    """Load plugin-owned FastAPI routers declared in <plugin>/api.py.
+
+    The host app is only a transport shell: it discovers and mounts routers,
+    while endpoint behavior lives inside the owning plugin directory.
+    """
+    if not _loaded:
+        scan_plugins()
+    routers: list[tuple[str, Any]] = []
+    for plugin_id, state in list(_loaded.items()):
+        api_path = state.root_path / "api.py"
+        if not api_path.exists():
+            continue
+        module_name = f"_bos_plugin_api_{plugin_id.replace('.', '_').replace('-', '_')}"
+        spec = importlib.util.spec_from_file_location(module_name, api_path)
+        if not spec or not spec.loader:
+            log.warning("Plugin %s api.py could not be loaded", plugin_id)
+            continue
+        mod = importlib.util.module_from_spec(spec)
+        # Register dynamic API modules before execution so Pydantic/FastAPI can
+        # resolve postponed annotations (for example request models declared in
+        # a plugin using ``from __future__ import annotations``).
+        sys.modules[module_name] = mod
+        try:
+            spec.loader.exec_module(mod)
+        except Exception as exc:
+            sys.modules.pop(module_name, None)
+            log.warning("Plugin %s api.py import failed: %s", plugin_id, exc)
+            continue
+        router = getattr(mod, "router", None)
+        if router is None:
+            continue
+        routers.append((plugin_id, router))
+    return routers
 
 
 def get_plugin_connection(platform: str) -> Optional[Tuple["_PluginState", PluginConnectionManifest]]:
@@ -666,6 +730,16 @@ async def _resolve_slot(
                 if pk:
                     credentials[slot.key] = pk
                     credentials[f"{slot.key}_auth_mode"] = auth_mode
+                    try:
+                        from ai_provider_registry import get_provider_api_root
+                        api_root = get_provider_api_root(provider_val)
+                        if api_root:
+                            credentials[f"{slot.key}_base_url"] = api_root
+                            credentials["provider_api_base_url"] = api_root
+                            if provider_val == "openai":
+                                credentials["openai_api_base_url"] = api_root
+                    except Exception:
+                        pass
 
     except Exception as exc:
         log.warning("inject credential slot [%s/%s]: %s", slot.type, slot.key, exc)
@@ -703,8 +777,8 @@ async def inject_channel_credentials(
             await _resolve_slot(slot, credentials, brand_id, db, settings, db_vars, slots)
 
     # Fallback: seed un-resolved provider/model slots from default_backend declared in
-    # channel.json. This unblocks plugins (e.g. media.image, media.video) that default
-    # to a specific provider/model without requiring an explicit admin backend override.
+    # channel.json. This unblocks plugins that default to a specific provider/model
+    # without requiring an explicit admin backend override.
     _db = state.manifest.default_backend or {}
     if isinstance(_db, dict) and _db.get("provider"):
         _db_provider = str(_db["provider"]).strip()

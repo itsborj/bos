@@ -1,0 +1,134 @@
+{
+  "plugin_id": "channel.previs_motion",
+  "name": "Previs Motion",
+  "version": "0.1.0",
+  "klaroha_min_version": "3.5",
+  "sdk_version": "1.0",
+  "capabilities_root": "capabilities/",
+  "implements": [
+    "storyboard.motion.render",
+    "storyboard.motion.edit"
+  ],
+  "specialty": [
+    "previs_motion",
+    "animatic_rendering",
+    "storyboard_to_video",
+    "image_to_video",
+    "video_to_video_json_edit",
+    "seedance_rendering",
+    "reference_video_editing",
+    "json_target_state_video"
+  ],
+  "platforms": [
+    "byteplus",
+    "modelark",
+    "seedance",
+    "google_drive"
+  ],
+  "connector_protocol": "api_key",
+  "risk_policy": "generate_with_gates",
+  "output_contracts": [
+    "video_asset",
+    "previs_motion_video"
+  ],
+  "default_backend": {
+    "provider": "byteplus_modelark",
+    "model_id": "dreamina-seedance-2-0-260128",
+    "modality": "video"
+  },
+  "credential_slots": [
+    {
+      "key": "video_gen_provider",
+      "type": "backend_override_provider",
+      "module": "storyboard.motion.render"
+    },
+    {
+      "key": "video_gen_model",
+      "type": "backend_override_model",
+      "module": "storyboard.motion.render"
+    },
+    {
+      "key": "provider_api_key",
+      "type": "backend_provider_api_key",
+      "module": "storyboard.motion.render"
+    },
+    {
+      "key": "byteplus_api_key",
+      "type": "platform_var",
+      "var": "BYTEPLUS_API_KEY",
+      "optional": true
+    },
+    {
+      "key": "access_token",
+      "type": "social_token",
+      "platform": "google_drive"
+    },
+    {
+      "key": "drive_root_folder_id",
+      "type": "social_meta_field",
+      "platform": "google_drive",
+      "field": "drive_root_folder_id"
+    },
+    {
+      "key": "drive_root_name",
+      "type": "social_meta_field",
+      "platform": "google_drive",
+      "field": "drive_root_name"
+    }
+  ],
+  "connections": [
+    {
+      "platform": "google_drive",
+      "display_name": "Google Drive",
+      "icon": "▣"
+    }
+  ],
+  "capability_ids": [
+    "storyboard.motion.render",
+    "storyboard.motion.edit"
+  ],
+  "provider_options": [
+    {
+      "provider": "byteplus_modelark",
+      "label": "BytePlus ModelArk / Seedance",
+      "models": [
+        {
+          "value": "dreamina-seedance-2-0-260128",
+          "label": "Seedance 2.0"
+        }
+      ]
+    },
+    {
+      "provider": "gemini",
+      "label": "Google Gemini / Veo",
+      "models": [
+        {
+          "value": "veo-3.1-generate-preview",
+          "label": "Veo 3.1"
+        },
+        {
+          "value": "veo-3.1-fast-generate-preview",
+          "label": "Veo 3.1 Fast"
+        },
+        {
+          "value": "veo-3.1-lite-generate-preview",
+          "label": "Veo 3.1 Lite"
+        }
+      ]
+    }
+  ],
+  "gates": [
+    {
+      "id": "storyboard_picture_lock",
+      "question": "Is the storyboard image/spec approved for motion testing?",
+      "cost_of_wrong": "video-generation cost",
+      "phase": 1
+    },
+    {
+      "id": "previs_video_review",
+      "question": "Does the motion preserve the approved storyboard, timing, and continuity?",
+      "cost_of_wrong": "additional video-generation cost",
+      "phase": 2
+    }
+  ]
+}

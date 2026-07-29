@@ -19,18 +19,17 @@ const NAV_SECTIONS: AdminNavSection[] = [
   {
     label: 'Clients',
     items: [
-      { to: '/admin/brands',           label: 'Brands / Clients', icon: '⊞' },
-      { to: '/admin/client-readiness', label: 'Client Readiness', icon: '▦' },
-      { to: '/admin/calendar',         label: 'Booking Pages',    icon: '▷' },
+      { to: '/admin/brands',   label: 'Brands / Clients', icon: '⊞' },
+      { to: '/admin/calendar', label: 'Booking Pages',    icon: '▷' },
     ],
   },
   {
     label: 'Setup',
     items: [
-      { to: '/admin/getting-started', label: 'Setup Checklist', icon: '◌' },
-      { to: '/admin/modules',         label: 'Capabilities',    icon: '⊡' },
-      { to: '/admin/providers',       label: 'AI Providers',    icon: '⚡' },
-      { to: '/admin/billing',         label: 'Billing',         icon: '$' },
+      { to: '/admin/setup', label: 'Setup & Readiness', icon: '◌' },
+      { to: '/admin/modules',         label: 'Capabilities',      icon: '⊡' },
+      { to: '/admin/providers',       label: 'AI Providers',      icon: '⚡' },
+      { to: '/admin/billing',         label: 'Billing',           icon: '$' },
     ],
   },
   {
@@ -39,8 +38,8 @@ const NAV_SECTIONS: AdminNavSection[] = [
       { to: '/admin/runs',           label: 'Run Logs',       icon: '≡' },
       { to: '/admin/watchpoints',    label: 'Watchpoints',    icon: '◈' },
       { to: '/admin/memory-audit',   label: 'Memory & Audit', icon: '◉' },
-      { to: '/admin/objective-loop', label: 'Loop Setup',     icon: '◎' },
-      { to: '/admin/loop-flow',      label: 'Loop Flow',      icon: '→' },
+      { to: '/admin/stream-setup',   label: 'Stream Setup',   icon: '◎' },
+      { to: '/admin/loop-flow',      label: 'Stream Flow',    icon: '→' },
     ],
   },
 ];
@@ -70,17 +69,17 @@ function GettingStartedBanner() {
 
   return (
     <div className="gs-banner">
-      <span className="gs-banner-text">Setup incomplete — complete getting started before running campaigns.</span>
+      <span className="gs-banner-text">Setup incomplete — finish setup and readiness before running campaigns.</span>
       <button
         className="btn btn-dark"
         style={{ fontSize: 12, padding: '3px 10px' }}
-        onClick={() => navigate('/admin/getting-started')}
+        onClick={() => navigate('/admin/setup')}
       >
-        View checklist →
+        Open setup →
       </button>
       <button
         className="gs-banner-dismiss"
-        title="Dismiss"
+        title="Close"
         onClick={() => { localStorage.setItem(GS_KEY, '1'); setShow(false); }}
       >
         ✕

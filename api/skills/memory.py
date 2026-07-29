@@ -138,7 +138,7 @@ async def hydrate_memory_slots(
     if "recent_rejected_runs" in requested:
         rows = (
             await db.execute(
-                scoped_run_query(Run.approval_status.in_(["rejected", "changes_requested"]))
+                scoped_run_query(Run.approval_status.in_(["rejected", "dismissed", "revised", "changes_requested"]))
                 .order_by(Run.updated_at.desc())
                 .limit(5)
             )

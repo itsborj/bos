@@ -1,0 +1,121 @@
+{
+  "plugin_id": "creative.postcraft",
+  "name": "Postcraft",
+  "version": "2.0.0",
+  "klaroha_min_version": "3.5",
+  "sdk_version": "1.0",
+  "capabilities_root": "capabilities/",
+  "implements": [
+    "postcraft.render"
+  ],
+  "specialty": [
+    "social_post_image",
+    "branded_image",
+    "post_generation",
+    "composite_image",
+    "brand_locked_social_creative",
+    "cmo_text_approval_pipeline"
+  ],
+  "platforms": [
+    "openai",
+    "gemini",
+    "bytedance",
+    "google_drive"
+  ],
+  "connector_protocol": "api_key",
+  "risk_policy": "generate_with_gates",
+  "output_contracts": [
+    "image_asset",
+    "post_image"
+  ],
+  "capability_ids": [
+    "postcraft.render"
+  ],
+  "default_backend": {
+    "provider": "openai",
+    "model_id": "gpt-image-2",
+    "modality": "image"
+  },
+  "provider_options": [
+    {
+      "provider": "openai",
+      "label": "OpenAI",
+      "role": "generation",
+      "note": "Full pipeline — composite reference sheet + images/edits. Best quality with brand assets.",
+      "models": [
+        { "value": "gpt-image-2", "label": "gpt-image-2 (default)" },
+        { "value": "gpt-image-1", "label": "gpt-image-1" }
+      ]
+    },
+    {
+      "provider": "gemini",
+      "label": "Google Gemini",
+      "role": "generation",
+      "note": "Reference images passed as inline parts — no composite sheet required.",
+      "models": [
+        { "value": "gemini-2.5-flash-image", "label": "Gemini 2.5 Flash Image (default)" },
+        { "value": "imagen-4.0-generate-001", "label": "Imagen 4" }
+      ]
+    },
+    {
+      "provider": "bytedance",
+      "label": "BytePlus",
+      "role": "generation",
+      "note": "Text-to-image only — reference sheet not used.",
+      "models": [
+        { "value": "seedream-4-5-251128", "label": "Seedream 4.5 (default)" },
+        { "value": "seedream-5-0-260128", "label": "Seedream 5.0" }
+      ]
+    }
+  ],
+  "credential_slots": [
+    {
+      "key": "image_gen_provider",
+      "type": "backend_override_provider",
+      "module": "postcraft.render",
+      "fallback_var": "IMAGE_GEN_PROVIDER"
+    },
+    {
+      "key": "image_gen_model",
+      "type": "backend_override_model",
+      "module": "postcraft.render"
+    },
+    {
+      "key": "provider_api_key",
+      "type": "backend_provider_api_key",
+      "module": "postcraft.render"
+    },
+    {
+      "key": "platform_openai_key",
+      "type": "platform_var",
+      "var": "PLATFORM_OPENAI_KEY",
+      "optional": true
+    },
+    {
+      "key": "google_drive_page_token",
+      "type": "social_token",
+      "platform": "google_drive"
+    },
+    {
+      "key": "drive_root_folder_id",
+      "type": "social_meta_field",
+      "platform": "google_drive",
+      "field": "drive_root_folder_id"
+    },
+    {
+      "key": "drive_root_name",
+      "type": "social_meta_field",
+      "platform": "google_drive",
+      "field": "drive_root_name"
+    }
+  ],
+  "connections": [],
+  "hook_subscriptions": [
+    {
+      "hook": "brief.before_dispatch",
+      "handler": "hooks.on_brief_before_dispatch",
+      "applies_to": ["postcraft.render", "postcraft.draft", "postcraft.create"],
+      "priority": 5
+    }
+  ]
+}

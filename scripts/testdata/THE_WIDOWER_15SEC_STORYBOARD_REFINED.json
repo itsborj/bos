@@ -1,0 +1,141 @@
+{
+"prompt_name": "THE_WIDOWER_15SEC_STORYBOARD_REFINED",
+"output_type": "single storyboard image with 5 sequential panels",
+"format": {
+"aspect_ratio": "3:4 vertical",
+"layout": "five clean horizontal panels stacked from top to bottom",
+"panel_labels": "simple numeric circles only: 1, 2, 3, 4, 5",
+"do_not_add": [
+"timecodes",
+"scene descriptions",
+"paragraph captions",
+"shot titles",
+"extra explanatory text",
+"speech bubbles",
+"dialogue",
+"watermarks"
+]
+},
+"allowed_text": {
+"only_render_these_text_items": [
+"BELOVED WIFE",
+"You are missed.",
+"Some Rituals Never End",
+"Golden Gate Memorial Garden and Columbarium"
+],
+"text_rules": [
+"Do not put any text on the first four panels except the grave marker inscription BELOVED WIFE when it appears.",
+"Do not put any writing on the mugs in panels 1, 2, 3, or 4.",
+"Only the final mug in panel 5 may have the inscription You are missed.",
+"Only the final panel or footer may include Some Rituals Never End.",
+"Only the final logo area may include Golden Gate Memorial Garden and Columbarium."
+]
+},
+"visual_style": {
+"overall": "minimal pencil-drawn graphite emotional sketch on warm cream paper",
+"panels_1_to_4": "monochrome graphite, sparse, quiet, hand-drawn, lots of negative space",
+"panel_5": "warm color transition, soft golden light, refined pencil-and-wash finish",
+"mood": "tender, restrained, peaceful, never melodramatic",
+"camera_language": "simple cinematic compositions that are readable without audio or voiceover"
+},
+"character_consistency": {
+"widower": {
+"age": "elderly man, late 60s to early 70s",
+"appearance": "older Filipino widower, short gray hair, gentle wrinkles, soft tired eyes",
+"clothing": "simple light long-sleeve shirt and plain pants",
+"expression_progression": [
+"panel 1: lonely and inward",
+"panel 4: peaceful and relieved"
+],
+"important_rule": "He must be the same person in every panel where he appears."
+},
+"ginto": {
+"appears_only_in_panel": 5,
+"appearance": "small round ivory dove, warm cream chest, darker wing accents, gold-tan beak and feet, large gentle eyes",
+"behavior": "gently pecks or tugs the handle of the mug",
+"important_rule": "Ginto must not drink from the mug."
+}
+},
+"object_consistency": {
+"mugs": {
+"number": "two mugs throughout the story",
+"home_mugs": "plain ceramic mugs with no text",
+"cemetery_mugs": "same plain mug design carried into the lawn setting",
+"final_mug": "the mug placed for the wife, now cooled, with the only mug inscription: You are missed.",
+"important_rule": "The widower drinks only from his own mug, never from the mug meant for his wife."
+},
+"wife_mug": {
+"purpose": "the second mug belongs to the wife’s memory",
+"must_show": "the widower carefully places this mug near the flowers and grave marker",
+"must_not_show": [
+"the widower drinking from this mug",
+"the widower cheering or toasting with this mug",
+"the widower raising this mug as if celebrating"
+]
+},
+"grave_marker": {
+"type": "flat lawn-lot marker set flush into the grass",
+"inscription": "BELOVED WIFE",
+"must_not_show": [
+"upright tombstone",
+"large dramatic grave",
+"cross-shaped grave marker"
+]
+}
+},
+"scene_sequence": [
+{
+"panel": 1,
+"scene": "Interior kitchen, morning",
+"visual": "The elderly widower stands alone in a simple quiet kitchen holding two plain ceramic mugs. His body language shows loneliness. The mugs have no text. The kitchen is sparse, with only minimal hints of a counter or window.",
+"transition_to_next": "Match the two mugs from his hands to the two mugs on the outdoor picnic table."
+},
+{
+"panel": 2,
+"scene": "Golden Gate lawn lot, outdoor picnic setup",
+"visual": "A close view of a small portable picnic table in a cemetery lawn setting. Two plain mugs sit side by side. Hot coffee or hot water is being poured into both mugs, and both are steaming. A folding chair, open grass, and distant flat lawn markers make the memorial garden setting clear. No text appears on the mugs.",
+"transition_to_next": "Cut from the two steaming mugs to one mug being carried toward the flowers."
+},
+{
+"panel": 3,
+"scene": "Close-up near the flat lawn marker",
+"visual": "Close-up of the widower’s hand gently placing one plain steaming mug between flowers beside a flat lawn-lot marker engraved BELOVED WIFE. The action must clearly be placing the mug down, not lifting it, not drinking it, not toasting it. The marker is flush with the grass.",
+"transition_to_next": "Widen out from the placed mug and marker to reveal the widower sitting nearby."
+},
+{
+"panel": 4,
+"scene": "Wide peaceful lawn-lot shot",
+"visual": "The widower sits peacefully on the grass near the flowers and flat BELOVED WIFE marker. The placed wife’s mug remains beside the marker. The widower holds and drinks from his own separate mug with a soft relieved expression. The two mugs must be visually distinct: one near the marker, one in his hands.",
+"transition_to_next": "Time passes. The steam fades. The image warms from monochrome graphite into soft golden color."
+},
+{
+"panel": 5,
+"scene": "Final warm-color Ginto scene",
+"visual": "Warm color scene. The wife’s mug is now cooled and sits beside flowers near the flat BELOVED WIFE marker. This mug now clearly reads You are missed. Ginto appears and gently pecks or tugs the mug handle. Ginto does not drink from the mug. The scene feels watched over, tender, and peaceful.",
+"final_text": "Some Rituals Never End",
+"logo": "Golden Gate Memorial Garden and Columbarium"
+}
+],
+"color_transition": {
+"start": "between panel 4 and panel 5",
+"description": "The first four panels remain graphite pencil. The final panel blooms into warm color: soft green grass, pale flowers, golden light, ivory mug, and Ginto’s warm brand palette.",
+"important_rule": "Only panel 5 is in color."
+},
+"negative_prompt": [
+"no captions or explanatory paragraphs inside panels",
+"no timecodes",
+"no dialogue",
+"no speech bubbles",
+"no extra text on mugs",
+"no text on home mugs",
+"no drinking from the wife’s mug",
+"no cheering gesture",
+"no toast gesture",
+"no upright tombstone",
+"no exaggerated crying",
+"no cartoon comedy",
+"no cluttered kitchen",
+"no mascot in panels 1 to 4",
+"no logo before the final panel"
+]
+}

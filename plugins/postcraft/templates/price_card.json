@@ -1,0 +1,22 @@
+{
+  "template_name": "price_card",
+  "canvas": { "format": "square", "width": 1024, "height": 1024 },
+  "quick_update_inputs": {
+    "logo_file_url": "{{auto_injected_from_brand_spec}}",
+    "headline":      "{{headline}}",
+    "subheadline":   "{{subheadline}}",
+    "body":          "{{body_copy}}",
+    "cta":           "{{cta_text}}"
+  },
+  "brand_style": {
+    "color_primary":    "{{color_palette.primary}}",
+    "color_background": "{{color_palette.background}}",
+    "color_text":       "{{color_palette.text}}",
+    "visual_tone":      "{{visual_tone}}"
+  },
+  "generation_prompt": {
+    "prompt": "Create a premium {{size}} price card social media post for {{brand_name}}. Style: formal luxury product or price layout with generous whitespace, elegant serif typography, and a structured centered grid. Background: {{color_palette.background}}. Accent: {{color_palette.primary}}. The design must feel high-end with clear, prominent price or offer presentation. Brand logo at top, CTA ribbon or button at the bottom.",
+    "important_instruction": "Layout: BRAND LOGO top-center, formal headline in large serif typography centered, decorative divider lines in {{color_palette.primary}}, price or offer information prominently displayed in center, supporting copy below in smaller text, CTA button or ribbon at bottom in {{color_palette.primary}}. Generous whitespace throughout — no clutter.",
+    "negative_prompt": ["{{negative_prompts}}", "busy design", "cartoon", "neon", "low quality", "cluttered layout", "small illegible text"]
+  }
+}

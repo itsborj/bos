@@ -31,6 +31,8 @@ Synthesize all inputs above into a complete brand profile. When Onboarding Conve
 - `voice` must be a single descriptive phrase (e.g. "authoritative yet approachable")
 - `tone` must be one word from: professional, friendly, bold, playful, empathetic, authoritative
 - `values` must be 3–5 short strings (e.g. ["transparency", "simplicity", "results"])
+- Extract the visual identity when the source provides it: exact color values, visual language, typography, required treatments, and things to avoid
+- If visual guidance is absent, return empty visual fields rather than inventing a complete design system
 - `products` must have at least one entry; extract from inputs or infer from the pitch
 - `audiences` must have at least one entry; infer from business type and goals if not stated
 - Every product needs: name, tagline (under 10 words), benefits (array of 2–4 strings)
@@ -44,6 +46,17 @@ Synthesize all inputs above into a complete brand profile. When Onboarding Conve
   "voice": "string",
   "tone": "string",
   "values": ["string", ...],
+  "industry": "string or empty string",
+  "color_palette": {
+    "descriptive color name": "#RRGGBB"
+  },
+  "visual_language": ["3–7 short aesthetic or art-direction phrases"],
+  "typography": {
+    "heading": "font or style guidance",
+    "body": "font or style guidance"
+  },
+  "mandatory_treatments": ["non-negotiable visual treatments"],
+  "negative_prompts": ["visual subjects or treatments to avoid"],
   "products": [
     {
       "name": "string",

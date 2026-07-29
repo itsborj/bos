@@ -15,7 +15,7 @@ class StrategyWorkflowModule(ModuleBase):
     policy_default = "balanced"
     template = "marketing/planning/strategy_workflow/template.j2"
 
-    max_chars = 24000
+    max_chars = 30000
     banned_phrases = ["guaranteed results", "set it and forget it", "blast everyone"]
 
     def self_check(self, content: str, brief: dict) -> tuple[str, list[str]]:
@@ -28,6 +28,7 @@ class StrategyWorkflowModule(ModuleBase):
             "component: strategic_thesis",
             "component: offer_architecture",
             "component: channel_stack",
+            "component: channel_content_matrix",
             "component: tactical_funnel",
             "component: work_orders",
         ]
@@ -47,6 +48,7 @@ class StrategyWorkflowModule(ModuleBase):
             "reach",
             "action",
             "approval note",
+            "weekly slot total",
         ]
         for field in required_fields:
             if field not in lower:
@@ -98,6 +100,7 @@ class StrategyWorkflowModule(ModuleBase):
         thesis = self._component_text(content, "strategic_thesis")
         offer = self._component_text(content, "offer_architecture")
         channel = self._component_text(content, "channel_stack")
+        content_matrix = self._component_text(content, "channel_content_matrix")
         funnel = self._component_text(content, "tactical_funnel")
         orders = self._component_text(content, "work_orders")
 
@@ -166,6 +169,16 @@ class StrategyWorkflowModule(ModuleBase):
                     },
                 },
                 {
+                    "type": "channel_content_matrix",
+                    "status": "complete",
+                    "data": {
+                        "pillars": self._parse_pillars(content_matrix),
+                        "weekly_slot_total": self._weekly_slot_total(content_matrix),
+                        "rationale": self._field_after_label(content_matrix, "Rationale"),
+                        "raw": content_matrix,
+                    },
+                },
+                {
                     "type": "tactical_funnel",
                     "status": "complete",
                     "data": {
@@ -188,7 +201,6 @@ class StrategyWorkflowModule(ModuleBase):
             "not_wired_components": [
                 "market_context",
                 "framework_lenses",
-                "channel_content_matrix",
                 "measurement_model",
             ],
             "approval_note": "This is a draft strategy for review. Execution artifacts, outreach, publishing, spend, and external platform actions require separate approval.",
@@ -305,6 +317,59 @@ class StrategyWorkflowModule(ModuleBase):
                 "rationale": cls._field_after_label(block, "Rationale"),
             })
         return rows
+
+    @classmethod
+    def _parse_pillars(cls, text: str) -> list[dict[str, Any]]:
+        pillars: list[dict[str, Any]] = []
+        blocks = re.split(r"(?=^PILLAR:)", text, flags=re.MULTILINE | re.IGNORECASE)
+        for block in blocks:
+            block = block.strip()
+            if not block or not re.match(r"^PILLAR:", block, re.IGNORECASE):
+                continue
+            id_match = re.match(r"^PILLAR:\s*(.+?)$", block, re.MULTILINE | re.IGNORECASE)
+            if not id_match:
+                continue
+            pillar_id = id_match.group(1).strip().lower().replace(" ", "_").replace("-", "_")
+
+            fmt_match = re.search(
+                r"^Format:\s*$([\s\S]*?)(?=^[A-Z]|\Z)", block, re.MULTILINE | re.IGNORECASE
+            )
+            format_by_platform: dict[str, str] = {}
+            if fmt_match:
+                for line in fmt_match.group(1).splitlines():
+                    fm = re.match(r"^\s*-\s*(.+?):\s*(.+?)$", line)
+                    if fm:
+                        format_by_platform[fm.group(1).strip().lower()] = fm.group(2).strip()
+
+            platforms_raw = cls._field_after_label(block, "Platforms")
+            platforms = [p.strip().lower() for p in platforms_raw.split(",") if p.strip()]
+
+            freq_raw = cls._field_after_label(block, "Weekly frequency")
+            try:
+                weekly_freq = int(re.search(r"\d+", freq_raw).group()) if freq_raw else 1
+            except (AttributeError, ValueError):
+                weekly_freq = 1
+
+            pillars.append({
+                "id": pillar_id,
+                "label": cls._field_after_label(block, "Label"),
+                "angle": cls._field_after_label(block, "Angle"),
+                "cta_weight": cls._field_after_label(block, "CTA weight"),
+                "weekly_freq": weekly_freq,
+                "image_style": cls._field_after_label(block, "Image style"),
+                "copy_length": cls._field_after_label(block, "Copy length"),
+                "platforms": platforms,
+                "format_by_platform": format_by_platform,
+            })
+        return pillars
+
+    @classmethod
+    def _weekly_slot_total(cls, text: str) -> int:
+        raw = cls._field_after_label(text, "Weekly slot total")
+        try:
+            return int(re.search(r"\d+", raw).group()) if raw else 0
+        except (AttributeError, ValueError):
+            return 0
 
     @classmethod
     def _work_order_items(cls, text: str) -> list[dict[str, Any]]:

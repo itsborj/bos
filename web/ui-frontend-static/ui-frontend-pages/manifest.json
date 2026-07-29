@@ -1,6 +1,6 @@
 {
   "base": "http://localhost:8090",
-  "generated_at": "2026-06-14T03:12:57.147Z",
+  "generated_at": "2026-07-26T16:18:24.922Z",
   "routes": [
     {
       "title": "Brand Guidelines",
@@ -31,12 +31,7 @@
       "group": "Core",
       "file": "ui-frontend-pages/stream.html",
       "status": 200,
-      "failed": [
-        "404 http://localhost:8090/api/media/video/bos_video_c7717db138c0.mp4",
-        "404 http://localhost:8090/api/media/video/bos_video_1d5a92b50caf.mp4",
-        "404 http://localhost:8090/api/media/video/bos_video_bd8917b100b1.mp4",
-        "404 http://localhost:8090/api/media/video/bos_video_e7fd50dfc749.mp4"
-      ]
+      "failed": []
     },
     {
       "title": "CMO",
@@ -46,12 +41,7 @@
       "group": "Core",
       "file": "ui-frontend-pages/cmo.html",
       "status": 200,
-      "failed": [
-        "404 http://localhost:8090/api/media/video/bos_video_1d5a92b50caf.mp4",
-        "404 http://localhost:8090/api/media/video/bos_video_c7717db138c0.mp4",
-        "404 http://localhost:8090/api/media/video/bos_video_bd8917b100b1.mp4",
-        "404 http://localhost:8090/api/media/video/bos_video_e7fd50dfc749.mp4"
-      ]
+      "failed": []
     },
     {
       "title": "Workspace",
@@ -94,12 +84,12 @@
       "failed": []
     },
     {
-      "title": "Setup Checklist",
-      "route": "/admin/getting-started",
-      "name": "admin-getting-started",
+      "title": "Setup & Readiness",
+      "route": "/admin/setup",
+      "name": "admin-setup",
       "auth": true,
       "group": "Admin",
-      "file": "ui-frontend-pages/admin-getting-started.html",
+      "file": "ui-frontend-pages/admin-setup.html",
       "status": 200,
       "failed": []
     },
@@ -110,16 +100,6 @@
       "auth": true,
       "group": "Admin",
       "file": "ui-frontend-pages/admin-onboarding.html",
-      "status": 200,
-      "failed": []
-    },
-    {
-      "title": "Client Readiness",
-      "route": "/admin/client-readiness",
-      "name": "admin-client-readiness",
-      "auth": true,
-      "group": "Admin",
-      "file": "ui-frontend-pages/admin-client-readiness.html",
       "status": 200,
       "failed": []
     },
@@ -202,7 +182,7 @@
       "file": "ui-frontend-pages/admin-objective-loop.html",
       "status": 200,
       "failed": [
-        "422 http://localhost:8090/api/onboarding/brand-kit/latest?status=approved"
+        "500 http://localhost:8090/api/memory/events?limit=20"
       ]
     },
     {
@@ -233,7 +213,9 @@
       "group": "Admin",
       "file": "ui-frontend-pages/admin-memory-audit.html",
       "status": 200,
-      "failed": []
+      "failed": [
+        "500 http://localhost:8090/api/memory/events?limit=20"
+      ]
     }
   ]
 }

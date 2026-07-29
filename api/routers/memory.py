@@ -24,6 +24,7 @@ router = APIRouter(prefix="/memory", tags=["memory"])
 async def list_memory_events(
     brand_id: NullableUUID = None,
     objective_id: NullableUUID = None,
+    campaign_id: NullableUUID = None,
     event_type: Optional[str] = Query(default=None, enum=_EVENT_TYPE_VALUES),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
@@ -41,6 +42,8 @@ async def list_memory_events(
     if objective_id is not None:
         await _require_objective(db, ws.id, objective_id, brand_id)
         filters.append(MemoryEvent.objective_id == objective_id)
+    if campaign_id is not None:
+        filters.append(MemoryEvent.campaign_id == campaign_id)
     if event_type is not None and event_type not in _EVENT_TYPE_VALUES:
         event_type = None
     if event_type is not None:
@@ -74,7 +77,12 @@ async def create_memory_event(
             workspace_id=ws.id,
             brand_id=body.brand_id,
             objective_id=body.objective_id,
+            campaign_id=body.campaign_id,
             event_type=body.event_type,
+            primitive_type=body.primitive_type,
+            primitive_status=body.primitive_status,
+            confidence=body.confidence,
+            source_type=body.source_type,
             topic_tags=body.topic_tags,
             summary=body.summary,
             rationale=body.rationale,

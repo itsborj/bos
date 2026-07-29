@@ -23,6 +23,7 @@
   "risk_policy": "read_is_read_only; publish_is_approval_gated; draft_is_draft_only",
   "output_contracts": [
     "meta_page_inventory",
+    "meta_page_insights_report",
     "meta_page_posts",
     "fb_page_post_draft",
     "fb_page_post_result",
@@ -65,6 +66,7 @@
   ],
   "capability_ids": [
     "marketing.channel.meta.pages.read",
+    "marketing.channel.meta.pages.insights.report",
     "marketing.channel.meta.posts.read",
     "marketing.channel.meta.posts.draft",
     "marketing.channel.meta.posts.publish",

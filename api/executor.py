@@ -3,8 +3,7 @@ import logging
 from typing import Optional, Tuple, Dict
 import time
 
-from ai_provider_registry import get_platform_key as registry_platform_key
-from providers.anthropic import AnthropicAdapter
+from ai_provider_registry import get_platform_key as registry_platform_key, is_ai_provider
 from providers.bytedance import ByteDanceAdapter
 from providers.gemini import GeminiAdapter, GeminiOAuthAdapter
 from providers.nvidia import NvidiaAdapter
@@ -14,13 +13,14 @@ from providers.openrouter import OpenRouterAdapter
 
 logger = logging.getLogger("bos.executor")
 
-_ADAPTERS = {
-    "openrouter": OpenRouterAdapter,
-    "gemini": GeminiAdapter,
-    "nvidia": NvidiaAdapter,
+# Adapter mapping — add new AI providers here alongside ai_provider_registry.
+# Every provider in the registry that has an adapter should appear here.
+_ADAPTERS: dict[str, type] = {
     "openai": OpenAIAdapter,
-    "anthropic": AnthropicAdapter,
+    "gemini": GeminiAdapter,
     "bytedance": ByteDanceAdapter,
+    "openrouter": OpenRouterAdapter,
+    "nvidia": NvidiaAdapter,
 }
 
 

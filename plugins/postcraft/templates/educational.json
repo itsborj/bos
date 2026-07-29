@@ -1,0 +1,21 @@
+{
+  "template_name": "educational",
+  "canvas": { "format": "square", "width": 1024, "height": 1024 },
+  "quick_update_inputs": {
+    "logo_file_url": "{{auto_injected_from_brand_spec}}",
+    "headline":      "{{headline}}",
+    "body":          "{{body_copy}}",
+    "cta":           "{{cta_text}}"
+  },
+  "brand_style": {
+    "color_primary":    "{{color_palette.primary}}",
+    "color_background": "{{color_palette.background}}",
+    "color_text":       "{{color_palette.text}}",
+    "visual_tone":      "{{visual_tone}}"
+  },
+  "generation_prompt": {
+    "prompt": "Create a clean {{size}} educational or informational social media card for {{brand_name}}. Style: structured editorial layout with clear visual hierarchy and maximum legibility. Background: a clean light tone or {{color_palette.background}}. Brand logo at top. An icon badge, number bullet, or decorative element beside the headline. Body copy in a well-structured, readable layout. CTA or website URL at bottom.",
+    "important_instruction": "Layout: BRAND LOGO top-center (small, clean), icon badge or numbered step to the left of the headline, headline large and clear in {{color_palette.text}}, body copy in clean columns with generous line spacing, accent divider in {{color_palette.primary}}, CTA or website text at bottom in {{color_palette.primary}}. Typography must be clean and highly legible — this is an information card, not a decorative image. No busy background.",
+    "negative_prompt": ["{{negative_prompts}}", "busy background", "cartoon", "neon", "illegible text", "low quality", "cluttered layout", "decorative clutter"]
+  }
+}

@@ -3,7 +3,7 @@
 > **Note — `api/plugins/` is SDK examples only.**
 > The directory you are reading this from (`api/plugins/`) is bundled reference code — not a plugin install location.
 > Do not copy files from here to `api/plugins/` and expect them to run in production.
-> **Production and staging plugins belong in `~/bos-plugins/`** (mounted into the container as `/external_plugins`).
+> **Production and staging plugins belong in `./plugins/` inside the BOS repo (`~/bos/plugins/`)**. Docker mounts this directory into the container as `/external_plugins`.
 > See `specs/001-thin-core-proof/plugin-dev-onboarding.md` for the full authoring workflow.
 
 This document is the complete contract for building a Klaroha/BOS plugin. Read it, comply with it, ship.
@@ -19,16 +19,16 @@ Core    api/capabilities/workspace/, api/capabilities/onboarding/
         Auto-activate. Cannot be deactivated. CMO primitives only.
         Not what you are building.
 
-Plugin  ~/bos-plugins/ mounted at /external_plugins/
+Plugin  ./plugins/ inside the BOS repo, mounted at /external_plugins/
         Inactive until explicitly activated per brand.
         This is what you are building.
 ```
 
 Klaroha's own bundled plugins (in `api/plugins/`) and your installed plugin run through exactly the same contract, the same activation system, and the same dispatch path. There is no privileged API for Klaroha packages.
 
-**The plugin directory is the skill bundle.**
+**The plugin directory is the install bundle.**
 
-This is the same model Anthropic uses for Claude Code skills: a skill is a directory, `SKILL.md` is the entry point, and everything the capability needs lives alongside it as siblings. The atomic unit is the directory — install it, remove it, upgrade it as one action.
+The atomic unit is the directory — install it, remove it, upgrade it as one action. Capability-level `SKILL.md` files guide dispatch where the runtime/prompt system consumes them. A root-level `SKILL.md` is optional human/operator guidance unless runtime support is added later.
 
 For BOS: when an operator installs your plugin, they get everything your capability needs in one directory. When they remove it, nothing is left behind. Design your plugin so that deleting its directory is a complete uninstall — no orphaned skills in `api/capabilities/`, no cross-plugin dependencies.
 
@@ -68,7 +68,7 @@ A plugin may be vendor/platform-specific internally (Gmail, Google Ads, Shopify,
 
 ## How discovery works
 
-Klaroha scans the installed plugin root at startup. By default this is `EXTERNAL_PLUGINS_DIR` or `/external_plugins`, normally mounted from an operator-owned directory such as `~/bos-plugins/`.
+Klaroha scans the installed plugin root at startup. In this repo, Docker mounts `./plugins/` as `/external_plugins` and sets `EXTERNAL_PLUGINS_DIR=/external_plugins`.
 
 Bundled `api/plugins/` directories are SDK examples / deprecated first-party packages. They are **not installed plugins** and are skipped by default. Loading them requires the explicit local compatibility flag `KLAROHA_LOAD_INTERNAL_PLUGINS=true`.
 
@@ -100,11 +100,12 @@ Every immediate subdirectory of the installed plugin root is one plugin. The sca
 Your plugin directory name is your install name. There is no copy step inside the directory.
 
 ```
-~/bos-plugins/ or /external_plugins/
+./plugins/ or /external_plugins/
 └── your-channel/        ← this is your plugin root
     ├── channel.json     ← must be at this exact level
-    ├── providers/       ← your platform API code (optional)
-    └── capabilities/    ← your modules and skills
+    ├── capabilities/    ← your modules and skills
+    ├── clients/         ← optional platform API clients
+    └── adapters/        ← optional mapping/transformation layer
 ```
 
 ---
@@ -707,7 +708,53 @@ The host owns: OAuth flow execution, token storage, token refresh, credential in
 
 ---
 
-## 8. Compliance rules
+## 8. Provider registry rule — no DIY API clients
+
+**Every AI provider call must go through the BOS provider registry and adapter stack. Never build your own HTTP client.**
+
+`api/ai_provider_registry.py` is the single source of truth for every AI provider in BOS: base URLs, auth headers, model IDs, and credential settings all live there. The adapter classes in `api/providers/` (e.g. `ByteDanceAdapter`, `OpenAICompatAdapter`) are the only approved callers of provider APIs.
+
+**Plugin code must:**
+- Read credentials from `brief["_channel_credentials"]` — they are injected by `plugin_loader` before your module is called
+- Pass those credentials to the appropriate adapter, not to a raw HTTP call
+- Never read from `os.environ` directly for provider keys
+- Never hardcode a provider base URL, model ID, or auth header
+
+**Correct pattern — BytePlus/ModelArk (video/image generation):**
+```python
+from providers.bytedance import ByteDanceAdapter
+
+api_key = brief["_channel_credentials"].get("ark_api_key") or brief["_channel_credentials"].get("byteplus_api_key")
+adapter = ByteDanceAdapter(api_key)
+result = await adapter.generate_video(prompt, model_id=model, ...)
+```
+
+**Correct pattern — CMO text completions:**
+```python
+from routers.cmo_providers import resolve_provider, call_cmo
+
+provider_cfg = await resolve_provider(db, workspace, settings)
+response = await call_cmo(provider_cfg, messages)
+```
+
+**Never do this:**
+```python
+# ✗ DIY HTTP to a provider
+import urllib.request
+urllib.request.urlopen("https://ark.ap-southeast.bytepluses.com/...")
+
+# ✗ Reading provider keys from environment
+api_key = os.environ.get("ARK_API_KEY")
+
+# ✗ Hardcoded provider URL
+requests.post("https://api.openai.com/v1/chat/completions", ...)
+```
+
+See `api/PROVIDER_REGISTRY.md` for the full contract, credential chain, and migration guide.
+
+---
+
+## 9. Compliance rules
 
 A plugin is compliant if all of the following are true:
 
@@ -720,6 +767,7 @@ A plugin is compliant if all of the following are true:
 7. `template.j2` does not contain `{% raw %}` or `{% endraw %}`
 8. `SKILL.md` description is an inline string — no YAML block scalar
 9. `execute_tool_result` returns both `attempt_data` and `result_data` dicts with all required keys
+10. No direct HTTP calls to AI provider APIs — use the provider registry and adapter classes
 
 ---
 

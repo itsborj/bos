@@ -31,6 +31,7 @@ def reset_plugin_loader_state():
         pl._module_to_plugin.clear()
         pl._connection_to_plugin.clear()
         pl._EXTERNAL_PLUGIN_ROOT = None
+        pl._scanned = False
         # Reset the registry so subsequent tests get a fresh scan with fully
         # populated _module_to_plugin / _loaded state.
         reg._scanned = False
@@ -50,6 +51,31 @@ def _minimal_channel_json(plugin_id: str) -> dict:
         "capability_ids": [],
         "credential_slots": [],
     }
+
+
+def test_required_plugin_vars_ignores_optional_platform_fallbacks():
+    manifest = pl.ChannelPluginManifest(**{
+        **_minimal_channel_json("test.optional"),
+        "credential_slots": [
+            {"key": "provider_api_key", "type": "backend_provider_api_key", "module": "postcraft.render"},
+            {"key": "platform_openai_key", "type": "platform_var", "var": "PLATFORM_OPENAI_KEY", "optional": True},
+            {"key": "google_drive_page_token", "type": "social_token", "platform": "google_drive"},
+        ],
+    })
+
+    assert pl.required_plugin_vars(manifest) == []
+
+
+def test_media_plugin_manifests_mark_legacy_provider_env_slots_optional():
+    root = Path(__file__).resolve().parents[2] / "plugins"
+    for rel, expected_var in [
+        ("postcraft/channel.json", "PLATFORM_OPENAI_KEY"),
+        ("storyboard/channel.json", "PLATFORM_OPENAI_KEY"),
+        ("previs-motion/channel.json", "BYTEPLUS_API_KEY"),
+    ]:
+        data = json.loads((root / rel).read_text(encoding="utf-8"))
+        slot = next(s for s in data["credential_slots"] if s.get("type") == "platform_var" and s.get("var") == expected_var)
+        assert slot.get("optional") is True
 
 
 # ── T012 ─────────────────────────────────────────────────────────────────────
@@ -141,3 +167,30 @@ def test_t023_two_plugins_same_id_second_is_quarantined_not_first():
     assert states[0].manifest.plugin_id == "test.duplicate"
     assert "test.duplicate" in pl._error_states
     assert "duplicate_plugin_id" in pl._error_states["test.duplicate"]["reason"]
+
+
+def test_scan_plugins_is_idempotent_after_activation_lookup(monkeypatch):
+    """Regression: CMO loads active plugin IDs before building tools.
+
+    That calls scan_plugins() before registry._scan() calls it again. The second
+    call must return the already-loaded states, not quarantine them as duplicate
+    plugin IDs and hide CMO capabilities like Storyboard.
+    """
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        plugin_dir = root / "storyboard"
+        plugin_dir.mkdir()
+        (plugin_dir / "channel.json").write_text(json.dumps({
+            **_minimal_channel_json("channel.storyboard"),
+            "capability_ids": ["storyboard.render"],
+        }))
+
+        monkeypatch.setenv("EXTERNAL_PLUGINS_DIR", str(root))
+        monkeypatch.setattr(pl, "_LOAD_INTERNAL_PLUGINS", False)
+        first = pl.scan_plugins()
+        second = pl.scan_plugins()
+
+    assert [s.manifest.plugin_id for s in first] == ["channel.storyboard"]
+    assert [s.manifest.plugin_id for s in second] == ["channel.storyboard"]
+    assert pl._error_states == {}
+    assert pl._module_to_plugin["storyboard.render"] == "channel.storyboard"

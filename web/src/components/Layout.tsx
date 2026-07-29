@@ -1,19 +1,29 @@
 import { useEffect, useState, useCallback } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import { api, clearApiKey } from '../api/client';
+import { clearApiKey } from '../api/client';
 import { UIContext } from '../context/UIContext';
+import { useActiveContext } from '../context/ActiveContext';
 import { CmoChatProvider } from '../context/CmoChatContext';
 import { CmoChat } from '../pages/CmoChat';
 import { WorkspacePanel } from './WorkspacePanel';
 import { SettingsModal } from './SettingsModal';
 import { FooterNav } from './FooterNav';
-import type { ActiveBrand, ActiveCampaign, SettingsTab, WorkspaceTab } from '../context/UIContext';
-import type { BrandResponse, RunResponse } from '../api/types';
+import type { SettingsTab, WorkspaceTab } from '../context/UIContext';
+import type { RunResponse } from '../api/types';
+
+type PipelineStatus = {
+  id: string;
+  label: string;
+  detail?: string;
+  status: 'running' | 'done' | 'failed';
+  startedAt: number;
+};
 
 const CHAT_MESSAGES_KEY = 'bos_chat_messages';
 const CHAT_CONVERSATIONS_KEY = 'bos_chat_conversations';
+const CHAT_ARCHIVE_KEY = 'bos_chat_archive_7d';
+const CHAT_ARCHIVE_DAYS = 7;
 const PENDING_RUNS_KEY = 'bos_pending_run_decisions';
-const ACTIVE_BRAND_KEY = 'bos_active_brand';
 
 type SavedConversation = {
   id: string;
@@ -39,19 +49,6 @@ function conversationLabel(messages: any[]): string {
 
 function isRunResponse(value: unknown): value is RunResponse {
   return !!value && typeof value === 'object' && typeof (value as RunResponse).run_id === 'string' && typeof (value as RunResponse).module_id === 'string';
-}
-
-function readActiveBrand(): ActiveBrand | null {
-  try {
-    const raw = localStorage.getItem(ACTIVE_BRAND_KEY);
-    const parsed = raw ? JSON.parse(raw) : null;
-    if (parsed && typeof parsed.id === 'string' && typeof parsed.name === 'string') {
-      return { id: parsed.id, name: parsed.name };
-    }
-  } catch {
-    return null;
-  }
-  return null;
 }
 
 function stripLargeFields(block: unknown): unknown {
@@ -122,6 +119,7 @@ export function Layout() {
   const navigate = useNavigate();
   const location = useLocation();
   const onCmo = location.pathname === '/cmo';
+  const { activeBrand, setActiveBrand, activeCampaign, setActiveCampaign, brands } = useActiveContext();
   const [mobileStreamActive, setMobileStreamActive] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [workspaceTab, setWorkspaceTab]   = useState<WorkspaceTab>('campaigns');
@@ -130,12 +128,20 @@ export function Layout() {
   const [settingsTab, setSettingsTab]     = useState<SettingsTab>('byok');
   const [pendingRunItems, setPendingRunItems] = useState<Record<string, RunResponse>>(() => readPendingRuns());
   const [conversations, setConversations] = useState<SavedConversation[]>([]);
-  const [activeBrand, setActiveBrand] = useState<ActiveBrand | null>(() => readActiveBrand());
-  const [brands, setBrands] = useState<BrandResponse[]>([]);
-  const [activeCampaign, setActiveCampaign] = useState<ActiveCampaign | null>(null);
+  const [pipelineStatus, setPipelineStatus] = useState<PipelineStatus | null>(null);
 
   const refreshConversations = useCallback(() => {
-    const archived = readJsonArray(CHAT_CONVERSATIONS_KEY) as SavedConversation[];
+    const cutoff = Date.now() - CHAT_ARCHIVE_DAYS * 24 * 60 * 60 * 1000;
+    const runningArchive = (readJsonArray(CHAT_ARCHIVE_KEY) as any[])
+      .filter(item => item?.updated_at && Date.parse(item.updated_at) >= cutoff)
+      .map(item => ({
+        id: String(item.id || `archive_${Date.parse(item.updated_at)}`),
+        label: String(item.label || conversationLabel(item.messages || [])),
+        date: new Date(item.updated_at).toLocaleDateString([], { month: 'short', day: 'numeric' }),
+        messages: Array.isArray(item.messages) ? item.messages : [],
+      })) as SavedConversation[];
+    const legacyArchived = (readJsonArray(CHAT_CONVERSATIONS_KEY) as SavedConversation[])
+      .filter(item => item?.messages?.length);
     const current = readJsonArray(CHAT_MESSAGES_KEY);
     const currentConvo: SavedConversation[] = current.length > 0 ? [{
       id: 'current',
@@ -143,7 +149,13 @@ export function Layout() {
       date: 'Today',
       messages: current,
     }] : [];
-    setConversations([...currentConvo, ...archived]);
+    const seen = new Set<string>();
+    const combined = [...currentConvo, ...runningArchive, ...legacyArchived].filter(item => {
+      if (seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+    setConversations(combined);
   }, []);
 
   useEffect(() => {
@@ -165,6 +177,28 @@ export function Layout() {
     return () => window.removeEventListener('bos:focus-artifact', handle);
   }, []);
 
+  useEffect(() => {
+    const handle = (e: Event) => {
+      const detail = (e as CustomEvent).detail || {};
+      if (!detail.id || !detail.label || !detail.status) return;
+      const next: PipelineStatus = {
+        id: String(detail.id),
+        label: String(detail.label),
+        detail: detail.detail ? String(detail.detail) : undefined,
+        status: detail.status,
+        startedAt: Number(detail.startedAt || Date.now()),
+      };
+      setPipelineStatus(next);
+      if (next.status !== 'running') {
+        window.setTimeout(() => {
+          setPipelineStatus(current => current?.id === next.id ? null : current);
+        }, 12_000);
+      }
+    };
+    window.addEventListener('bos:pipeline-status', handle);
+    return () => window.removeEventListener('bos:pipeline-status', handle);
+  }, []);
+
   // When returning to /cmo, scroll chat to bottom in case messages arrived while hidden.
   useEffect(() => {
     if (onCmo) window.dispatchEvent(new CustomEvent('bos:chat-scroll-bottom'));
@@ -173,29 +207,6 @@ export function Layout() {
   useEffect(() => {
     writePendingRuns(pendingRunItems);
   }, [pendingRunItems]);
-
-  useEffect(() => {
-    if (activeBrand) {
-      localStorage.setItem(ACTIVE_BRAND_KEY, JSON.stringify(activeBrand));
-    } else {
-      localStorage.removeItem(ACTIVE_BRAND_KEY);
-    }
-  }, [activeBrand]);
-
-  useEffect(() => {
-    let cancelled = false;
-    api.getBrands()
-      .then(res => { if (!cancelled) setBrands(res.brands || []); })
-      .catch(() => { if (!cancelled) setBrands([]); });
-    return () => { cancelled = true; };
-  }, []);
-
-  // Evict stale localStorage brand_id after brands load (e.g. after a staging DB reset that changes UUIDs).
-  useEffect(() => {
-    if (brands.length > 0 && activeBrand && !brands.some(b => b.id === activeBrand.id)) {
-      setActiveBrand(null);
-    }
-  }, [brands, activeBrand]);
 
   const addPendingRun = useCallback((run: RunResponse) => {
     setPendingRunItems(prev => ({ ...prev, [run.run_id]: run }));
@@ -249,7 +260,7 @@ export function Layout() {
   const loadConversation = (convo: SavedConversation) => {
     localStorage.setItem(CHAT_MESSAGES_KEY, JSON.stringify(convo.messages));
     refreshConversations();
-    window.dispatchEvent(new CustomEvent('bos:load-chat', { detail: convo.messages }));
+    window.dispatchEvent(new CustomEvent('bos:load-chat', { detail: { id: convo.id, messages: convo.messages } }));
   };
 
   void conversations;
@@ -268,24 +279,48 @@ export function Layout() {
       <CmoChatProvider>
       <div className="bos-proto-shell">
         <div className="bos-proto-topbar">
-          <NavLink to="/stream" className="bos-proto-logo" aria-label="Klaroha Stream">
-            <span>Klaroha</span>
-          </NavLink>
-          <label className="bos-proto-brand-chip bos-proto-brand-select" title="Filter CMO and Stream by brand">
-            <span>{activeBrand ? 'Brand' : 'All Brands'}</span>
-            <select
-              aria-label="Filter by brand"
-              value={activeBrand?.id ?? ''}
-              onChange={e => {
-                const selected = brands.find(brand => brand.id === e.target.value);
-                setActiveBrand(selected ? { id: selected.id, name: selected.name } : null);
-              }}
-            >
-              <option value="">All brands</option>
-              {brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
-            </select>
-          </label>
+          <div className="bos-proto-topbar-left">
+            <NavLink to="/stream" className="bos-proto-logo" aria-label="Klaroha Stream">
+              <span>Klaroha</span>
+            </NavLink>
+            <label className="bos-proto-brand-chip bos-proto-brand-select" title="Filter CMO and Stream by brand">
+              <span>{activeBrand ? 'Brand' : 'All Brands'}</span>
+              <select
+                aria-label="Filter by brand"
+                value={activeBrand?.id ?? ''}
+                onChange={e => {
+                  const selected = brands.find(brand => brand.id === e.target.value);
+                  setActiveBrand(selected ? { id: selected.id, name: selected.name } : null);
+                }}
+              >
+                <option value="">All brands</option>
+                {brands.map(brand => <option key={brand.id} value={brand.id}>{brand.name}</option>)}
+              </select>
+            </label>
+          </div>
+
+          <div className="bos-proto-topbar-center">
+            {pipelineStatus && (
+              <div className={`bos-background-task bos-background-task--topbar ${pipelineStatus.status}`} role="status" aria-live="polite">
+                <div className="bos-background-task-icon" aria-hidden="true">
+                  {pipelineStatus.status === 'running' ? <span className="bos-cmo-work-glyph">✦</span> : <span>{pipelineStatus.status === 'done' ? '✓' : '!'}</span>}
+                </div>
+                <div className="bos-background-task-copy">
+                  <div className="bos-background-task-title">{pipelineStatus.status === 'running' ? 'CMO at work' : pipelineStatus.label}</div>
+                  <div className="bos-background-task-detail">
+                    {pipelineStatus.status === 'running'
+                      ? (pipelineStatus.detail || 'Working in the background — you can keep browsing.')
+                      : (pipelineStatus.detail || 'Background task updated.')}
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="bos-proto-topbar-right">
+            <NavLink to="/about" className="bos-proto-about-link">
+              About
+            </NavLink>
             <button
               className="bos-proto-signout"
               title="Sign out"
@@ -330,7 +365,7 @@ export function Layout() {
           onClose={() => setSettingsOpen(false)}
         />
 
-        <FooterNav pendingCount={pendingRunList.length} />
+        <FooterNav />
 
       </div>
       </CmoChatProvider>

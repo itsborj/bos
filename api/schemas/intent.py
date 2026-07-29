@@ -51,23 +51,6 @@ class IntentContractOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class CampaignIntentIn(BaseModel):
-    intent_contract_id: uuid.UUID
-    overrides: Optional[dict] = None
-
-
-class CampaignIntentOut(BaseModel):
-    id: uuid.UUID
-    campaign_id: uuid.UUID
-    intent_contract_id: uuid.UUID
-    overrides_json: Optional[dict]
-    active: bool
-    created_at: datetime
-    updated_at: datetime
-
-    model_config = {"from_attributes": True}
-
-
 class EvaluateIn(BaseModel):
     payload: dict
     overrides: Optional[dict] = None

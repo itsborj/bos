@@ -24,6 +24,7 @@
   "output_contracts": [
     "youtube_connection_check",
     "youtube_publish_proposal",
+    "youtube_publish_result",
     "youtube_action_result",
     "youtube_channel_update_proposal",
     "video_intelligence"

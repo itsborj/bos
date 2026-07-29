@@ -29,8 +29,9 @@ class MetaPostsDraftModule(ChannelModule):
         allowed_actions = ["revise", "dismiss", "approve"]
         action_modules = {}
         if page_id:
-            allowed_actions.append("publish")
+            allowed_actions.extend(["publish", "schedule_facebook"])
             action_modules["publish"] = "marketing.channel.meta.posts.publish"
+            action_modules["schedule_facebook"] = "marketing.channel.meta.posts.publish"
         block = {
             "type": "fb_page_post_draft",
             "platform": "facebook",

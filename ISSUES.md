@@ -24,6 +24,42 @@
 
 ## Open Issues
 
+### ISS-012 — ChatV2 surfaces raw Provider error 429 instead of falling back
+- **Status:** fixed
+- **Found:** 2026-06-27
+- **Fixed:** 2026-06-27
+- **Area:** provider · router
+- **Symptom:** CMO chat returns `Error: Provider error (429)` when the selected CMO Brain provider is rate-limited.
+- **Root cause:** Runtime provider rate limits happened after provider resolution. `resolve_provider()` selected one backend and `call_cmo()` retried only that provider/model, so non-strict CMO Brain configurations could not fail over to another configured provider at runtime.
+- **Resolution:** `resolve_provider()` now attaches usable runtime fallbacks for non-strict CMO Brain configurations and normal auto-selection. `call_cmo()` retries retryable runtime HTTP failures, including `429`, against those fallbacks before surfacing an error. If no fallback is available, the operator now sees a clear rate-limit message instead of generic `Provider error (429)`. Regression tests cover 429 fallback and no-fallback messaging.
+
+---
+
+### ISS-011 — ChatV2 stream masks provider HTTP errors as ResponseNotRead
+- **Status:** fixed
+- **Found:** 2026-06-27
+- **Fixed:** 2026-06-27
+- **Area:** router · provider · frontend
+- **Symptom:** CMO chat streaming shows `Attempted to access streaming response content, without having called read().` The frontend then emits `Chat stream ended before completion. Please retry; the request may still be running.`
+- **Root cause:** `cmo_providers.call_cmo()` logged `e.response.text[:300]` for `httpx.HTTPStatusError`. When the error came from `client.stream(...); resp.raise_for_status()` inside `_stream_openai()` / `_stream_anthropic()`, the streaming response body had not been read yet, so accessing `.text` raised `ResponseNotRead` and masked the real provider error.
+- **Resolution:** Added `_raise_for_stream_status()` to buffer streaming error bodies before raising, and `_response_error_preview()` so provider error logging never touches unread stream text directly. Added regression tests covering unread streaming HTTP errors and buffered error-body access.
+
+---
+
+### ISS-010 — Storyboard.create re-dispatches on progression requests instead of advancing pipeline
+- **Status:** fixed
+- **Found:** 2026-06-27
+- **Fixed:** 2026-06-27
+- **Area:** plugin · manifest · triggers
+- **Symptom:** After creating a Storyboard Draft artifact, the user says "can you get me 60sec video" — a clear progression request (advance the existing draft to render). Instead of routing to `storyboard.render` or advancing the pipeline, the CMO dispatches `storyboard.create` again, producing a duplicate draft artifact. The pipeline never progresses.
+- **Root cause:** `storyboard.create` SKILL.md had overly broad triggers that matched progression requests: `"i need a video"`, `"need a video"`, `"make a video"`, `"create a video"`, `"make a short"`, `"create a short"`, `"make a reel"`, `"create a reel"`. These phrases fire on both initial AND progression turns. When there's already an active storyboard draft, the CMO should advance the pipeline (render) instead of re-creating.
+- **Key files:**
+  - `plugins/storyboard/capabilities/storyboard/json/create/SKILL.md` — removed 8 video-related triggers that caused re-dispatch
+  - `plugins/storyboard/capabilities/storyboard/text/draft/SKILL.md` — removed same 8 triggers (inactive module, but cleaned up for consistency)
+- **Resolution:** Removed `"i need a video"`, `"need a video"`, `"make a video"`, `"create a video"`, `"make a short"`, `"create a short"`, `"make a reel"`, `"create a reel"` from `storyboard.create` triggers. These are progression phrases that should advance the pipeline, not re-trigger creation. The remaining triggers (`"storyboard"`, `"shot list"`, `"video concept"`, `"video creative brief"`, `"another angle"`, `"save storyboard"`, etc.) are clearly initial-creation intent.
+
+---
+
 ### ISS-009 — CMO asks for caption/video_prompt instead of dispatching creative.shortform.video
 - **Status:** fixed
 - **Found:** 2026-05-26

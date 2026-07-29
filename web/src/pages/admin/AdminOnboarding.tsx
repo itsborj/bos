@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import { useLocation, useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../../api/client';
 import type { BrandKitResponse, BrandResponse, IngestResponse, ProviderInfo, WorkspaceDocument } from '../../api/types';
+import { DriveAssetRootCard, DriveFolderPickerModal, useDriveFolderPicker, type DriveRootState } from '../../components/DriveFolderPicker';
 
 type OnboardingNavState = {
   brand_id?: string;
@@ -19,9 +20,11 @@ type ScopeStep = 'loading' | 'org_or_brand' | 'select_target' | 'form';
 export function AdminOnboarding() {
   const navigate = useNavigate();
   const location = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Read brand from React Router state (normal flow) or URL params (full-page nav from Google Picker)
   const navState = (location.state || {}) as OnboardingNavState;
-  const navBrandId   = navState.brand_id;
-  const navBrandName = navState.brand_name;
+  const navBrandId   = navState.brand_id || searchParams.get('brand_id');
+  const navBrandName = navState.brand_name || searchParams.get('brand_name') || '';
 
   // scope resolution
   const [scopeStep, setScopeStep]         = useState<ScopeStep>('loading');
@@ -53,11 +56,50 @@ export function AdminOnboarding() {
   const [error, setError]           = useState<string | null>(null);
   const [kitWarning, setKitWarning] = useState(false);
 
+  const [folderModalOpen, setFolderModalOpen] = useState(false);
+  const drive = useDriveFolderPicker(targetBrandId);
+
   const applyBrandKit = useCallback((doc: WorkspaceDocument | null) => {
     setBrandKit(doc);
     setKitDraft(doc?.content_markdown ?? '');
     setKitEditing(false);
   }, []);
+
+  function handleDriveValidated(_root: DriveRootState) {
+    setFolderModalOpen(false);
+    drive.refresh();
+  }
+
+  // Handle OAuth callback redirects and sync targetBrandId with URL params
+  useEffect(() => {
+    const googleDriveStatus = searchParams.get('google_drive');
+    const urlBrandId = searchParams.get('brand_id');
+    const urlBrandName = searchParams.get('brand_name');
+
+    // Sync brand_id from URL params (for OAuth callback redirects)
+    if (urlBrandId && urlBrandId !== targetBrandId) {
+      setTargetBrandId(urlBrandId);
+    }
+    if (urlBrandName && urlBrandName !== targetBrandName) {
+      setTargetBrandName(urlBrandName);
+    }
+
+    // Auto-open folder picker when returning from Google Drive OAuth
+    if (googleDriveStatus === 'connected' && (targetBrandId || urlBrandId)) {
+      setSearchParams(prev => { const n = new URLSearchParams(prev); n.delete('google_drive'); return n; }, { replace: true });
+      // Open folder picker immediately after OAuth connection
+      // Refresh drive state in background to update connection status
+      const effectiveBrandId = targetBrandId || urlBrandId;
+      if (effectiveBrandId) {
+        // Small delay to ensure URL params are cleaned up first
+        setTimeout(() => {
+          setFolderModalOpen(true);
+          drive.refresh(); // Refresh in background
+        }, 100);
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams, targetBrandId, targetBrandName, drive.refresh]);
 
   useEffect(() => {
     api.getProviders().then(r => setProviders(r.providers)).catch(() => {});
@@ -162,20 +204,23 @@ export function AdminOnboarding() {
       applyBrandKit(null);
       setKitWarning(false);
 
-      // Auto-generate the brand kit from the fresh profile so the user doesn't
-      // have to manually click after every brief update.
-      try {
-        setKitBusy(true);
-        const kitRes: BrandKitResponse = await api.generateBrandKit(
-          docText.trim(),
-          effectiveBrandId,
-          res.profile as Record<string, unknown>,
-        );
-        applyBrandKit(kitRes.document);
-      } catch {
-        // Non-fatal: the "Generate Campaign Brand Kit" button remains available.
-      } finally {
-        setKitBusy(false);
+      // Auto-generate only when the required Drive asset folder is already valid.
+      // New brands must pick that folder first so the Brand Kit and Imprint share
+      // a single source/output location from day one.
+      if (!effectiveBrandId || drive.driveRoot) {
+        try {
+          setKitBusy(true);
+          const kitRes: BrandKitResponse = await api.generateBrandKit(
+            docText.trim(),
+            effectiveBrandId,
+            res.profile as Record<string, unknown>,
+          );
+          applyBrandKit(kitRes.document);
+        } catch {
+          // Non-fatal: the "Generate Brand Creative Brief" button remains available.
+        } finally {
+          setKitBusy(false);
+        }
       }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Ingestion failed');
@@ -185,14 +230,18 @@ export function AdminOnboarding() {
   }
 
   async function handleGenerateBrandKit(additionalContext?: string) {
+    const effectiveBrandId = scope === 'update_brand' || scope === 'new_brand' ? (targetBrandId || undefined) : undefined;
+    if (effectiveBrandId && !drive.driveRoot) {
+      setError('Select and validate the Brand Kit Drive folder before generating the Brand Creative Brief.');
+      return;
+    }
     setKitBusy(true);
     setError(null);
     try {
-      const effectiveBrandId = scope === 'update_brand' || scope === 'new_brand' ? (targetBrandId || undefined) : undefined;
       const res: BrandKitResponse = await api.generateBrandKit(additionalContext, effectiveBrandId, result?.profile as Record<string, unknown> | undefined);
       applyBrandKit(res.document);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Brand Kit generation failed');
+      setError(err instanceof Error ? err.message : 'Brand Creative Brief generation failed');
     } finally {
       setKitBusy(false);
     }
@@ -200,13 +249,17 @@ export function AdminOnboarding() {
 
   async function handleApproveBrandKit() {
     if (!brandKit) return;
+    if ((scope === 'update_brand' || scope === 'new_brand') && !drive.driveRoot) {
+      setError('Select and validate the Brand Kit Drive folder before approving the Brand Creative Brief.');
+      return;
+    }
     setKitBusy(true);
     setError(null);
     try {
       const updated = await api.approveDocument(brandKit.id);
       applyBrandKit(updated);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Brand Kit approval failed');
+      setError(err instanceof Error ? err.message : 'Brand Creative Brief approval failed');
     } finally {
       setKitBusy(false);
     }
@@ -223,7 +276,7 @@ export function AdminOnboarding() {
       });
       applyBrandKit(updated);
     } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'Brand Kit save failed');
+      setError(err instanceof Error ? err.message : 'Brand Creative Brief save failed');
     } finally {
       setKitBusy(false);
     }
@@ -253,22 +306,26 @@ export function AdminOnboarding() {
 
     return (
       <div className="admin-page">
+        <DriveFolderPickerModal brandId={targetBrandId!} open={folderModalOpen} onClose={() => setFolderModalOpen(false)} onValidated={handleDriveValidated} />
         <div className="admin-page-header">
           <div>
-            <div className="admin-page-title">Brand Brief Processed</div>
+            <div className="admin-page-title">Brand onboarding updated</div>
             <div className="admin-page-subtitle">
               {scope === 'new_brand'
-                ? `${result.brand_name} created and populated from your document`
+                ? `${result.brand_name} created and its first live campaign was extracted from your document`
                 : isBrandScope
-                  ? `${targetBrandName} updated from your document`
-                  : 'Workspace populated from your document'}
+                  ? `${targetBrandName} brand profile updated and live campaign refreshed from your document`
+                  : 'Workspace profile imported and first live campaign extracted from your document'}
             </div>
           </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/admin/setup')}>
+            Back to Setup &amp; Readiness
+          </button>
         </div>
 
         <div className="admin-card" style={{ marginBottom: 16 }}>
           <div className="admin-card-title" style={{ color: 'var(--success, #16a34a)' }}>
-            ✓ {result.brand_name} is ready
+            ✓ {result.brand_name} onboarding step complete
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16, marginTop: 16 }}>
             <div>
@@ -306,10 +363,12 @@ export function AdminOnboarding() {
           </div>
         </div>
 
+        <DriveAssetRootCard brandId={targetBrandId} state={drive} hideForOrg onOpenPicker={() => setFolderModalOpen(true)} />
+
         <div className="admin-card" style={{ marginBottom: 16 }}>
-          <div className="admin-card-title">Step 2 — Campaign Brand Kit</div>
+          <div className="admin-card-title">Step 3 — Brand Creative Brief</div>
           <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 12 }}>
-            Required before the first campaign. This creates the minimum color, voice, typography, CTA, component, and platform rules needed for cohesive marketing.
+            Durable identity, visual language, creative boundaries, and campaign truth for agency and AI-assisted production—without prescribing fixed layouts.
           </div>
           {brandKit ? (
             <div>
@@ -326,7 +385,7 @@ export function AdminOnboarding() {
                   {kitEditing ? 'Cancel Edit' : 'Edit'}
                 </button>
                 {!kitEditing && (
-                  <button className="btn btn-ghost btn-sm" onClick={() => handleGenerateBrandKit(docText)} disabled={kitBusy}>
+                  <button className="btn btn-ghost btn-sm" onClick={() => handleGenerateBrandKit(docText)} disabled={kitBusy || (isBrandScope && !drive.driveRoot)}>
                     {kitBusy ? 'Generating…' : 'Regenerate Draft'}
                   </button>
                 )}
@@ -354,20 +413,20 @@ export function AdminOnboarding() {
                 </div>
               )}
               {brandKit.status !== 'approved' && !kitEditing && (
-                <button className="btn btn-dark" onClick={handleApproveBrandKit} disabled={kitBusy}>
-                  {kitBusy ? 'Approving…' : 'Approve Campaign Brand Kit'}
+                <button className="btn btn-dark" onClick={handleApproveBrandKit} disabled={kitBusy || (isBrandScope && !drive.driveRoot)}>
+                  {kitBusy ? 'Approving…' : 'Approve Brand Creative Brief'}
                 </button>
               )}
             </div>
           ) : (
-            <button className="btn btn-dark" onClick={() => handleGenerateBrandKit(docText)} disabled={kitBusy}>
-              {kitBusy ? 'Generating…' : 'Generate Campaign Brand Kit'}
+            <button className="btn btn-dark" onClick={() => handleGenerateBrandKit(docText)} disabled={kitBusy || (isBrandScope && !drive.driveRoot)}>
+              {kitBusy ? 'Generating…' : 'Generate Brand Creative Brief'}
             </button>
           )}
           {error && <div style={{ fontSize: 12, color: 'var(--error)', marginTop: 8 }}>{error}</div>}
         </div>
 
-        <div style={{ display: 'flex', gap: 10 }}>
+        <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
           <button
             className="btn btn-dark"
             onClick={() => {
@@ -376,6 +435,9 @@ export function AdminOnboarding() {
             }}
           >
             {isBrandScope ? 'Review Brand →' : 'Review Workspace →'}
+          </button>
+          <button className="btn btn-secondary" onClick={() => navigate('/admin/setup')}>
+            Back to Setup &amp; Readiness
           </button>
           <button className="btn btn-ghost" onClick={() => { setResult(null); setDocText(''); setWorkspaceName(''); }}>
             Submit Another Document
@@ -402,9 +464,12 @@ export function AdminOnboarding() {
       <div className="admin-page">
         <div className="admin-page-header">
           <div>
-            <div className="admin-page-title">Set Up BOS</div>
-            <div className="admin-page-subtitle">Tell us what you're setting up so we can scope it correctly.</div>
+            <div className="admin-page-title">Brand onboarding</div>
+            <div className="admin-page-subtitle">Part of Setup &amp; Readiness. Tell us what you're setting up so BOS can scope it correctly.</div>
           </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/admin/setup')}>
+            Back to Setup &amp; Readiness
+          </button>
         </div>
 
         <div className="admin-card">
@@ -483,9 +548,12 @@ export function AdminOnboarding() {
       <div className="admin-page">
         <div className="admin-page-header">
           <div>
-            <div className="admin-page-title">Import Brand Brief</div>
+            <div className="admin-page-title">Brand onboarding</div>
             <div className="admin-page-subtitle">Choose which brand you're importing for, or create a new one.</div>
           </div>
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/admin/setup')}>
+            Back to Setup &amp; Readiness
+          </button>
         </div>
 
         <div className="admin-card">
@@ -559,27 +627,33 @@ export function AdminOnboarding() {
 
   return (
     <div className="admin-page">
+      <DriveFolderPickerModal brandId={targetBrandId!} open={folderModalOpen} onClose={() => setFolderModalOpen(false)} onValidated={handleDriveValidated} />
       <div className="admin-page-header">
         <div>
           <div className="admin-page-title">
-            {isUpdateMode ? `Update Brief — ${scopeLabel}` : isNewBrand ? `Import Brief — ${scopeLabel}` : 'Organization Setup'}
+            {isUpdateMode ? `Brand onboarding — ${scopeLabel}` : isNewBrand ? `Brand onboarding — ${scopeLabel}` : 'Organization onboarding'}
           </div>
           <div className="admin-page-subtitle">
             {isUpdateMode
-              ? `Updating profile, products, audiences, and Brand Kit for ${scopeLabel}. This brief is locked to this brand.`
+              ? `Updating the brand profile, products, audiences, extracted live campaign, and Brand Creative Brief for ${scopeLabel}. This brief is locked to this brand.`
               : isNewBrand
-                ? `Creating ${scopeLabel} as a new brand within your organization and importing its brief.`
-                : 'Guided setup: import the organization brief, generate the required Campaign Brand Kit, then optionally add BYOK provider access.'}
+                ? `Creating ${scopeLabel} as a new brand within your organization and extracting its first live campaign from the imported brief.`
+                : 'Guided setup: import the organization brief, extract the first live campaign, generate the Brand Creative Brief, then optionally add BYOK provider access.'}
           </div>
         </div>
-        {!isUpdateMode && (
-          <button
-            className="btn btn-ghost btn-sm"
-            onClick={() => { setScopeStep(existingBrands.length > 0 ? 'select_target' : 'org_or_brand'); setScope(null); setError(null); setKitWarning(false); }}
-          >
-            ← Change target
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button className="btn btn-ghost btn-sm" onClick={() => navigate('/admin/setup')}>
+            Back to Setup &amp; Readiness
           </button>
-        )}
+          {!isUpdateMode && (
+            <button
+              className="btn btn-ghost btn-sm"
+              onClick={() => { setScopeStep(existingBrands.length > 0 ? 'select_target' : 'org_or_brand'); setScope(null); setError(null); setKitWarning(false); }}
+            >
+              Change target
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Scope lock badge for update mode */}
@@ -593,16 +667,16 @@ export function AdminOnboarding() {
       {/* Existing brand kit warning */}
       {kitWarning && (
         <div style={{ padding: '10px 14px', background: 'var(--linen)', border: '.5px solid var(--border-warm)', borderRadius: 0, fontSize: 13, color: 'var(--ink-body)' }}>
-          <strong>Existing brand kit found</strong> — importing this brief will replace the current profile, products, and audiences for {scopeLabel}. The existing Campaign Brand Kit will need to be regenerated after import.
+          <strong>Existing Brand Creative Brief found</strong> — importing this brief will replace the current profile, products, and audiences for {scopeLabel}. The existing Brand Creative Brief will need to be regenerated after import.
         </div>
       )}
 
       {/* Step 1 — Brand Brief */}
       <div className="admin-card" style={{ marginBottom: 16 }}>
-        <div className="admin-card-title">Step 1 — Import Brand Brief</div>
+        <div className="admin-card-title">Step 1 — Import Brand Profile Brief</div>
         <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 16 }}>
           Paste any brand document — a brief, one-pager, deck notes, or description. BOS will extract brand voice,
-          tone, values, products, and audiences automatically, then write them into{' '}
+          tone, values, products, audiences, and the first live campaign automatically, then save them in{' '}
           {isUpdateMode ? `the ${scopeLabel} brand record` : isNewBrand ? `the new ${scopeLabel} brand` : 'the organization profile'}.
         </div>
         <form onSubmit={handleIngest}>
@@ -666,12 +740,14 @@ export function AdminOnboarding() {
         </form>
       </div>
 
-      {/* Step 2 — Campaign Brand Kit */}
+      <DriveAssetRootCard brandId={targetBrandId} state={drive} hideForOrg onOpenPicker={() => setFolderModalOpen(true)} />
+
+      {/* Step 3 — Brand Creative Brief */}
       <div className="admin-card" style={{ marginBottom: 16 }}>
         <div className="admin-card-title">
-          Step 2 — Generate Campaign Brand Kit
+          Step 3 — Generate Brand Creative Brief
           <span style={{ fontSize: 12, fontWeight: 400, color: brandKit?.status === 'approved' ? 'var(--success, #16a34a)' : 'var(--text2)' }}>
-            {brandKit ? `  ${brandKit.status}` : '  Required after brand profile'}
+            {brandKit ? `  ${brandKit.status}` : '  Required after campaign foundation'}
           </span>
         </div>
         <div style={{ fontSize: 13, color: 'var(--text2)', marginBottom: 12 }}>
@@ -704,12 +780,12 @@ export function AdminOnboarding() {
                 {kitEditing ? 'Cancel Edit' : 'Edit'}
               </button>
               {!kitEditing && (
-                <button className="btn btn-ghost btn-sm" onClick={() => handleGenerateBrandKit(docText.trim() || undefined)} disabled={kitBusy}>
+                <button className="btn btn-ghost btn-sm" onClick={() => handleGenerateBrandKit(docText.trim() || undefined)} disabled={kitBusy || ((isUpdateMode || isNewBrand) && !drive.driveRoot)}>
                   {kitBusy ? 'Generating…' : 'Regenerate Draft'}
                 </button>
               )}
               {brandKit.status !== 'approved' && !kitEditing && (
-                <button className="btn btn-dark btn-sm" onClick={handleApproveBrandKit} disabled={kitBusy}>
+                <button className="btn btn-dark btn-sm" onClick={handleApproveBrandKit} disabled={kitBusy || ((isUpdateMode || isNewBrand) && !drive.driveRoot)}>
                   {kitBusy ? 'Approving…' : 'Approve'}
                 </button>
               )}
@@ -738,16 +814,16 @@ export function AdminOnboarding() {
             )}
           </div>
         ) : (
-          <button className="btn btn-dark btn-sm" onClick={() => handleGenerateBrandKit(docText.trim() || undefined)} disabled={kitBusy}>
-            {kitBusy ? 'Generating…' : 'Generate Campaign Brand Kit'}
+          <button className="btn btn-dark btn-sm" onClick={() => handleGenerateBrandKit(docText.trim() || undefined)} disabled={kitBusy || ((isUpdateMode || isNewBrand) && !drive.driveRoot)}>
+            {kitBusy ? 'Generating…' : 'Generate Brand Creative Brief'}
           </button>
         )}
       </div>
 
-      {/* Step 3 — Optional Provider Access */}
+      {/* Step 4 — Optional Provider Access */}
       <div className="admin-card">
         <div className="admin-card-title">
-          Step 3 — Optional Provider Access / BYOK
+          Step 4 — Optional Provider Access / BYOK
           <span style={{ fontSize: 12, fontWeight: 400, color: byokCount > 0 ? 'var(--success, #16a34a)' : 'var(--text2)' }}>
             {byokCount > 0 ? `  ✓ ${byokCount} BYOK provider${byokCount > 1 ? 's' : ''} connected` : '  Optional'}
           </span>

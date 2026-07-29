@@ -43,7 +43,9 @@ export interface PluginInfo {
   credential_source: 'database' | 'env_var' | 'partial' | 'none';
   activation_by_brand: ActivationState[];
   media_provider_options?: MediaProviderOption[];
+  media_modality?: 'image' | 'video' | null;
   connections?: PluginConnectionInfo[];
+  supports_backend_override?: boolean;
 }
 
 export interface BrandOut {
@@ -215,11 +217,6 @@ export interface StreamRefreshOut {
   message: string;
 }
 
-export interface StreamBulkDismissOut {
-  dismissed: number;
-  message: string;
-}
-
 export interface CapabilityInfo {
   key: string;
   modality: string;
@@ -346,9 +343,84 @@ export interface IngestResponse {
   };
 }
 
+export interface BrandKitTemplateManifest {
+  version: string;
+  templates: BrandKitTemplate[];
+  selection_policy: {
+    default_renderer: string;
+    confidence_threshold: number;
+    manual_review_required: boolean;
+    [key: string]: unknown;
+  };
+}
+
+export interface BrandKitTemplate {
+  id: string;
+  brand_id?: string;
+  name: string;
+  status: string;
+  renderer: string;
+  format: string;
+  content_type: string;
+  objective_fit?: string[];
+  tone?: string[];
+  copy_density?: string;
+  required_slots?: string[];
+  optional_slots?: string[];
+  forbidden_slots?: string[];
+  priority?: number;
+  source?: { provider?: string; drive_file_id?: string; web_view_link?: string };
+  [key: string]: unknown;
+}
+
+export interface BrandKitResource {
+  id: string;
+  provider: string;
+  name: string;
+  mime_type?: string;
+  web_view_link?: string;
+  resource_type: string;
+  resource_label: string;
+  classification: string;
+  template?: BrandKitTemplate;
+}
+
+export interface BrandKitResourcesResponse {
+  brand_id: string;
+  brand_kit_document_id?: string | null;
+  template_manifest: BrandKitTemplateManifest;
+  resources: BrandKitResource[];
+}
+
+export interface BrandKitTemplateMutationResponse {
+  brand_kit_document_id: string;
+  template_manifest: BrandKitTemplateManifest;
+}
+
 export interface BrandKitResponse {
   run_id: string;
   document: WorkspaceDocument;
+}
+
+export interface ClientReadinessCell {
+  ok: boolean;
+  label: string;
+}
+
+export interface ClientReadinessAction {
+  key: string;
+  label: string;
+}
+
+export interface ClientReadinessSnapshot {
+  brief: ClientReadinessCell;
+  brand_kit: ClientReadinessCell;
+  drive: ClientReadinessCell;
+  capabilities: ClientReadinessCell;
+  publish_channels: string[];
+  blockers: string[];
+  next_action?: ClientReadinessAction | null;
+  drive_setup_debt: boolean;
 }
 
 export interface OnboardingStatus {
@@ -357,6 +429,16 @@ export interface OnboardingStatus {
   brand_profile_configured: boolean;
   campaign_brand_kit_approved: boolean;
   campaign_brand_kit_document_id?: string | null;
+  live_campaign_present?: boolean;
+  live_campaign_id?: string | null;
+  drive_connected?: boolean;
+  drive_connection_status?: string | null;
+  drive_root_folder_id?: string | null;
+  drive_root_name?: string | null;
+  brand_mark_configured?: boolean;
+  brand_mark_file_id?: string | null;
+  brand_mark_file_name?: string | null;
+  client_readiness: ClientReadinessSnapshot;
   all_ready: boolean;
   issues: string[];
 }
@@ -569,10 +651,11 @@ export interface ArtifactRef {
 
 export type ChatStreamEvent =
   | { type: 'step'; label: string }
+  | { type: 'text_delta'; text: string }
   | { type: 'module_result'; artifact_ref: ArtifactRef }
   | { type: 'reference_patch'; patch: ReferencePatch }
   | { type: 'reply'; text: string; klar_action: KlarAction | null }
-  | { type: 'done' }
+  | { type: 'done'; campaign_id?: string | null }
   | { type: 'error'; message: string };
 
 export interface ChatResponse {
@@ -581,6 +664,7 @@ export interface ChatResponse {
   run?: RunResponse;
   artifact_refs?: ArtifactRef[];
   module_id?: string;
+  campaign_id?: string | null;
   klar_action?: KlarAction | null;
   reference_patches?: ReferencePatch[];
 }
@@ -622,12 +706,81 @@ export interface BrandListResponse {
   total: number;
 }
 
+
 export interface CampaignOut {
   id: string;
   name: string;
   status: string;
+  brand_id?: string | null;
+  objective_id?: string | null;
+  audience?: string | null;
+  message_angle?: string | null;
+  campaign_json?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
+  signal?: { state: string; label: string } | null;
+}
+
+export interface CampaignRowOut {
+  id: string;
+  workspace_id: string;
+  brand_id?: string | null;
+  campaign_id: string;
+  objective_id?: string | null;
+  primary_kpi?: string | null;
+  actual?: string | null;
+  market?: string | null;
+  distribution_channel?: string | null;
+  channel_role?: string | null;
+  time_period?: string | null;
+  period_start?: string | null;
+  period_end?: string | null;
+  source_type?: string | null;
+  source_ref?: string | null;
+  producer?: string | null;
+  planned_activity?: string | null;
+  actual_activity?: string | null;
+  reach?: number | null;
+  impressions?: number | null;
+  engagement?: number | null;
+  engagement_rate?: number | null;
+  reach_metric?: string | null;
+  engagement_metric?: string | null;
+  action_metric?: string | null;
+  efficiency_metric?: string | null;
+  value_metric?: string | null;
+  clicks?: number | null;
+  leads?: number | null;
+  calls?: number | null;
+  qualified_calls?: number | null;
+  conversions?: number | null;
+  spend?: string | number | null;
+  revenue?: string | number | null;
+  source_health: string;
+  freshness?: string | null;
+  verification_status: string;
+  objective_verdict: string;
+  confidence?: string | null;
+  what_changed?: string | null;
+  top_learning?: string | null;
+  recommended_action?: string | null;
+  note?: string | null;
+  blocker?: string | null;
+  decision_needed?: string | null;
+  owner?: string | null;
+  next_action?: string | null;
+  raw_payload?: Record<string, unknown> | null;
+  evidence_refs?: unknown[] | null;
+  created_at: string;
+  updated_at?: string | null;
+}
+
+export interface CampaignSheetResponse {
+  payload_type: 'campaign_sheet@v2' | string;
+  campaign_id: string;
+  campaign_name: string;
+  objective_id?: string | null;
+  rows: CampaignRowOut[];
 }
 
 export interface SocialConnectionResponse {

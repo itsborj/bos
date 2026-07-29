@@ -1,23 +1,17 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import require_api_key
 from db import get_db
 from intent.contracts import (
     create_contract,
-    get_campaign_intent,
     get_contract,
     list_contracts,
-    set_campaign_intent,
 )
 from intent.evaluator import evaluate
-from models.workspace import Campaign
 from schemas.intent import (
-    CampaignIntentIn,
-    CampaignIntentOut,
     EvaluateIn,
     EvaluateOut,
     IntentContractIn,
@@ -95,54 +89,3 @@ async def evaluate_against_contract(
     )
     return EvaluateOut(**result)
 
-
-@router.put(
-    "/campaigns/{campaign_id}/intent",
-    response_model=CampaignIntentOut,
-    summary="Assign or override campaign intent",
-)
-async def set_intent_for_campaign(
-    campaign_id: uuid.UUID,
-    body: CampaignIntentIn,
-    db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_api_key),
-):
-    campaign_row = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
-    if not campaign_row.scalar_one_or_none():
-        raise HTTPException(
-            status_code=404,
-            detail={"error": {"code": "CAMPAIGN_NOT_FOUND", "message": f"Campaign '{campaign_id}' not found", "details": None}},
-        )
-    contract = await get_contract(db, body.intent_contract_id)
-    if not contract:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": {"code": "INTENT_NOT_FOUND", "message": f"Intent '{body.intent_contract_id}' not found", "details": None}},
-        )
-    return await set_campaign_intent(db, campaign_id, body.intent_contract_id, body.overrides)
-
-
-@router.get(
-    "/campaigns/{campaign_id}/intent",
-    response_model=CampaignIntentOut,
-    summary="Get active campaign intent",
-    responses={404: {"description": "Campaign or intent not found"}},
-)
-async def get_intent_for_campaign(
-    campaign_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db),
-    _: str = Depends(require_api_key),
-):
-    campaign_row = await db.execute(select(Campaign).where(Campaign.id == campaign_id))
-    if not campaign_row.scalar_one_or_none():
-        raise HTTPException(
-            status_code=404,
-            detail={"error": {"code": "CAMPAIGN_NOT_FOUND", "message": f"Campaign '{campaign_id}' not found", "details": None}},
-        )
-    ci = await get_campaign_intent(db, campaign_id)
-    if not ci:
-        raise HTTPException(
-            status_code=404,
-            detail={"error": {"code": "NO_ACTIVE_INTENT", "message": f"No active intent for campaign '{campaign_id}'", "details": None}},
-        )
-    return ci

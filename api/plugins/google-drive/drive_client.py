@@ -65,7 +65,13 @@ class DriveClient:
         q = f"name = '{safe}' and mimeType = '{_FOLDER_MIME}' and trashed = false"
         if parent_id:
             q += f" and '{parent_id}' in parents"
-        r = self._client.get(_FILES, params={"q": q, "fields": "files(id,name,webViewLink)", "pageSize": 1})
+        r = self._client.get(_FILES, params={
+            "q": q,
+            "fields": "files(id,name,webViewLink)",
+            "pageSize": 1,
+            "supportsAllDrives": "true",
+            "includeItemsFromAllDrives": "true",
+        })
         r.raise_for_status()
         files = r.json().get("files", [])
         return files[0] if files else None
@@ -78,7 +84,11 @@ class DriveClient:
         body = {"name": name, "mimeType": _FOLDER_MIME}
         if parent_id:
             body["parents"] = [parent_id]
-        r = self._client.post(_FILES, params={"fields": "id,name,webViewLink"}, json=body)
+        r = self._client.post(
+            _FILES,
+            params={"fields": "id,name,webViewLink", "supportsAllDrives": "true"},
+            json=body,
+        )
         r.raise_for_status()
         return r.json()
 
@@ -107,24 +117,47 @@ class DriveClient:
         ).encode("utf-8") + data + f"\r\n--{boundary}--".encode("utf-8")
         r = self._client.post(
             _UPLOAD,
-            params={"uploadType": "multipart", "fields": "id,name,mimeType,size,webViewLink,parents"},
+            params={"uploadType": "multipart", "fields": "id,name,mimeType,size,webViewLink,parents", "supportsAllDrives": "true"},
             content=body,
             headers={"Content-Type": f"multipart/related; boundary={boundary}"},
         )
         r.raise_for_status()
         return r.json()
 
+    def _list_file_pages(self, params: dict) -> list[dict]:
+        """Collect every page from a Drive files.list request."""
+        files: list[dict] = []
+        page_token: Optional[str] = None
+        seen_tokens: set[str] = set()
+        while True:
+            page_params = dict(params)
+            if page_token:
+                page_params["pageToken"] = page_token
+            r = self._client.get(_FILES, params=page_params)
+            r.raise_for_status()
+            payload = r.json()
+            files.extend(payload.get("files", []))
+            next_token = payload.get("nextPageToken")
+            if not next_token or next_token in seen_tokens:
+                break
+            seen_tokens.add(next_token)
+            page_token = next_token
+        return files
+
     def list_children(self, parent_id: str, mime_type: Optional[str] = None, all_drives: bool = False) -> list[dict]:
         q = f"'{parent_id}' in parents and trashed = false"
         if mime_type:
             q += f" and mimeType = '{mime_type}'"
-        params: dict = {"q": q, "fields": "files(id,name,mimeType,size,webViewLink,thumbnailLink)", "pageSize": 200}
-        if all_drives:
-            params["supportsAllDrives"] = "true"
-            params["includeItemsFromAllDrives"] = "true"
-        r = self._client.get(_FILES, params=params)
-        r.raise_for_status()
-        return r.json().get("files", [])
+        params: dict = {
+            "q": q,
+            "fields": "nextPageToken,files(id,name,mimeType,size,webViewLink,thumbnailLink)",
+            "pageSize": 200,
+        }
+        # Parent IDs may belong to Shared Drives. These flags are harmless for
+        # My Drive and required for shared-drive traversal.
+        params["supportsAllDrives"] = "true"
+        params["includeItemsFromAllDrives"] = "true"
+        return self._list_file_pages(params)
 
     def search_files(self, mime_types: list[str], parent_id: Optional[str] = None) -> list[dict]:
         """Search files matching MIME types, recursively when a root folder is supplied.
@@ -139,14 +172,12 @@ class DriveClient:
         def query(q: str) -> list[dict]:
             params: dict = {
                 "q": q,
-                "fields": "files(id,name,mimeType,size,webViewLink,thumbnailLink)",
+                "fields": "nextPageToken,files(id,name,mimeType,size,webViewLink,thumbnailLink)",
                 "pageSize": 200,
                 "supportsAllDrives": "true",
                 "includeItemsFromAllDrives": "true",
             }
-            r = self._client.get(_FILES, params=params)
-            r.raise_for_status()
-            return r.json().get("files", [])
+            return self._list_file_pages(params)
 
         if not parent_id:
             return query(f"({mime_q}) and trashed = false")
@@ -167,32 +198,47 @@ class DriveClient:
     def list_shared_with_me_folders(self) -> list[dict]:
         params = {
             "q": f"sharedWithMe = true and mimeType = '{_FOLDER_MIME}' and trashed = false",
-            "fields": "files(id,name)",
+            "fields": "nextPageToken,files(id,name)",
             "pageSize": 200,
             "includeItemsFromAllDrives": "true",
             "supportsAllDrives": "true",
         }
-        r = self._client.get(_FILES, params=params)
-        r.raise_for_status()
-        return r.json().get("files", [])
+        return self._list_file_pages(params)
 
     def list_shared_drives(self) -> list[dict]:
-        r = self._client.get(_DRIVES, params={"pageSize": 100, "fields": "drives(id,name)"})
-        r.raise_for_status()
-        return r.json().get("drives", [])
+        drives: list[dict] = []
+        page_token: Optional[str] = None
+        seen_tokens: set[str] = set()
+        while True:
+            params: dict = {"pageSize": 100, "fields": "nextPageToken,drives(id,name)"}
+            if page_token:
+                params["pageToken"] = page_token
+            r = self._client.get(_DRIVES, params=params)
+            r.raise_for_status()
+            payload = r.json()
+            drives.extend(payload.get("drives", []))
+            next_token = payload.get("nextPageToken")
+            if not next_token or next_token in seen_tokens:
+                break
+            seen_tokens.add(next_token)
+            page_token = next_token
+        return drives
 
     def get_file_meta(self, file_id: str) -> dict:
-        r = self._client.get(f"{_FILES}/{file_id}", params={"fields": "id,name,mimeType,size,webViewLink,parents"})
+        r = self._client.get(
+            f"{_FILES}/{file_id}",
+            params={"fields": "id,name,mimeType,size,webViewLink,parents", "supportsAllDrives": "true"},
+        )
         r.raise_for_status()
         return r.json()
 
     def download_file(self, file_id: str) -> bytes:
-        r = self._client.get(f"{_FILES}/{file_id}", params={"alt": "media"})
+        r = self._client.get(f"{_FILES}/{file_id}", params={"alt": "media", "supportsAllDrives": "true"})
         r.raise_for_status()
         return r.content
 
     def export_file(self, file_id: str, export_mime: str = "text/plain") -> bytes:
         """Export a Google Workspace native file (Doc, Slides) as the given MIME type."""
-        r = self._client.get(f"{_FILES}/{file_id}/export", params={"mimeType": export_mime})
+        r = self._client.get(f"{_FILES}/{file_id}/export", params={"mimeType": export_mime, "supportsAllDrives": "true"})
         r.raise_for_status()
         return r.content
