@@ -1,3 +1,5 @@
+from pathlib import Path
+
 import pytest
 
 from routers import cmo_tools
@@ -38,5 +40,6 @@ async def test_direct_postcraft_render_revision_routes_through_generic_revise(mo
 def test_revise_artifact_accepts_revision_prompt_source():
     # Regression guard for direct module revise actions: they often name the
     # instruction revision_prompt rather than generic feedback.
-    source = open("api/routers/cmo_tools.py", encoding="utf-8").read()
+    cmo_tools_path = Path(__file__).resolve().parents[1] / "routers" / "cmo_tools.py"
+    source = cmo_tools_path.read_text(encoding="utf-8")
     assert 'get("revision_prompt")' in source

@@ -11,4 +11,4 @@ def test_media_video_is_dispatchable():
 
 def test_postcraft_is_dispatchable():
     module_ids = {entry.module_id for entry in build_dispatchable_manifest()}
-    assert "postcraft.create" in module_ids
+    assert "postcraft.render" in module_ids

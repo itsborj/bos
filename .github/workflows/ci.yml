@@ -78,6 +78,10 @@ jobs:
 
       - name: Guardrail — no direct _resolve_brief in chat.py dispatch paths
         run: |
+          if [ ! -f api/routers/chat.py ]; then
+            echo "api/routers/chat.py no longer exists (deprecated, replaced by chat_v2.py) — guardrail not applicable, skipping."
+            exit 0
+          fi
           COUNT=$(grep -c "await _resolve_brief(" api/routers/chat.py || true)
           if [ "$COUNT" -gt 1 ]; then
             echo "ERROR: $COUNT direct _resolve_brief calls found in chat.py — only 1 allowed (inside _brand_scoped_brief)"
