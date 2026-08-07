@@ -2,6 +2,7 @@ FROM python:3.12-slim
 
 ARG GIT_SHA=dev
 ENV GIT_SHA=${GIT_SHA}
+LABEL git_sha=${GIT_SHA}
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \

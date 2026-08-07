@@ -5,6 +5,8 @@ services:
     build:
       context: ./api
       dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-dev}
     command: sh -c "alembic upgrade head && uvicorn main:app --host 0.0.0.0 --port 8000 --reload"
     environment:
       STORYBOARD_RUNS_DIR: /var/bos-storyboard-runs
@@ -16,8 +18,12 @@ services:
     build:
       context: ./web
       dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-dev}
 
   relay:
     build:
       context: ./relay
       dockerfile: Dockerfile
+      args:
+        GIT_SHA: ${GIT_SHA:-dev}

@@ -134,6 +134,8 @@ jobs:
         with:
           context: ./web
           push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: |
             ghcr.io/itsborj/bos-web:sha-${{ github.sha }}
             ghcr.io/itsborj/bos-web:staging
@@ -143,6 +145,8 @@ jobs:
         with:
           context: ./relay
           push: true
+          build-args: |
+            GIT_SHA=${{ github.sha }}
           tags: |
             ghcr.io/itsborj/bos-relay:sha-${{ github.sha }}
             ghcr.io/itsborj/bos-relay:staging
